@@ -1,0 +1,52 @@
+apiVersion: v2
+name: forgepay-stack
+description: "ForgePay — Umbrella Helm chart. Installs all platform services."
+type: application
+version: 0.1.0
+appVersion: "2026.04.15"
+maintainers:
+  - name: ForgePay Engineering
+    email: eng@forgepay.io
+
+# Sub-chart dependencies — one helm install deploys everything
+dependencies:
+  - name: payment-engine
+    version: "0.1.0"
+    repository: "file://../payment-engine"
+    condition: paymentEngine.enabled
+
+  - name: unified-router
+    version: "0.1.0"
+    repository: "file://../unified-router"
+    condition: unifiedRouter.enabled
+
+  - name: mor-layer
+    version: "0.1.0"
+    repository: "file://../mor-layer"
+    condition: morLayer.enabled
+
+  - name: billing-engine
+    version: "0.1.0"
+    repository: "file://../billing-engine"
+    condition: billingEngine.enabled
+
+  - name: stablecoin-gateway
+    version: "0.1.0"
+    repository: "file://../stablecoin-gateway"
+    condition: stablecoinGateway.enabled
+
+  - name: crypto-gateway
+    version: "0.1.0"
+    repository: "file://../crypto-gateway"
+    condition: cryptoGateway.enabled
+
+  # Shared infrastructure (can be disabled if you bring your own)
+  - name: postgresql
+    version: "15.5.x"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: postgresql.enabled
+
+  - name: redis
+    version: "19.6.x"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: redis.enabled

@@ -1,0 +1,70 @@
+# ForgePay — Production Environment Config
+# All secret values are injected at runtime via:
+#   - Kubernetes Secrets (synced from HashiCorp Vault or AWS Secrets Manager)
+#   - Environment variables (never hardcoded here)
+
+environment: production
+log_level: info
+multi_tenant: true
+
+payment_engine:
+  base_url: http://payment-engine.forgepay.svc.cluster.local:8080
+  # admin_api_key: injected from K8s secret forgepay-payment-engine-secrets
+
+mor_layer:
+  base_url: http://mor-layer.forgepay.svc.cluster.local:8010
+  tax_provider: avalara    # Avalara for production tax compliance
+
+billing_engine:
+  base_url: http://billing-engine.forgepay.svc.cluster.local:8020
+  # admin_password: injected from K8s secret
+
+stablecoin_gateway:
+  base_url: http://stablecoin-gateway.forgepay.svc.cluster.local:8030
+  chains:
+    ethereum:
+      network: mainnet
+    base:
+      network: base
+    polygon:
+      network: polygon
+    arbitrum:
+      network: arbitrum-one
+    solana:
+      network: mainnet-beta
+
+crypto_gateway:
+  base_url: http://crypto-gateway.forgepay.svc.cluster.local:8040
+  testnet: false
+
+unified_router:
+  base_url: http://unified-router.forgepay.svc.cluster.local:8000
+
+postgres:
+  host: forgepay-db.cluster.local
+  port: 5432
+  database: forgepay_prod
+  username: forgepay
+  # password: injected via FORGEPAY_DB_PASSWORD
+
+redis:
+  # url: injected via FORGEPAY_REDIS_URL
+  db: 0
+
+observability:
+  otel_endpoint: http://otel-collector.monitoring.svc.cluster.local:4317
+  traces_enabled: true
+  metrics_enabled: true
+  trace_sample_rate: 0.1    # 10% sampling in prod
+
+autoscaling:
+  payment_engine:
+    min_replicas: 3
+    max_replicas: 20
+    target_cpu: 70
+  unified_router:
+    min_replicas: 2
+    max_replicas: 10
+  mor_layer:
+    min_replicas: 2
+    max_replicas: 8

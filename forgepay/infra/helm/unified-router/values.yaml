@@ -1,0 +1,54 @@
+replicaCount: 2
+
+image:
+  repository: forgepay/unified-router
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8000
+
+env:
+  NODE_ENV: production
+  LOG_LEVEL: info
+  PORT: "8000"
+
+# Secrets are injected via K8s secret refs — not hardcoded here
+secretRef: "forgepay-unified-router-secrets"
+# Expected keys in that secret:
+#   POSTGRES_PASSWORD
+#   INTERNAL_WEBHOOK_SECRET
+#   HYPERSWITCH_WEBHOOK_SECRET
+#   KILLBILL_WEBHOOK_SECRET
+#   MOR_LAYER_WEBHOOK_SECRET
+#   STABLECOIN_GW_WEBHOOK_SECRET
+#   CRYPTO_GW_WEBHOOK_SECRET
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "128Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: 8000
+  initialDelaySeconds: 10
+  periodSeconds: 15
+
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: 8000
+  initialDelaySeconds: 5
+  periodSeconds: 10

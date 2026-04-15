@@ -1,0 +1,6 @@
+apiVersion: v2
+name: unified-router
+description: "ForgePay Unified Router — webhook normalizer and event dispatcher"
+type: application
+version: 0.1.0
+appVersion: "2026.04.15"

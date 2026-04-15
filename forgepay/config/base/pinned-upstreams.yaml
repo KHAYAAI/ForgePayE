@@ -1,0 +1,31 @@
+# ForgePay — Pinned Upstream Commit SHAs
+# Update these when intentionally pulling upstream changes.
+# Never auto-merge upstream changes without reviewing diffs.
+
+payment-engine:
+  source: https://github.com/juspay/hyperswitch
+  commit: b908ce3  # 2026-04-15 — feat(user_roles): Add recon roles
+  license: Apache-2.0
+
+mor-layer:
+  source: https://github.com/polarsource/polar
+  commit: TBD      # Pin after fork
+  license: Apache-2.0
+
+billing-engine:
+  source: https://github.com/killbill/killbill
+  version: "0.24.x"
+  plugin:
+    source: https://github.com/killbill/killbill-hyperswitch-plugin
+    commit: TBD
+  license: Apache-2.0
+
+stablecoin-gateway:
+  source: https://github.com/zpaynow/ZeroPay
+  commit: TBD      # Pin after fork
+  license: MIT
+
+crypto-gateway:
+  source: https://github.com/dilan-dio4/Keagate
+  commit: TBD      # Pin after fork
+  license: MIT

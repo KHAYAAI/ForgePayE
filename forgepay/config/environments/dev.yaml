@@ -1,0 +1,55 @@
+# ForgePay — Development Environment Config
+# Used for local Docker Compose and dev Kubernetes clusters.
+# DO NOT use real keys here — all secrets come from .env.local or K8s secrets.
+
+environment: development
+log_level: debug
+multi_tenant: false   # Single-tenant in dev for simplicity
+
+payment_engine:
+  base_url: http://payment-engine:8080
+  admin_api_key: dev_admin_key_replace_me
+
+mor_layer:
+  base_url: http://mor-layer:8010
+  tax_provider: internal   # Use internal rules engine (no external API calls in dev)
+
+billing_engine:
+  base_url: http://billing-engine:8020
+  admin_user: admin
+  admin_password: dev_password_replace_me
+  database_url: postgres://killbill:killbill@postgres:5432/killbill
+
+stablecoin_gateway:
+  base_url: http://stablecoin-gateway:8030
+  chains:
+    ethereum:
+      rpc_url: https://rpc.ankr.com/eth_sepolia     # Testnet
+      network: sepolia
+    base:
+      rpc_url: https://sepolia.base.org
+      network: base-sepolia
+
+crypto_gateway:
+  base_url: http://crypto-gateway:8040
+  testnet: true
+
+unified_router:
+  base_url: http://unified-router:8000
+  webhook_secret: dev_webhook_secret_replace_me
+
+postgres:
+  host: postgres
+  port: 5432
+  database: forgepay_dev
+  username: forgepay
+  # password: set via FORGEPAY_DB_PASSWORD env var
+
+redis:
+  url: redis://redis:6379
+  db: 0
+
+observability:
+  otel_endpoint: http://otel-collector:4317
+  traces_enabled: false
+  metrics_enabled: true

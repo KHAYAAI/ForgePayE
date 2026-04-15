@@ -1,0 +1,162 @@
+# ForgePay Umbrella Chart — Default Values
+# Override per-environment with: helm install -f values.prod.yaml
+
+global:
+  # Image registry prefix (set to your private registry in prod)
+  imageRegistry: ""
+  imagePullSecrets: []
+  # Shared Postgres connection (used by all services unless overridden)
+  postgresql:
+    host: "forgepay-postgresql"
+    port: 5432
+    database: "forgepay"
+    existingSecret: "forgepay-db-credentials"
+    secretKeys:
+      password: "postgres-password"
+  redis:
+    url: "redis://forgepay-redis-master:6379"
+  # All services emit OTEL traces/metrics here
+  otel:
+    endpoint: "http://otel-collector:4317"
+    enabled: true
+
+# ── Payment Engine (Hyperswitch) ─────────────────────────────────────────────
+paymentEngine:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: forgepay/payment-engine
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  service:
+    port: 8080
+  resources:
+    requests: { cpu: "500m",  memory: "512Mi" }
+    limits:   { cpu: "2000m", memory: "2Gi" }
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 20
+    targetCPUUtilizationPercentage: 70
+
+# ── Unified Router ─────────────────────────────────────────────────────────
+unifiedRouter:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: forgepay/unified-router
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  service:
+    port: 8000
+  resources:
+    requests: { cpu: "100m",  memory: "128Mi" }
+    limits:   { cpu: "500m",  memory: "512Mi" }
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+
+# ── MoR Layer (Polar fork) ────────────────────────────────────────────────
+morLayer:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: forgepay/mor-layer
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  service:
+    port: 8010
+  resources:
+    requests: { cpu: "200m",  memory: "256Mi" }
+    limits:   { cpu: "1000m", memory: "1Gi" }
+
+# ── Billing Engine (Kill Bill) ───────────────────────────────────────────
+billingEngine:
+  enabled: true
+  replicaCount: 1   # Kill Bill is stateful — scale carefully
+  image:
+    repository: forgepay/billing-engine
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  service:
+    port: 8020
+  resources:
+    requests: { cpu: "500m",  memory: "1Gi" }
+    limits:   { cpu: "2000m", memory: "4Gi" }
+  # Kill Bill uses its own DB schema
+  database:
+    name: "killbill"
+
+# ── Stablecoin Gateway (ZeroPay fork) ────────────────────────────────────
+stablecoinGateway:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: forgepay/stablecoin-gateway
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  service:
+    port: 8030
+  resources:
+    requests: { cpu: "100m", memory: "128Mi" }
+    limits:   { cpu: "500m", memory: "512Mi" }
+
+# ── Crypto Gateway (Keagate fork) ────────────────────────────────────────
+cryptoGateway:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: forgepay/crypto-gateway
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  service:
+    port: 8040
+  resources:
+    requests: { cpu: "100m", memory: "128Mi" }
+    limits:   { cpu: "500m", memory: "512Mi" }
+
+# ── Shared infrastructure (disable if BYO) ───────────────────────────────
+postgresql:
+  enabled: true
+  auth:
+    database: forgepay
+    existingSecret: "forgepay-db-credentials"
+  primary:
+    persistence:
+      size: 50Gi
+    resources:
+      requests: { cpu: "500m", memory: "512Mi" }
+
+redis:
+  enabled: true
+  auth:
+    enabled: false   # Enable + set password in prod
+  master:
+    persistence:
+      size: 8Gi
+
+# ── Ingress ──────────────────────────────────────────────────────────────
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/proxy-body-size: "16k"
+  hosts:
+    - host: api.forgepay.io
+      paths:
+        - path: /
+          pathType: Prefix
+          service: payment-engine
+          port: 8080
+    - host: hooks.forgepay.io
+      paths:
+        - path: /
+          pathType: Prefix
+          service: unified-router
+          port: 8000
+  tls:
+    - secretName: forgepay-tls
+      hosts: [api.forgepay.io, hooks.forgepay.io]

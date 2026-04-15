@@ -1,0 +1,70 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-navy:       #0A2540;
+  --color-cyan:       #00F0FF;
+  --color-white:      #FFFFFF;
+  --color-gray-400:   #8898AA;
+  --color-gray-600:   #4A5568;
+  --font-sans:        'Inter', system-ui, sans-serif;
+  --font-mono:        'JetBrains Mono', monospace;
+}
+
+* {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--color-navy);
+  color: var(--color-white);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Cyan glow utility */
+.glow-cyan {
+  box-shadow: 0 0 20px rgba(0, 240, 255, 0.4), 0 0 40px rgba(0, 240, 255, 0.2);
+}
+
+.text-glow-cyan {
+  text-shadow: 0 0 20px rgba(0, 240, 255, 0.6);
+}
+
+/* Animated gradient border */
+.border-gradient {
+  position: relative;
+  background: linear-gradient(#0A2540, #0A2540) padding-box,
+              linear-gradient(135deg, #00F0FF, #0D3260) border-box;
+  border: 1px solid transparent;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #0A2540;
+}
+::-webkit-scrollbar-thumb {
+  background: #1F4880;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #00F0FF;
+}
+
+/* Code blocks */
+code, pre {
+  font-family: var(--font-mono);
+}

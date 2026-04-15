@@ -1,0 +1,99 @@
+version: "3.9"
+
+# ForgePay local development stack
+# Usage: docker compose -f forgepay/infra/k8s/docker-compose.dev.yml up
+
+networks:
+  forgepay:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+
+services:
+  # ── Shared infrastructure ──────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER:     forgepay
+      POSTGRES_PASSWORD: devpassword
+      POSTGRES_DB:       forgepay_dev
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "5432:5432"
+    networks: [forgepay]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U forgepay"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks: [forgepay]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+
+  # ── Unified Router ─────────────────────────────────────────────────────
+  unified-router:
+    build:
+      context: ../../services/unified-router
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV:                    development
+      PORT:                        "8000"
+      POSTGRES_HOST:               postgres
+      POSTGRES_PORT:               "5432"
+      POSTGRES_DB:                 forgepay_dev
+      POSTGRES_USER:               forgepay
+      POSTGRES_PASSWORD:           devpassword
+      REDIS_URL:                   redis://redis:6379
+      INTERNAL_WEBHOOK_SECRET:     dev-internal-secret-change-me
+      HYPERSWITCH_WEBHOOK_SECRET:  dev-hs-secret
+      KILLBILL_WEBHOOK_SECRET:     dev-kb-secret
+      STABLECOIN_GW_WEBHOOK_SECRET: dev-sc-secret
+      CRYPTO_GW_WEBHOOK_SECRET:    dev-crypto-secret
+      LOG_LEVEL:                   debug
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis:    { condition: service_healthy }
+    networks: [forgepay]
+
+  # ── Payment Engine (Hyperswitch) ───────────────────────────────────────
+  payment-engine:
+    image: juspaydotin/hyperswitch-router:latest
+    environment:
+      ROUTER__SERVER__HOST: "0.0.0.0"
+      ROUTER__SERVER__PORT: "8080"
+      ROUTER__MASTER_DATABASE__HOST: postgres
+      ROUTER__MASTER_DATABASE__DBNAME: forgepay_dev
+      ROUTER__MASTER_DATABASE__USERNAME: forgepay
+      ROUTER__MASTER_DATABASE__PASSWORD: devpassword
+      ROUTER__REDIS__HOST: redis
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis:    { condition: service_healthy }
+    networks: [forgepay]
+
+  # ── Marketing site ─────────────────────────────────────────────────────
+  web:
+    build:
+      context: ../../apps/web
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: development
+    ports:
+      - "3000:3000"
+    networks: [forgepay]
