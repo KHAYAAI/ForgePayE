@@ -1,0 +1,44 @@
+[tool.poetry]
+name = "forgepay-mor-layer"
+version = "0.1.0"
+description = "ForgePay MoR Layer — Merchant of Record service forked from Polar, wired to Hyperswitch"
+authors = ["ForgePay Engineering <eng@forgepay.io>"]
+license = "Apache-2.0"
+readme = "README.md"
+packages = [{ include = "src" }]
+
+[tool.poetry.dependencies]
+python       = "^3.12"
+fastapi      = "^0.111.0"
+uvicorn      = { version = "^0.30.1", extras = ["standard"] }
+httpx        = "^0.27.0"         # Async HTTP client — replaces Stripe SDK calls
+pydantic     = "^2.7.4"
+pydantic-settings = "^2.3.3"
+sqlalchemy   = "^2.0.31"
+alembic      = "^1.13.2"
+asyncpg      = "^0.29.0"
+redis        = "^5.0.7"
+structlog    = "^24.2.0"
+python-jose  = { version = "^3.3.0", extras = ["cryptography"] }
+passlib      = { version = "^1.7.4", extras = ["bcrypt"] }
+python-multipart = "^0.0.9"
+stripe       = "^10.5.0"         # Keep as type reference only; no live calls
+
+[tool.poetry.group.dev.dependencies]
+pytest       = "^8.2.2"
+pytest-asyncio = "^0.23.7"
+httpx        = "^0.27.0"
+ruff         = "^0.5.0"
+mypy         = "^1.10.1"
+
+[build-system]
+requires      = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.mypy]
+python_version = "3.12"
+strict         = true

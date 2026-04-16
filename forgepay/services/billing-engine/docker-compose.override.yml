@@ -1,0 +1,42 @@
+version: "3.9"
+
+# Local development overrides for billing-engine.
+# Usage: docker compose -f forgepay/infra/k8s/docker-compose.dev.yml \
+#               -f forgepay/services/billing-engine/docker-compose.override.yml up
+
+services:
+  billing-engine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      POSTGRES_HOST:     postgres
+      POSTGRES_PORT:     "5432"
+      POSTGRES_DB:       killbill
+      POSTGRES_USER:     killbill
+      POSTGRES_PASSWORD: killbillpassword
+      KILLBILL_ADMIN_PASSWORD: admin
+      HYPERSWITCH_API_KEY: dev_hyperswitch_key_replace_me
+      KILLBILL_HYPERSWITCH_WEBHOOK_SECRET: dev_kb_hs_secret
+    ports:
+      - "8020:8080"   # Kill Bill API
+      - "8021:8081"   # Kill Bill admin UI (Kaui)
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks:
+      - forgepay
+
+  # Kill Bill admin UI (Kaui)
+  billing-kaui:
+    image: killbill/kaui:3.0.10
+    environment:
+      KAUI_CONFIG_DAO_URL: jdbc:postgresql://postgres:5432/kaui
+      KAUI_CONFIG_DAO_USER: killbill
+      KAUI_CONFIG_DAO_PASSWORD: killbillpassword
+      KAUI_KILLBILL_URL: http://billing-engine:8080
+    ports:
+      - "9090:8080"
+    depends_on:
+      - billing-engine
+    networks:
+      - forgepay

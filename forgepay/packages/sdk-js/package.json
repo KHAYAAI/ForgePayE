@@ -1,0 +1,36 @@
+{
+  "name": "@forgepay/sdk",
+  "version": "0.1.0",
+  "description": "ForgePay JavaScript / TypeScript SDK",
+  "author": "ForgePay Engineering <eng@forgepay.io>",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/forgepay/forgepay-node"
+  },
+  "main":   "./dist/cjs/index.js",
+  "module": "./dist/esm/index.js",
+  "types":  "./dist/types/index.d.ts",
+  "exports": {
+    ".": {
+      "import":  "./dist/esm/index.js",
+      "require": "./dist/cjs/index.js",
+      "types":   "./dist/types/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build":      "tsc -p tsconfig.esm.json && tsc -p tsconfig.cjs.json",
+    "dev":        "tsc -p tsconfig.esm.json --watch",
+    "type-check": "tsc --noEmit",
+    "test":       "vitest run",
+    "lint":       "eslint src --ext .ts"
+  },
+  "files": ["dist", "src"],
+  "keywords": ["forgepay", "payments", "stablecoin", "crypto", "billing", "sdk"],
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.5.3",
+    "vitest":     "^2.0.4"
+  },
+  "engines": { "node": ">=18" }
+}

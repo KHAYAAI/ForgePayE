@@ -1,0 +1,41 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --sidebar-width: 240px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: #0A2540;
+  color: #E2E8F0;
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar       { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: #0A2540; }
+::-webkit-scrollbar-thumb { background: #1E3248; border-radius: 3px; }
+
+/* Card base */
+.card {
+  @apply bg-surface-800 border border-white/[0.07] rounded-xl;
+}
+
+/* Table */
+.fp-table thead th {
+  @apply text-xs font-semibold text-gray-400 uppercase tracking-wide px-4 py-3 text-left border-b border-white/[0.07];
+}
+.fp-table tbody td {
+  @apply px-4 py-3 text-sm text-gray-200 border-b border-white/[0.04];
+}
+.fp-table tbody tr:hover td {
+  @apply bg-white/[0.02];
+}

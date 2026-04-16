@@ -1,0 +1,192 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ForgePay Base Billing Catalog
+  Defines all subscription plans available on the ForgePay platform.
+
+  Kill Bill Catalog Documentation:
+  https://docs.killbill.io/latest/userguide_subscription.html#components-catalog
+
+  Plan hierarchy:
+    Product → Plan → Phase (trial / evergreen)
+      └─ PriceList (DEFAULT)
+
+  Pricing (must match the ForgePay pricing page):
+    - Starter:      $0/mo (free tier — no platform fee)
+    - Growth:       $5/mo platform fee
+    - Enterprise:   Custom (handled out-of-band)
+    - AI Tokens:    $0.001 per token (usage-based metered)
+-->
+<catalog xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="CatalogSchema.xsd">
+
+  <effectiveDate>2026-01-01T00:00:00+00:00</effectiveDate>
+  <catalogName>ForgePay</catalogName>
+
+  <recurringBillingMode>IN_ADVANCE</recurringBillingMode>
+
+  <!-- ── Currencies ─────────────────────────────────────────────────────── -->
+  <currencies>
+    <currency>USD</currency>
+    <currency>EUR</currency>
+    <currency>GBP</currency>
+  </currencies>
+
+  <!-- ── Products ──────────────────────────────────────────────────────── -->
+  <products>
+    <!-- Platform subscription (tiered) -->
+    <product name="ForgePay Platform">
+      <category>BASE</category>
+    </product>
+
+    <!-- AI / token metered billing add-on -->
+    <product name="AI Token Usage">
+      <category>ADD_ON</category>
+      <available>
+        <addonProduct>ForgePay Platform</addonProduct>
+      </available>
+      <included>
+        <addonProduct>ForgePay Platform</addonProduct>
+      </included>
+    </product>
+  </products>
+
+  <!-- ── Rules ─────────────────────────────────────────────────────────── -->
+  <rules>
+    <!-- Immediate upgrade, end-of-term downgrade -->
+    <changePolicy>
+      <changePolicyCase>
+        <phaseType>EVERGREEN</phaseType>
+        <toProductCategory>BASE</toProductCategory>
+        <policy>IMMEDIATE</policy>
+      </changePolicyCase>
+    </changePolicy>
+    <cancelPolicy>
+      <cancelPolicyCase>
+        <phaseType>EVERGREEN</phaseType>
+        <policy>END_OF_TERM</policy>
+      </cancelPolicyCase>
+      <cancelPolicyCase>
+        <phaseType>TRIAL</phaseType>
+        <policy>IMMEDIATE</policy>
+      </cancelPolicyCase>
+    </cancelPolicy>
+  </rules>
+
+  <!-- ── Plans ─────────────────────────────────────────────────────────── -->
+  <plans>
+
+    <!-- ── Starter (free platform tier) ─────────────────────────────── -->
+    <plan name="forgepay-starter-monthly">
+      <product>ForgePay Platform</product>
+      <finalPhase type="EVERGREEN">
+        <duration>
+          <unit>UNLIMITED</unit>
+        </duration>
+        <recurring>
+          <billingPeriod>MONTHLY</billingPeriod>
+          <recurringPrice>
+            <price><currency>USD</currency><value>0.00</value></price>
+          </recurringPrice>
+        </recurring>
+      </finalPhase>
+    </plan>
+
+    <!-- ── Growth Monthly ($5/mo) ──────────────────────────────────── -->
+    <plan name="forgepay-growth-monthly">
+      <product>ForgePay Platform</product>
+      <initialPhases>
+        <!-- 14-day free trial -->
+        <phase type="TRIAL">
+          <duration>
+            <unit>DAYS</unit>
+            <number>14</number>
+          </duration>
+          <fixed>
+            <fixedPrice>
+              <price><currency>USD</currency><value>0.00</value></price>
+            </fixedPrice>
+          </fixed>
+        </phase>
+      </initialPhases>
+      <finalPhase type="EVERGREEN">
+        <duration>
+          <unit>UNLIMITED</unit>
+        </duration>
+        <recurring>
+          <billingPeriod>MONTHLY</billingPeriod>
+          <recurringPrice>
+            <price><currency>USD</currency><value>5.00</value></price>
+            <price><currency>EUR</currency><value>4.70</value></price>
+            <price><currency>GBP</currency><value>4.00</value></price>
+          </recurringPrice>
+        </recurring>
+      </finalPhase>
+    </plan>
+
+    <!-- ── Growth Annual ($50/yr — 2 months free) ─────────────────── -->
+    <plan name="forgepay-growth-annual">
+      <product>ForgePay Platform</product>
+      <initialPhases>
+        <phase type="TRIAL">
+          <duration><unit>DAYS</unit><number>14</number></duration>
+          <fixed>
+            <fixedPrice>
+              <price><currency>USD</currency><value>0.00</value></price>
+            </fixedPrice>
+          </fixed>
+        </phase>
+      </initialPhases>
+      <finalPhase type="EVERGREEN">
+        <duration><unit>UNLIMITED</unit></duration>
+        <recurring>
+          <billingPeriod>ANNUAL</billingPeriod>
+          <recurringPrice>
+            <price><currency>USD</currency><value>50.00</value></price>
+            <price><currency>EUR</currency><value>47.00</value></price>
+            <price><currency>GBP</currency><value>40.00</value></price>
+          </recurringPrice>
+        </recurring>
+      </finalPhase>
+    </plan>
+
+    <!-- ── AI Token Usage (metered — $0.001/token) ────────────────── -->
+    <plan name="forgepay-ai-tokens-monthly">
+      <product>AI Token Usage</product>
+      <finalPhase type="EVERGREEN">
+        <duration><unit>UNLIMITED</unit></duration>
+        <usage>
+          <billingPeriod>MONTHLY</billingPeriod>
+          <tiers>
+            <!-- $0.001 per token (= $1.00 per 1000 tokens) -->
+            <tier>
+              <blocks>
+                <tieredBlock>
+                  <unit>token</unit>
+                  <size>1</size>
+                  <prices>
+                    <price><currency>USD</currency><value>0.001</value></price>
+                  </prices>
+                  <max>-1</max>
+                </tieredBlock>
+              </blocks>
+            </tier>
+          </tiers>
+        </usage>
+      </finalPhase>
+    </plan>
+
+  </plans>
+
+  <!-- ── Price lists ────────────────────────────────────────────────────── -->
+  <priceLists>
+    <defaultPriceList name="DEFAULT">
+      <plans>
+        <plan>forgepay-starter-monthly</plan>
+        <plan>forgepay-growth-monthly</plan>
+        <plan>forgepay-growth-annual</plan>
+        <plan>forgepay-ai-tokens-monthly</plan>
+      </plans>
+    </defaultPriceList>
+  </priceLists>
+
+</catalog>
