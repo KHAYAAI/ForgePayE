@@ -1,0 +1,68 @@
+name: "ForgePay — Publish SDKs"
+
+on:
+  push:
+    tags:
+      - "sdk-js/v*"       # e.g. sdk-js/v0.2.0
+      - "sdk-python/v*"   # e.g. sdk-python/v0.2.0
+  workflow_dispatch:
+    inputs:
+      sdk:
+        description: "SDK to publish"
+        required: true
+        type: choice
+        options: [sdk-js, sdk-python, both]
+
+jobs:
+  # ── Publish @forgepay/sdk to npm ──────────────────────────────────────────
+  publish-js:
+    if: startsWith(github.ref, 'refs/tags/sdk-js/') || github.event.inputs.sdk == 'sdk-js' || github.event.inputs.sdk == 'both'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: forgepay/packages/sdk-js
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - run: npm ci
+      - run: npm run type-check
+      - run: npm test
+      - run: npm run build
+
+      - name: Publish to npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  # ── Publish forgepay to PyPI ───────────────────────────────────────────────
+  publish-python:
+    if: startsWith(github.ref, 'refs/tags/sdk-python/') || github.event.inputs.sdk == 'sdk-python' || github.event.inputs.sdk == 'both'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: forgepay/packages/sdk-python
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: snok/install-poetry@v1
+        with:
+          version: "1.8.3"
+
+      - run: poetry install
+      - run: poetry run ruff check forgepay tests
+      - run: poetry run pytest tests/ -v
+
+      - name: Build distribution
+        run: poetry build
+
+      - name: Publish to PyPI
+        run: poetry publish --username __token__ --password ${{ secrets.PYPI_TOKEN }}

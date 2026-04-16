@@ -1,0 +1,114 @@
+name: "ForgePay — Docker Build & Push"
+
+on:
+  push:
+    branches: ["claude/forgepay-platform-design-gEkgE", "main"]
+    paths:
+      - "forgepay/services/**"
+      - "forgepay/apps/**"
+  workflow_dispatch:
+    inputs:
+      service:
+        description: "Service to build (all | web | dashboard | unified-router | mor-layer | billing-engine | stablecoin-gateway | crypto-gateway)"
+        required: false
+        default: "all"
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/forgepay
+
+jobs:
+  # Determine which services changed
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      web:               ${{ steps.filter.outputs.web }}
+      dashboard:         ${{ steps.filter.outputs.dashboard }}
+      unified-router:    ${{ steps.filter.outputs.unified-router }}
+      mor-layer:         ${{ steps.filter.outputs.mor-layer }}
+      billing-engine:    ${{ steps.filter.outputs.billing-engine }}
+      stablecoin-gateway: ${{ steps.filter.outputs.stablecoin-gateway }}
+      crypto-gateway:    ${{ steps.filter.outputs.crypto-gateway }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            web:
+              - 'forgepay/apps/web/**'
+            dashboard:
+              - 'forgepay/apps/dashboard/**'
+            unified-router:
+              - 'forgepay/services/unified-router/**'
+            mor-layer:
+              - 'forgepay/services/mor-layer/**'
+            billing-engine:
+              - 'forgepay/services/billing-engine/**'
+            stablecoin-gateway:
+              - 'forgepay/services/stablecoin-gateway/**'
+            crypto-gateway:
+              - 'forgepay/services/crypto-gateway/**'
+
+  build:
+    needs: changes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: web
+            context: forgepay/apps/web
+            condition: ${{ needs.changes.outputs.web == 'true' }}
+          - service: dashboard
+            context: forgepay/apps/dashboard
+            condition: ${{ needs.changes.outputs.dashboard == 'true' }}
+          - service: unified-router
+            context: forgepay/services/unified-router
+            condition: ${{ needs.changes.outputs.unified-router == 'true' }}
+          - service: mor-layer
+            context: forgepay/services/mor-layer
+            condition: ${{ needs.changes.outputs.mor-layer == 'true' }}
+          - service: billing-engine
+            context: forgepay/services/billing-engine
+            condition: ${{ needs.changes.outputs.billing-engine == 'true' }}
+
+    steps:
+      - uses: actions/checkout@v4
+        if: ${{ matrix.condition == 'true' || github.event_name == 'workflow_dispatch' }}
+
+      - uses: docker/setup-buildx-action@v3
+        if: ${{ matrix.condition == 'true' || github.event_name == 'workflow_dispatch' }}
+
+      - uses: docker/login-action@v3
+        if: ${{ matrix.condition == 'true' || github.event_name == 'workflow_dispatch' }}
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        if: ${{ matrix.condition == 'true' || github.event_name == 'workflow_dispatch' }}
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}-${{ matrix.service }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build and push
+        if: ${{ matrix.condition == 'true' || github.event_name == 'workflow_dispatch' }}
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.context }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64,linux/arm64

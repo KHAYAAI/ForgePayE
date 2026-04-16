@@ -1,0 +1,216 @@
+{
+  "uid":         "forgepay-platform-health",
+  "title":       "ForgePay — Platform Health",
+  "description": "Service uptime, pod restarts, database connections, Redis memory.",
+  "tags":        ["forgepay", "infra"],
+  "timezone":    "browser",
+  "refresh":     "60s",
+  "time":        { "from": "now-6h", "to": "now" },
+  "schemaVersion": 38,
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Services Up",
+      "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "thresholds": {
+          "mode": "absolute",
+          "steps": [
+            { "color": "red",   "value": null },
+            { "color": "green", "value": 7 }
+          ]
+        }
+      },
+      "targets": [{
+        "datasource": "Prometheus",
+        "expr": "count(up{job=~\"unified-router|mor-layer|stablecoin-gateway|crypto-gateway|payment-engine|billing-engine|postgres\"} == 1)",
+        "legendFormat": "Services up"
+      }]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Pod Restarts (1 h)",
+      "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "thresholds": {
+          "mode": "absolute",
+          "steps": [
+            { "color": "green",  "value": null },
+            { "color": "yellow", "value": 1 },
+            { "color": "red",    "value": 5 }
+          ]
+        }
+      },
+      "targets": [{
+        "datasource": "Prometheus",
+        "expr": "sum(increase(kube_pod_container_status_restarts_total{namespace=\"forgepay\"}[1h]))",
+        "legendFormat": "Restarts"
+      }]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "PG Connections",
+      "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "thresholds": {
+          "mode": "absolute",
+          "steps": [
+            { "color": "green",  "value": null },
+            { "color": "yellow", "value": 60 },
+            { "color": "red",    "value": 90 }
+          ]
+        }
+      },
+      "targets": [{
+        "datasource": "Prometheus",
+        "expr": "pg_stat_activity_count",
+        "legendFormat": "Connections"
+      }]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Redis Memory Used",
+      "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "value",
+        "unit": "bytes"
+      },
+      "targets": [{
+        "datasource": "Prometheus",
+        "expr": "redis_memory_used_bytes",
+        "legendFormat": "Memory"
+      }]
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Dedup Cache Hit Rate",
+      "gridPos": { "x": 16, "y": 0, "w": 4, "h": 4 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "value",
+        "unit": "percentunit"
+      },
+      "targets": [{
+        "datasource": "Prometheus",
+        "expr": "rate(forgepay_webhook_dedup_hits_total[5m]) / rate(forgepay_webhook_events_total[5m])",
+        "legendFormat": "Hit rate"
+      }]
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "OTel Collector Dropped Spans",
+      "gridPos": { "x": 20, "y": 0, "w": 4, "h": 4 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "thresholds": {
+          "mode": "absolute",
+          "steps": [
+            { "color": "green",  "value": null },
+            { "color": "yellow", "value": 1 }
+          ]
+        }
+      },
+      "targets": [{
+        "datasource": "Prometheus",
+        "expr": "rate(otelcol_processor_dropped_spans_total[5m])",
+        "legendFormat": "Dropped/s"
+      }]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Service Request Rate (req/s)",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "custom": { "lineWidth": 2, "fillOpacity": 5 } }
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "rate(http_server_requests_total{job=\"unified-router\"}[1m])",
+          "legendFormat": "unified-router"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "rate(http_server_requests_total{job=\"mor-layer\"}[1m])",
+          "legendFormat": "mor-layer"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "rate(http_server_requests_total{job=\"payment-engine\"}[1m])",
+          "legendFormat": "payment-engine"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Service Error Rate",
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "fieldConfig": {
+        "defaults": { "unit": "percentunit", "min": 0, "custom": { "lineWidth": 2 } }
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "rate(http_server_requests_total{job=\"unified-router\",status=~\"5..\"}[5m]) / rate(http_server_requests_total{job=\"unified-router\"}[5m])",
+          "legendFormat": "unified-router 5xx"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "rate(http_server_requests_total{job=\"mor-layer\",status=~\"5..\"}[5m]) / rate(http_server_requests_total{job=\"mor-layer\"}[5m])",
+          "legendFormat": "mor-layer 5xx"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "PostgreSQL Query Rate",
+      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 6 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "lineWidth": 1 } }
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "rate(pg_stat_database_tup_fetched{datname=\"forgepay\"}[1m])",
+          "legendFormat": "Rows fetched/s"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "rate(pg_stat_database_xact_commit{datname=\"forgepay\"}[1m])",
+          "legendFormat": "Commits/s"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Redis Operations/s",
+      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 6 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "lineWidth": 1 } }
+      },
+      "targets": [{
+        "datasource": "Prometheus",
+        "expr": "rate(redis_commands_processed_total[1m])",
+        "legendFormat": "Ops/s"
+      }]
+    }
+  ]
+}

@@ -1,0 +1,145 @@
+{{/*
+ConfigMap: OTel Collector config
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "forgepay-monitoring.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+
+    processors:
+      filter/drop_health:
+        traces:
+          span:
+            - 'attributes["http.route"] == "/healthz"'
+            - 'attributes["http.route"] == "/readyz"'
+      resource:
+        attributes:
+          - key: platform
+            value: forgepay
+            action: insert
+      batch:
+        send_batch_size: 1024
+        timeout: 5s
+      memory_limiter:
+        check_interval: 1s
+        limit_percentage: 75
+        spike_limit_percentage: 25
+
+    exporters:
+      prometheus:
+        endpoint: "0.0.0.0:8889"
+        namespace: forgepay
+        send_timestamps: true
+        metric_expiration: 3m
+        resource_to_telemetry_conversion:
+          enabled: true
+      otlp/jaeger:
+        endpoint: "jaeger-collector:4317"
+        tls:
+          insecure: true
+      debug:
+        verbosity: basic
+
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:13133
+
+    service:
+      extensions: [health_check]
+      pipelines:
+        traces:
+          receivers:  [otlp]
+          processors: [filter/drop_health, resource, memory_limiter, batch]
+          exporters:  [otlp/jaeger, debug]
+        metrics:
+          receivers:  [otlp]
+          processors: [resource, memory_limiter, batch]
+          exporters:  [prometheus]
+        logs:
+          receivers:  [otlp]
+          processors: [resource, memory_limiter, batch]
+          exporters:  [debug]
+
+---
+{{/*
+ConfigMap: Grafana dashboards (payments-overview + platform-health)
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-forgepay-dashboards
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "forgepay-monitoring.labels" . | nindent 4 }}
+    grafana_dashboard: "1"
+data:
+  payments-overview.json: |
+    {{ .Files.Get "dashboards/payments-overview.json" | nindent 4 }}
+  platform-health.json: |
+    {{ .Files.Get "dashboards/platform-health.json" | nindent 4 }}
+
+---
+{{/*
+ConfigMap: Prometheus alert rules
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-forgepay-rules
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "forgepay-monitoring.labels" . | nindent 4 }}
+data:
+  forgepay-alerts.yml: |
+    groups:
+      - name: forgepay.payments
+        interval: 30s
+        rules:
+          - alert: PaymentSuccessRateLow
+            expr: |
+              (
+                rate(forgepay_payments_total{status="succeeded"}[5m])
+                /
+                rate(forgepay_payments_total[5m])
+              ) < 0.90
+            for: 5m
+            labels:
+              severity: critical
+              team: payments
+            annotations:
+              summary: "Payment success rate below 90%"
+          - alert: PaymentLatencyHigh
+            expr: |
+              histogram_quantile(0.99,
+                rate(forgepay_payment_duration_seconds_bucket[5m])
+              ) > 3
+            for: 5m
+            labels:
+              severity: warning
+              team: payments
+            annotations:
+              summary: "Payment p99 latency above 3s"
+      - name: forgepay.infra
+        interval: 60s
+        rules:
+          - alert: PodCrashLooping
+            expr: |
+              rate(kube_pod_container_status_restarts_total{namespace="forgepay"}[15m]) > 0
+            for: 5m
+            labels:
+              severity: critical
+              team: infra
+            annotations:
+              summary: "Pod {{ $labels.pod }} is crash-looping"

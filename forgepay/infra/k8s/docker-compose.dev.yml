@@ -10,6 +10,8 @@ networks:
 volumes:
   postgres_data:
   redis_data:
+  prometheus_data:
+  grafana_data:
 
 services:
   # ── Shared infrastructure ──────────────────────────────────────────────
@@ -96,4 +98,62 @@ services:
       NODE_ENV: development
     ports:
       - "3000:3000"
+    networks: [forgepay]
+
+  # ── Observability ──────────────────────────────────────────────────────
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.100.0
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes:
+      - ../observability/otel-collector/config.yaml:/etc/otel/config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "8889:8889"   # Prometheus metrics
+    networks: [forgepay]
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:13133/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=7d"
+      - "--web.enable-lifecycle"
+    volumes:
+      - ../observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../observability/prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks: [forgepay]
+    depends_on: [otel-collector]
+
+  grafana:
+    image: grafana/grafana:10.4.2
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD:  devpassword
+      GF_USERS_ALLOW_SIGN_UP:      "false"
+      GF_SERVER_ROOT_URL:          "http://localhost:3001"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ../observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3001:3000"
+    networks: [forgepay]
+    depends_on: [prometheus]
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.57
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"  # UI
+      - "14317:4317"   # OTLP gRPC (host port offset to avoid clash)
     networks: [forgepay]

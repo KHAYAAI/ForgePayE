@@ -1,0 +1,96 @@
+# OpenTelemetry Collector configuration for ForgePay
+# Receives OTLP from all services, exports to Prometheus + Jaeger (or Tempo).
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+  # Host-level metrics (CPU, memory, disk) for infra dashboards
+  hostmetrics:
+    collection_interval: 30s
+    scrapers:
+      cpu:    {}
+      memory: {}
+      disk:   {}
+      load:   {}
+      network: {}
+
+processors:
+  # Drop high-cardinality spans that add cost without insight
+  filter/drop_health:
+    traces:
+      span:
+        - 'attributes["http.route"] == "/healthz"'
+        - 'attributes["http.route"] == "/readyz"'
+
+  # Add ForgePay-specific resource attributes
+  resource:
+    attributes:
+      - key:    "platform"
+        value:  "forgepay"
+        action: insert
+      - key:    "environment"
+        from_attribute: "DEPLOY_ENV"
+        action: insert
+
+  # Batch spans/metrics before exporting to reduce network overhead
+  batch:
+    send_batch_size:     1024
+    send_batch_max_size: 2048
+    timeout:             5s
+
+  # Memory limit — prevents OOM on traffic spikes
+  memory_limiter:
+    check_interval:         1s
+    limit_percentage:       75
+    spike_limit_percentage: 25
+
+exporters:
+  # Metrics → Prometheus pull endpoint
+  prometheus:
+    endpoint: "0.0.0.0:8889"
+    namespace: "forgepay"
+    send_timestamps: true
+    metric_expiration: 3m
+    resource_to_telemetry_conversion:
+      enabled: true
+
+  # Traces → Jaeger (swap for Tempo by changing endpoint)
+  otlp/jaeger:
+    endpoint: "jaeger:4317"
+    tls:
+      insecure: true
+
+  # Logs → stdout (captured by container runtime / Loki via promtail)
+  debug:
+    verbosity: basic
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+  pprof:
+    endpoint: 0.0.0.0:1777
+  zpages:
+    endpoint: 0.0.0.0:55679
+
+service:
+  extensions: [health_check, pprof, zpages]
+  pipelines:
+    traces:
+      receivers:   [otlp]
+      processors:  [filter/drop_health, resource, memory_limiter, batch]
+      exporters:   [otlp/jaeger, debug]
+
+    metrics:
+      receivers:   [otlp, hostmetrics]
+      processors:  [resource, memory_limiter, batch]
+      exporters:   [prometheus]
+
+    logs:
+      receivers:   [otlp]
+      processors:  [resource, memory_limiter, batch]
+      exporters:   [debug]

@@ -1,0 +1,120 @@
+name: "ForgePay — Helm Deploy"
+
+on:
+  push:
+    branches:
+      - main           # auto-deploy to staging
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: choice
+        options: [staging, production]
+      image_tag:
+        description: "Image tag to deploy (default: latest sha)"
+        required: false
+
+env:
+  HELM_CHART: forgepay/infra/helm/forgepay-stack
+
+jobs:
+  deploy-staging:
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'staging')
+    runs-on: ubuntu-latest
+    environment: staging
+    concurrency:
+      group: deploy-staging
+      cancel-in-progress: false   # never cancel in-flight deploys
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: "3.15.0"
+
+      - name: Configure kubeconfig (staging)
+        run: |
+          echo "${{ secrets.STAGING_KUBECONFIG }}" | base64 -d > /tmp/kubeconfig
+          echo "KUBECONFIG=/tmp/kubeconfig" >> "$GITHUB_ENV"
+
+      - name: Resolve image tag
+        id: tag
+        run: |
+          TAG="${{ github.event.inputs.image_tag }}"
+          if [ -z "$TAG" ]; then
+            TAG="sha-$(git rev-parse --short HEAD)"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Helm upgrade --install (staging)
+        run: |
+          helm upgrade --install forgepay-staging ${{ env.HELM_CHART }} \
+            --namespace forgepay-staging \
+            --create-namespace \
+            --values forgepay/config/environments/dev.yaml \
+            --set global.imageTag=${{ steps.tag.outputs.tag }} \
+            --set paymentEngine.image.tag=${{ steps.tag.outputs.tag }} \
+            --set unifiedRouter.image.tag=${{ steps.tag.outputs.tag }} \
+            --set morLayer.image.tag=${{ steps.tag.outputs.tag }} \
+            --atomic \
+            --timeout 10m \
+            --wait
+
+      - name: Smoke test
+        run: |
+          kubectl --namespace forgepay-staging rollout status deployment/forgepay-staging-unified-router
+          kubectl --namespace forgepay-staging rollout status deployment/forgepay-staging-mor-layer
+          # Basic healthcheck
+          ROUTER_SVC=$(kubectl -n forgepay-staging get svc forgepay-staging-unified-router -o jsonpath='{.spec.clusterIP}')
+          kubectl run smoke-test --image=curlimages/curl --rm --restart=Never -n forgepay-staging \
+            --command -- curl -f http://$ROUTER_SVC:8000/healthz
+
+  deploy-production:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production'
+    runs-on: ubuntu-latest
+    environment: production          # requires manual approval in GitHub Environments
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: "3.15.0"
+
+      - name: Configure kubeconfig (production)
+        run: |
+          echo "${{ secrets.PROD_KUBECONFIG }}" | base64 -d > /tmp/kubeconfig
+          echo "KUBECONFIG=/tmp/kubeconfig" >> "$GITHUB_ENV"
+
+      - name: Resolve image tag
+        id: tag
+        run: |
+          TAG="${{ github.event.inputs.image_tag }}"
+          if [ -z "$TAG" ]; then
+            TAG="sha-$(git rev-parse --short HEAD)"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Helm upgrade --install (production)
+        run: |
+          helm upgrade --install forgepay ${{ env.HELM_CHART }} \
+            --namespace forgepay \
+            --create-namespace \
+            --values forgepay/config/environments/prod.yaml \
+            --set global.imageTag=${{ steps.tag.outputs.tag }} \
+            --set paymentEngine.image.tag=${{ steps.tag.outputs.tag }} \
+            --set unifiedRouter.image.tag=${{ steps.tag.outputs.tag }} \
+            --set morLayer.image.tag=${{ steps.tag.outputs.tag }} \
+            --set billingEngine.image.tag=${{ steps.tag.outputs.tag }} \
+            --atomic \
+            --timeout 15m \
+            --wait
+
+      - name: Notify on success
+        if: success()
+        run: |
+          echo "✅ Production deploy succeeded: ${{ steps.tag.outputs.tag }}"
+          # TODO: post to Slack via webhook

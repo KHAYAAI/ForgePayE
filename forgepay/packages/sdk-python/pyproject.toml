@@ -1,0 +1,52 @@
+[tool.poetry]
+name            = "forgepay"
+version         = "0.1.0"
+description     = "ForgePay Python SDK — payments, subscriptions, crypto & stablecoin support"
+authors         = ["ForgePay <sdk@forgepay.io>"]
+license         = "MIT"
+readme          = "README.md"
+homepage        = "https://forgepay.io"
+repository      = "https://github.com/khayaai/forgepaye"
+keywords        = ["payments", "billing", "hyperswitch", "stablecoin", "crypto"]
+classifiers     = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+]
+packages        = [{ include = "forgepay" }]
+
+[tool.poetry.dependencies]
+python          = "^3.10"
+httpx           = "^0.27"
+pydantic        = "^2.7"
+
+[tool.poetry.group.dev.dependencies]
+pytest          = "^8.2"
+pytest-asyncio  = "^0.23"
+respx           = "^0.21"
+ruff            = "^0.4"
+mypy            = "^1.10"
+
+[tool.ruff]
+line-length     = 100
+target-version  = "py310"
+
+[tool.ruff.lint]
+select          = ["E", "F", "I", "UP"]
+
+[tool.mypy]
+python_version  = "3.10"
+strict          = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode    = "auto"
+
+[build-system]
+requires        = ["poetry-core"]
+build-backend   = "poetry.core.masonry.api"

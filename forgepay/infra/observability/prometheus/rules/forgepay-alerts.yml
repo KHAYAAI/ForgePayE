@@ -1,0 +1,84 @@
+groups:
+  - name: forgepay.payments
+    interval: 30s
+    rules:
+      # ── Payment success rate ────────────────────────────────────────────────
+      - alert: PaymentSuccessRateLow
+        expr: |
+          (
+            rate(forgepay_payments_total{status="succeeded"}[5m])
+            /
+            rate(forgepay_payments_total[5m])
+          ) < 0.90
+        for: 5m
+        labels:
+          severity: critical
+          team:     payments
+        annotations:
+          summary:     "Payment success rate below 90% for {{ $labels.merchant_id }}"
+          description: "Success rate is {{ $value | humanizePercentage }} over the last 5 minutes."
+
+      # ── Payment latency p99 ─────────────────────────────────────────────────
+      - alert: PaymentLatencyHigh
+        expr: |
+          histogram_quantile(0.99,
+            rate(forgepay_payment_duration_seconds_bucket[5m])
+          ) > 3
+        for: 5m
+        labels:
+          severity: warning
+          team:     payments
+        annotations:
+          summary:     "Payment p99 latency above 3 s"
+          description: "p99 = {{ $value | humanizeDuration }}"
+
+      # ── Refund spike ────────────────────────────────────────────────────────
+      - alert: RefundSpikeDetected
+        expr: |
+          rate(forgepay_refunds_total[10m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+          team:     payments
+        annotations:
+          summary: "Unusual refund rate detected ({{ $value | humanize }}/s)"
+
+  - name: forgepay.webhooks
+    interval: 30s
+    rules:
+      - alert: WebhookDeliveryFailureHigh
+        expr: |
+          rate(forgepay_webhook_delivery_total{status="failed"}[10m])
+          /
+          rate(forgepay_webhook_delivery_total[10m])
+          > 0.10
+        for: 10m
+        labels:
+          severity: warning
+          team:     platform
+        annotations:
+          summary: "Webhook delivery failure rate above 10%"
+
+  - name: forgepay.infra
+    interval: 60s
+    rules:
+      - alert: PodCrashLooping
+        expr: |
+          rate(kube_pod_container_status_restarts_total{namespace="forgepay"}[15m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+          team:     infra
+        annotations:
+          summary:     "Pod {{ $labels.pod }} is crash-looping"
+          description: "Container {{ $labels.container }} has restarted {{ $value }} times in 15 min."
+
+      - alert: PostgresConnectionsHigh
+        expr: |
+          pg_stat_activity_count > 80
+        for: 5m
+        labels:
+          severity: warning
+          team:     infra
+        annotations:
+          summary: "PostgreSQL connection count is high ({{ $value }})"

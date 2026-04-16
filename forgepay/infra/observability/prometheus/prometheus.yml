@@ -1,0 +1,91 @@
+global:
+  scrape_interval:     15s
+  evaluation_interval: 15s
+  external_labels:
+    platform: forgepay
+
+# Alerting rules file
+rule_files:
+  - "/etc/prometheus/rules/*.yml"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+scrape_configs:
+  # ── OTel Collector (aggregated service metrics) ───────────────────────────
+  - job_name: otel-collector
+    static_configs:
+      - targets: ["otel-collector:8889"]
+
+  # ── Unified Router (Fastify) ───────────────────────────────────────────────
+  - job_name: unified-router
+    static_configs:
+      - targets: ["unified-router:9090"]
+    metrics_path: /metrics
+
+  # ── MoR Layer (FastAPI) ────────────────────────────────────────────────────
+  - job_name: mor-layer
+    static_configs:
+      - targets: ["mor-layer:9090"]
+    metrics_path: /metrics
+
+  # ── Stablecoin Gateway ─────────────────────────────────────────────────────
+  - job_name: stablecoin-gateway
+    static_configs:
+      - targets: ["stablecoin-gateway:9090"]
+    metrics_path: /metrics
+
+  # ── Crypto Gateway ─────────────────────────────────────────────────────────
+  - job_name: crypto-gateway
+    static_configs:
+      - targets: ["crypto-gateway:9090"]
+    metrics_path: /metrics
+
+  # ── Hyperswitch (payment-engine) ───────────────────────────────────────────
+  - job_name: payment-engine
+    static_configs:
+      - targets: ["payment-engine:8080"]
+    metrics_path: /metrics
+
+  # ── Kill Bill (billing-engine via JMX exporter) ────────────────────────────
+  - job_name: billing-engine
+    static_configs:
+      - targets: ["billing-engine:9404"]
+
+  # ── PostgreSQL exporter ────────────────────────────────────────────────────
+  - job_name: postgres
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+
+  # ── Redis exporter ─────────────────────────────────────────────────────────
+  - job_name: redis
+    static_configs:
+      - targets: ["redis-exporter:9121"]
+
+  # ── Kubernetes node metrics (cAdvisor via kube-prometheus-stack) ───────────
+  - job_name: kubernetes-pods
+    kubernetes_sd_configs:
+      - role: pod
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        action: keep
+        regex: "true"
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+        action: replace
+        target_label: __metrics_path__
+        regex: (.+)
+      - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+        action: replace
+        target_label: __address__
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        replacement: $1:$2
+      - action: labelmap
+        regex: __meta_kubernetes_pod_label_(.+)
+      - source_labels: [__meta_kubernetes_namespace]
+        action: replace
+        target_label: kubernetes_namespace
+      - source_labels: [__meta_kubernetes_pod_name]
+        action: replace
+        target_label: kubernetes_pod_name

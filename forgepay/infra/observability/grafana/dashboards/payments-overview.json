@@ -1,0 +1,186 @@
+{
+  "uid":         "forgepay-payments-overview",
+  "title":       "ForgePay — Payments Overview",
+  "description": "Real-time payment success rate, volume, latency, and error breakdown.",
+  "tags":        ["forgepay", "payments"],
+  "timezone":    "browser",
+  "refresh":     "30s",
+  "time":        { "from": "now-3h", "to": "now" },
+  "schemaVersion": 38,
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Success Rate (5 m)",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "thresholds": {
+          "mode": "absolute",
+          "steps": [
+            { "color": "red",    "value": null },
+            { "color": "yellow", "value": 0.90 },
+            { "color": "green",  "value": 0.97 }
+          ]
+        },
+        "unit": "percentunit"
+      },
+      "targets": [{
+        "datasource": "Prometheus",
+        "expr": "rate(forgepay_payments_total{status=\"succeeded\"}[5m]) / rate(forgepay_payments_total[5m])",
+        "legendFormat": "Success rate"
+      }]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Payments / min",
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "value",
+        "unit": "short"
+      },
+      "targets": [{
+        "datasource": "Prometheus",
+        "expr": "rate(forgepay_payments_total[1m]) * 60",
+        "legendFormat": "Payments/min"
+      }]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Revenue (1 h, USD)",
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "value",
+        "unit": "currencyUSD"
+      },
+      "targets": [{
+        "datasource": "Prometheus",
+        "expr": "increase(forgepay_payment_amount_usd_total{status=\"succeeded\"}[1h])",
+        "legendFormat": "Revenue"
+      }]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "p99 Latency",
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "thresholds": {
+          "mode": "absolute",
+          "steps": [
+            { "color": "green",  "value": null },
+            { "color": "yellow", "value": 1 },
+            { "color": "red",    "value": 3 }
+          ]
+        },
+        "unit": "s"
+      },
+      "targets": [{
+        "datasource": "Prometheus",
+        "expr": "histogram_quantile(0.99, rate(forgepay_payment_duration_seconds_bucket[5m]))",
+        "legendFormat": "p99"
+      }]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Payment Volume by Status",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "lineWidth": 2, "fillOpacity": 10 } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "succeeded" }, "properties": [{ "id": "color", "value": { "fixedColor": "#00F0FF", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "failed" },    "properties": [{ "id": "color", "value": { "fixedColor": "#F44336", "mode": "fixed" } }] }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "rate(forgepay_payments_total{status=\"succeeded\"}[5m]) * 60",
+          "legendFormat": "succeeded"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "rate(forgepay_payments_total{status=\"failed\"}[5m]) * 60",
+          "legendFormat": "failed"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "rate(forgepay_payments_total{status=\"processing\"}[5m]) * 60",
+          "legendFormat": "processing"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Payment Latency Percentiles",
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "fieldConfig": {
+        "defaults": { "unit": "s", "custom": { "lineWidth": 2 } }
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.50, rate(forgepay_payment_duration_seconds_bucket[5m]))",
+          "legendFormat": "p50"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.95, rate(forgepay_payment_duration_seconds_bucket[5m]))",
+          "legendFormat": "p95"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.99, rate(forgepay_payment_duration_seconds_bucket[5m]))",
+          "legendFormat": "p99"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "piechart",
+      "title": "Payment Methods",
+      "gridPos": { "x": 0, "y": 12, "w": 8, "h": 7 },
+      "options": { "pieType": "donut", "displayLabels": ["name", "percent"] },
+      "targets": [{
+        "datasource": "Prometheus",
+        "expr": "sum by (payment_method) (increase(forgepay_payments_total{status=\"succeeded\"}[1h]))",
+        "legendFormat": "{{ payment_method }}"
+      }]
+    },
+    {
+      "id": 8,
+      "type": "piechart",
+      "title": "Failure Reasons",
+      "gridPos": { "x": 8, "y": 12, "w": 8, "h": 7 },
+      "options": { "pieType": "donut", "displayLabels": ["name", "percent"] },
+      "targets": [{
+        "datasource": "Prometheus",
+        "expr": "sum by (error_code) (increase(forgepay_payments_total{status=\"failed\"}[1h]))",
+        "legendFormat": "{{ error_code }}"
+      }]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Webhook Delivery Success Rate",
+      "gridPos": { "x": 16, "y": 12, "w": 8, "h": 7 },
+      "fieldConfig": {
+        "defaults": { "unit": "percentunit", "min": 0, "max": 1, "custom": { "lineWidth": 2 } }
+      },
+      "targets": [{
+        "datasource": "Prometheus",
+        "expr": "rate(forgepay_webhook_delivery_total{status=\"delivered\"}[5m]) / rate(forgepay_webhook_delivery_total[5m])",
+        "legendFormat": "Delivery rate"
+      }]
+    }
+  ]
+}
