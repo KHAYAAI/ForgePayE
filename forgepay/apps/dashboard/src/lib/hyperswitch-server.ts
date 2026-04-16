@@ -1,8 +1,17 @@
 /**
  * Server-side Hyperswitch client for Next.js API routes.
  *
- * API key is read from environment — never exposed to the browser.
- * Each request extracts the merchant's API key from their session.
+ * API key is read from the merchant session server-side — never exposed to the browser.
+ * This module is ONLY imported from src/app/api/ route handlers (Node.js runtime).
+ *
+ * NOTE: `next: { revalidate: 0 }` disables Next.js fetch caching on every call.
+ * Payment data must NEVER be cached at the CDN or server layer — a refunded
+ * payment must show "refunded" immediately, not serve a cached "succeeded" response.
+ * If you switch to React Server Components for any payment data, keep this option.
+ *
+ * NOTE: Errors are surfaced as thrown Errors with the Hyperswitch error message.
+ * The API route handlers catch these and return HTTP 502 to the browser, so the
+ * UI can display "Payment engine unavailable" without leaking internal details.
  */
 
 const HS_BASE = process.env['HYPERSWITCH_BASE_URL'] ?? 'http://payment-engine:8080';

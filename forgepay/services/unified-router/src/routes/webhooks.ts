@@ -1,9 +1,34 @@
 /**
  * Webhook ingestion routes
  *
- * Each sub-service posts its raw webhook payload here.
- * We verify the HMAC signature, normalize to a canonical ForgePayEvent,
- * deduplicate via Redis, persist to Postgres, then fan-out to merchants.
+ * Each sub-service posts its raw webhook payload to the matching endpoint below.
+ * Every event travels the same 5-step pipeline (see handleIncomingWebhook):
+ *
+ *   Step 1 — Verify signature
+ *     verifyHmacSignature() checks the HMAC-SHA256 header using timingSafeEqual.
+ *     An invalid sig returns HTTP 401 immediately; no further processing.
+ *
+ *   Step 2 — Normalise
+ *     normalizeXxxEvent() maps the raw vendor payload to a canonical ForgePayEvent.
+ *     Returns null for unknown event types → we ACK with 200 and skip the rest.
+ *
+ *   Step 3 — Deduplicate
+ *     deduplicateEvent() writes sourceEventId to Redis with a 7-day TTL.
+ *     If the key already exists the event is a duplicate; we ACK and skip persist+dispatch.
+ *
+ *   Step 4 — Persist
+ *     persistEvent() INSERTs into forgepay_events with ON CONFLICT DO NOTHING
+ *     as a second idempotency guard (handles Redis eviction edge case).
+ *
+ *   Step 5 — Fan-out (fire-and-forget)
+ *     dispatchToMerchants() is called without await so we never delay the ACK.
+ *     NOTE: dispatchToMerchants is currently a stub — see lib/dispatch.ts.
+ *
+ * Webhook endpoints:
+ *   POST /webhooks/hyperswitch  ← payment-engine (Hyperswitch)
+ *   POST /webhooks/killbill     ← billing-engine (Kill Bill)
+ *   POST /webhooks/stablecoin   ← stablecoin-gateway (ZeroPay fork — NOT YET BUILT)
+ *   POST /webhooks/crypto       ← crypto-gateway (Keagate fork — NOT YET BUILT)
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';

@@ -161,6 +161,16 @@ async def retrieve_checkout_session(
     Retrieve a checkout session by ID.
     Used by the success/cancel redirect pages to confirm payment status.
     """
-    # TODO: look up session→payment_id mapping in Redis/DB
-    # For now, return a stub
+    # LAUNCH BLOCKER: this endpoint always returns 404. Merchants rely on it to
+    # confirm payment status after the Hyperswitch.js redirect (success_url / cancel_url).
+    #
+    # Real implementation:
+    #   1. On session creation (above), store:
+    #        await redis.set(f"session:{session_id}", payment_id, ex=3600)
+    #        await db.execute(INSERT INTO checkout_sessions ...)
+    #   2. Here, look up:
+    #        payment_id = await redis.get(f"session:{session_id}")
+    #        if not payment_id: payment_id = await db.fetchval(SELECT ... WHERE id = ...)
+    #        payment = await hs.retrieve_payment(payment_id)
+    #        return CheckoutSessionResponse(status=payment.status, ...)
     raise HTTPException(status_code=404, detail="Session not found")

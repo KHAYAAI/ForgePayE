@@ -2,10 +2,24 @@
 Shared HTTP transport layer for both sync (httpx.Client) and async (httpx.AsyncClient).
 
 Handles:
-- API key injection
-- Idempotency key header
-- Automatic retry on 429 / 5xx (up to 3 attempts, exponential back-off)
-- Typed error mapping via `errors.raise_for_status`
+- API key injection (Bearer token in Authorization header)
+- Idempotency key header (Idempotency-Key)
+- Automatic retry on 429 / 5xx (up to 3 attempts, exponential back-off: 1s, 2s, 4s)
+- Typed error mapping via errors.raise_for_status
+
+NOTE: SyncTransport uses time.sleep() — it will block the event loop if called
+  from async code. Always use AsyncTransport inside async def functions.
+  The top-level ForgePay class uses SyncTransport; AsyncForgePay uses AsyncTransport.
+
+NOTE: _RETRY_STATUS = {429, 500, 502, 503, 504}
+  We do NOT retry 400/401/403/404/422 — those are deterministic errors.
+  For 429, consider checking the Retry-After response header (not currently read)
+  for more accurate back-off timing.
+
+NOTE: httpx.Client / httpx.AsyncClient are reused per transport instance.
+  Close the transport (transport.close() / await transport.aclose()) when done,
+  or use the context manager protocol (with ForgePay(...) / async with AsyncForgePay(...)).
+  Failing to close leaks a connection pool.
 """
 
 from __future__ import annotations

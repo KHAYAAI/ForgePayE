@@ -10,7 +10,15 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 
-// Stub data — replace with real API call via SWR
+// LAUNCH BLOCKER: DATA is hardcoded — this chart never fetches real revenue.
+// Replace with:
+//   const { data } = useSWR('/api/analytics/revenue?days=15', fetcher);
+//   const chartData = data?.daily ?? DATA; // fall back to stub during loading
+//
+// The /api/analytics/revenue endpoint does not exist yet — it needs to be created
+// in src/app/api/analytics/revenue/route.ts, calling a daily-bucketed query on
+// Hyperswitch analytics or aggregating from the forgepay_events Postgres table.
+// The existing /api/analytics/summary route returns totals only (no daily series).
 const DATA = [
   { date: 'Apr 1',  revenue: 4200  },
   { date: 'Apr 3',  revenue: 6100  },

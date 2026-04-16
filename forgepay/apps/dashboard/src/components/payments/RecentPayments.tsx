@@ -2,6 +2,16 @@ import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 import PaymentStatusBadge from './PaymentStatusBadge';
 
+// LAUNCH BLOCKER: STUB_PAYMENTS is hardcoded test data — this component never calls
+// the API. Replace with a real data fetch:
+//
+//   'use client';
+//   import useSWR from 'swr';
+//   const { data, isLoading } = useSWR('/api/payments?limit=5', fetcher);
+//   const payments = data?.data ?? [];
+//
+// The API route (src/app/api/payments/route.ts) is already wired to Hyperswitch.
+// Add swr to package.json and delete STUB_PAYMENTS once connected.
 const STUB_PAYMENTS = [
   { id: 'pay_01HZ', amount: 4900,  currency: 'USD',  status: 'succeeded', method: 'card',  customer: 'alice@acme.io',     created: '2 min ago' },
   { id: 'pay_01HY', amount: 9900,  currency: 'USD',  status: 'succeeded', method: 'usdc',  customer: 'bob@startup.io',    created: '15 min ago' },

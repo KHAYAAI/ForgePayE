@@ -1,7 +1,19 @@
 /**
  * Server-side Kill Bill client for Next.js API routes.
  *
- * Kill Bill runs internally; credentials come from environment variables.
+ * Kill Bill runs internally (billing-engine:8080); credentials come from env vars.
+ *
+ * NOTE: Kill Bill requires THREE separate authentication layers on every request:
+ *   Authorization: Basic base64(username:password)   — Shiro HTTP auth
+ *   X-Killbill-ApiKey: <tenant key>                  — multi-tenant routing
+ *   X-Killbill-ApiSecret: <tenant secret>            — multi-tenant auth
+ * All three must match the tenant configured in Kill Bill's database.
+ * In production, source these from Kubernetes Secrets, not defaults.
+ *
+ * NOTE: Kill Bill organises subscriptions inside "Bundles" — one Bundle per
+ * subscription product (a customer buying two plans = two Bundles, each with
+ * a subscription object inside). listSubscriptions() flattens the bundle array
+ * for the dashboard view. The bundleId is needed for some cancellation calls.
  */
 
 const KB_BASE   = process.env['KILLBILL_BASE_URL']   ?? 'http://billing-engine:8080';

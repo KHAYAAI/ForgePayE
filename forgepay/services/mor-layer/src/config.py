@@ -42,6 +42,16 @@ class Settings(BaseSettings):
     taxjar_token:       str  = ""
 
     # ── Auth / JWT ────────────────────────────────────────────────────────
+    # LAUNCH BLOCKER: jwt_secret is defined here but NO FastAPI middleware uses it.
+    # All /v1/* routes are publicly accessible without any token.
+    # To fix:
+    #   1. pip install python-jose[cryptography] passlib[bcrypt]
+    #   2. Create src/auth/dependencies.py:
+    #        from fastapi.security import OAuth2PasswordBearer
+    #        oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/v1/auth/token")
+    #        async def get_current_merchant(token: str = Depends(oauth2_scheme)) -> Merchant: ...
+    #   3. Add Depends(get_current_merchant) to every protected route handler.
+    # See FastAPI security docs: https://fastapi.tiangolo.com/tutorial/security/
     jwt_secret:       str = "dev-jwt-secret-change-me"
     jwt_algorithm:    str = "HS256"
     jwt_expire_mins:  int = 60

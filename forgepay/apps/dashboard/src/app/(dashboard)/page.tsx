@@ -16,6 +16,14 @@ export default function OverviewPage() {
       </div>
 
       {/* Stats grid */}
+      {/* LAUNCH BLOCKER: all four StatCard values below are hardcoded.
+          Replace with a server component that fetches from GET /api/analytics/summary
+          and passes the real values as props, or use useSWR in a Client Component:
+            const { data } = useSWR('/api/analytics/summary?days=30', fetcher);
+          Map: data.gross_revenue_cents / 100 → Gross Revenue
+               data.successful_count          → Successful Payments
+               subscriptions API count        → Active Subscriptions
+               customers API count            → Active Customers                 */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           title="Gross Revenue"

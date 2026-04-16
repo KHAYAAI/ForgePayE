@@ -17,7 +17,14 @@ export default function LoginForm() {
     setLoading(true);
     setError('');
     try {
-      // TODO: wire to next-auth signIn('credentials', ...)
+      // LAUNCH BLOCKER: this is a fake 800ms delay — no real authentication happens.
+      // Replace with:
+      //   import { signIn } from 'next-auth/react';
+      //   const result = await signIn('credentials', { email, password, redirect: false });
+      //   if (result?.error) throw new Error(result.error);
+      //   router.push('/');
+      // You also need src/app/api/auth/[...nextauth]/route.ts with a CredentialsProvider
+      // that validates against the merchants table and returns a JWT with the API key.
       await new Promise((r) => setTimeout(r, 800));
       router.push('/');
     } catch {

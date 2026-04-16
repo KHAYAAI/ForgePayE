@@ -36,7 +36,13 @@ class TaxResult:
 
 # ── Internal rules engine ─────────────────────────────────────────────────────
 
-# EU VAT rates for digital services (standard rates, 2025)
+# NOTE: EU VAT — OSS (One Stop Shop) rules since July 2021.
+# For digital services sold B2C across EU borders, you charge the buyer's country
+# rate (not your home country's) once you exceed €10,000/yr in cross-border sales.
+# The rates below are the standard rates for digital services (2025).
+# Reduced rates exist for some categories (e.g. e-books in many countries) — use
+# Avalara/TaxJar if your product catalog needs reduced-rate rules.
+# Reference: https://taxation-customs.ec.europa.eu/vies-vat-information-exchange-system-en
 _EU_VAT_RATES: dict[str, Decimal] = {
     "AT": Decimal("0.20"), "BE": Decimal("0.21"), "BG": Decimal("0.20"),
     "CY": Decimal("0.19"), "CZ": Decimal("0.21"), "DE": Decimal("0.19"),
@@ -49,7 +55,12 @@ _EU_VAT_RATES: dict[str, Decimal] = {
     "SE": Decimal("0.25"), "SI": Decimal("0.22"), "SK": Decimal("0.20"),
 }
 
-# Simplified US state sales tax rates (use Avalara/TaxJar for exact address-level)
+# NOTE: US sales tax — economic nexus rules (post South Dakota v. Wayfair 2018).
+# Once you exceed $100,000 in sales OR 200 transactions in a state you have nexus
+# and must collect sales tax there. The rates below are state-level base rates only —
+# many states have county and city surcharges on top (e.g. California base is 7.25%
+# but LA county adds 2.25%). Use Avalara or TaxJar for address-level accuracy.
+# States with 0% rate (AK, DE, MT, NH, OR) have no state sales tax.
 _US_STATE_RATES: dict[str, Decimal] = {
     "AL": Decimal("0.04"), "AK": Decimal("0.00"), "AZ": Decimal("0.056"),
     "AR": Decimal("0.065"), "CA": Decimal("0.0725"), "CO": Decimal("0.029"),

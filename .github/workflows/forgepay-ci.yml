@@ -1,3 +1,27 @@
+# ARCH: ForgePay CI — GitHub Actions
+#
+# Job graph (all jobs run in parallel — no cross-job dependencies):
+#   unified-router  → lint + tsc + vitest
+#   mor-layer       → ruff + mypy + pytest
+#   web             → tsc + next build
+#   dashboard       → tsc + next build
+#   sdk-js          → tsc + vitest + tsup build
+#   sdk-python      → ruff + mypy + pytest
+#   helm-lint       → helm lint (forgepay-stack + unified-router + monitoring)
+#
+# NOTE: paths filter — CI only runs when files under forgepay/** or this workflow
+#   file change. Rust changes (crates/**) skip this workflow entirely and run
+#   through the separate Hyperswitch CI. This avoids 10-minute Rust compile times
+#   on every TypeScript/Python commit.
+#
+# NOTE: concurrency group cancels in-progress runs on the same branch ref so that
+#   rapid-fire commits don't queue up redundant CI runs. cancel-in-progress: true
+#   is safe here because we never run DB migrations in CI.
+#
+# NOTE: helm-lint uses `|| true` for the monitoring chart because chart-testing
+#   requires a Kubernetes cluster for template rendering — lint-only mode still
+#   catches YAML syntax errors and required-value violations.
+
 name: "ForgePay CI"
 
 on:

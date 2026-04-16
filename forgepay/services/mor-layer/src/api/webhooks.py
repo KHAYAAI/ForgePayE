@@ -99,10 +99,16 @@ async def _handle_payment_succeeded(event: dict, cfg: Settings) -> None:
         "Payment succeeded: payment_id=%s session_id=%s merchant_id=%s",
         payment_id, session_id, merchant_id,
     )
-    # TODO:
-    # 1. Update checkout_sessions table: status → "completed"
-    # 2. Emit fulfillment event (provision product, send license, etc.)
-    # 3. Queue receipt email
+    # LAUNCH BLOCKER: no business logic runs on payment success. Merchants will
+    # never receive fulfillment (SaaS provisioning, license keys, downloads, etc.)
+    # and no receipts will be sent. Implement before accepting real payments:
+    #
+    # 1. UPDATE checkout_sessions SET status='completed', completed_at=now()
+    #      WHERE id = session_id
+    # 2. Look up the merchant's fulfillment_webhook_url and POST the order details
+    #    (or directly provision via the merchant's fulfillment provider API).
+    # 3. Enqueue a receipt email task (e.g., via a Celery/ARQ worker):
+    #      await queue.enqueue('send_receipt', payment_id=payment_id, ...)
 
 
 async def _handle_payment_failed(event: dict, cfg: Settings) -> None:
@@ -121,9 +127,16 @@ async def _handle_payment_failed(event: dict, cfg: Settings) -> None:
         "Payment failed: payment_id=%s error=%s session=%s",
         payment_id, error_message, metadata.get("forgepay_session_id", ""),
     )
-    # TODO:
-    # 1. Update checkout_sessions table: status → "failed"
-    # 2. If subscription: notify billing-engine to start dunning
+    # LAUNCH BLOCKER: no action taken on payment failure. Without this:
+    # - Merchants see successful payments in their dashboard but no failures logged.
+    # - Subscription dunning never starts (Kill Bill won't know to retry).
+    #
+    # 1. UPDATE checkout_sessions SET status='failed', failure_reason=error_message
+    #      WHERE id = session_id
+    # 2. If metadata["forgepay_subscription_id"] is set, POST to Kill Bill:
+    #      POST /1.0/kb/accounts/{account_id}/payments?externalKey=... (retry trigger)
+    #    or let Kill Bill's org.killbill.payment.retry.days schedule handle it
+    #    automatically once the payment plugin returns PAYMENT_FAILURE.
 
 
 async def _forward_to_unified_router(

@@ -64,7 +64,11 @@ export function normalizeHyperswitchEvent(
   const data: PaymentEventData = {
     paymentId:      obj.payment_id ?? '',
     amount: {
-      // Hyperswitch sends amounts in smallest currency unit (cents)
+      // NOTE: Hyperswitch (and Stripe) represent amounts as integers in the smallest
+      // currency unit — cents for USD/EUR, pence for GBP, sen for JPY is an exception
+      // (JPY has no sub-unit so 1 JPY is stored as 1, not 100).
+      // We normalise to a human-readable decimal string ("49.00") for all downstream
+      // consumers. Never store floating point for currency — use Decimal or integer cents.
       value:    obj.amount != null ? (obj.amount / 100).toFixed(2) : '0.00',
       currency: obj.currency ?? 'USD',
     },

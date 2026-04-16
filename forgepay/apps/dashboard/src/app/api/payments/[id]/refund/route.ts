@@ -12,6 +12,10 @@ export async function POST(
     const apiKey = await getSessionApiKey();
     const { id } = await params;
 
+    // NOTE: amount is optional — omitting it triggers a full refund in Hyperswitch.
+    // Partial refunds require amount in the smallest currency unit (cents).
+    // Example: { "amount": 2500 } refunds $25.00 of a $49.00 payment.
+    // Multiple partial refunds are allowed up to the original payment total.
     let amount: number | undefined;
     try {
       const body = await req.json() as { amount?: number };

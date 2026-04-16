@@ -1,6 +1,17 @@
 /**
  * HMAC-SHA256 signature verification for incoming webhooks.
  * Uses Node.js built-in `crypto` — no external deps.
+ *
+ * NOTE: timingSafeEqual is REQUIRED here, not a nice-to-have.
+ * A naive string comparison (sig === expected) leaks timing information —
+ * an attacker can measure how long the comparison takes to determine how many
+ * leading characters of their forged signature are correct, eventually guessing
+ * the full HMAC through repeated tries. timingSafeEqual always takes the same
+ * time regardless of where the strings differ, closing that side-channel.
+ *
+ * NOTE: We return false (not throw) for any invalid input (empty secret, wrong
+ * length buffer, non-hex string) so the caller always gets a boolean and can
+ * safely return HTTP 401 without leaking exception details to the requester.
  */
 
 import { createHmac, timingSafeEqual } from 'node:crypto';

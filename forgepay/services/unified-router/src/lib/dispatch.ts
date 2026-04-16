@@ -16,10 +16,17 @@ import type { ForgePayEvent } from '../types/events.js';
 const RETRY_DELAYS_MS = [1_000, 5_000, 30_000, 120_000, 600_000]; // 1s, 5s, 30s, 2m, 10m
 
 export async function dispatchToMerchants(event: ForgePayEvent): Promise<void> {
-  // TODO: look up merchant webhook endpoints from DB
-  // For now, this is the stub — real implementation queries:
-  //   SELECT endpoint_url, signing_secret FROM merchant_webhook_endpoints
+  // LAUNCH BLOCKER: endpoints is always an empty array — no webhooks are EVER delivered
+  // to merchants. The retry logic below is complete, but it never runs.
+  //
+  // Real implementation: inject the db pool (pass as parameter or use app decorator),
+  // then query:
+  //   SELECT endpoint_url, signing_secret
+  //   FROM merchant_webhook_endpoints
   //   WHERE merchant_id = $1 AND enabled = true
+  //
+  // Also write each delivery attempt to the webhook_delivery_log table so the
+  // dashboard Webhooks page can show delivery history.
   const endpoints: Array<{ url: string; secret: string }> = [];
 
   await Promise.allSettled(

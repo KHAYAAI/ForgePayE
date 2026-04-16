@@ -1,13 +1,42 @@
 """
 Top-level ForgePay SDK clients — sync and async.
 
-    # Sync
-    fp = ForgePay(api_key="sk_live_...")
-    payment = fp.payments.create(amount=4900, currency="USD", ...)
+Quick-start::
 
-    # Async
+    # Sync — use as a context manager to ensure the connection pool is closed
+    with ForgePay(api_key="sk_live_...") as fp:
+        payment = fp.payments.create(amount=4900, currency="USD",
+                                     customer_id="cus_abc",
+                                     idempotency_key=f"order_{order_id}")
+
+    # Async — always use `async with` so aclose() is called on exit
     async with AsyncForgePay(api_key="sk_live_...") as fp:
         payment = await fp.payments.create(amount=4900, currency="USD", ...)
+
+    # Webhook verification (no transport needed — static method)
+    event = ForgePay.webhooks.construct_event(
+        raw_body,                        # bytes
+        request.headers["forgepay-signature"],
+        os.environ["FORGEPAY_WEBHOOK_SECRET"],
+    )
+
+NOTE: Instantiate ForgePay / AsyncForgePay once at application startup and
+  reuse the instance. Each instance holds an httpx connection pool; creating
+  one per request leaks connections. Use the context manager protocol (with /
+  async with) or call .close() / await .aclose() explicitly on shutdown.
+
+NOTE: ForgePay.webhooks is a class attribute pointing at the WebhookResource
+  *class* (not an instance). construct_event() is a @staticmethod, so it can
+  be called without an API key — only the webhook secret is required. The
+  signature is HMAC-SHA256 over the raw request body; always pass raw bytes
+  before any JSON decoding to avoid encoding mismatches.
+
+NOTE: All amounts are in the smallest currency unit (cents for USD/EUR/GBP).
+  JPY has no sub-unit — pass the full yen amount. Never use float arithmetic
+  for currency; use int cents throughout.
+
+NOTE: SyncTransport uses time.sleep() and will block the event loop if called
+  from an async context. Always use AsyncForgePay inside async def functions.
 """
 
 from __future__ import annotations

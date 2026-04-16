@@ -3,6 +3,16 @@
 import Link from 'next/link';
 import PaymentStatusBadge from './PaymentStatusBadge';
 
+// LAUNCH BLOCKER: PAYMENTS is procedurally generated mock data — this component
+// never calls the API. Replace with a real fetch + pagination:
+//
+//   const [page, setPage] = useState(1);
+//   const { data } = useSWR(`/api/payments?limit=20&cursor=${cursor}`, fetcher);
+//   const payments = data?.data ?? [];
+//
+// The API route (src/app/api/payments/route.ts) forwards all query params to
+// Hyperswitch, so status filters, cursor pagination, and date ranges all work
+// once this component is connected. Delete PAYMENTS once live.
 const PAYMENTS = Array.from({ length: 20 }, (_, i) => ({
   id:       `pay_01H${String(90 - i).padStart(2, '0')}`,
   amount:   [4900, 9900, 19900, 2900, 29900, 4900][i % 6],

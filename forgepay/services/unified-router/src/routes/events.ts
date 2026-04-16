@@ -1,5 +1,18 @@
 /**
  * Event query API — allows the dashboard and merchants to query the event log.
+ *
+ * LAUNCH BLOCKER: This route has NO authentication. Any caller who knows a
+ * merchant_id can read that merchant's full event history (payment amounts,
+ * customer IDs, etc.). This is a data-privacy and PCI scope violation.
+ *
+ * To fix, add an API key or JWT check before executing the DB query:
+ *   const authHeader = req.headers.authorization;
+ *   if (!authHeader?.startsWith('Bearer ')) { reply.code(401).send(...); return; }
+ *   const apiKey = authHeader.slice(7);
+ *   // Look up apiKey in the merchant_api_keys table, verify it matches merchant_id.
+ *
+ * The dashboard calls this via the Next.js API proxy (src/app/api/), which injects
+ * the key server-side, so the fix should not break the dashboard flow.
  */
 
 import type { FastifyInstance } from 'fastify';

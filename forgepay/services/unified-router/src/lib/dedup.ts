@@ -1,6 +1,21 @@
 /**
  * Event deduplication using Redis.
- * We use a 7-day TTL — long enough to catch retries, short enough to avoid unbounded growth.
+ *
+ * NOTE: Why 7 days?
+ *   Payment processors (Hyperswitch, Kill Bill) guarantee at-least-once delivery —
+ *   they will retry a webhook until they receive HTTP 2xx. Retries can occur up to
+ *   72 hours after the original event. 7 days gives a comfortable buffer beyond
+ *   the longest retry window of any upstream service we integrate with.
+ *
+ * NOTE: Key schema — fp:dedup:event:{sourceEventId}
+ *   sourceEventId comes from the upstream vendor's own event ID (e.g. Hyperswitch's
+ *   event_id field). This ensures we deduplicate against the vendor's idempotency
+ *   unit, not our own generated IDs.
+ *
+ * NOTE: The Postgres INSERT (ON CONFLICT DO NOTHING) in routes/webhooks.ts is a
+ *   second idempotency layer that catches duplicates if Redis evicts a key early
+ *   (LRU pressure). The DB unique index on source_event_id is the hard guarantee;
+ *   Redis is the fast path that avoids hitting the DB for retries.
  */
 
 const DEDUP_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 days

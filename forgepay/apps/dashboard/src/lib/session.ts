@@ -22,12 +22,22 @@ export class UnauthorizedError extends Error {
  * Replace the cookie read with `getServerSession()` once next-auth is wired.
  */
 export async function getSessionApiKey(): Promise<string> {
+  // LAUNCH BLOCKER: this reads a plain cookie — there is no real session validation.
+  // Once next-auth is wired, replace the entire body with:
+  //   import { getServerSession } from 'next-auth';
+  //   import { authOptions } from '@/app/api/auth/[...nextauth]/route';
+  //   const session = await getServerSession(authOptions);
+  //   if (!session?.user?.apiKey) throw new UnauthorizedError();
+  //   return session.user.apiKey;
+  // The JWT callback in authOptions should embed the merchant's Hyperswitch API key
+  // (looked up from the merchants table during sign-in and stored encrypted in the token).
+
   // 1. Session cookie set by next-auth JWT (placeholder until auth is wired)
   const jar = await cookies();
   const sessionKey = jar.get('fp_api_key')?.value;
   if (sessionKey) return sessionKey;
 
-  // 2. Dev / CI fallback — never set in production Helm values
+  // 2. Dev / CI fallback — HYPERSWITCH_MERCHANT_API_KEY must NEVER be set in production
   const envKey = process.env['HYPERSWITCH_MERCHANT_API_KEY'];
   if (envKey) return envKey;
 

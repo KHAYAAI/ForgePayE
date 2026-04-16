@@ -1,6 +1,39 @@
 /**
- * ForgePay main client class.
- * Instantiate this once and reuse across your application.
+ * ForgePay JavaScript/TypeScript SDK — main entry point.
+ *
+ * Quick-start:
+ * ```ts
+ * import { ForgePay } from '@forgepay/sdk';
+ *
+ * const fp = new ForgePay({ apiKey: process.env.FORGEPAY_API_KEY! });
+ *
+ * // Create a payment (amount in smallest currency unit — cents for USD)
+ * const payment = await fp.payments.create({
+ *   amount: 4900,           // $49.00
+ *   currency: 'USD',
+ *   customerId: 'cus_abc',
+ *   idempotencyKey: `order_${orderId}`,  // always use a stable key
+ * });
+ *
+ * // Verify a webhook (in your POST /webhooks handler)
+ * const event = ForgePay.webhooks.constructEvent(
+ *   rawBody,                           // Buffer or string
+ *   request.headers['forgepay-signature'],
+ *   process.env.FORGEPAY_WEBHOOK_SECRET!,
+ * );
+ * ```
+ *
+ * NOTE: Instantiate ForgePay once at module load time and reuse it.
+ *   Each instance creates an httpx connection pool; creating one per request
+ *   leaks connections and will hit open-file-descriptor limits under load.
+ *
+ * NOTE: ForgePay.webhooks is a static property pointing at the WebhooksResource
+ *   class itself (not an instance). constructEvent() is a static method so it
+ *   can be called without an API key — webhook verification only needs the secret.
+ *
+ * NOTE: All resource methods accept amounts in the smallest currency unit
+ *   (cents for USD/EUR/GBP, etc.). JPY has no sub-unit — pass the full yen amount.
+ *   Never use floating-point arithmetic for currency; use integer cents throughout.
  */
 
 import { FPHttpClient, type FPClientOptions } from './client.js';

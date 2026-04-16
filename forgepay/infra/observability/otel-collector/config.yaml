@@ -1,5 +1,29 @@
-# OpenTelemetry Collector configuration for ForgePay
-# Receives OTLP from all services, exports to Prometheus + Jaeger (or Tempo).
+# ARCH: ForgePay OTel Collector
+# Role: Central telemetry aggregator. All ForgePay services emit OTLP to this
+#   collector; it fans out to Prometheus (metrics) and Jaeger (traces).
+#
+# Pipelines:
+#   traces:  otlp → filter/drop_health → resource → memory_limiter → batch → jaeger
+#   metrics: otlp + hostmetrics → resource → memory_limiter → batch → prometheus
+#   logs:    otlp → resource → memory_limiter → batch → stdout (docker logs / Loki)
+#
+# NOTE: filter/drop_health drops /healthz and /readyz spans before they reach
+#   Jaeger. These endpoints fire every 5 s per service — without the filter they
+#   would account for >90 % of spans and obscure real traffic in the trace UI.
+#   The filter uses OTTL span attribute matching (OTel Transformation Language).
+#
+# NOTE: memory_limiter sits before batch in every pipeline. The limiter starts
+#   dropping telemetry at 75 % heap and refuses new data at 90 % (spike_limit adds
+#   25 pp on top of limit_percentage). This prevents OOM during traffic spikes at
+#   the cost of some data loss — acceptable for observability, never for payments.
+#
+# NOTE: Prometheus scrapes :8889/metrics (pulled, not pushed). The prometheus
+#   exporter adds a "forgepay_" namespace prefix to all metric names and enables
+#   resource_to_telemetry_conversion so service.name / service.version become
+#   Prometheus labels — required for Grafana dashboard variables.
+#
+# NOTE: To swap Jaeger for Grafana Tempo, change the otlp/jaeger endpoint to
+#   the Tempo OTLP gRPC address and set tls.insecure: false in production.
 
 receivers:
   otlp:

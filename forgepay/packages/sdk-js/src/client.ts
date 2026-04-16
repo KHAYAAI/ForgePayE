@@ -5,6 +5,24 @@
  * - Automatic retries with exponential backoff on 429 / 5xx
  * - Idempotency key injection
  * - Full TypeScript types
+ *
+ * NOTE: Retry strategy — RETRY_DELAYS_MS = [500ms, 1500ms, 5000ms]
+ *   We retry on: 429 (rate limit), 500, 502, 503, 504 (transient server errors).
+ *   We do NOT retry on: 400, 401, 403, 404, 422 — these are deterministic failures
+ *   where retrying would change nothing (bad request, bad creds, not found, etc.).
+ *   For 429, we also honour the Retry-After header if the server sends one.
+ *
+ * NOTE: Idempotency keys — pass `{ idempotencyKey: 'your-uuid' }` as the third
+ *   argument to post(). Hyperswitch uses this to deduplicate payment creates.
+ *   Always supply a stable key derived from your order ID, not a random UUID per
+ *   call, so retries on network failures don't create duplicate charges.
+ *
+ * NOTE: All errors are typed. Catch specific subclasses for graceful handling:
+ *   catch (e) {
+ *     if (e instanceof RateLimitError) { // back off and retry }
+ *     if (e instanceof AuthenticationError) { // show "invalid API key" to user }
+ *     if (e instanceof InvalidRequestError) { // show e.message — safe for display }
+ *   }
  */
 
 import {

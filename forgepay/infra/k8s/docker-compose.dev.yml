@@ -1,7 +1,29 @@
 version: "3.9"
 
-# ForgePay local development stack
+# ARCH: ForgePay local development stack
 # Usage: docker compose -f forgepay/infra/k8s/docker-compose.dev.yml up
+#
+# Port map (host → container):
+#   5432  → postgres        PostgreSQL (shared by all services)
+#   6379  → redis           Redis (dedup, cache, idempotency keys)
+#   8000  → unified-router  Internal event bus  (POST /webhooks/*, GET /events)
+#   8010  → mor-layer       MoR + tax + checkout (POST /v1/checkout/sessions)
+#   8080  → payment-engine  Hyperswitch REST API (POST /payments, GET /payments/:id)
+#   3000  → web             Marketing site
+#   3001  → grafana         Grafana dashboards    (admin / devpassword)
+#   4317  → otel-collector  OTLP gRPC receiver    (from all services)
+#   4318  → otel-collector  OTLP HTTP receiver
+#   8889  → otel-collector  Prometheus metrics scrape endpoint
+#   9090  → prometheus      Prometheus UI + query API
+#   16686 → jaeger          Jaeger trace UI
+#
+# NOTE: billing-engine (Kill Bill, port 8021) is NOT in this compose file.
+# Run it separately: cd forgepay/services/billing-engine && docker compose up
+#
+# NOTE: stablecoin-gateway and crypto-gateway are not yet implemented — no entries.
+#
+# All passwords here are dev-only. Production secrets come from Kubernetes Secrets
+# (managed by Vault / AWS Secrets Manager, never committed to the repo).
 
 networks:
   forgepay:
