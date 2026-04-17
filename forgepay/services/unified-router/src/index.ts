@@ -9,8 +9,8 @@
  * Inbound sources (POST /webhooks/<source>):
  *   payment-engine  → /webhooks/hyperswitch   (Hyperswitch Rust router)
  *   billing-engine  → /webhooks/killbill      (Kill Bill Java)
- *   stablecoin-gw   → /webhooks/stablecoin    (ZeroPay fork — NOT YET BUILT)
- *   crypto-gw       → /webhooks/crypto        (Keagate fork — NOT YET BUILT)
+ *   stablecoin-gw   → /webhooks/stablecoin    (USDC/USDT + x402 — port 8020)
+ *   crypto-gw       → /webhooks/crypto        (BTC/ETH/LTC/XMR invoices — port 8030)
  *
  * Outbound (async fan-out):
  *   → merchant webhook endpoints in DB (POST with HMAC-SHA256 signed payload)

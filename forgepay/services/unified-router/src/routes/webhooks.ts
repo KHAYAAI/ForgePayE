@@ -27,8 +27,8 @@
  * Webhook endpoints:
  *   POST /webhooks/hyperswitch  ← payment-engine (Hyperswitch)
  *   POST /webhooks/killbill     ← billing-engine (Kill Bill)
- *   POST /webhooks/stablecoin   ← stablecoin-gateway (ZeroPay fork — NOT YET BUILT)
- *   POST /webhooks/crypto       ← crypto-gateway (Keagate fork — NOT YET BUILT)
+ *   POST /webhooks/stablecoin   ← stablecoin-gateway (USDC/USDT + x402 — port 8020)
+ *   POST /webhooks/crypto       ← crypto-gateway (BTC/ETH/LTC/XMR invoices — port 8030)
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
