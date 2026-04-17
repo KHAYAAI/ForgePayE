@@ -1,0 +1,6 @@
+apiVersion: v2
+name: stablecoin-gateway
+description: "ForgePay Stablecoin Gateway — USDC/USDT deposits + x402 agent payments"
+type: application
+version: 0.1.0
+appVersion: "2026.04.15"

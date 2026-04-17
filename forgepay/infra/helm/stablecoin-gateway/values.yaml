@@ -1,0 +1,53 @@
+replicaCount: 2
+
+image:
+  repository: forgepay/stablecoin-gateway
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8020
+
+env:
+  NODE_ENV: production
+  LOG_LEVEL: info
+  PORT: "8020"
+
+# Secrets injected via K8s secret refs — not hardcoded here
+secretRef: "forgepay-stablecoin-gateway-secrets"
+# Expected keys in that secret:
+#   POSTGRES_PASSWORD
+#   INTERNAL_WEBHOOK_SECRET
+#   ETH_RPC_URL      (Alchemy/Infura/QuickNode Ethereum mainnet)
+#   POLYGON_RPC_URL
+#   BASE_RPC_URL
+#   ARBITRUM_RPC_URL
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "256Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 8
+  targetCPUUtilizationPercentage: 70
+
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: 8020
+  initialDelaySeconds: 10
+  periodSeconds: 15
+
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: 8020
+  initialDelaySeconds: 5
+  periodSeconds: 10

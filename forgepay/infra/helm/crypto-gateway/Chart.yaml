@@ -1,0 +1,6 @@
+apiVersion: v2
+name: crypto-gateway
+description: "ForgePay Crypto Gateway — Bitcoin, Ethereum, Litecoin, Monero invoices"
+type: application
+version: 0.1.0
+appVersion: "2026.04.15"

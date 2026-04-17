@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "stablecoin-gateway.fullname" . }}
+  labels:
+    {{- include "stablecoin-gateway.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "stablecoin-gateway.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "stablecoin-gateway.selectorLabels" . | nindent 8 }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      containers:
+        - name: stablecoin-gateway
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8020
+              protocol: TCP
+          env:
+            - name: NODE_ENV
+              value: {{ .Values.env.NODE_ENV | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.env.LOG_LEVEL | quote }}
+            - name: PORT
+              value: {{ .Values.env.PORT | quote }}
+            - name: POSTGRES_HOST
+              value: {{ .Values.global.postgresql.host | default "forgepay-postgresql" | quote }}
+            - name: POSTGRES_PORT
+              value: {{ .Values.global.postgresql.port | default 5432 | quote }}
+            - name: POSTGRES_DB
+              value: {{ .Values.global.postgresql.database | default "forgepay" | quote }}
+            - name: POSTGRES_USER
+              value: "forgepay"
+            - name: REDIS_URL
+              value: {{ .Values.global.redis.url | default "redis://forgepay-redis-master:6379" | quote }}
+            - name: UNIFIED_ROUTER_URL
+              value: {{ .Values.global.unifiedRouterUrl | default "http://forgepay-unified-router:8000" | quote }}
+          envFrom:
+            - secretRef:
+                name: {{ .Values.secretRef }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
