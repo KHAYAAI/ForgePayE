@@ -163,7 +163,8 @@ async function handleIncomingWebhook({
   await persistEvent((req.server as { db: unknown }).db, event);
 
   // 5. Fan-out to merchant webhook endpoints (async — don't block ack)
-  dispatchToMerchants(event).catch((err) =>
+  const db = (req.server as { db: unknown }).db;
+  dispatchToMerchants(event, db as Parameters<typeof dispatchToMerchants>[1]).catch((err) =>
     logger.error({ err, eventId: event.id }, 'Merchant dispatch error'),
   );
 

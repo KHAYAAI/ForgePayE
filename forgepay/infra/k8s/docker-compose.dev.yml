@@ -111,6 +111,52 @@ services:
       redis:    { condition: service_healthy }
     networks: [forgepay]
 
+  # ── Stablecoin Gateway ────────────────────────────────────────────────
+  stablecoin-gateway:
+    build:
+      context: ../../services/stablecoin-gateway
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV:                    development
+      PORT:                        "8020"
+      POSTGRES_HOST:               postgres
+      POSTGRES_PORT:               "5432"
+      POSTGRES_DB:                 forgepay_dev
+      POSTGRES_USER:               forgepay
+      POSTGRES_PASSWORD:           devpassword
+      REDIS_URL:                   redis://redis:6379
+      UNIFIED_ROUTER_URL:          http://unified-router:8000
+      INTERNAL_WEBHOOK_SECRET:     dev-internal-secret-change-me
+    ports:
+      - "8020:8020"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis:    { condition: service_healthy }
+    networks: [forgepay]
+
+  # ── Crypto Gateway ─────────────────────────────────────────────────────
+  crypto-gateway:
+    build:
+      context: ../../services/crypto-gateway
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV:                    development
+      PORT:                        "8030"
+      POSTGRES_HOST:               postgres
+      POSTGRES_PORT:               "5432"
+      POSTGRES_DB:                 forgepay_dev
+      POSTGRES_USER:               forgepay
+      POSTGRES_PASSWORD:           devpassword
+      REDIS_URL:                   redis://redis:6379
+      UNIFIED_ROUTER_URL:          http://unified-router:8000
+      INTERNAL_WEBHOOK_SECRET:     dev-internal-secret-change-me
+    ports:
+      - "8030:8030"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis:    { condition: service_healthy }
+    networks: [forgepay]
+
   # ── Marketing site ─────────────────────────────────────────────────────
   web:
     build:

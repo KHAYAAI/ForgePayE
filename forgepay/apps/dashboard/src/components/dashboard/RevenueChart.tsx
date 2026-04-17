@@ -1,34 +1,13 @@
 'use client';
 
+import { useState } from 'react';
+import useSWR from 'swr';
 import {
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
+  AreaChart, Area, XAxis, YAxis,
+  CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
 
-// LAUNCH BLOCKER: DATA is hardcoded — this chart never fetches real revenue.
-// Replace with:
-//   const { data } = useSWR('/api/analytics/revenue?days=15', fetcher);
-//   const chartData = data?.daily ?? DATA; // fall back to stub during loading
-//
-// The /api/analytics/revenue endpoint does not exist yet — it needs to be created
-// in src/app/api/analytics/revenue/route.ts, calling a daily-bucketed query on
-// Hyperswitch analytics or aggregating from the forgepay_events Postgres table.
-// The existing /api/analytics/summary route returns totals only (no daily series).
-const DATA = [
-  { date: 'Apr 1',  revenue: 4200  },
-  { date: 'Apr 3',  revenue: 6100  },
-  { date: 'Apr 5',  revenue: 5800  },
-  { date: 'Apr 7',  revenue: 8400  },
-  { date: 'Apr 9',  revenue: 7200  },
-  { date: 'Apr 11', revenue: 9600  },
-  { date: 'Apr 13', revenue: 11200 },
-  { date: 'Apr 15', revenue: 10800 },
-];
+const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
 interface TooltipProps {
   active?:  boolean;
@@ -46,28 +25,43 @@ function CustomTooltip({ active, payload, label }: TooltipProps) {
   );
 }
 
+const PERIOD_OPTIONS = [
+  { label: '7d',  days: 7  },
+  { label: '30d', days: 30 },
+  { label: '90d', days: 90 },
+];
+
 export default function RevenueChart() {
+  const [days, setDays] = useState(15);
+  const { data } = useSWR(`/api/analytics/revenue?days=${days}`, fetcher);
+  const chartData = data?.daily ?? [];
+
   return (
     <div className="card p-5">
       <div className="flex items-center justify-between mb-5">
         <div>
           <h3 className="text-sm font-semibold text-white">Revenue</h3>
-          <p className="text-xs text-gray-400">Last 15 days</p>
+          <p className="text-xs text-gray-400">Last {days} days</p>
         </div>
         <div className="flex gap-1.5">
-          {['7d', '30d', '90d'].map((p) => (
+          {PERIOD_OPTIONS.map((p) => (
             <button
-              key={p}
-              className="text-[10px] px-2 py-0.5 rounded border border-white/10 text-gray-400 hover:text-white hover:border-white/20 transition-colors first:bg-white/[0.05] first:text-white"
+              key={p.label}
+              onClick={() => setDays(p.days)}
+              className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${
+                days === p.days
+                  ? 'bg-white/[0.05] text-white border-white/20'
+                  : 'border-white/10 text-gray-400 hover:text-white hover:border-white/20'
+              }`}
             >
-              {p}
+              {p.label}
             </button>
           ))}
         </div>
       </div>
 
       <ResponsiveContainer width="100%" height={200}>
-        <AreaChart data={DATA} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+        <AreaChart data={chartData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
           <defs>
             <linearGradient id="cyanGrad" x1="0" y1="0" x2="0" y2="1">
               <stop offset="5%"  stopColor="#00F0FF" stopOpacity={0.15} />
@@ -75,12 +69,7 @@ export default function RevenueChart() {
             </linearGradient>
           </defs>
           <CartesianGrid strokeDasharray="3 3" stroke="#ffffff08" />
-          <XAxis
-            dataKey="date"
-            tick={{ fill: '#8898AA', fontSize: 10 }}
-            axisLine={false}
-            tickLine={false}
-          />
+          <XAxis dataKey="date" tick={{ fill: '#8898AA', fontSize: 10 }} axisLine={false} tickLine={false} />
           <YAxis
             tickFormatter={(v) => `$${(v / 100).toFixed(0)}`}
             tick={{ fill: '#8898AA', fontSize: 10 }}

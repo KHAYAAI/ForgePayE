@@ -65,8 +65,8 @@ class CheckoutSessionResponse(BaseModel):
     session_id:           str
     status:               str = "pending"   # pending | completed | expired | cancelled
     payment_id:           str
-    client_secret:        str              # passed to Hyperswitch.js
-    publishable_key:      str              # Hyperswitch publishable key for frontend
+    client_secret:        str | None = None  # present on create, absent on retrieve
+    publishable_key:      str
     amount_subtotal:      int
     amount_tax:           int
     amount_total:         int
@@ -74,7 +74,7 @@ class CheckoutSessionResponse(BaseModel):
     tax_breakdown:        list[TaxBreakdown] = []
     expires_at:           str
     success_url:          str
-    cancel_url:           str
+    cancel_url:           str | None = None
 
 
 class CheckoutSessionRetrieve(BaseModel):

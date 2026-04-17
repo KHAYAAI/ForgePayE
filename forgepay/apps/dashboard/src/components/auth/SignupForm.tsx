@@ -5,8 +5,9 @@ import { useRouter } from 'next/navigation';
 import { signIn } from 'next-auth/react';
 import { Eye, EyeOff, Loader2 } from 'lucide-react';
 
-export default function LoginForm() {
+export default function SignupForm() {
   const router = useRouter();
+  const [name,      setName]      = useState('');
   const [email,     setEmail]     = useState('');
   const [password,  setPassword]  = useState('');
   const [showPass,  setShowPass]  = useState(false);
@@ -18,12 +19,22 @@ export default function LoginForm() {
     setLoading(true);
     setError('');
     try {
+      const res = await fetch('/api/auth/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, email, password }),
+      });
+      if (!res.ok) {
+        const body = await res.json() as { error?: string };
+        throw new Error(body.error ?? 'Signup failed');
+      }
+      // Auto sign-in after account creation
       const result = await signIn('credentials', { email, password, redirect: false });
       if (result?.error) throw new Error(result.error);
       router.push('/');
       router.refresh();
-    } catch {
-      setError('Invalid email or password.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Signup failed');
     } finally {
       setLoading(false);
     }
@@ -36,6 +47,18 @@ export default function LoginForm() {
           {error}
         </div>
       )}
+
+      <div>
+        <label className="block text-xs font-medium text-gray-400 mb-1.5">Company / Name</label>
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Acme Inc."
+          required
+          className="w-full bg-navy-900/60 border border-white/10 rounded-lg px-3.5 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/20 transition-colors"
+        />
+      </div>
 
       <div>
         <label className="block text-xs font-medium text-gray-400 mb-1.5">Email</label>
@@ -56,7 +79,8 @@ export default function LoginForm() {
             type={showPass ? 'text' : 'password'}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="••••••••"
+            placeholder="Min. 8 characters"
+            minLength={8}
             required
             className="w-full bg-navy-900/60 border border-white/10 rounded-lg px-3.5 py-2.5 pr-10 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/20 transition-colors"
           />
@@ -76,8 +100,15 @@ export default function LoginForm() {
         className="w-full flex items-center justify-center gap-2 bg-cyan-500 hover:bg-cyan-400 disabled:opacity-50 text-navy-800 font-bold py-2.5 rounded-lg text-sm transition-colors"
       >
         {loading && <Loader2 size={14} className="animate-spin" />}
-        {loading ? 'Signing in…' : 'Sign in'}
+        {loading ? 'Creating account…' : 'Create free account'}
       </button>
+
+      <p className="text-xs text-center text-gray-500">
+        By signing up you agree to our{' '}
+        <a href="#" className="text-cyan-400 hover:text-cyan-300">Terms of Service</a>
+        {' '}and{' '}
+        <a href="#" className="text-cyan-400 hover:text-cyan-300">Privacy Policy</a>.
+      </p>
     </form>
   );
 }
