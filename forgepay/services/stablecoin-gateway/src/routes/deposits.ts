@@ -10,6 +10,7 @@ import type { FastifyInstance } from 'fastify';
 import { randomUUID } from 'node:crypto';
 import { getDb } from '../lib/db.js';
 import { config } from '../config.js';
+import { encryptPrivateKey } from '../lib/keystore.js';
 
 interface CreateDepositBody {
   merchant_id:    string;
@@ -53,7 +54,7 @@ export async function buildDepositRoutes(app: FastifyInstance) {
       const { ethers } = await import('ethers');
       const wallet     = ethers.Wallet.createRandom();
       const address    = wallet.address;
-      const privateKey = wallet.privateKey;   // store encrypted in production
+      const privateKey = wallet.privateKey;
 
       const expiresAt = new Date(Date.now() + config.depositAddressTtlSeconds * 1000).toISOString();
 
@@ -67,9 +68,7 @@ export async function buildDepositRoutes(app: FastifyInstance) {
           depositId,
           merchant_id,
           address,
-          // In production: encrypt private_key with KMS before storing.
-          // For dev: store plaintext (NEVER do this in production).
-          privateKey,
+          encryptPrivateKey(privateKey),
           chain,
           token,
           amountUnits,

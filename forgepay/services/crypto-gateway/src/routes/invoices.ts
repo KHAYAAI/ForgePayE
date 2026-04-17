@@ -16,6 +16,9 @@ import { randomUUID } from 'node:crypto';
 import { getDb } from '../lib/db.js';
 import { getUsdPrice, usdToCrypto } from '../lib/prices.js';
 import { config } from '../config.js';
+import {
+  deriveBtcAddress, deriveLtcAddress, deriveEthAddress, deriveXmrAddress, nextKeyIndex,
+} from '../lib/hdwallet.js';
 
 type SupportedCoin = 'BTC' | 'ETH' | 'LTC' | 'XMR';
 
@@ -62,20 +65,33 @@ export async function buildInvoiceRoutes(app: FastifyInstance) {
         return;
       }
 
-      // Generate a fresh deposit address.
-      // Production: derive from merchant HD wallet using BIP32 path.
-      // Dev: generate a random address (not backed by real keys).
-      const address = generateAddress(coin);
+      // Derive a fresh deposit address using BIP32 HD wallet derivation.
+      // The key_index is stored on the invoice so the private key can be
+      // reconstructed offline from: HD_WALLET_SEED + coin path + key_index.
+      const db       = getDb();
+      const keyIndex = await nextKeyIndex(db, coin);
+
+      let address: string;
+      try {
+        switch (coin) {
+          case 'BTC': address = deriveBtcAddress(keyIndex);        break;
+          case 'LTC': address = deriveLtcAddress(keyIndex);        break;
+          case 'ETH': address = await deriveEthAddress(keyIndex);  break;
+          case 'XMR': address = await deriveXmrAddress(keyIndex);  break;
+        }
+      } catch (err) {
+        reply.code(503).send({ error: `Address derivation failed: ${String(err)}` });
+        return;
+      }
 
       const invoiceId = randomUUID();
       const expiresAt = new Date(Date.now() + config.invoiceExpirySeconds * 1000).toISOString();
 
-      const db = getDb();
       await db.query(
         `INSERT INTO crypto_invoices
            (id, merchant_id, address, coin, amount_usd, amount_crypto, price_usd_at_creation,
-            payment_id, description, metadata, status, expires_at, created_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending',$11,now())`,
+            payment_id, description, metadata, status, expires_at, created_at, key_index)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending',$11,now(),$12)`,
         [
           invoiceId,
           merchant_id,
@@ -88,6 +104,7 @@ export async function buildInvoiceRoutes(app: FastifyInstance) {
           description ?? null,
           metadata ? JSON.stringify(metadata) : null,
           expiresAt,
+          keyIndex,
         ],
       );
 
@@ -157,15 +174,3 @@ export async function buildInvoiceRoutes(app: FastifyInstance) {
   );
 }
 
-// Generate a placeholder address for the given coin type.
-// Production: use BIP32 HD derivation from a hardware wallet or KMS-backed key.
-function generateAddress(coin: SupportedCoin): string {
-  const rand = randomUUID().replace(/-/g, '');
-  switch (coin) {
-    case 'BTC': return `bc1q${rand.slice(0, 32)}`;
-    case 'ETH': return `0x${rand.slice(0, 40)}`;
-    case 'LTC': return `ltc1q${rand.slice(0, 30)}`;
-    case 'XMR': return `4${rand}${rand.slice(0, 10)}`.slice(0, 95);
-    default: return rand;
-  }
-}

@@ -19,6 +19,7 @@ secretRef: "forgepay-stablecoin-gateway-secrets"
 # Expected keys in that secret:
 #   POSTGRES_PASSWORD
 #   INTERNAL_WEBHOOK_SECRET
+#   PRIVATE_KEY_ENCRYPTION_KEY  (64-char hex / 32 bytes — AES-256-GCM key for deposit private keys)
 #   ETH_RPC_URL      (Alchemy/Infura/QuickNode Ethereum mainnet)
 #   POLYGON_RPC_URL
 #   BASE_RPC_URL

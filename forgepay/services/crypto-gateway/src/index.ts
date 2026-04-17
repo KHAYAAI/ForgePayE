@@ -30,6 +30,7 @@ import helmet from '@fastify/helmet';
 import { config } from './config.js';
 import { getDb } from './lib/db.js';
 import { buildInvoiceRoutes } from './routes/invoices.js';
+import { startChainMonitors } from './lib/monitor.js';
 
 async function main() {
   const app = Fastify({ logger: true, trustProxy: true });
@@ -38,6 +39,9 @@ async function main() {
   const db = getDb();
 
   await app.register(buildInvoiceRoutes, { prefix: '/invoices' });
+
+  // Start per-coin chain monitors after server is ready
+  startChainMonitors(db);
 
   app.get('/healthz', async () => ({ status: 'ok', service: 'crypto-gateway' }));
   app.get('/readyz',  async () => {

@@ -19,10 +19,9 @@ secretRef: "forgepay-crypto-gateway-secrets"
 # Expected keys in that secret:
 #   POSTGRES_PASSWORD
 #   INTERNAL_WEBHOOK_SECRET
-#   BTC_RPC_URL   (Bitcoin Core RPC or Blockstream Esplora)
-#   ETH_RPC_URL   (Alchemy/Infura/QuickNode)
-#   LTC_RPC_URL   (Litecoin Core RPC)
-#   XMR_RPC_URL   (Monero daemon RPC)
+#   HD_WALLET_SEED  (64-char hex / 32 bytes — BIP32 master seed; protect like a private key)
+#   ETH_RPC_URL     (Alchemy/Infura/QuickNode — required for ETH monitoring)
+#   XMR_RPC_URL     (Monero daemon wallet RPC — required for XMR; optional for BTC/LTC/ETH-only)
 
 resources:
   requests:

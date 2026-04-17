@@ -117,16 +117,18 @@ services:
       context: ../../services/stablecoin-gateway
       dockerfile: Dockerfile
     environment:
-      NODE_ENV:                    development
-      PORT:                        "8020"
-      POSTGRES_HOST:               postgres
-      POSTGRES_PORT:               "5432"
-      POSTGRES_DB:                 forgepay_dev
-      POSTGRES_USER:               forgepay
-      POSTGRES_PASSWORD:           devpassword
-      REDIS_URL:                   redis://redis:6379
-      UNIFIED_ROUTER_URL:          http://unified-router:8000
-      INTERNAL_WEBHOOK_SECRET:     dev-internal-secret-change-me
+      NODE_ENV:                        development
+      PORT:                            "8020"
+      POSTGRES_HOST:                   postgres
+      POSTGRES_PORT:                   "5432"
+      POSTGRES_DB:                     forgepay_dev
+      POSTGRES_USER:                   forgepay
+      POSTGRES_PASSWORD:               devpassword
+      REDIS_URL:                       redis://redis:6379
+      UNIFIED_ROUTER_URL:              http://unified-router:8000
+      INTERNAL_WEBHOOK_SECRET:         dev-internal-secret-change-me
+      # Dev-only 32-byte key — override with real value in production
+      PRIVATE_KEY_ENCRYPTION_KEY:      "dededededededededededededededededededededededededededededededede"
     ports:
       - "8020:8020"
     depends_on:
@@ -150,6 +152,9 @@ services:
       REDIS_URL:                   redis://redis:6379
       UNIFIED_ROUTER_URL:          http://unified-router:8000
       INTERNAL_WEBHOOK_SECRET:     dev-internal-secret-change-me
+      # Dev-only seed — generate a real 64-byte hex seed for production
+      HD_WALLET_SEED:              "dfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdf"
+      # XMR_RPC_URL: http://monero-daemon:18082  # uncomment when running a Monero daemon
     ports:
       - "8030:8030"
     depends_on:
