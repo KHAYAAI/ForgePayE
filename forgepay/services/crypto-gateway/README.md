@@ -7,7 +7,7 @@ Forked from [dilan-dio4/Keagate](https://github.com/dilan-dio4/Keagate) (MIT).
 - Accept **crypto payments** across a wide range of coins (BTC, ETH, LTC, XMR, and 50+ more)
 - High-performance invoice-based payment flow
 - Automatic exchange rate lookup and invoice expiry
-- Fee: **0.8% + network gas**
+- Fee: **1.4% + network gas**
 
 ## Key Capabilities
 

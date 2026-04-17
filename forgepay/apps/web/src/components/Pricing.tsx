@@ -12,7 +12,7 @@ const PLANS = [
     description: 'Get started with no monthly commitment.',
     features: [
       'Cards, ACH, SEPA',
-      'Stablecoin & crypto (0.8% + gas)',
+      'Stablecoin & crypto (1.4% + gas)',
       'Hosted checkout',
       'Basic webhooks',
       'Email support',
@@ -64,8 +64,8 @@ const PLANS = [
 
 const COMPARE_ROWS = [
   { item: 'Card fee',            forgepay: '2.2% + $0.20',   stripe: '2.9% + $0.30', paddle: '5% + $0.50' },
-  { item: 'Stablecoin fee',      forgepay: '0.8% + gas',      stripe: 'N/A',           paddle: 'N/A' },
-  { item: 'Crypto fee',          forgepay: '0.8% + gas',      stripe: 'N/A',           paddle: 'N/A' },
+  { item: 'Stablecoin fee',      forgepay: '1.4% + gas',      stripe: 'N/A',           paddle: 'N/A' },
+  { item: 'Crypto fee',          forgepay: '1.4% + gas',      stripe: 'N/A',           paddle: 'N/A' },
   { item: 'MoR tax handling',    forgepay: 'Included',        stripe: 'Extra',         paddle: 'Yes (at 5%+)' },
   { item: 'Advanced billing',    forgepay: 'Included',        stripe: 'Extra $$$',     paddle: 'Limited' },
   { item: 'AI/agent payments',   forgepay: 'Native (x402)',   stripe: 'No',            paddle: 'No' },

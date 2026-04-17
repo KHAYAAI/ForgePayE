@@ -6,7 +6,7 @@ import { ArrowRight, Zap } from 'lucide-react';
 const STATS = [
   { value: '200+', label: 'Countries (tax)' },
   { value: '100+', label: 'Payment processors' },
-  { value: '0.8%', label: 'Stablecoin fee' },
+  { value: '1.4%', label: 'Stablecoin fee' },
   { value: '99.99%', label: 'Uptime SLA' },
 ];
 

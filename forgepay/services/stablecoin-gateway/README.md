@@ -6,7 +6,7 @@ Forked from [zpaynow/ZeroPay](https://github.com/zpaynow/ZeroPay) (MIT).
 
 - Accept **USDC** and **USDT** payments on major chains (Ethereum, Solana, Base, Polygon, Arbitrum)
 - Native **x402 protocol** support for AI/agent-to-agent payments
-- Low fee: **0.8% + gas** per transaction
+- Low fee: **1.4% + gas** per transaction
 - Real-time settlement and on-chain confirmation tracking
 
 ## Key Capabilities

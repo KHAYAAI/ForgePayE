@@ -23,14 +23,14 @@ const FEATURES = [
     title: 'Stablecoins',
     description:
       'USDC, USDT, EURC on Ethereum, Base, Polygon, Arbitrum, and Solana. Near-instant settlement.',
-    tag: '0.8% + gas',
+    tag: '1.4% + gas',
   },
   {
     icon: Bitcoin,
     title: 'Crypto Payments',
     description:
       'BTC, ETH, and 50+ coins. Invoice-based with QR codes, automatic exchange rates, and on-chain confirmation tracking.',
-    tag: '0.8% + gas',
+    tag: '1.4% + gas',
   },
   {
     icon: Globe,

@@ -6,7 +6,7 @@
  *
  * Section order (matches scroll experience):
  *   Navbar        — sticky, ForgePay logo, Sign In / Get Started CTAs
- *   Hero          — headline, stats row (200 countries, 100 processors, 0.8% fee)
+ *   Hero          — headline, stats row (200 countries, 100 processors, 1.4% fee)
  *   Features      — 9 feature cards (fiat, stablecoin, crypto, subscriptions, tax, etc.)
  *   HowItWorks    — 3-step integration guide
  *   DeveloperPreview — live code snippet (SDK usage for card, USDC, subscription)
