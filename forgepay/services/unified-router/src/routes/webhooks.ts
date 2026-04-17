@@ -22,7 +22,7 @@
  *
  *   Step 5 — Fan-out (fire-and-forget)
  *     dispatchToMerchants() is called without await so we never delay the ACK.
- *     NOTE: dispatchToMerchants is currently a stub — see lib/dispatch.ts.
+ *     Queries merchant_webhook_endpoints, delivers with HMAC signature + retry.
  *
  * Webhook endpoints:
  *   POST /webhooks/hyperswitch  ← payment-engine (Hyperswitch)

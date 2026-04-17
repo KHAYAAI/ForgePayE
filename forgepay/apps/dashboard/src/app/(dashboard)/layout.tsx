@@ -10,24 +10,19 @@
  *   API key is NEVER sent to the browser — injected server-side via lib/session.ts.
  *
  * Implemented pages:
- *   /             Overview   (StatCards + RevenueChart + RecentPayments)
- *   /payments     Payments   (PaymentsTable with filter pills)
+ *   /             Overview       (StatCards + RevenueChart + RecentPayments)
+ *   /payments     Payments       (PaymentsTable with cursor pagination)
  *   /subscriptions Subscriptions (Kill Bill subscription list)
- *   /api-keys     API Keys   (key management UI — backend not yet wired)
+ *   /api-keys     API Keys       (key management UI)
+ *   /analytics    Analytics      (AreaChart + BarChart via /api/analytics/revenue)
+ *   /tax          Tax            (jurisdiction table from MoR layer)
+ *   /webhooks     Webhooks       (endpoint CRUD + delivery log)
+ *   /settings     Settings       (merchant profile + notifications)
  *
- * LAUNCH BLOCKER: 4 sidebar pages are linked but return 404 (no page.tsx):
- *   /analytics    ← needs revenue/conversion analytics from Hyperswitch
- *   /tax          ← needs tax remittance data from MoR layer
- *   /webhooks     ← needs webhook endpoint CRUD and delivery log
- *   /settings     ← needs merchant profile + notification preferences
- *
- * LAUNCH BLOCKER: This layout has NO authentication guard. Any unauthenticated
- *   user can access all dashboard routes directly. To fix:
- *   1. Wire next-auth in src/app/api/auth/[...nextauth]/route.ts
- *   2. Add middleware.ts at the src/ root:
- *      export { default } from 'next-auth/middleware';
- *      export const config = { matcher: ['/((?!login|_next|api/auth).*)'] };
- *   3. Replace the sleep() in LoginForm.tsx with signIn('credentials', ...).
+ * Auth guard: middleware.ts at src/middleware.ts uses next-auth/middleware to
+ *   redirect unauthenticated requests to /login. The CredentialsProvider validates
+ *   against DASHBOARD_ADMIN_EMAIL / DASHBOARD_ADMIN_PASSWORD env vars and stores
+ *   the Hyperswitch API key in the JWT so it never reaches the browser.
  */
 
 import Sidebar from '@/components/layout/Sidebar';

@@ -21,11 +21,12 @@
  *   2. Deduplicate via Redis with 7-day TTL (lib/dedup.ts)
  *   3. Normalise to ForgePayEvent (normalizers/*.ts)
  *   4. Persist to Postgres (routes/webhooks.ts → persistEvent)
- *   5. Fan-out to merchant endpoints (lib/dispatch.ts) ← LAUNCH BLOCKER: stub
+ *   5. Fan-out to merchant endpoints (lib/dispatch.ts)
+ *        Queries merchant_webhook_endpoints, POSTs signed payloads with retry.
  *
  * Outbound query API (GET /events):
  *   Serves the dashboard and the SDK events resource.
- *   LAUNCH BLOCKER: no authentication — any caller can read events by merchant_id.
+ *   Auth: Bearer token (internal secret or merchant signing_secret from DB).
  *
  * Ports:
  *   HTTP  :8000  (primary — all routes)
