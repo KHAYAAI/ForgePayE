@@ -6,7 +6,7 @@ const PLANS = [
     name: 'Growth',
     monthlyFee: '$5',
     monthlyNote: 'per month',
-    transactionFee: '1.4% + $0.20',
+    transactionFee: '2% + $0.20',
     transactionNote: 'per fiat transaction',
     highlight: true,
     description: 'Everything you need to start and scale.',
@@ -47,7 +47,7 @@ const PLANS = [
 ];
 
 const COMPARE_ROWS = [
-  { item: 'Card fee',            forgepay: '1.4% + $0.20',   stripe: '2.9% + $0.30', paddle: '5% + $0.50' },
+  { item: 'Card fee',            forgepay: '2% + $0.20',   stripe: '2.9% + $0.30', paddle: '5% + $0.50' },
   { item: 'Stablecoin fee',      forgepay: '1.4% + gas',      stripe: 'N/A',           paddle: 'N/A' },
   { item: 'Crypto fee',          forgepay: '1.4% + gas',      stripe: 'N/A',           paddle: 'N/A' },
   { item: 'MoR tax handling',    forgepay: 'Included',        stripe: 'Extra',         paddle: 'Yes (at 5%+)' },
