@@ -16,7 +16,7 @@ const FEATURES = [
     title: 'Fiat Payments',
     description:
       'Cards, ACH, SEPA, bank transfers. 100+ processors via smart routing. Best approval rates, lowest cost.',
-    tag: '2.2% + $0.20',
+    tag: '1.4% + $0.20',
   },
   {
     icon: Coins,
