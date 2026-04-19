@@ -10,7 +10,7 @@
  *   Features      — 9 feature cards (fiat, stablecoin, crypto, subscriptions, tax, etc.)
  *   HowItWorks    — 3-step integration guide
  *   DeveloperPreview — live code snippet (SDK usage for card, USDC, subscription)
- *   Pricing       — Starter/Growth/Enterprise tiers + comparison vs Stripe/Paddle
+ *   Pricing       — Growth/Enterprise tiers + comparison vs Stripe/Paddle
  *   Footer        — links, legal
  *
  * Brand tokens (defined in tailwind.config.ts):

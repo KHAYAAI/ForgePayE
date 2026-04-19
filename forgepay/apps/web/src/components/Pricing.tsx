@@ -3,33 +3,17 @@ import { Check } from 'lucide-react';
 
 const PLANS = [
   {
-    name: 'Starter',
-    monthlyFee: '$0',
-    monthlyNote: 'No platform fee',
-    transactionFee: '1.4% + $0.20',
-    transactionNote: 'per fiat transaction',
-    highlight: false,
-    description: 'Get started with no monthly commitment.',
-    features: [
-      'Cards, ACH, SEPA',
-      'Stablecoin & crypto (1.4% + gas)',
-      'Hosted checkout',
-      'Basic webhooks',
-      'Email support',
-    ],
-    cta: 'Start free',
-    ctaHref: '/signup',
-  },
-  {
     name: 'Growth',
     monthlyFee: '$5',
     monthlyNote: 'per month',
     transactionFee: '1.4% + $0.20',
     transactionNote: 'per fiat transaction',
     highlight: true,
-    description: 'Lower transaction fees from your first payment.',
+    description: 'Everything you need to start and scale.',
     features: [
-      'Everything in Starter',
+      'Cards, ACH, SEPA',
+      'Stablecoin & crypto (1.4% + gas)',
+      'Hosted checkout',
       'Merchant of Record (global tax)',
       'Subscriptions & usage billing',
       'Smart payment routing',
@@ -37,8 +21,8 @@ const PLANS = [
       'Advanced webhooks + retry',
       'Priority support',
     ],
-    cta: 'Start growing',
-    ctaHref: '/signup?plan=growth',
+    cta: 'Start free trial',
+    ctaHref: '/signup',
   },
   {
     name: 'Enterprise',
@@ -93,7 +77,7 @@ export default function Pricing() {
         </div>
 
         {/* Pricing cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-20">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-20 max-w-3xl mx-auto">
           {PLANS.map((plan) => (
             <div
               key={plan.name}

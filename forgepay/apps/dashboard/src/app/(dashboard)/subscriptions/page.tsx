@@ -6,7 +6,7 @@ export const metadata: Metadata = { title: 'Subscriptions' };
 const SUBS = [
   { id: 'sub_01', customer: 'alice@acme.io',    plan: 'Pro Monthly',   status: 'active',   mrr: 4900,  next_charge: 'May 1' },
   { id: 'sub_02', customer: 'bob@startup.io',   plan: 'Growth Annual', status: 'active',   mrr: 9900,  next_charge: 'Mar 1, 2027' },
-  { id: 'sub_03', customer: 'carol@co.io',      plan: 'Starter',       status: 'trialing', mrr: 0,     next_charge: 'Apr 22 (trial)' },
+  { id: 'sub_03', customer: 'carol@co.io',      plan: 'Growth Monthly', status: 'trialing', mrr: 0,     next_charge: 'Apr 22 (trial)' },
   { id: 'sub_04', customer: 'david@corp.io',    plan: 'Pro Monthly',   status: 'past_due', mrr: 4900,  next_charge: 'Retry Apr 18' },
   { id: 'sub_05', customer: 'eve@web3.io',      plan: 'AI Tokens',     status: 'active',   mrr: 12000, next_charge: 'May 1' },
 ];
