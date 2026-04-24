@@ -1,0 +1,219 @@
+name: ZK Contract Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      network:
+        description: 'Target network'
+        required: true
+        type: choice
+        options:
+          - sepolia
+          - polygon-mumbai
+          - base-goerli
+          - arbitrum-sepolia
+          - ethereum
+          - polygon
+          - base
+          - arbitrum
+      confirm:
+        description: 'Type DEPLOY to confirm (required for mainnet)'
+        required: false
+        default: ''
+
+# Prevent concurrent deployments to the same network
+concurrency:
+  group: contract-deploy-${{ inputs.network }}
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Pre-flight Checks
+    runs-on: ubuntu-latest
+    outputs:
+      is_mainnet: ${{ steps.classify.outputs.is_mainnet }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Classify network
+        id: classify
+        run: |
+          MAINNET_NETWORKS="ethereum polygon base arbitrum"
+          if echo "$MAINNET_NETWORKS" | grep -qw "${{ inputs.network }}"; then
+            echo "is_mainnet=true" >> "$GITHUB_OUTPUT"
+            echo "🚨 MAINNET deployment requested for ${{ inputs.network }}"
+          else
+            echo "is_mainnet=false" >> "$GITHUB_OUTPUT"
+            echo "✅ Testnet deployment for ${{ inputs.network }}"
+          fi
+
+      - name: Mainnet confirmation check
+        if: steps.classify.outputs.is_mainnet == 'true'
+        run: |
+          if [ "${{ inputs.confirm }}" != "DEPLOY" ]; then
+            echo "❌ Mainnet deployment requires confirm=DEPLOY"
+            echo "   You entered: '${{ inputs.confirm }}'"
+            exit 1
+          fi
+          echo "✅ Mainnet confirmation received"
+
+      - name: Check audit sign-off (mainnet only)
+        if: steps.classify.outputs.is_mainnet == 'true'
+        run: |
+          if [ ! -f "docs/security/SECURITY_AUDIT_SIGN_OFF.md" ]; then
+            echo "❌ Security audit sign-off file missing"
+            echo "   Deploy docs/security/SECURITY_AUDIT_SIGN_OFF.md before mainnet"
+            exit 1
+          fi
+          if ! grep -q "SIGNED_OFF: YES" docs/security/SECURITY_AUDIT_SIGN_OFF.md; then
+            echo "❌ Audit sign-off file exists but SIGNED_OFF: YES not found"
+            exit 1
+          fi
+          echo "✅ Security audit sign-off confirmed"
+
+  # Testnet deployment — runs automatically after preflight
+  deploy-testnet:
+    name: Deploy to ${{ inputs.network }}
+    needs: preflight
+    if: needs.preflight.outputs.is_mainnet == 'false'
+    runs-on: ubuntu-latest
+    environment: testnet
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: forgepay/infra/contracts/package-lock.json
+
+      - name: Install dependencies
+        working-directory: forgepay/infra/contracts
+        run: npm ci
+
+      - name: Compile contracts
+        working-directory: forgepay/infra/contracts
+        run: npx hardhat compile
+
+      - name: Run tests
+        working-directory: forgepay/infra/contracts
+        run: npx hardhat test
+
+      - name: Deploy to ${{ inputs.network }}
+        working-directory: forgepay/infra/contracts
+        env:
+          PRIVATE_KEY: ${{ secrets.DEPLOYER_PRIVATE_KEY }}
+          OWNER_ADDRESS: ${{ secrets.TESTNET_OWNER_ADDRESS }}
+          AUDITOR_ADDRESS: ${{ secrets.TESTNET_AUDITOR_ADDRESS }}
+          UPDATER_ADDRESS: ${{ secrets.TESTNET_UPDATER_ADDRESS }}
+          ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
+          POLYGONSCAN_API_KEY: ${{ secrets.POLYGONSCAN_API_KEY }}
+          BASESCAN_API_KEY: ${{ secrets.BASESCAN_API_KEY }}
+          ARBISCAN_API_KEY: ${{ secrets.ARBISCAN_API_KEY }}
+          RPC_SEPOLIA: ${{ secrets.RPC_SEPOLIA }}
+          RPC_POLYGON_MUMBAI: ${{ secrets.RPC_POLYGON_MUMBAI }}
+          RPC_BASE_GOERLI: ${{ secrets.RPC_BASE_GOERLI }}
+          RPC_ARBITRUM_SEPOLIA: ${{ secrets.RPC_ARBITRUM_SEPOLIA }}
+        run: npx hardhat run scripts/deploy.ts --network ${{ inputs.network }}
+
+      - name: Verify contracts on Etherscan
+        working-directory: forgepay/infra/contracts
+        env:
+          PRIVATE_KEY: ${{ secrets.DEPLOYER_PRIVATE_KEY }}
+          ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
+          POLYGONSCAN_API_KEY: ${{ secrets.POLYGONSCAN_API_KEY }}
+          BASESCAN_API_KEY: ${{ secrets.BASESCAN_API_KEY }}
+          ARBISCAN_API_KEY: ${{ secrets.ARBISCAN_API_KEY }}
+          RPC_SEPOLIA: ${{ secrets.RPC_SEPOLIA }}
+          RPC_POLYGON_MUMBAI: ${{ secrets.RPC_POLYGON_MUMBAI }}
+          RPC_BASE_GOERLI: ${{ secrets.RPC_BASE_GOERLI }}
+          RPC_ARBITRUM_SEPOLIA: ${{ secrets.RPC_ARBITRUM_SEPOLIA }}
+        run: npx hardhat run scripts/verify.ts --network ${{ inputs.network }}
+
+      - name: Upload deployment record
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-${{ inputs.network }}-${{ github.run_id }}
+          path: forgepay/infra/contracts/deployments/${{ inputs.network }}.json
+          retention-days: 90
+
+      - name: Show deployment summary
+        working-directory: forgepay/infra/contracts
+        run: cat deployments/${{ inputs.network }}.json
+
+  # Mainnet deployment — requires manual approval via GitHub Environment
+  deploy-mainnet:
+    name: Deploy to MAINNET (${{ inputs.network }})
+    needs: preflight
+    if: needs.preflight.outputs.is_mainnet == 'true'
+    runs-on: ubuntu-latest
+    environment: mainnet   # Requires approval from 'mainnet-approvers' team in GitHub settings
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: forgepay/infra/contracts/package-lock.json
+
+      - name: Install dependencies
+        working-directory: forgepay/infra/contracts
+        run: npm ci
+
+      - name: Compile contracts
+        working-directory: forgepay/infra/contracts
+        run: npx hardhat compile
+
+      - name: Run full test suite
+        working-directory: forgepay/infra/contracts
+        run: npx hardhat test
+
+      - name: Deploy to ${{ inputs.network }} (MAINNET)
+        working-directory: forgepay/infra/contracts
+        env:
+          PRIVATE_KEY: ${{ secrets.MAINNET_DEPLOYER_PRIVATE_KEY }}
+          OWNER_ADDRESS: ${{ secrets.MAINNET_OWNER_ADDRESS }}
+          AUDITOR_ADDRESS: ${{ secrets.MAINNET_AUDITOR_ADDRESS }}
+          UPDATER_ADDRESS: ${{ secrets.MAINNET_UPDATER_ADDRESS }}
+          CONFIRM: DEPLOY_MAINNET
+          ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
+          POLYGONSCAN_API_KEY: ${{ secrets.POLYGONSCAN_API_KEY }}
+          BASESCAN_API_KEY: ${{ secrets.BASESCAN_API_KEY }}
+          ARBISCAN_API_KEY: ${{ secrets.ARBISCAN_API_KEY }}
+          RPC_ETHEREUM: ${{ secrets.RPC_ETHEREUM }}
+          RPC_POLYGON: ${{ secrets.RPC_POLYGON }}
+          RPC_BASE: ${{ secrets.RPC_BASE }}
+          RPC_ARBITRUM: ${{ secrets.RPC_ARBITRUM }}
+        run: npx hardhat run scripts/deploy-mainnet.ts --network ${{ inputs.network }}
+
+      - name: Upload deployment record (MAINNET)
+        uses: actions/upload-artifact@v4
+        with:
+          name: MAINNET-deployment-${{ inputs.network }}-${{ github.run_id }}
+          path: forgepay/infra/contracts/deployments/${{ inputs.network }}.json
+          retention-days: 3650  # 10 years — keep mainnet records permanently
+
+      - name: Create deployment PR to update Helm values
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH="chore/update-contract-addresses-${{ inputs.network }}-$(date +%Y%m%d)"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+
+          # Update Helm values with new addresses
+          cd forgepay/infra/contracts
+          node -r ts-node/register scripts/update-addresses.ts ${{ inputs.network }}
+          cd ../../..
+
+          git add forgepay/infra/helm/
+          git commit -m "chore: update contract addresses for ${{ inputs.network }} mainnet"
+          git push origin "$BRANCH"
+
+          gh pr create \
+            --title "chore: update ${{ inputs.network }} mainnet contract addresses" \
+            --body "Automatically generated by mainnet deployment workflow.\n\nDeployment: run #${{ github.run_id }}\nNetwork: ${{ inputs.network }}\nTimestamp: $(date -u)" \
+            --base claude/forgepay-platform-design-gEkgE \
+            --head "$BRANCH"

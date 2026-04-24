@@ -1,338 +1,322 @@
 """
-Auditor FFI Module for Privacy-Preserving MoR
+Auditor Module for Privacy-Preserving MoR
 
-ARCH: This module provides Python bindings to the Rust auditor crate.
-The auditor can decrypt shielded transactions (ECDH + AES-GCM) without revealing
-plaintext to merchants or the public ledger.
+ARCH: Implements ECDH (X25519) + SHA-256 KDF + AES-256-GCM decryption,
+matching the Rust auditor crate wire format exactly.
 
-Current state: STUBBED FOR TESTING - all decryption returns dummy data.
-Replace with real FFI when auditable-privacy-payment is integrated.
+Privacy guarantee: Only the auditor (holding the X25519 secret key) can
+decrypt transaction memos. Merchants and the public ledger never see
+plaintext amounts.
 
-Usage:
-    from mor_layer.auditor import AuditorClient
-
-    # Initialize from seed (loaded from Vault in production)
-    client = AuditorClient.from_seed("seed_hex_64_chars...")
-
-    # Decrypt a shielded transaction
-    tx_data = client.decrypt_shielded_tx(encrypted_memo_bytes)
-
-    # Tax authorities can now see the amount (and only tax authorities)
-    tax = compute_tax(tx_data.amount, tx_data.jurisdiction)
+Note: X25519 is used as a production-grade stand-in for BabyJubjub ECDH.
+When auditable-privacy-payment ships BabyJubjub, swap X25519PrivateKey for
+the BabyJubjub equivalent while keeping AES-GCM layer identical.
 """
 
+import hashlib
 import json
 import logging
-from dataclasses import dataclass
-from typing import Optional, Dict, Any
-import ctypes
 import os
+import secrets
+import time
+from dataclasses import dataclass
+from typing import Optional
+
+from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.serialization import (
+    Encoding,
+    PublicFormat,
+    PrivateFormat,
+    NoEncryption,
+)
 
 logger = logging.getLogger(__name__)
-
-# TODO: When auditor crate is integrated, import via ctypes or PyO3:
-# from _auditor_ffi import AuditorClientFFI
 
 
 @dataclass
 class ShieldedTxData:
-    """Decrypted shielded transaction (what auditor can see)"""
+    """Decrypted shielded transaction — what the auditor sees."""
 
-    asset: int  # Asset ID (0=USDC, 1=USDT, etc.)
-    amount: int  # Amount in smallest unit (e.g., 1_000_000 for $1)
-    owner_pk: str  # BabyJubjub public key (hex)
-    nullifier: str  # Unique per UTXO + spender
-    commitment: str  # Hidden in Merkle tree
-    timestamp: int  # Seconds since Unix epoch
-    merchant_id: Optional[str] = None  # Optional merchant identifier
+    asset: int          # 0=USDC, 1=USDT
+    amount: int         # Smallest unit (e.g., 1_000_000 = $1.00 USDC)
+    owner_pk: str       # Owner public key (hex)
+    nullifier: str      # Unique per UTXO + spender — prevents double-spend
+    commitment: str     # Merkle tree leaf hash
+    timestamp: int      # Unix seconds
+    merchant_id: Optional[str] = None
 
 
 @dataclass
 class TaxBreakdown:
-    """Tax calculation result"""
+    """Tax calculation result from decrypted amount."""
 
-    gross_amount: int  # Before tax
-    tax_rate: float  # 0.0 to 1.0 (e.g., 0.08 for 8%)
-    tax_amount: int  # In smallest unit
-    net_amount: int  # After tax
-    jurisdiction: str  # e.g., "US_CA", "EU_DE"
-    tax_type: str  # e.g., "Sales Tax", "VAT"
+    gross_amount: int
+    tax_rate: float
+    tax_amount: int
+    net_amount: int
+    jurisdiction: str
+    tax_type: str
 
 
 class AuditorClient:
     """
-    Python wrapper for Rust auditor service
+    Auditor service — decrypts shielded transaction memos using X25519 ECDH + AES-256-GCM.
 
-    STUB: All decryption returns dummy data.
-    TODO: Replace with real ECDH + AES-GCM decryption when Rust crate integrated.
+    The secret key is held in memory only, loaded from Vault at startup.
+    Never serialize or log the secret key.
     """
 
-    def __init__(self, public_key: str, secret_key: Optional[str] = None):
-        """
-        Initialize auditor client (internal use)
-
-        Args:
-            public_key: Auditor's BabyJubjub public key (hex)
-            secret_key: Secret key (never stored on disk in production)
-
-        Note: In production, secret_key should only exist in memory from Vault,
-        never be serialized or logged.
-        """
-        self.public_key = public_key
-        self._secret_key = secret_key  # Private attribute to discourage serialization
-        self._initialized = False
-
-        logger.warning(
-            "⚠️  STUB: AuditorClient initialized — decryption not yet integrated. "
-            "Real ECDH + AES-GCM logic will be added in Phase 2."
-        )
+    def __init__(self, public_key_hex: str, secret_key_hex: str):
+        """Internal constructor. Use from_seed() or generate() instead."""
+        if len(public_key_hex) != 64:
+            raise ValueError("public_key_hex must be 64 hex chars (32 bytes)")
+        if len(secret_key_hex) != 64:
+            raise ValueError("secret_key_hex must be 64 hex chars (32 bytes)")
+        self._public_key_hex = public_key_hex
+        self._secret_key_hex = secret_key_hex
 
     @classmethod
     def from_seed(cls, seed_hex: str) -> "AuditorClient":
         """
-        Create auditor client from seed (recommended for production)
+        Derive a deterministic X25519 keypair from a hex seed.
 
-        In production, seed comes from Vault/AWS Secrets Manager, not hardcoded.
+        The seed is hashed with SHA-256 to produce the 32-byte secret key scalar,
+        matching the Rust implementation exactly.
 
         Args:
-            seed_hex: 64-character hex string (32 bytes)
-
-        Returns:
-            AuditorClient instance
-
-        Raises:
-            ValueError: If seed is invalid
-
-        TODO: Implement actual BabyJubjub keypair generation from seed
+            seed_hex: At least 64 hex characters (32 bytes)
         """
-        if len(seed_hex) < 64:
-            raise ValueError("seed must be at least 64 hex characters")
+        seed_bytes = bytes.fromhex(seed_hex)
+        if len(seed_bytes) < 32:
+            raise ValueError("seed must be at least 32 bytes (64 hex chars)")
 
-        logger.warning(
-            "⚠️  STUB: AuditorClient.from_seed called — returning dummy keypair. "
-            "Real BabyJubjub key derivation not integrated."
-        )
+        # SHA-256(seed) → deterministic 32-byte private key
+        sk_bytes = hashlib.sha256(seed_bytes).digest()
+        private_key = X25519PrivateKey.from_private_bytes(sk_bytes)
+        public_key = private_key.public_key()
 
-        # STUB: Generate deterministic dummy keys for testing
-        # TODO: Call arkworks to generate actual BabyJubjub keypair
-        public_key = f"AUDITOR_PK_{seed_hex[:16]}"
-        secret_key = f"AUDITOR_SK_{seed_hex}"
+        pk_hex = public_key.public_bytes(Encoding.Raw, PublicFormat.Raw).hex()
+        sk_hex = private_key.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption()).hex()
 
-        return cls(public_key=public_key, secret_key=secret_key)
+        return cls(public_key_hex=pk_hex, secret_key_hex=sk_hex)
 
     @classmethod
     def generate(cls) -> "AuditorClient":
-        """
-        Generate a random auditor keypair
+        """Generate a random X25519 keypair using OS entropy."""
+        private_key = X25519PrivateKey.generate()
+        public_key = private_key.public_key()
 
-        STUB: Returns deterministic dummy. Real implementation uses SystemRandom.
+        pk_hex = public_key.public_bytes(Encoding.Raw, PublicFormat.Raw).hex()
+        sk_hex = private_key.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption()).hex()
 
-        TODO: Implement random keypair generation
-        """
-        logger.warning(
-            "⚠️  STUB: AuditorClient.generate called — returning dummy keypair."
-        )
+        return cls(public_key_hex=pk_hex, secret_key_hex=sk_hex)
 
-        seed = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-        return cls.from_seed(seed)
+    @property
+    def public_key(self) -> str:
+        """Auditor's X25519 public key hex — share this with clients for encryption."""
+        return self._public_key_hex
 
     def decrypt_shielded_tx(self, memo_bytes: bytes) -> ShieldedTxData:
         """
-        Decrypt a shielded transaction memo
+        Decrypt an encrypted transaction memo using ECDH + AES-256-GCM.
 
-        In production, only the auditor (with secret key) can call this.
-        Merchant never sees plaintext.
+        Wire format (JSON, hex-encoded fields):
+        {
+            "ephemeral_pk": "<32 bytes hex>",
+            "nonce":        "<12 bytes hex>",
+            "ciphertext":   "<N bytes hex>",
+            "auth_tag":     "<16 bytes hex>"
+        }
 
-        Args:
-            memo_bytes: Encrypted memo from blockchain/transaction
-
-        Returns:
-            ShieldedTxData with decrypted asset, amount, owner, nullifier, commitment
+        Decryption flow:
+        1. Parse ephemeral_pk from memo JSON
+        2. ECDH(auditor_sk, ephemeral_pk) → 32-byte shared secret
+        3. symmetric_key = SHA-256(shared_secret)
+        4. AES-256-GCM decrypt(ciphertext + auth_tag, nonce, symmetric_key)
+        5. JSON deserialize plaintext → ShieldedTxData
 
         Raises:
-            ValueError: If decryption fails
-
-        STUB: Returns dummy data. Real implementation will:
-        1. Extract ephemeral public key from memo
-        2. Perform ECDH key agreement
-        3. Derive symmetric key (Poseidon hash or SHA256)
-        4. Decrypt ciphertext via AES-256-GCM
-        5. Verify authentication tag
-        6. Deserialize JSON to ShieldedTxData
-
-        TODO: Implement ECDH + AES-GCM decryption
+            ValueError: Tampered ciphertext, wrong key, or malformed memo
         """
-        logger.debug(f"Decrypting shielded transaction ({len(memo_bytes)} bytes)")
+        logger.debug("Decrypting shielded transaction (%d bytes)", len(memo_bytes))
 
-        logger.warning(
-            "⚠️  STUB: AuditorClient.decrypt_shielded_tx called — returning dummy data. "
-            "Real ECDH + AES-GCM decryption not integrated."
-        )
+        try:
+            memo = json.loads(memo_bytes)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Memo is not valid JSON: {e}") from e
 
-        # STUB: Return dummy transaction data
-        # TODO: Parse memo_bytes, extract ephemeral_pk, derive shared secret,
-        #       decrypt ciphertext, verify auth tag, deserialize plaintext
+        # 1. Parse ephemeral public key
+        try:
+            eph_bytes = bytes.fromhex(memo["ephemeral_pk"])
+            if len(eph_bytes) != 32:
+                raise ValueError("ephemeral_pk must be 32 bytes")
+            ephemeral_pk = X25519PublicKey.from_public_bytes(eph_bytes)
+        except (KeyError, ValueError) as e:
+            raise ValueError(f"Invalid ephemeral_pk in memo: {e}") from e
 
-        return ShieldedTxData(
-            asset=0,  # USDC
-            amount=1_000_000,  # $1.00
-            owner_pk=self.public_key,
-            nullifier="DECRYPTED_NULLIFIER_stub",
-            commitment="DECRYPTED_COMMITMENT_stub",
-            timestamp=int(__import__("time").time()),
-            merchant_id=None,
-        )
+        # 2. Load auditor secret key and perform ECDH
+        sk_bytes = bytes.fromhex(self._secret_key_hex)
+        private_key = X25519PrivateKey.from_private_bytes(sk_bytes)
+        shared_secret = private_key.exchange(ephemeral_pk)
+
+        # 3. SHA-256 KDF (matches Rust: sha2::Sha256::digest(shared_secret))
+        symmetric_key = hashlib.sha256(shared_secret).digest()
+
+        # 4. AES-256-GCM decrypt — reconstruct ciphertext || auth_tag
+        try:
+            nonce = bytes.fromhex(memo["nonce"])
+            ciphertext = bytes.fromhex(memo["ciphertext"])
+            auth_tag = bytes.fromhex(memo["auth_tag"])
+        except (KeyError, ValueError) as e:
+            raise ValueError(f"Malformed memo fields: {e}") from e
+
+        if len(nonce) != 12:
+            raise ValueError("nonce must be 12 bytes")
+
+        full_ciphertext = ciphertext + auth_tag  # aes-gcm format: ct || tag
+
+        aesgcm = AESGCM(symmetric_key)
+        try:
+            plaintext = aesgcm.decrypt(nonce, full_ciphertext, None)
+        except Exception as e:
+            raise ValueError(
+                "AES-GCM authentication failed — memo tampered or wrong key"
+            ) from e
+
+        # 5. Deserialize JSON plaintext
+        try:
+            data = json.loads(plaintext)
+            return ShieldedTxData(
+                asset=data["asset"],
+                amount=data["amount"],
+                owner_pk=data["owner_pk"],
+                nullifier=data["nullifier"],
+                commitment=data["commitment"],
+                timestamp=data["timestamp"],
+                merchant_id=data.get("merchant_id"),
+            )
+        except (json.JSONDecodeError, KeyError) as e:
+            raise ValueError(f"Decrypted payload is not valid ShieldedTxData: {e}") from e
+
+    @staticmethod
+    def encrypt_memo(plaintext: dict, auditor_pk_hex: str) -> bytes:
+        """
+        Encrypt a transaction memo to an auditor's X25519 public key.
+
+        Used by clients (browser SDK) to encrypt before sending to MoR.
+        This is the encryption counterpart to decrypt_shielded_tx().
+
+        Args:
+            plaintext: Dict matching ShieldedTxData fields
+            auditor_pk_hex: Auditor's 32-byte X25519 public key (hex)
+
+        Returns:
+            JSON bytes of EncryptedMemo wire format
+        """
+        pk_bytes = bytes.fromhex(auditor_pk_hex)
+        if len(pk_bytes) != 32:
+            raise ValueError("auditor_pk_hex must be 32 bytes")
+        auditor_pk = X25519PublicKey.from_public_bytes(pk_bytes)
+
+        # Generate ephemeral keypair
+        ephemeral_sk = X25519PrivateKey.generate()
+        ephemeral_pk = ephemeral_sk.public_key()
+        shared_secret = ephemeral_sk.exchange(auditor_pk)
+
+        # SHA-256 KDF
+        symmetric_key = hashlib.sha256(shared_secret).digest()
+
+        # AES-256-GCM encrypt
+        nonce = secrets.token_bytes(12)
+        aesgcm = AESGCM(symmetric_key)
+        payload = json.dumps(plaintext).encode()
+        ciphertext_with_tag = aesgcm.encrypt(nonce, payload, None)
+
+        # Split ciphertext and auth tag (last 16 bytes)
+        ciphertext = ciphertext_with_tag[:-16]
+        auth_tag = ciphertext_with_tag[-16:]
+
+        memo = {
+            "ephemeral_pk": ephemeral_pk.public_bytes(Encoding.Raw, PublicFormat.Raw).hex(),
+            "nonce": nonce.hex(),
+            "ciphertext": ciphertext.hex(),
+            "auth_tag": auth_tag.hex(),
+        }
+        return json.dumps(memo).encode()
 
     def verify_audit_proof(self, proof_bytes: bytes) -> bool:
         """
-        Verify that an audit circuit proof is valid
+        Verify a Groth16 audit circuit proof.
 
-        Proves encryption correctness without revealing plaintext.
-
-        Args:
-            proof_bytes: Serialized Groth16 proof
-
-        Returns:
-            True if proof is valid, raises ValueError otherwise
-
-        STUB: Always returns True. Real implementation will:
-        1. Parse Groth16 proof
-        2. Extract public inputs (commitment, encrypted amount, etc.)
-        3. Call Groth16 verifier
-        4. Return False if verification fails
-
-        TODO: Implement Groth16 audit proof verification
+        TODO: Implement real Groth16 verification when auditable-privacy-payment
+        is integrated. Stub always returns True.
         """
         logger.warning(
-            "⚠️  STUB: AuditorClient.verify_audit_proof called — returning True. "
-            "Real Groth16 verification not integrated."
+            "⚠️  STUB: verify_audit_proof — Groth16 verification not yet integrated"
         )
-
-        return True  # STUB
+        return True
 
     def is_nullifier_frozen(self, nullifier_hex: str) -> bool:
         """
-        Check if a nullifier has been frozen (auditor enforcement)
+        Check if a nullifier is in the compliance freeze set.
 
-        Auditor can freeze UTXOs for compliance (e.g., sanctions, fraud).
-
-        Args:
-            nullifier_hex: Nullifier in hex format
-
-        Returns:
-            True if frozen, False otherwise
-
-        STUB: Always returns False. Real implementation will:
-        1. Query frozen nullifier set (Postgres or smart contract)
-        2. Check if nullifier in set
-        3. Return True if frozen
-
-        TODO: Implement database/contract query for frozen set
+        TODO: Query PostgreSQL frozen_nullifiers table or call
+        NullifierRegistry.isFrozen() on-chain.
         """
-        logger.debug(f"Checking if nullifier is frozen: {nullifier_hex}")
-        return False  # STUB: Never frozen
+        logger.debug("Checking nullifier freeze: %s", nullifier_hex)
+        return False  # TODO: DB query
 
     def freeze_nullifier(self, nullifier_hex: str) -> None:
         """
-        Freeze a nullifier (prevent UTXO from being spent)
+        Freeze a nullifier for compliance (sanctions, fraud, court order).
 
-        Only auditor can do this for compliance/sanctions.
-
-        Args:
-            nullifier_hex: Nullifier to freeze
-
-        Raises:
-            RuntimeError: If freezing fails
-
-        STUB: No-op. Real implementation will:
-        1. Compute freezer value
-        2. Submit to smart contract or Postgres
-        3. Emit audit event
-
-        TODO: Implement actual freezing mechanism
+        TODO: INSERT into frozen_nullifiers table and call
+        NullifierRegistry.freezeNullifier() on all EVM chains.
         """
         logger.warning(
-            f"⚠️  STUB: AuditorClient.freeze_nullifier called for {nullifier_hex} — no-op. "
-            "Real freezing not integrated."
+            "⚠️  STUB: freeze_nullifier(%s) — DB/chain write not integrated", nullifier_hex
         )
-
-        # STUB: No-op
-        # TODO: Store nullifier in frozen set (DB or contract)
-        pass
-
-    def get_public_key(self) -> str:
-        """Get auditor's public key (safe to share with merchants)"""
-        return self.public_key
 
     def rotate_keys(self, new_seed: str) -> "AuditorClient":
         """
-        Rotate auditor keys (annual, recommended)
+        Rotate auditor keys (recommended annually).
 
-        In production, old keys are kept read-only for decrypting historical transactions.
-
-        Args:
-            new_seed: New seed for keypair generation
-
-        Returns:
-            New AuditorClient with rotated keys
-
-        TODO: Implement key rotation in database (mark old keys as inactive, keep for archive)
+        Old keys are kept as read-only archives for decrypting historical memos.
+        TODO: Archive old public key in DB before rotating.
         """
-        logger.info("Rotating auditor keys (new seed provided)")
-
-        new_client = AuditorClient.from_seed(new_seed)
-
-        # STUB: In real implementation, would:
-        # 1. Store old public key in archive table
-        # 2. Mark as inactive: UPDATE auditor_keys SET active = false WHERE ...
-        # 3. Insert new public key: INSERT INTO auditor_keys ...
-        # 4. Update config to use new_client.public_key
-        # TODO: Implement database key rotation
-
-        return new_client
+        logger.info("Rotating auditor keys")
+        return AuditorClient.from_seed(new_seed)
 
     def __repr__(self) -> str:
-        """String representation (never includes secret key)"""
-        return f"AuditorClient(pk={self.public_key[:16]}...)"
-
-    def __str__(self) -> str:
-        """User-friendly representation"""
-        return f"Auditor [pk: {self.public_key[:16]}...]"
+        return f"AuditorClient(pk={self._public_key_hex[:16]}...)"
 
 
 def compute_tax_on_shielded(
     client: AuditorClient, memo_bytes: bytes, jurisdiction: str
 ) -> TaxBreakdown:
     """
-    Decrypt a shielded transaction and compute tax
+    Decrypt a shielded transaction memo and compute applicable tax.
 
-    This is the main integration point between auditor and MoR layer.
+    Main integration point between the auditor and MoR checkout endpoint.
 
     Args:
-        client: AuditorClient instance
-        memo_bytes: Encrypted transaction memo
-        jurisdiction: Tax jurisdiction (e.g., "US_CA", "EU_DE")
+        client: AuditorClient with decryption key
+        memo_bytes: Encrypted memo (JSON wire format from EncryptedMemo.encrypt())
+        jurisdiction: Tax jurisdiction string (e.g., "US_CA", "EU_DE")
 
     Returns:
-        TaxBreakdown with tax calculation
-
-    Example:
-        # In /v1/shielded-checkout endpoint
-        client = get_auditor_client()  # Load from Vault
-        tx_data = decrypt_shielded_tx(memo_bytes)
-        tax_breakdown = compute_tax_on_shielded(client, memo_bytes, "US_CA")
-        gross_amount = tx_data.amount + tax_breakdown.tax_amount
-        # Create Hyperswitch payment intent with gross_amount
+        TaxBreakdown with gross/tax/net amounts
     """
-    logger.info(f"Computing tax for shielded transaction (jurisdiction: {jurisdiction})")
-
-    # Step 1: Decrypt transaction
     tx_data = client.decrypt_shielded_tx(memo_bytes)
+    logger.info(
+        "Decrypted shielded tx: asset=%d amount=%d jurisdiction=%s",
+        tx_data.asset, tx_data.amount, jurisdiction,
+    )
 
-    # Step 2: Compute tax (in real MoR layer, would call TaxCalculator)
-    # TODO: Call actual tax calculator with tx_data and jurisdiction
-    tax_rate = 0.08  # STUB: Default 8% sales tax
-    tax_amount = int((tx_data.amount * tax_rate))
+    # TODO: Replace with real TaxCalculator.compute(jurisdiction, tx_data.amount)
+    tax_rate = 0.08  # STUB: 8% default
+    tax_amount = int(tx_data.amount * tax_rate)
     net_amount = tx_data.amount - tax_amount
 
     return TaxBreakdown(
@@ -343,23 +327,3 @@ def compute_tax_on_shielded(
         jurisdiction=jurisdiction,
         tax_type="Sales Tax",
     )
-
-
-# ── FFI Bindings (when integrated) ──────────────────────────────────────────
-
-# TODO: Replace stubs with real FFI bindings using ctypes or PyO3:
-#
-# from ctypes import CDLL, c_char_p, c_uint64, c_bool, POINTER
-# import os
-#
-# # Load compiled Rust library (libauditor.so / libauditor.dylib / auditor.dll)
-# auditor_lib = CDLL(os.environ.get("AUDITOR_LIB_PATH", "./libauditor.so"))
-#
-# # FFI function signatures
-# auditor_lib.auditor_client_from_seed.argtypes = [c_char_p]
-# auditor_lib.auditor_client_from_seed.restype = POINTER(c_void_p)
-#
-# auditor_lib.auditor_decrypt_memo.argtypes = [POINTER(c_void_p), c_char_p, c_uint64]
-# auditor_lib.auditor_decrypt_memo.restype = c_char_p  # Returns JSON
-#
-# etc.

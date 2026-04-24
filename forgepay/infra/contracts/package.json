@@ -4,12 +4,16 @@
   "description": "ForgePay on-chain contracts: Groth16Verifier, NullifierRegistry, CommitmentTree",
   "private": true,
   "scripts": {
-    "compile":    "hardhat compile",
-    "test":       "hardhat test",
-    "coverage":   "hardhat coverage",
-    "deploy:testnet": "hardhat run scripts/deploy.ts --network testnet",
-    "deploy:mainnet": "hardhat run scripts/deploy.ts --network mainnet",
-    "verify":     "hardhat verify"
+    "compile":         "hardhat compile",
+    "test":            "hardhat test",
+    "coverage":        "hardhat coverage",
+    "deploy:sepolia":  "hardhat run scripts/deploy.ts --network sepolia",
+    "deploy:mumbai":   "hardhat run scripts/deploy.ts --network polygon-mumbai",
+    "deploy:base-goerli": "hardhat run scripts/deploy.ts --network base-goerli",
+    "deploy:arb-sepolia": "hardhat run scripts/deploy.ts --network arbitrum-sepolia",
+    "deploy:mainnet":  "hardhat run scripts/deploy-mainnet.ts --network ethereum",
+    "verify":          "hardhat run scripts/verify.ts",
+    "update-addresses": "ts-node scripts/update-addresses.ts"
   },
   "devDependencies": {
     "hardhat":                            "^2.22.0",
@@ -24,6 +28,9 @@
     "typescript":                         "^5.5.3",
     "@types/node":                        "^20.14.0",
     "@types/chai":                        "^4.3.16",
-    "@types/mocha":                       "^10.0.7"
+    "@types/mocha":                       "^10.0.7",
+    "ts-node":                            "^10.9.2",
+    "js-yaml":                            "^4.1.0",
+    "@types/js-yaml":                     "^4.0.9"
   }
 }

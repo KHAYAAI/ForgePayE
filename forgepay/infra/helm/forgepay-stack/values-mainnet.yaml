@@ -1,0 +1,212 @@
+# ForgePay Mainnet Overrides
+#
+# Usage:
+#   helm upgrade forgepay-stack ./helm/forgepay-stack \
+#     -f values.yaml \
+#     -f values-mainnet.yaml \
+#     --set global.imageRegistry=<registry>
+#
+# IMPORTANT: Contract addresses are populated automatically by deploy-mainnet.ts
+# after each chain is deployed. Do not edit addresses manually.
+#
+# Secret values (API keys, RPC URLs, private keys) are injected via:
+#   kubectl create secret generic forgepay-mainnet-secrets --from-env-file=.env.mainnet
+
+global:
+  # Container registry for production images
+  imageRegistry: "registry.forgepay.io"
+
+  postgresql:
+    host: "forgepay-prod-postgresql.us-east-1.rds.amazonaws.com"
+    port: 5432
+    database: "forgepay_prod"
+    existingSecret: "forgepay-prod-db-credentials"
+
+  redis:
+    url: "redis://forgepay-prod-redis.us-east-1.cache.amazonaws.com:6379"
+
+  otel:
+    endpoint: "http://otel-collector:4317"
+    enabled: true
+
+  # ── ZK Configuration (Mainnet) ─────────────────────────────────────────────
+  # NOTE: Set enabled: true only after contracts are deployed and verified.
+  # Run: npx hardhat run scripts/deploy-mainnet.ts --network <chain>
+  # Then: node scripts/update-addresses.ts --all
+  zk:
+    enabled: false  # Toggle true after all 4 chains deployed + verified
+
+    verificationTimeoutMs: 5000
+    batchSize: 10
+
+    # Populated by scripts/update-addresses.ts after mainnet deployment
+    contracts:
+      groth16Verifier:
+        ethereum: "0x0000000000000000000000000000000000000000"  # TODO: set after deploy
+        polygon:  "0x0000000000000000000000000000000000000000"
+        base:     "0x0000000000000000000000000000000000000000"
+        arbitrum: "0x0000000000000000000000000000000000000000"
+
+      nullifierRegistry:
+        ethereum: "0x0000000000000000000000000000000000000000"
+        polygon:  "0x0000000000000000000000000000000000000000"
+        base:     "0x0000000000000000000000000000000000000000"
+        arbitrum: "0x0000000000000000000000000000000000000000"
+
+      commitmentTree:
+        ethereum: "0x0000000000000000000000000000000000000000"
+        polygon:  "0x0000000000000000000000000000000000000000"
+        base:     "0x0000000000000000000000000000000000000000"
+        arbitrum: "0x0000000000000000000000000000000000000000"
+
+    # RPC endpoints (actual keys come from Kubernetes secrets, not here)
+    rpc:
+      ethereum: "https://eth-mainnet.g.alchemy.com/v2/$(ALCHEMY_ETHEREUM_KEY)"
+      polygon:  "https://polygon-mainnet.g.alchemy.com/v2/$(ALCHEMY_POLYGON_KEY)"
+      base:     "https://base-mainnet.g.alchemy.com/v2/$(ALCHEMY_BASE_KEY)"
+      arbitrum: "https://arb-mainnet.g.alchemy.com/v2/$(ALCHEMY_ARBITRUM_KEY)"
+
+# ── Services: Production Replicas ─────────────────────────────────────────────
+
+paymentEngine:
+  replicaCount: 3
+  resources:
+    requests: { cpu: "1000m", memory: "1Gi" }
+    limits:   { cpu: "2000m", memory: "2Gi" }
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2
+
+morLayer:
+  replicaCount: 3
+  resources:
+    requests: { cpu: "500m",  memory: "512Mi" }
+    limits:   { cpu: "1000m", memory: "1Gi" }
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2
+
+unifiedRouter:
+  replicaCount: 2
+  resources:
+    requests: { cpu: "200m",  memory: "256Mi" }
+    limits:   { cpu: "500m",  memory: "512Mi" }
+
+stablecoinGateway:
+  replicaCount: 2
+  resources:
+    requests: { cpu: "200m",  memory: "256Mi" }
+    limits:   { cpu: "500m",  memory: "512Mi" }
+
+cryptoGateway:
+  replicaCount: 2
+  resources:
+    requests: { cpu: "200m",  memory: "256Mi" }
+    limits:   { cpu: "500m",  memory: "512Mi" }
+
+# ── Chain Sync (Mainnet) ───────────────────────────────────────────────────────
+chainSync:
+  enabled: false  # Enable after contracts deployed on all 4 chains
+
+  replicaCount: 1  # Single instance; stateless, no PDB needed
+
+  image:
+    repository: forgepay/chain-sync
+    tag: "latest"
+
+  resources:
+    requests: { cpu: "100m", memory: "128Mi" }
+    limits:   { cpu: "500m", memory: "512Mi" }
+
+  config:
+    pollIntervalMs: 12000  # One Ethereum block interval
+
+    # Contract addresses populated by update-addresses.ts
+    contracts:
+      nullifierRegistry:
+        ethereum: "0x0000000000000000000000000000000000000000"
+        polygon:  "0x0000000000000000000000000000000000000000"
+        base:     "0x0000000000000000000000000000000000000000"
+        arbitrum: "0x0000000000000000000000000000000000000000"
+
+      commitmentTree:
+        ethereum: "0x0000000000000000000000000000000000000000"
+        polygon:  "0x0000000000000000000000000000000000000000"
+        base:     "0x0000000000000000000000000000000000000000"
+        arbitrum: "0x0000000000000000000000000000000000000000"
+
+# ── Autoscaling ────────────────────────────────────────────────────────────────
+
+autoscaling:
+  paymentEngine:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+
+  morLayer:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 8
+    targetCPUUtilizationPercentage: 70
+
+# ── Ingress ────────────────────────────────────────────────────────────────────
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/rate-limit: "100"  # req/s per IP
+  hosts:
+    - host: api.forgepay.io
+      paths:
+        - path: /
+          pathType: Prefix
+          serviceName: unified-router
+          servicePort: 8030
+    - host: checkout.forgepay.io
+      paths:
+        - path: /
+          pathType: Prefix
+          serviceName: mor-layer
+          servicePort: 8000
+  tls:
+    - secretName: forgepay-tls-prod
+      hosts:
+        - api.forgepay.io
+        - checkout.forgepay.io
+
+# ── Monitoring ─────────────────────────────────────────────────────────────────
+
+monitoring:
+  prometheus:
+    enabled: true
+    scrapeInterval: 30s
+  grafana:
+    enabled: true
+    dashboards:
+      shieldedPayments: true
+      zkProofLatency: true
+      nullifierRegistry: true
+
+  # Alert: proof verification failure rate > 1%
+  alerts:
+    proofVerificationFailureRate:
+      enabled: true
+      threshold: 0.01
+      window: 5m
+      severity: critical
+
+    # Alert: chain-sync lag > 2 blocks behind
+    chainSyncLag:
+      enabled: true
+      maxBlocksBehind: 2
+      severity: warning
+
+    # Alert: auditor decryption failure
+    auditorDecryptionFailure:
+      enabled: true
+      severity: critical  # Any failure means encryption mismatch — investigate immediately

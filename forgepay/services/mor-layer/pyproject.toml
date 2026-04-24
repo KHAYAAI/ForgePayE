@@ -21,6 +21,7 @@ redis        = "^5.0.7"
 structlog    = "^24.2.0"
 python-jose  = { version = "^3.3.0", extras = ["cryptography"] }
 passlib      = { version = "^1.7.4", extras = ["bcrypt"] }
+cryptography = "^42.0"          # X25519 ECDH + AES-256-GCM for auditor decryption
 python-multipart = "^0.0.9"
 stripe       = "^10.5.0"         # Keep as type reference only; no live calls
 

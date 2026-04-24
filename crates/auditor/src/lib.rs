@@ -1,19 +1,25 @@
 //! Auditor Service for Privacy-Preserving MoR
 //!
 //! ARCH: The Auditor is a trusted entity that can decrypt shielded transactions
-//! without revealing plaintext to the public ledger or merchants (unless explicitly authorized).
+//! without revealing plaintext to the public ledger or merchants.
 //!
-//! Key capability: Selective Disclosure via Encrypted Memos
-//! - Transactions are encrypted to the auditor's public key
-//! - Auditor can decrypt using their secret key to compute taxes
-//! - Merchant and public never see plaintext (unless auditor approves)
+//! Encryption scheme: X25519 ECDH + SHA-256 KDF + AES-256-GCM
+//! - Client encrypts memo to auditor's X25519 public key
+//! - Auditor decrypts using their X25519 secret key
+//! - Merchant and public never see plaintext amount
 //!
-//! Current state: **STUBBED FOR TESTING** — all decryption returns dummy data.
-//! Replace with real ECDH + AES-GCM or Poseidon encryption when integrated.
+//! NOTE: X25519 is used as a production-grade stand-in for BabyJubjub ECDH.
+//! When auditable-privacy-payment ships BabyJubjub ECDH, swap the key types
+//! while keeping the AES-GCM layer identical.
 
+use aes_gcm::aead::{Aead, KeyInit};
+use aes_gcm::{Aes256Gcm, Key, Nonce};
+use rand::RngCore;
 use serde::{Deserialize, Serialize};
-use std::fmt;
+use sha2::{Digest, Sha256};
 use thiserror::Error;
+use x25519_dalek::{EphemeralSecret, PublicKey, StaticSecret};
+use zeroize::Zeroize;
 
 // ── Error Types ────────────────────────────────────────────────────────────
 
@@ -34,6 +40,9 @@ pub enum AuditorError {
     #[error("Serialization error: {0}")]
     SerializationError(#[from] serde_json::Error),
 
+    #[error("Hex decode error: {0}")]
+    HexError(#[from] hex::FromHexError),
+
     #[error("Auditor not initialized")]
     NotInitialized,
 
@@ -45,115 +54,114 @@ pub type Result<T> = std::result::Result<T, AuditorError>;
 
 // ── Keypair Management ─────────────────────────────────────────────────────
 
-/// An auditor keypair (BabyJubjub on BN254)
-/// Secret key is never serialized to disk; only held in memory.
-#[derive(Clone, Debug)]
+/// Auditor keypair — X25519 for ECDH key agreement.
+///
+/// Production note: The secret key is held in memory only and zeroized on drop.
+/// In production, load from hardware security module (HSM) via Vault.
+#[derive(Clone)]
 pub struct AuditorKeypair {
-    /// Public key (EdwardsAffine point). Safe to share.
-    pub public_key: String, // hex string, stubbed
+    /// X25519 public key bytes (32 bytes), hex-encoded. Safe to share.
+    pub public_key: String,
 
-    /// Secret key (scalar). **NEVER SERIALIZE THIS**.
-    /// TODO: Use arkworks EdFr type when integrated
+    /// X25519 secret key bytes (32 bytes), hex-encoded. NEVER share.
     secret_key: String,
+}
 
-    /// Ephemeral nonce for ECDH (AES-GCM variant)
-    ephemeral_nonce: [u8; 12],
+impl Drop for AuditorKeypair {
+    fn drop(&mut self) {
+        self.secret_key.zeroize();
+    }
+}
+
+impl std::fmt::Debug for AuditorKeypair {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AuditorKeypair")
+            .field("public_key", &self.public_key)
+            .field("secret_key", &"[REDACTED]")
+            .finish()
+    }
 }
 
 impl AuditorKeypair {
-    /// Generate a new auditor keypair from a seed
+    /// Derive an X25519 keypair deterministically from a seed.
     ///
-    /// **STUB:** Generates deterministic hex strings. Real implementation will:
-    /// 1. Use BabyJubjub point multiplication
-    /// 2. Generate proper EdFr scalar
-    /// 3. Use secure randomness for ephemeral nonce
-    ///
-    /// TODO: Implement actual BabyJubjub keypair generation
+    /// The seed is hashed with SHA-256 to produce the secret key scalar.
+    /// When auditable-privacy-payment ships BabyJubjub, replace the
+    /// StaticSecret construction but keep the SHA-256 seed expansion.
     pub fn from_seed(seed_hex: &str) -> Result<Self> {
-        if seed_hex.len() < 32 {
+        let seed_bytes = hex::decode(seed_hex)?;
+        if seed_bytes.len() < 32 {
             return Err(AuditorError::KeyError(
-                "seed must be at least 32 hex characters".to_string(),
+                "seed must be at least 32 bytes (64 hex chars)".to_string(),
             ));
         }
 
-        tracing::warn!(
-            "⚠️  STUB: AuditorKeypair::from_seed called — returning dummy keypair. Real BabyJubjub generation not integrated."
-        );
+        // SHA-256 of seed → deterministic 32-byte secret key
+        let mut hasher = Sha256::new();
+        hasher.update(&seed_bytes);
+        let sk_bytes: [u8; 32] = hasher.finalize().into();
 
-        // STUB: In real implementation, would do proper key derivation
-        // TODO: Implement arkworks BabyJubjub scalar multiplication
-
-        let public_key = format!("AUDITOR_PK_{}", &seed_hex[..16]);
-        let secret_key = format!("AUDITOR_SK_{}", seed_hex);
-        let mut nonce = [0u8; 12];
-        nonce[0..8].copy_from_slice(&seed_hex.as_bytes()[0..8]);
+        let secret = StaticSecret::from(sk_bytes);
+        let public = PublicKey::from(&secret);
 
         Ok(AuditorKeypair {
-            public_key,
-            secret_key,
-            ephemeral_nonce: nonce,
+            public_key: hex::encode(public.as_bytes()),
+            secret_key: hex::encode(secret.to_bytes()),
         })
     }
 
-    /// Get the public key as hex string (safe to share)
-    pub fn public_key(&self) -> &str {
-        &self.public_key
+    /// Generate a random X25519 keypair using OS entropy.
+    pub fn generate() -> Result<Self> {
+        let mut rng = rand::thread_rng();
+        let mut sk_bytes = [0u8; 32];
+        rng.fill_bytes(&mut sk_bytes);
+
+        let secret = StaticSecret::from(sk_bytes);
+        let public = PublicKey::from(&secret);
+
+        Ok(AuditorKeypair {
+            public_key: hex::encode(public.as_bytes()),
+            secret_key: hex::encode(secret.to_bytes()),
+        })
     }
 
-    /// Generate a random keypair
-    ///
-    /// **STUB:** Returns deterministic dummy keys. Real implementation will:
-    /// 1. Use SystemRandom for secure entropy
-    /// 2. Generate proper BabyJubjub keypair
-    ///
-    /// TODO: Implement random keypair generation
-    pub fn generate() -> Result<Self> {
-        tracing::warn!(
-            "⚠️  STUB: AuditorKeypair::generate called — returning dummy keypair. Real random generation not integrated."
-        );
-
-        let seed = "0123456789abcdef0123456789abcdef";
-        Self::from_seed(seed)
+    /// Get the public key as hex string (safe to share with clients).
+    pub fn public_key(&self) -> &str {
+        &self.public_key
     }
 }
 
 // ── Shielded Transaction Data ──────────────────────────────────────────────
 
-/// Decrypted shielded transaction (what the auditor can see)
+/// Decrypted shielded transaction — what the auditor sees after decryption.
 ///
-/// This is the plaintext that the auditor decrypts from the encrypted memo.
-/// The auditor uses this to:
-/// 1. Compute taxes
-/// 2. Generate audit trail
-/// 3. Optionally freeze fraudulent UTXOs
-///
-/// TODO: When integrated, these fields will come from the encrypted memo
+/// The auditor uses this to compute taxes on the actual amount, generate
+/// audit trail, and optionally freeze fraudulent UTXOs.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ShieldedTxData {
-    /// Asset ID (0 = USDC, 1 = USDT, etc.)
+    /// Asset ID (0 = USDC, 1 = USDT)
     pub asset: u64,
 
-    /// Amount in smallest unit (e.g., 1_000_000 for $1 USDC)
+    /// Amount in smallest unit (e.g., 1_000_000 = $1.00 USDC)
     pub amount: u128,
 
-    /// Owner's BabyJubjub public key (hex)
+    /// Owner's public key (hex)
     pub owner_pk: String,
 
-    /// Nullifier (unique per UTXO + spender)
+    /// Nullifier — unique per UTXO + spender, prevents double-spend
     pub nullifier: String,
 
-    /// Commitment (hidden in Merkle tree)
+    /// Commitment — hidden in Merkle tree on-chain
     pub commitment: String,
 
-    /// Timestamp of transaction (seconds since unix epoch)
+    /// Unix timestamp of the transaction
     pub timestamp: u64,
 
-    /// Merchant ID (if known)
+    /// Merchant ID if known (may be omitted for extra privacy)
     pub merchant_id: Option<String>,
 }
 
 impl ShieldedTxData {
-    /// Create a new shielded transaction data struct (for testing/stub)
     pub fn new(asset: u64, amount: u128, owner_pk: String) -> Self {
         ShieldedTxData {
             asset,
@@ -170,210 +178,235 @@ impl ShieldedTxData {
     }
 }
 
-// ── Encryption/Decryption ──────────────────────────────────────────────────
+// ── Encrypted Memo ─────────────────────────────────────────────────────────
 
-/// Encrypted memo (what's stored on-chain or in transactions)
-/// Format: [ephemeral_pk || ciphertext]
+/// Wire format for an encrypted transaction memo.
 ///
-/// Real implementation uses ECDH + AES-256-GCM:
-/// 1. Ephemeral keypair generated
-/// 2. Shared secret = auditor_pk * ephemeral_sk
-/// 3. Key derived via Poseidon or SHA256
-/// 4. AES-GCM encrypts plaintext
+/// Layout (all hex-encoded in JSON):
+/// - `ephemeral_pk`: 32-byte X25519 ephemeral public key
+/// - `nonce`: 12-byte AES-GCM nonce (random per message)
+/// - `ciphertext`: AES-256-GCM ciphertext (same length as plaintext)
+/// - `auth_tag`: 16-byte GCM authentication tag
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EncryptedMemo {
-    /// Ephemeral public key (64 bytes, hex)
     pub ephemeral_pk: String,
-
-    /// Ciphertext (AES-GCM encrypted)
-    pub ciphertext: Vec<u8>,
-
-    /// Authentication tag (16 bytes)
-    pub auth_tag: Vec<u8>,
-
-    /// Nonce used for encryption
-    pub nonce: [u8; 12],
+    pub nonce: String,
+    pub ciphertext: String,
+    pub auth_tag: String,
 }
 
 impl EncryptedMemo {
-    /// Create a stub encrypted memo for testing
-    pub fn stub(data: &str) -> Self {
-        EncryptedMemo {
-            ephemeral_pk: "EPHEMERAL_PK_stub".to_string(),
-            ciphertext: data.as_bytes().to_vec(),
-            auth_tag: vec![0u8; 16],
-            nonce: [0u8; 12],
+    /// Encrypt a plaintext blob to an auditor's X25519 public key.
+    ///
+    /// ECDH flow:
+    /// 1. Generate ephemeral X25519 keypair
+    /// 2. ECDH(ephemeral_sk, auditor_pk) → 32-byte shared secret
+    /// 3. symmetric_key = SHA-256(shared_secret)
+    /// 4. AES-256-GCM encrypt with random 12-byte nonce
+    /// 5. Output ephemeral_pk + nonce + ciphertext + auth_tag
+    pub fn encrypt(plaintext: &[u8], auditor_pk_hex: &str) -> Result<Self> {
+        // 1. Parse auditor public key
+        let pk_bytes = hex::decode(auditor_pk_hex)
+            .map_err(|e| AuditorError::KeyError(format!("invalid auditor public key: {e}")))?;
+        if pk_bytes.len() != 32 {
+            return Err(AuditorError::KeyError(
+                "auditor public key must be 32 bytes".to_string(),
+            ));
         }
+        let pk_array: [u8; 32] = pk_bytes.try_into().unwrap();
+        let auditor_pk = PublicKey::from(pk_array);
+
+        // 2. Generate ephemeral keypair
+        let ephemeral_secret = EphemeralSecret::random_from_rng(rand::thread_rng());
+        let ephemeral_pk = PublicKey::from(&ephemeral_secret);
+
+        // 3. ECDH → shared secret
+        let shared = ephemeral_secret.diffie_hellman(&auditor_pk);
+
+        // 4. SHA-256 KDF
+        let mut hasher = Sha256::new();
+        hasher.update(shared.as_bytes());
+        let symmetric_key: [u8; 32] = hasher.finalize().into();
+
+        // 5. AES-256-GCM encrypt
+        let mut nonce_bytes = [0u8; 12];
+        rand::thread_rng().fill_bytes(&mut nonce_bytes);
+
+        let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&symmetric_key));
+        let nonce = Nonce::from_slice(&nonce_bytes);
+        let mut ciphertext_with_tag = cipher
+            .encrypt(nonce, plaintext)
+            .map_err(|e| AuditorError::DecryptionFailed(format!("AES-GCM encrypt: {e}")))?;
+
+        // aes-gcm appends 16-byte auth tag at end
+        let tag_start = ciphertext_with_tag.len() - 16;
+        let auth_tag = ciphertext_with_tag.split_off(tag_start);
+
+        Ok(EncryptedMemo {
+            ephemeral_pk: hex::encode(ephemeral_pk.as_bytes()),
+            nonce: hex::encode(nonce_bytes),
+            ciphertext: hex::encode(&ciphertext_with_tag),
+            auth_tag: hex::encode(&auth_tag),
+        })
+    }
+
+    /// Serialize to JSON bytes for wire transmission.
+    pub fn to_bytes(&self) -> Result<Vec<u8>> {
+        serde_json::to_vec(self).map_err(AuditorError::SerializationError)
+    }
+
+    /// Deserialize from JSON bytes.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        serde_json::from_slice(bytes).map_err(AuditorError::SerializationError)
     }
 }
 
 // ── Auditor Client ──────────────────────────────────────────────────────────
 
-/// Auditor client — holds secret key and provides decryption
-/// Used by MoR Layer (Python) via FFI bindings
+/// Auditor client — holds the X25519 secret key and provides decryption.
+///
+/// Used by MoR Layer (Python) via FFI bindings. In production, the secret key
+/// is loaded from Vault/HSM and never leaves the auditor service boundary.
 #[derive(Clone)]
 pub struct AuditorClient {
     keypair: AuditorKeypair,
 }
 
 impl AuditorClient {
-    /// Create new auditor client from keypair
     pub fn new(keypair: AuditorKeypair) -> Self {
         AuditorClient { keypair }
     }
 
-    /// Create from seed (recommended for production)
     pub fn from_seed(seed_hex: &str) -> Result<Self> {
         let keypair = AuditorKeypair::from_seed(seed_hex)?;
         Ok(AuditorClient { keypair })
     }
 
-    /// Get auditor's public key (safe to share)
+    /// Auditor's X25519 public key — share this with clients for encryption.
     pub fn public_key(&self) -> &str {
         self.keypair.public_key()
     }
 
-    /// Decrypt a shielded transaction memo
+    /// Decrypt a shielded transaction memo using ECDH + AES-256-GCM.
     ///
-    /// **STUB:** Always returns dummy data. Real implementation will:
-    /// 1. Extract ephemeral_pk from memo
-    /// 2. Compute shared secret: ephemeral_pk * secret_key
-    /// 3. Derive symmetric key via Poseidon or SHA256
-    /// 4. Decrypt ciphertext via AES-256-GCM
-    /// 5. Verify authentication tag
-    /// 6. Deserialize plaintext to ShieldedTxData
-    ///
-    /// TODO: Implement ECDH + AES-GCM decryption
+    /// Decryption flow:
+    /// 1. Parse ephemeral_pk from memo
+    /// 2. ECDH(auditor_sk, ephemeral_pk) → shared secret
+    /// 3. symmetric_key = SHA-256(shared_secret)
+    /// 4. AES-256-GCM decrypt ciphertext
+    /// 5. Deserialize JSON → ShieldedTxData
     pub fn decrypt_shielded_tx(&self, memo: &EncryptedMemo) -> Result<ShieldedTxData> {
-        tracing::debug!(
-            "Decrypting shielded transaction (ephemeral_pk: {})",
-            memo.ephemeral_pk
-        );
+        tracing::debug!(ephemeral_pk = %memo.ephemeral_pk, "decrypting shielded transaction");
 
-        tracing::warn!(
-            "⚠️  STUB: AuditorClient::decrypt_shielded_tx called — returning dummy data. Real ECDH + AES-GCM decryption not integrated."
-        );
+        // 1. Parse ephemeral public key
+        let eph_bytes = hex::decode(&memo.ephemeral_pk)
+            .map_err(|e| AuditorError::InvalidMemo(format!("ephemeral_pk: {e}")))?;
+        if eph_bytes.len() != 32 {
+            return Err(AuditorError::InvalidMemo(
+                "ephemeral_pk must be 32 bytes".to_string(),
+            ));
+        }
+        let eph_array: [u8; 32] = eph_bytes.try_into().unwrap();
+        let ephemeral_pk = PublicKey::from(eph_array);
 
-        // STUB: In real implementation:
-        // 1. Parse ephemeral_pk from memo.ephemeral_pk
-        // 2. Compute shared secret via ECDH
-        // 3. Derive key via Poseidon hash
-        // 4. Decrypt using AES-256-GCM
-        // 5. Deserialize JSON to ShieldedTxData
-        // TODO: Implement actual decryption
+        // 2. Load auditor secret key
+        let sk_bytes_vec = hex::decode(&self.keypair.secret_key)
+            .map_err(|e| AuditorError::KeyError(format!("secret_key decode: {e}")))?;
+        if sk_bytes_vec.len() != 32 {
+            return Err(AuditorError::KeyError(
+                "secret key must be 32 bytes".to_string(),
+            ));
+        }
+        let sk_array: [u8; 32] = sk_bytes_vec.try_into().unwrap();
+        let static_secret = StaticSecret::from(sk_array);
 
-        Ok(ShieldedTxData {
-            asset: 0,
-            amount: 1_000_000,
-            owner_pk: memo.ephemeral_pk.clone(),
-            nullifier: "DECRYPTED_NULLIFIER".to_string(),
-            commitment: "DECRYPTED_COMMITMENT".to_string(),
-            timestamp: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs(),
-            merchant_id: None,
-        })
+        // 3. ECDH
+        let shared = static_secret.diffie_hellman(&ephemeral_pk);
+
+        // 4. SHA-256 KDF
+        let mut hasher = Sha256::new();
+        hasher.update(shared.as_bytes());
+        let symmetric_key: [u8; 32] = hasher.finalize().into();
+
+        // 5. Reconstruct ciphertext + auth_tag for aes-gcm
+        let mut ciphertext_bytes = hex::decode(&memo.ciphertext)
+            .map_err(|e| AuditorError::InvalidMemo(format!("ciphertext: {e}")))?;
+        let auth_tag_bytes = hex::decode(&memo.auth_tag)
+            .map_err(|e| AuditorError::InvalidMemo(format!("auth_tag: {e}")))?;
+        ciphertext_bytes.extend_from_slice(&auth_tag_bytes);
+
+        let nonce_bytes = hex::decode(&memo.nonce)
+            .map_err(|e| AuditorError::InvalidMemo(format!("nonce: {e}")))?;
+        if nonce_bytes.len() != 12 {
+            return Err(AuditorError::InvalidMemo("nonce must be 12 bytes".to_string()));
+        }
+
+        // 6. AES-256-GCM decrypt
+        let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&symmetric_key));
+        let nonce = Nonce::from_slice(&nonce_bytes);
+        let plaintext = cipher
+            .decrypt(nonce, ciphertext_bytes.as_slice())
+            .map_err(|_| AuditorError::DecryptionFailed(
+                "AES-GCM authentication failed — memo tampered or wrong key".to_string(),
+            ))?;
+
+        // 7. Deserialize
+        serde_json::from_slice(&plaintext).map_err(AuditorError::SerializationError)
     }
 
-    /// Verify an audit proof (proves encryption is correct without revealing plaintext)
+    /// Verify a Groth16 audit proof.
     ///
-    /// **STUB:** Always returns true. Real implementation will:
-    /// 1. Verify Groth16 audit circuit proof
-    /// 2. Check that ciphertext correctness is proven
-    /// 3. Verify proof public inputs match memo structure
-    ///
-    /// TODO: Implement audit proof verification
+    /// TODO: Implement real Groth16 verification when auditable-privacy-payment
+    /// is integrated. For now, always returns true (stub mode).
     pub fn verify_audit_proof(&self, _proof_bytes: &[u8]) -> Result<bool> {
         tracing::warn!(
-            "⚠️  STUB: AuditorClient::verify_audit_proof called — returning true. Real Groth16 verification not integrated."
+            "⚠️  STUB: verify_audit_proof — Groth16 verification not yet integrated, returning true"
         );
-
-        Ok(true) // STUB
+        Ok(true)
     }
 
-    /// Check if a nullifier is frozen (auditor can block fraudulent UTXOs)
+    /// Check if a nullifier is in the compliance freeze set.
     ///
-    /// **STUB:** Always returns false. Real implementation will:
-    /// 1. Query frozen nullifier set (stored in Postgres or on-chain)
-    /// 2. Compute freezer = Poseidon(commitment, public_key)
-    /// 3. Check if freezer is in frozen set
-    /// 4. Return true if frozen, false otherwise
-    ///
-    /// TODO: Implement nullifier freezing check
-    pub fn is_nullifier_frozen(&self, _nullifier: &str) -> Result<bool> {
-        tracing::debug!("Checking if nullifier is frozen: {}", _nullifier);
-
-        // STUB: In real implementation:
-        // 1. Query frozen nullifier set from DB
-        // 2. Check if nullifier matches any freezer
-        // TODO: Implement database query for frozen set
-
-        Ok(false) // STUB: Never frozen
+    /// TODO: Query PostgreSQL frozen_nullifiers table or on-chain
+    /// NullifierRegistry.isFrozen(). Stub always returns false.
+    pub fn is_nullifier_frozen(&self, nullifier: &str) -> Result<bool> {
+        tracing::debug!(%nullifier, "checking nullifier freeze status");
+        Ok(false) // TODO: DB query
     }
 
-    /// Freeze a nullifier (prevent its UTXO from being spent)
-    /// Only the auditor can do this for compliance
+    /// Freeze a nullifier for compliance (sanctions, fraud, court order).
     ///
-    /// **STUB:** No-op. Real implementation will:
-    /// 1. Compute freezer = Poseidon(commitment, public_key)
-    /// 2. Add to on-chain or database frozen set
-    /// 3. Emit audit event
-    ///
-    /// TODO: Implement nullifier freezing
-    pub fn freeze_nullifier(&self, _nullifier: &str) -> Result<()> {
-        tracing::warn!(
-            "⚠️  STUB: AuditorClient::freeze_nullifier called — no-op. Real freezing not integrated."
-        );
-
-        // STUB: In real implementation:
-        // 1. Compute freezer value
-        // 2. Submit to smart contract or DB
-        // 3. Emit event for audit log
-        // TODO: Implement actual freezing
-
+    /// TODO: INSERT into frozen_nullifiers table and call
+    /// NullifierRegistry.freezeNullifier() on all chains.
+    pub fn freeze_nullifier(&self, nullifier: &str) -> Result<()> {
+        tracing::warn!(%nullifier, "⚠️  STUB: freeze_nullifier — no-op, DB/chain write not integrated");
         Ok(())
     }
 }
 
-// ── Tax Computation (MoR Bridge) ────────────────────────────────────────────
+// ── Tax Computation ──────────────────────────────────────────────────────────
 
-/// Tax breakdown for a shielded transaction
-/// Computed by MoR Layer after auditor decrypts the transaction
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TaxBreakdown {
-    /// Gross amount (before tax)
     pub gross_amount: u128,
-
-    /// Tax rate (0.0 = 0%, 1.0 = 100%)
     pub tax_rate: f64,
-
-    /// Tax amount in smallest unit
     pub tax_amount: u128,
-
-    /// Net amount (after tax)
     pub net_amount: u128,
-
-    /// Tax jurisdiction (e.g., "US_CA", "EU_DE")
     pub jurisdiction: String,
-
-    /// Tax type (VAT, Sales Tax, GST, etc.)
     pub tax_type: String,
 }
 
 impl TaxBreakdown {
-    /// Create a new tax breakdown (used by MoR Layer)
     pub fn new(gross_amount: u128, tax_rate: f64, jurisdiction: String) -> Self {
         let tax_amount = ((gross_amount as f64) * tax_rate) as u128;
-        let net_amount = gross_amount - tax_amount;
-
+        let net_amount = gross_amount.saturating_sub(tax_amount);
         TaxBreakdown {
             gross_amount,
             tax_rate,
             tax_amount,
             net_amount,
             jurisdiction,
-            tax_type: "Sales Tax".to_string(), // TODO: Infer from jurisdiction
+            tax_type: "Sales Tax".to_string(),
         }
     }
 }
@@ -382,84 +415,93 @@ impl TaxBreakdown {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_auditor_keypair_from_seed() {
-        let seed = "0123456789abcdef0123456789abcdef0123456789abcdef";
-        let keypair = AuditorKeypair::from_seed(seed).expect("keypair generation failed");
-
-        assert!(!keypair.public_key().is_empty());
-        assert!(keypair.public_key().contains("AUDITOR_PK"));
+    fn test_seed() -> &'static str {
+        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
     }
 
     #[test]
-    fn test_auditor_keypair_invalid_seed() {
-        let short_seed = "abc";
-        let result = AuditorKeypair::from_seed(short_seed);
+    fn test_keypair_from_seed_deterministic() {
+        let kp1 = AuditorKeypair::from_seed(test_seed()).unwrap();
+        let kp2 = AuditorKeypair::from_seed(test_seed()).unwrap();
+        assert_eq!(kp1.public_key, kp2.public_key);
+        assert_eq!(kp1.public_key.len(), 64); // 32 bytes hex-encoded
+    }
 
+    #[test]
+    fn test_keypair_invalid_seed() {
+        assert!(AuditorKeypair::from_seed("abc").is_err());
+        assert!(AuditorKeypair::from_seed("not_hex_!!").is_err());
+    }
+
+    #[test]
+    fn test_encrypt_decrypt_roundtrip() {
+        let kp = AuditorKeypair::from_seed(test_seed()).unwrap();
+        let client = AuditorClient::new(kp.clone());
+
+        let tx = ShieldedTxData::new(0, 4_999_000, "owner_pk_hex".to_string());
+        let plaintext = serde_json::to_vec(&tx).unwrap();
+
+        // Encrypt to auditor's public key
+        let memo = EncryptedMemo::encrypt(&plaintext, &kp.public_key).unwrap();
+
+        // Auditor decrypts
+        let decrypted = client.decrypt_shielded_tx(&memo).unwrap();
+
+        assert_eq!(decrypted.asset, tx.asset);
+        assert_eq!(decrypted.amount, tx.amount);
+        assert_eq!(decrypted.owner_pk, tx.owner_pk);
+    }
+
+    #[test]
+    fn test_wrong_key_fails_decryption() {
+        let kp1 = AuditorKeypair::from_seed(test_seed()).unwrap();
+        let kp2 = AuditorKeypair::generate().unwrap();
+
+        let tx = ShieldedTxData::new(0, 1_000, "pk".to_string());
+        let plaintext = serde_json::to_vec(&tx).unwrap();
+
+        // Encrypt to kp1
+        let memo = EncryptedMemo::encrypt(&plaintext, &kp1.public_key).unwrap();
+
+        // Try to decrypt with kp2 — must fail
+        let client2 = AuditorClient::new(kp2);
+        let result = client2.decrypt_shielded_tx(&memo);
         assert!(result.is_err());
     }
 
     #[test]
-    fn test_auditor_client_from_seed() {
-        let seed = "fedcba9876543210fedcba9876543210fedcba9876543210";
-        let client = AuditorClient::from_seed(seed).expect("client creation failed");
+    fn test_tampered_ciphertext_fails() {
+        let kp = AuditorKeypair::from_seed(test_seed()).unwrap();
+        let client = AuditorClient::new(kp.clone());
+        let plaintext = b"sensitive amount: 9999999";
 
-        assert!(!client.public_key().is_empty());
+        let mut memo = EncryptedMemo::encrypt(plaintext, &kp.public_key).unwrap();
+        // Flip a bit in ciphertext
+        let mut ct_bytes = hex::decode(&memo.ciphertext).unwrap();
+        ct_bytes[0] ^= 0x01;
+        memo.ciphertext = hex::encode(ct_bytes);
+
+        let result = client.decrypt_shielded_tx(&memo);
+        assert!(result.is_err());
     }
 
     #[test]
-    fn test_decrypt_shielded_tx_stub() {
-        let seed = "abcdef0123456789abcdef0123456789abcdef0123456789";
-        let client = AuditorClient::from_seed(seed).expect("client creation failed");
+    fn test_encrypted_memo_serialization() {
+        let kp = AuditorKeypair::from_seed(test_seed()).unwrap();
+        let plaintext = b"test memo payload";
+        let memo = EncryptedMemo::encrypt(plaintext, &kp.public_key).unwrap();
 
-        let memo = EncryptedMemo::stub("test_data");
-        let tx_data = client
-            .decrypt_shielded_tx(&memo)
-            .expect("decryption failed");
+        let bytes = memo.to_bytes().unwrap();
+        let memo2 = EncryptedMemo::from_bytes(&bytes).unwrap();
 
-        // STUB: Returns dummy data
-        assert_eq!(tx_data.amount, 1_000_000);
-        assert_eq!(tx_data.asset, 0);
+        assert_eq!(memo.ephemeral_pk, memo2.ephemeral_pk);
+        assert_eq!(memo.ciphertext, memo2.ciphertext);
     }
 
     #[test]
-    fn test_tax_breakdown_calculation() {
+    fn test_tax_breakdown() {
         let breakdown = TaxBreakdown::new(1_000_000, 0.08, "US_CA".to_string());
-
-        assert_eq!(breakdown.gross_amount, 1_000_000);
-        assert_eq!(breakdown.tax_rate, 0.08);
         assert_eq!(breakdown.tax_amount, 80_000);
         assert_eq!(breakdown.net_amount, 920_000);
-    }
-
-    #[test]
-    fn test_encrypted_memo_stub() {
-        let memo = EncryptedMemo::stub("plaintext");
-
-        assert_eq!(memo.ephemeral_pk, "EPHEMERAL_PK_stub");
-        assert_eq!(memo.auth_tag.len(), 16);
-    }
-
-    #[tokio::test]
-    async fn test_nullifier_freeze_check() {
-        let seed = "1234567890abcdef1234567890abcdef1234567890abcdef";
-        let client = AuditorClient::from_seed(seed).expect("client creation failed");
-
-        // STUB: Always returns false
-        let is_frozen = client
-            .is_nullifier_frozen("test_nullifier")
-            .expect("check failed");
-
-        assert!(!is_frozen);
-    }
-
-    #[test]
-    fn test_shielded_tx_data_creation() {
-        let tx = ShieldedTxData::new(0, 500_000, "OWNER_PK_abc".to_string());
-
-        assert_eq!(tx.asset, 0);
-        assert_eq!(tx.amount, 500_000);
-        assert_eq!(tx.owner_pk, "OWNER_PK_abc");
-        assert!(!tx.nullifier.is_empty());
     }
 }
