@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "chain-sync.fullname" . }}
+  labels:
+    {{- include "chain-sync.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "chain-sync.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "chain-sync.selectorLabels" . | nindent 8 }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      containers:
+        - name: chain-sync
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          env:
+            - name: NODE_ENV
+              value: {{ .Values.env.NODE_ENV | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.env.LOG_LEVEL | quote }}
+            - name: PORT
+              value: {{ .Values.env.PORT | quote }}
+            - name: POLL_INTERVAL_MS
+              value: {{ .Values.env.POLL_INTERVAL_MS | quote }}
+            - name: UNIFIED_ROUTER_URL
+              value: {{ .Values.global.unifiedRouterUrl | default "http://unified-router:8000" | quote }}
+            # Contract addresses from values (not secrets — not sensitive)
+            - name: ETHEREUM_GROTH16_VERIFIER_ADDR
+              value: {{ .Values.contracts.ethereum.groth16Verifier | quote }}
+            - name: ETHEREUM_NULLIFIER_REGISTRY_ADDR
+              value: {{ .Values.contracts.ethereum.nullifierRegistry | quote }}
+            - name: ETHEREUM_COMMITMENT_TREE_ADDR
+              value: {{ .Values.contracts.ethereum.commitmentTree | quote }}
+            - name: POLYGON_GROTH16_VERIFIER_ADDR
+              value: {{ .Values.contracts.polygon.groth16Verifier | quote }}
+            - name: POLYGON_NULLIFIER_REGISTRY_ADDR
+              value: {{ .Values.contracts.polygon.nullifierRegistry | quote }}
+            - name: POLYGON_COMMITMENT_TREE_ADDR
+              value: {{ .Values.contracts.polygon.commitmentTree | quote }}
+            - name: BASE_GROTH16_VERIFIER_ADDR
+              value: {{ .Values.contracts.base.groth16Verifier | quote }}
+            - name: BASE_NULLIFIER_REGISTRY_ADDR
+              value: {{ .Values.contracts.base.nullifierRegistry | quote }}
+            - name: BASE_COMMITMENT_TREE_ADDR
+              value: {{ .Values.contracts.base.commitmentTree | quote }}
+            - name: ARBITRUM_GROTH16_VERIFIER_ADDR
+              value: {{ .Values.contracts.arbitrum.groth16Verifier | quote }}
+            - name: ARBITRUM_NULLIFIER_REGISTRY_ADDR
+              value: {{ .Values.contracts.arbitrum.nullifierRegistry | quote }}
+            - name: ARBITRUM_COMMITMENT_TREE_ADDR
+              value: {{ .Values.contracts.arbitrum.commitmentTree | quote }}
+          envFrom:
+            - secretRef:
+                name: {{ .Values.secretRef }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]

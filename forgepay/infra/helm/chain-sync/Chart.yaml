@@ -1,0 +1,6 @@
+apiVersion: v2
+name: chain-sync
+description: "ForgePay Chain Sync — monitors ZK proof contracts across EVM chains (Merkle roots + nullifiers)"
+type: application
+version: 0.1.0
+appVersion: "2026.04.24"

@@ -163,6 +163,41 @@ cryptoGateway:
     requests: { cpu: "100m", memory: "128Mi" }
     limits:   { cpu: "500m", memory: "512Mi" }
 
+# ── Chain Sync (Phase 3: ZK proof contract monitoring) ───────────────────
+# Monitors CommitmentTree + NullifierRegistry contracts on all EVM chains.
+# Disabled until contracts are deployed (Phase 3 go-live).
+chainSync:
+  enabled: false  # Enable after deploying contracts to testnet
+  replicaCount: 1   # Single replica — stateful event listener
+  image:
+    repository: forgepay/chain-sync
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  service:
+    port: 8050
+  resources:
+    requests: { cpu: "50m",  memory: "128Mi" }
+    limits:   { cpu: "200m", memory: "256Mi" }
+  # Contract addresses — set after deploying infra/contracts/
+  # TODO: Populate after `npm run deploy:testnet` from infra/contracts/
+  contracts:
+    ethereum:
+      groth16Verifier:   "0x0000000000000000000000000000000000000000"
+      nullifierRegistry: "0x0000000000000000000000000000000000000000"
+      commitmentTree:    "0x0000000000000000000000000000000000000000"
+    polygon:
+      groth16Verifier:   "0x0000000000000000000000000000000000000000"
+      nullifierRegistry: "0x0000000000000000000000000000000000000000"
+      commitmentTree:    "0x0000000000000000000000000000000000000000"
+    base:
+      groth16Verifier:   "0x0000000000000000000000000000000000000000"
+      nullifierRegistry: "0x0000000000000000000000000000000000000000"
+      commitmentTree:    "0x0000000000000000000000000000000000000000"
+    arbitrum:
+      groth16Verifier:   "0x0000000000000000000000000000000000000000"
+      nullifierRegistry: "0x0000000000000000000000000000000000000000"
+      commitmentTree:    "0x0000000000000000000000000000000000000000"
+
 # ── Shared infrastructure (disable if BYO) ───────────────────────────────
 postgresql:
   enabled: true

@@ -40,6 +40,11 @@ dependencies:
     repository: "file://../crypto-gateway"
     condition: cryptoGateway.enabled
 
+  - name: chain-sync
+    version: "0.1.0"
+    repository: "file://../chain-sync"
+    condition: chainSync.enabled
+
   # Shared infrastructure (can be disabled if you bring your own)
   - name: postgresql
     version: "15.5.x"

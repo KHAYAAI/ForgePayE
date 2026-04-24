@@ -1,0 +1,72 @@
+replicaCount: 1  # Single replica — event listeners, not load-balanced
+
+image:
+  repository: forgepay/chain-sync
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8050
+
+env:
+  NODE_ENV: production
+  LOG_LEVEL: info
+  PORT: "8050"
+  POLL_INTERVAL_MS: "12000"  # 12s = ~1 Ethereum block
+
+# Secrets injected via K8s secret refs — never hardcode here
+secretRef: "forgepay-chain-sync-secrets"
+# Expected keys:
+#   DATABASE_URL
+#   INTERNAL_WEBHOOK_SECRET
+#   ETHEREUM_RPC_URL
+#   POLYGON_RPC_URL
+#   BASE_RPC_URL
+#   ARBITRUM_RPC_URL
+
+# Contract addresses (all-zero until deployed to testnet/mainnet)
+# TODO: Update after running `npm run deploy:testnet` from infra/contracts/
+contracts:
+  ethereum:
+    groth16Verifier:   "0x0000000000000000000000000000000000000000"
+    nullifierRegistry: "0x0000000000000000000000000000000000000000"
+    commitmentTree:    "0x0000000000000000000000000000000000000000"
+  polygon:
+    groth16Verifier:   "0x0000000000000000000000000000000000000000"
+    nullifierRegistry: "0x0000000000000000000000000000000000000000"
+    commitmentTree:    "0x0000000000000000000000000000000000000000"
+  base:
+    groth16Verifier:   "0x0000000000000000000000000000000000000000"
+    nullifierRegistry: "0x0000000000000000000000000000000000000000"
+    commitmentTree:    "0x0000000000000000000000000000000000000000"
+  arbitrum:
+    groth16Verifier:   "0x0000000000000000000000000000000000000000"
+    nullifierRegistry: "0x0000000000000000000000000000000000000000"
+    commitmentTree:    "0x0000000000000000000000000000000000000000"
+
+resources:
+  requests:
+    cpu: "50m"
+    memory: "128Mi"
+  limits:
+    cpu: "200m"
+    memory: "256Mi"
+
+# No autoscaling — chain monitors are stateful listeners
+autoscaling:
+  enabled: false
+
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: 8050
+  initialDelaySeconds: 15
+  periodSeconds: 30
+
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: 8050
+  initialDelaySeconds: 10
+  periodSeconds: 15

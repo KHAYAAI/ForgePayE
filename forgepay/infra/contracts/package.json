@@ -1,0 +1,29 @@
+{
+  "name": "@forgepay/contracts",
+  "version": "0.1.0",
+  "description": "ForgePay on-chain contracts: Groth16Verifier, NullifierRegistry, CommitmentTree",
+  "private": true,
+  "scripts": {
+    "compile":    "hardhat compile",
+    "test":       "hardhat test",
+    "coverage":   "hardhat coverage",
+    "deploy:testnet": "hardhat run scripts/deploy.ts --network testnet",
+    "deploy:mainnet": "hardhat run scripts/deploy.ts --network mainnet",
+    "verify":     "hardhat verify"
+  },
+  "devDependencies": {
+    "hardhat":                            "^2.22.0",
+    "@nomicfoundation/hardhat-toolbox":   "^5.0.0",
+    "@nomicfoundation/hardhat-ethers":    "^3.0.0",
+    "@nomicfoundation/hardhat-chai-matchers": "^2.0.0",
+    "@typechain/hardhat":                 "^9.1.0",
+    "@typechain/ethers-v6":               "^0.5.0",
+    "chai":                               "^4.4.1",
+    "ethers":                             "^6.12.1",
+    "typechain":                          "^8.3.2",
+    "typescript":                         "^5.5.3",
+    "@types/node":                        "^20.14.0",
+    "@types/chai":                        "^4.3.16",
+    "@types/mocha":                       "^10.0.7"
+  }
+}
