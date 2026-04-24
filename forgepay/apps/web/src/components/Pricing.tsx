@@ -1,18 +1,19 @@
 import Link from 'next/link';
 import { Check } from 'lucide-react';
+import { PRICING } from '@/lib/pricing';
 
 const PLANS = [
   {
     name: 'Growth',
-    monthlyFee: '$5',
-    monthlyNote: 'per month',
-    transactionFee: '2% + $0.20',
+    monthlyFee: PRICING.monthly,
+    monthlyNote: PRICING.monthlyNote,
+    transactionFee: PRICING.card.fee,
     transactionNote: 'per fiat transaction',
     highlight: true,
     description: 'Everything you need to start and scale.',
     features: [
       'Cards, ACH, SEPA',
-      'Stablecoin & crypto (1.4% + gas)',
+      `Stablecoin & crypto (${PRICING.stablecoin.fee})`,
       'Hosted checkout',
       'Merchant of Record (global tax)',
       'Subscriptions & usage billing',
@@ -47,9 +48,9 @@ const PLANS = [
 ];
 
 const COMPARE_ROWS = [
-  { item: 'Card fee',            forgepay: '2% + $0.20',   stripe: '2.9% + $0.30', paddle: '5% + $0.50' },
-  { item: 'Stablecoin fee',      forgepay: '1.4% + gas',      stripe: 'N/A',           paddle: 'N/A' },
-  { item: 'Crypto fee',          forgepay: '1.4% + gas',      stripe: 'N/A',           paddle: 'N/A' },
+  { item: PRICING.card.label,       forgepay: PRICING.card.fee,       stripe: PRICING.card.stripeComparison, paddle: PRICING.card.paddleComparison },
+  { item: PRICING.stablecoin.label, forgepay: PRICING.stablecoin.fee, stripe: 'N/A', paddle: 'N/A' },
+  { item: PRICING.crypto.label,     forgepay: PRICING.crypto.fee,     stripe: 'N/A', paddle: 'N/A' },
   { item: 'MoR tax handling',    forgepay: 'Included',        stripe: 'Extra',         paddle: 'Yes (at 5%+)' },
   { item: 'Advanced billing',    forgepay: 'Included',        stripe: 'Extra $$$',     paddle: 'Limited' },
   { item: 'AI/agent payments',   forgepay: 'Native (x402)',   stripe: 'No',            paddle: 'No' },

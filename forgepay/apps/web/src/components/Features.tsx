@@ -9,6 +9,7 @@ import {
   ArrowLeftRight,
   Bot,
 } from 'lucide-react';
+import { PRICING } from '@/lib/pricing';
 
 const FEATURES = [
   {
@@ -16,21 +17,21 @@ const FEATURES = [
     title: 'Fiat Payments',
     description:
       'Cards, ACH, SEPA, bank transfers. 100+ processors via smart routing. Best approval rates, lowest cost.',
-    tag: '2% + $0.20',
+    tag: PRICING.card.fee,
   },
   {
     icon: Coins,
     title: 'Stablecoins',
     description:
       'USDC, USDT, EURC on Ethereum, Base, Polygon, Arbitrum, and Solana. Near-instant settlement.',
-    tag: '1.4% + gas',
+    tag: PRICING.stablecoin.fee,
   },
   {
     icon: Bitcoin,
     title: 'Crypto Payments',
     description:
       'BTC, ETH, and 50+ coins. Invoice-based with QR codes, automatic exchange rates, and on-chain confirmation tracking.',
-    tag: '1.4% + gas',
+    tag: PRICING.crypto.fee,
   },
   {
     icon: Globe,

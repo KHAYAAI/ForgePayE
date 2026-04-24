@@ -2,11 +2,12 @@
 
 import Link from 'next/link';
 import { ArrowRight, Zap } from 'lucide-react';
+import { PRICING } from '@/lib/pricing';
 
 const STATS = [
   { value: '200+', label: 'Countries (tax)' },
   { value: '100+', label: 'Payment processors' },
-  { value: '1.4%', label: 'Stablecoin fee' },
+  { value: PRICING.stablecoin.fee, label: PRICING.stablecoin.label },
   { value: '99.99%', label: 'Uptime SLA' },
 ];
 
@@ -35,7 +36,7 @@ export default function Hero() {
         <div className="inline-flex items-center gap-2 bg-cyan-500/10 border border-cyan-500/30 rounded-full px-4 py-1.5 mb-8">
           <Zap size={14} className="text-cyan-400" />
           <span className="text-xs font-semibold text-cyan-300 tracking-wide uppercase">
-            Now open — $5/mo flat pricing
+            Now open — {PRICING.monthly}/mo flat pricing
           </span>
         </div>
 
