@@ -31,6 +31,8 @@ import { getDb } from './lib/db.js';
 import { startChainMonitor } from './lib/monitor.js';
 import { buildDepositRoutes } from './routes/deposits.js';
 import { buildX402Routes } from './routes/x402.js';
+import { buildShieldedDepositRoutes } from './routes/shielded-deposits.js';
+import { startShieldedMonitor, startShieldedRecoveryPoller } from './lib/shielded-monitor.js';
 
 async function main() {
   const app = Fastify({ logger: true, trustProxy: true });
@@ -39,8 +41,9 @@ async function main() {
   const db = getDb();
 
   // Register routes
-  await app.register(buildDepositRoutes, { prefix: '/deposits' });
-  await app.register(buildX402Routes,    { prefix: '/x402' });
+  await app.register(buildDepositRoutes,         { prefix: '/deposits' });
+  await app.register(buildX402Routes,            { prefix: '/x402' });
+  await app.register(buildShieldedDepositRoutes, { prefix: '/shielded-deposits' });
 
   // Health / readiness
   app.get('/healthz', async () => ({ status: 'ok', service: 'stablecoin-gateway' }));
@@ -60,6 +63,19 @@ async function main() {
     startChainMonitor(chain, db).catch((err) =>
       console.error(`Chain monitor failed for ${chain}:`, err),
     );
+  }
+
+  // Start shielded-deposit monitors (only where NullifierRegistry is deployed)
+  if (config.shielded.enabled) {
+    for (const chain of chains) {
+      startShieldedMonitor(chain, db).catch((err) =>
+        console.error(`Shielded monitor failed for ${chain}:`, err),
+      );
+    }
+    startShieldedRecoveryPoller(db);
+    console.log('[stablecoin-gateway] Shielded payment monitoring enabled');
+  } else {
+    console.log('[stablecoin-gateway] Shielded payments disabled (SHIELDED_ENABLED=false)');
   }
 
   const shutdown = async () => {

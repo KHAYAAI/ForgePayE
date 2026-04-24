@@ -54,4 +54,20 @@ export const config = {
 
   // Payment expiry (1 hour to pay)
   paymentExpirySeconds: parseInt(opt('PAYMENT_EXPIRY_SECONDS', '3600'), 10),
+
+  // Shielded stablecoin payments (ZK-proof privacy)
+  shielded: {
+    enabled: opt('SHIELDED_ENABLED', 'false') === 'true',
+    // How often to poll NullifierRegistry for confirmed shielded payments (ms)
+    monitorIntervalMs: parseInt(opt('SHIELDED_MONITOR_INTERVAL_MS', '30000'), 10),
+    // MoR auditor service for decrypting encrypted memos
+    auditorServiceUrl: opt('AUDITOR_SERVICE_URL', 'http://mor-layer:8010'),
+    // NullifierRegistry contract addresses per chain (all-zero until deployed)
+    nullifierRegistry: {
+      ethereum: opt('NULLIFIER_REGISTRY_ETHEREUM', '0x0000000000000000000000000000000000000000'),
+      polygon:  opt('NULLIFIER_REGISTRY_POLYGON',  '0x0000000000000000000000000000000000000000'),
+      base:     opt('NULLIFIER_REGISTRY_BASE',     '0x0000000000000000000000000000000000000000'),
+      arbitrum: opt('NULLIFIER_REGISTRY_ARBITRUM', '0x0000000000000000000000000000000000000000'),
+    },
+  },
 } as const;

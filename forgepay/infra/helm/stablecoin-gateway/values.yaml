@@ -24,6 +24,24 @@ secretRef: "forgepay-stablecoin-gateway-secrets"
 #   POLYGON_RPC_URL
 #   BASE_RPC_URL
 #   ARBITRUM_RPC_URL
+#   AUDITOR_SERVICE_URL          (internal URL of mor-layer for shielded memo decryption)
+#   NULLIFIER_REGISTRY_ETHEREUM  (contract address — set after deployment)
+#   NULLIFIER_REGISTRY_POLYGON
+#   NULLIFIER_REGISTRY_BASE
+#   NULLIFIER_REGISTRY_ARBITRUM
+
+# Shielded payment configuration (ZK privacy layer)
+# Set SHIELDED_ENABLED=true once NullifierRegistry contracts are deployed
+shielded:
+  enabled: false   # TODO: set true after Phase 3 contract deployment
+  monitorIntervalMs: "30000"
+  # NullifierRegistry contract addresses (all-zero until deployed to mainnet)
+  # TODO: Update after deploying contracts/NullifierRegistry.sol
+  nullifierRegistry:
+    ethereum: "0x0000000000000000000000000000000000000000"
+    polygon:  "0x0000000000000000000000000000000000000000"
+    base:     "0x0000000000000000000000000000000000000000"
+    arbitrum: "0x0000000000000000000000000000000000000000"
 
 resources:
   requests:

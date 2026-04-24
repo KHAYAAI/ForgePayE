@@ -22,7 +22,27 @@ export interface StablecoinPaymentEvent {
   occurredAt:  string;
 }
 
-export async function forwardToUnifiedRouter(event: StablecoinPaymentEvent): Promise<void> {
+// Shielded payment events: intentionally omit amountUnits / amountUsd.
+// Merchant must never learn the plaintext amount from event payloads.
+export interface ShieldedPaymentEvent {
+  eventId:     string;
+  type:
+    | 'shielded.deposit.created'
+    | 'shielded.payment.confirmed'
+    | 'shielded.deposit.expired'
+    | 'shielded.nullifier.frozen';
+  merchantId?:  string;
+  depositId?:   string;
+  chain?:       string;
+  token?:       'USDC' | 'USDT';
+  nullifier:    string;    // hex nullifier — only public identifier
+  txHash?:      string;
+  blockNumber?: number;
+  reason?:      string;    // present for frozen events
+  occurredAt:   string;
+}
+
+export async function forwardToUnifiedRouter(event: StablecoinPaymentEvent | ShieldedPaymentEvent): Promise<void> {
   const body      = JSON.stringify(event);
   const signature = createHmac('sha256', config.internalWebhookSecret).update(body).digest('hex');
 
