@@ -74,6 +74,24 @@ export type {
   FPError,
 } from './types.js';
 
+// ZK Proof types
+export type {
+  DepositProofInput,
+  DepositProofOutput,
+  UtxoInput,
+  UtxoOutput,
+  TransferProofInput,
+  TransferProofOutput,
+  WithdrawProofInput,
+  WithdrawProofOutput,
+} from './resources/proofs.js';
+
+// Shielded checkout types
+export type {
+  ShieldedCheckoutSessionCreateParams,
+  ShieldedCheckoutSessionResponse,
+} from './resources/shielded-checkout.js';
+
 // Re-export errors
 export {
   ForgePayError,
