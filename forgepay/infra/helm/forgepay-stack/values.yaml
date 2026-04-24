@@ -20,6 +20,52 @@ global:
     endpoint: "http://otel-collector:4317"
     enabled: true
 
+  # ── Zero-Knowledge Proof Configuration ──────────────────────────────────────
+  # ARCH: Privacy-Preserving MoR integration (Phase 1)
+  # NOTE: Currently STUBBED for testing. Set enabled: true to verify proofs in production.
+  zk:
+    # Enable ZK proof verification (false = skip verification, true = verify all proofs)
+    enabled: false
+
+    # TODO: Update to true when auditable-privacy-payment is integrated
+    # When false, all proof verifications succeed unconditionally (testing mode)
+
+    # Maximum time (ms) to wait for a single proof verification
+    verificationTimeoutMs: 5000
+
+    # Maximum number of proofs to verify in a single batch
+    batchSize: 10
+
+    # Smart contract addresses for on-chain verification (requires deployment)
+    contracts:
+      # Groth16 proof verifier contract (deployed on each chain)
+      groth16Verifier:
+        ethereum: "0x0000000000000000000000000000000000000000"  # TODO: Deploy and set
+        polygon: "0x0000000000000000000000000000000000000000"
+        base: "0x0000000000000000000000000000000000000000"
+        arbitrum: "0x0000000000000000000000000000000000000000"
+
+      # Nullifier registry contract (prevents double-spending)
+      nullifierRegistry:
+        ethereum: "0x0000000000000000000000000000000000000000"  # TODO: Deploy and set
+        polygon: "0x0000000000000000000000000000000000000000"
+        base: "0x0000000000000000000000000000000000000000"
+        arbitrum: "0x0000000000000000000000000000000000000000"
+
+      # Merkle tree root tracker contract
+      commitmentTree:
+        ethereum: "0x0000000000000000000000000000000000000000"  # TODO: Deploy and set
+        polygon: "0x0000000000000000000000000000000000000000"
+        base: "0x0000000000000000000000000000000000000000"
+        arbitrum: "0x0000000000000000000000000000000000000000"
+
+    # RPC endpoints for on-chain proof submission (via Chain Sync service)
+    rpc:
+      ethereum: "https://eth-mainnet.g.alchemy.com/v2/ALCHEMY_KEY"  # TODO: Set from secret
+      polygon: "https://polygon-mainnet.g.alchemy.com/v2/ALCHEMY_KEY"
+      base: "https://base-mainnet.g.alchemy.com/v2/ALCHEMY_KEY"
+      arbitrum: "https://arb-mainnet.g.alchemy.com/v2/ALCHEMY_KEY"
+
 # ── Payment Engine (Hyperswitch) ─────────────────────────────────────────────
 paymentEngine:
   enabled: true
