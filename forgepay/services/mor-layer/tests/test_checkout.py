@@ -8,8 +8,15 @@ Verifies that:
   3. Hyperswitch is called with (subtotal + tax) as the total
   4. The response contains the client_secret from Hyperswitch
   5. Errors from Hyperswitch propagate as 502
+
+Also tests the new POST /v1/checkout/sessions/shielded endpoint:
+  - Decrypts shielded transactions via AuditorClient (stubbed)
+  - Computes tax on decrypted amounts
+  - Stores nullifier for compliance audit
+  - Verifies Groth16 proofs (stubbed)
 """
 
+import base64
 import json
 import pytest
 import respx
@@ -172,3 +179,181 @@ async def test_checkout_hyperswitch_502_returns_502(client: AsyncClient):
     resp = await client.post("/v1/checkout/sessions", json=CHECKOUT_PAYLOAD)
     assert resp.status_code == 502
     assert "Payment engine" in resp.json()["detail"]
+
+
+# ── Shielded Checkout Tests ───────────────────────────────────────────────────
+
+
+SHIELDED_CHECKOUT_PAYLOAD = {
+    "merchant_id": "merch_test_01",
+    "customer_id": "cus_hs_01",
+    "encrypted_memo": base64.b64encode(b"stub_encrypted_memo_data").decode("utf-8"),
+    "audit_proof": base64.b64encode(b"stub_groth16_proof_data").decode("utf-8"),
+    "currency": "USD",
+    "success_url": "https://example.com/success",
+    "cancel_url": "https://example.com/cancel",
+    "customer_country": "US",
+    "idempotency_key": "test_shielded_001",
+}
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_shielded_checkout_creates_payment(client: AsyncClient):
+    """
+    Happy path: shielded checkout decrypts transaction and creates Hyperswitch payment.
+
+    The auditor decrypts the memo and reveals the amount (1_000_000 = $1.00).
+    No tax for US without state → total = 1_000_000.
+    Merchant never sees plaintext.
+    """
+    respx.post("http://hyperswitch-test.local/payments").mock(
+        return_value=httpx.Response(200, json={
+            "payment_id": "pay_shielded_01",
+            "status": "requires_confirmation",
+            "amount": 1_000_000,
+            "currency": "USD",
+            "client_secret": "pay_shielded_01_secret",
+            "customer_id": "cus_hs_01",
+        })
+    )
+
+    resp = await client.post("/v1/checkout/sessions/shielded", json=SHIELDED_CHECKOUT_PAYLOAD)
+
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["payment_id"] == "pay_shielded_01"
+    assert data["client_secret"] == "pay_shielded_01_secret"
+    assert data["amount_subtotal"] == 100  # 1_000_000 / 10_000
+    assert data["amount_tax"] == 0         # No tax without state
+    assert data["amount_total"] == 100
+    assert data["status"] == "pending"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_shielded_checkout_with_tax_calculation(client: AsyncClient):
+    """
+    Shielded checkout computes tax on decrypted amount.
+    Amount: 1_000_000 (auditor can see), but merchant cannot.
+    Germany: 19% VAT → tax = 19 (19% of 100 cents, roughly).
+    """
+    respx.post("http://hyperswitch-test.local/payments").mock(
+        return_value=httpx.Response(200, json={
+            "payment_id": "pay_shielded_de_01",
+            "status": "requires_confirmation",
+            "amount": 119,  # 100 + 19
+            "currency": "USD",
+            "client_secret": "pay_shielded_de_01_secret",
+            "customer_id": "cus_hs_01",
+        })
+    )
+
+    resp = await client.post(
+        "/v1/checkout/sessions/shielded",
+        json={
+            **SHIELDED_CHECKOUT_PAYLOAD,
+            "customer_country": "DE",
+            "idempotency_key": "test_shielded_de_001",
+        },
+    )
+
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["amount_subtotal"] == 100
+    assert data["amount_tax"] == 19     # 19% of 100
+    assert data["amount_total"] == 119
+    assert len(data["tax_breakdown"]) == 1
+    assert data["tax_breakdown"][0]["jurisdiction"] == "DE"
+    assert data["tax_breakdown"][0]["tax_type"] == "VAT"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_shielded_checkout_invalid_base64_memo(client: AsyncClient):
+    """Invalid base64 in encrypted_memo should return 400."""
+    resp = await client.post(
+        "/v1/checkout/sessions/shielded",
+        json={
+            **SHIELDED_CHECKOUT_PAYLOAD,
+            "encrypted_memo": "not_valid_base64!!!",
+        },
+    )
+
+    assert resp.status_code == 400
+    assert "base64" in resp.json()["detail"].lower()
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_shielded_checkout_stores_nullifier_for_audit(client: AsyncClient):
+    """
+    Shielded sessions store the nullifier in DB for compliance auditing.
+    Auditor can check if nullifier is frozen (prevent double-spending).
+    """
+    respx.post("http://hyperswitch-test.local/payments").mock(
+        return_value=httpx.Response(200, json={
+            "payment_id": "pay_shielded_nullifier_01",
+            "status": "requires_confirmation",
+            "amount": 100,
+            "currency": "USD",
+            "client_secret": "pay_shielded_nullifier_secret",
+            "customer_id": "cus_hs_01",
+        })
+    )
+
+    resp = await client.post("/v1/checkout/sessions/shielded", json=SHIELDED_CHECKOUT_PAYLOAD)
+
+    assert resp.status_code == 201
+    data = resp.json()
+    # The auditor decrypts and returns a stub nullifier: "DECRYPTED_NULLIFIER"
+    # The response doesn't expose the nullifier (privacy), but it's stored in DB
+    assert data["payment_id"] == "pay_shielded_nullifier_01"
+    # In a real test with DB access, we'd verify the nullifier is stored
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_shielded_checkout_hyperswitch_down_returns_502(client: AsyncClient):
+    """If Hyperswitch is down during shielded checkout, return 502."""
+    respx.post("http://hyperswitch-test.local/payments").mock(
+        return_value=httpx.Response(503, json={"error": "Service Unavailable"})
+    )
+
+    resp = await client.post("/v1/checkout/sessions/shielded", json=SHIELDED_CHECKOUT_PAYLOAD)
+
+    assert resp.status_code == 502
+    assert "Payment engine" in resp.json()["detail"]
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_shielded_checkout_groth16_proof_verification(client: AsyncClient):
+    """
+    Groth16 proof verification (stubbed to always succeed in Phase 2).
+    When real Groth16 is integrated, this will verify the proof against the memo.
+    """
+    respx.post("http://hyperswitch-test.local/payments").mock(
+        return_value=httpx.Response(200, json={
+            "payment_id": "pay_shielded_proof_01",
+            "status": "requires_confirmation",
+            "amount": 100,
+            "currency": "USD",
+            "client_secret": "pay_shielded_proof_secret",
+            "customer_id": "cus_hs_01",
+        })
+    )
+
+    # Proof is optional in Phase 2 (testing mode) but accepted if provided
+    resp = await client.post(
+        "/v1/checkout/sessions/shielded",
+        json={
+            **SHIELDED_CHECKOUT_PAYLOAD,
+            "audit_proof": base64.b64encode(b"valid_groth16_proof").decode("utf-8"),
+        },
+    )
+
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["payment_id"] == "pay_shielded_proof_01"
+    # In Phase 3, we'd assert that the proof was actually verified

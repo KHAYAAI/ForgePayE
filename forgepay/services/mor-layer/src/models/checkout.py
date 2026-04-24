@@ -84,3 +84,41 @@ class CheckoutSessionRetrieve(BaseModel):
     amount_paid: int | None = None
     currency:    str
     metadata:    dict[str, str] = {}
+
+
+class ShieldedCheckoutSessionCreate(BaseModel):
+    """
+    Create a shielded (privacy-preserving) checkout session.
+
+    Instead of plain line items, the client sends an encrypted memo and optional ZK proof.
+    The auditor decrypts the memo to compute taxes without revealing the plaintext to the merchant.
+
+    Flow:
+      1. Verify JWT (same as regular checkout)
+      2. Verify ZK proof (Groth16 on BN254)
+      3. Decrypt memo via AuditorClient (only auditor can do this)
+      4. Check nullifier not in frozen set
+      5. Compute tax on decrypted amount
+      6. Create Hyperswitch payment intent with decrypted amount + tax
+      7. Store session with nullifier + proof for compliance audit
+    """
+    merchant_id:          str
+    customer_id:          str | None = None
+    customer_email:       str | None = None
+    encrypted_memo:       str                 # base64-encoded encrypted transaction data
+    audit_proof:          str | None = None   # base64-encoded Groth16 proof (optional for phase 2)
+    currency:             str = "USD"
+    payment_methods:      list[PaymentMethodType] = [PaymentMethodType.CARD]
+    success_url:          str
+    cancel_url:           str
+    idempotency_key:      str | None = None
+    metadata:             dict[str, str] = {}
+    # Tax jurisdiction (decryption reveals amount, but jurisdiction tells tax calculator)
+    customer_country:     str | None = None    # ISO 3166-1 alpha-2
+    customer_state:       str | None = None    # for US sales tax
+    customer_postal_code: str | None = None
+
+    @field_validator("currency")
+    @classmethod
+    def uppercase_currency(cls, v: str) -> str:
+        return v.upper()

@@ -58,4 +58,10 @@ class CheckoutSession(Base):
     created_at:    Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at:    Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
 
+    # Shielded transaction fields (NULL for regular checkout)
+    is_shielded:   Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    nullifier:     Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    audit_proof:   Mapped[bytes | None] = mapped_column(Text, nullable=True)
+    audit_timestamp: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     merchant: Mapped["Merchant"] = relationship(back_populates="checkout_sessions")
