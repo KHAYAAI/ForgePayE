@@ -357,3 +357,149 @@ async def test_shielded_checkout_groth16_proof_verification(client: AsyncClient)
     data = resp.json()
     assert data["payment_id"] == "pay_shielded_proof_01"
     # In Phase 3, we'd assert that the proof was actually verified
+
+
+# ── Auditor Decrypt Tests ─────────────────────────────────────────────────────
+
+from unittest.mock import MagicMock, patch
+
+# A valid 64-hex-char seed used in all auditor tests
+_AUDITOR_SEED = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+# Shared base request body for decrypt endpoint
+_DECRYPT_VALID_PAYLOAD = {
+    "encrypted_memo": base64.b64encode(b"any_bytes_decryption_is_mocked").decode("utf-8"),
+}
+
+
+class TestAuditorDecrypt:
+    """Tests for POST /v1/auditor/decrypt (internal-only endpoint)."""
+
+    @pytest.mark.asyncio
+    async def test_decrypt_requires_internal_secret(self, client: AsyncClient):
+        """Without X-Internal-Secret header, endpoint returns 403 Forbidden."""
+        resp = await client.post(
+            "/v1/auditor/decrypt",
+            json=_DECRYPT_VALID_PAYLOAD,
+            # No X-Internal-Secret header
+        )
+        assert resp.status_code == 403
+        assert "Forbidden" in resp.json()["detail"]
+
+    @pytest.mark.asyncio
+    async def test_decrypt_wrong_secret_returns_403(self, client: AsyncClient):
+        """Wrong X-Internal-Secret value returns 403."""
+        resp = await client.post(
+            "/v1/auditor/decrypt",
+            json=_DECRYPT_VALID_PAYLOAD,
+            headers={"X-Internal-Secret": "wrong-secret"},
+        )
+        assert resp.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_decrypt_invalid_base64(self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch):
+        """Invalid base64 in encrypted_memo returns 400."""
+        monkeypatch.setenv("INTERNAL_WEBHOOK_SECRET", "test-internal-secret")
+        monkeypatch.setenv("AUDITOR_SEED_HEX", _AUDITOR_SEED)
+
+        # Reload the module-level INTERNAL_SECRET by patching the auditor module
+        with patch("src.api.auditor.INTERNAL_SECRET", "test-internal-secret"):
+            resp = await client.post(
+                "/v1/auditor/decrypt",
+                json={"encrypted_memo": "not_valid_base64!!!"},
+                headers={"X-Internal-Secret": "test-internal-secret"},
+            )
+
+        assert resp.status_code == 400
+        assert "base64" in resp.json()["detail"].lower()
+
+    @pytest.mark.asyncio
+    async def test_decrypt_missing_auditor_seed_returns_503(
+        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ):
+        """When AUDITOR_SEED_HEX env var is absent, endpoint returns 503."""
+        monkeypatch.delenv("AUDITOR_SEED_HEX", raising=False)
+
+        with patch("src.api.auditor.INTERNAL_SECRET", "test-internal-secret"):
+            with patch.dict("os.environ", {}, clear=False):
+                # Ensure the env var is unset inside the request
+                import os as _os
+                _os.environ.pop("AUDITOR_SEED_HEX", None)
+
+                resp = await client.post(
+                    "/v1/auditor/decrypt",
+                    json=_DECRYPT_VALID_PAYLOAD,
+                    headers={"X-Internal-Secret": "test-internal-secret"},
+                )
+
+        assert resp.status_code == 503
+        assert "seed" in resp.json()["detail"].lower()
+
+    @pytest.mark.asyncio
+    async def test_decrypt_success(self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch):
+        """
+        With a valid encrypted memo and correct secret, returns decrypted tx data.
+
+        AuditorClient.decrypt_shielded_tx is monkeypatched to return a known
+        ShieldedTxData, so the test does not depend on real cryptography.
+        """
+        from src.auditor import ShieldedTxData
+
+        stub_tx = ShieldedTxData(
+            asset=0,
+            amount=1_000_000,
+            owner_pk="aabbccdd" * 8,
+            nullifier="nullifier_hex_stub",
+            commitment="commitment_hex_stub",
+            timestamp=1_700_000_000,
+            merchant_id="merch_test_01",
+        )
+
+        monkeypatch.setenv("AUDITOR_SEED_HEX", _AUDITOR_SEED)
+
+        with patch("src.api.auditor.INTERNAL_SECRET", "test-internal-secret"), \
+             patch("src.api.auditor.AuditorClient.from_seed") as mock_from_seed:
+
+            mock_client = MagicMock()
+            mock_client.decrypt_shielded_tx.return_value = stub_tx
+            mock_from_seed.return_value = mock_client
+
+            resp = await client.post(
+                "/v1/auditor/decrypt",
+                json=_DECRYPT_VALID_PAYLOAD,
+                headers={"X-Internal-Secret": "test-internal-secret"},
+            )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["asset"] == "0"
+        assert data["amount"] == pytest.approx(1_000_000.0)
+        assert data["amount_units"] == str(int(1_000_000 * 1_000_000))
+        assert data["nullifier"] == "nullifier_hex_stub"
+        assert data["commitment"] == "commitment_hex_stub"
+        assert data["merchant_id"] == "merch_test_01"
+
+    @pytest.mark.asyncio
+    async def test_decrypt_decryption_failure_returns_422(
+        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ):
+        """When decryption raises an error (bad ciphertext), returns 422."""
+        monkeypatch.setenv("AUDITOR_SEED_HEX", _AUDITOR_SEED)
+
+        with patch("src.api.auditor.INTERNAL_SECRET", "test-internal-secret"), \
+             patch("src.api.auditor.AuditorClient.from_seed") as mock_from_seed:
+
+            mock_client = MagicMock()
+            mock_client.decrypt_shielded_tx.side_effect = ValueError(
+                "AES-GCM authentication failed — memo tampered or wrong key"
+            )
+            mock_from_seed.return_value = mock_client
+
+            resp = await client.post(
+                "/v1/auditor/decrypt",
+                json=_DECRYPT_VALID_PAYLOAD,
+                headers={"X-Internal-Secret": "test-internal-secret"},
+            )
+
+        assert resp.status_code == 422
+        assert "Decryption failed" in resp.json()["detail"]

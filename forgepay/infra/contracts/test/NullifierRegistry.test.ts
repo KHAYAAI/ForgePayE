@@ -13,6 +13,20 @@
 
 import { expect } from 'chai';
 import { ethers } from 'hardhat';
+import { AbiCoder } from 'ethers';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function makeProofBytes(): Uint8Array {
+  const coder = AbiCoder.defaultAbiCoder();
+  const encoded = coder.encode(
+    ['uint256[2]', 'uint256[2][2]', 'uint256[2]'],
+    [[0n, 0n], [[0n, 0n], [0n, 0n]], [0n, 0n]]
+  );
+  return ethers.getBytes(encoded);
+}
 
 describe('NullifierRegistry', () => {
   let verifier:  any;
@@ -40,6 +54,8 @@ describe('NullifierRegistry', () => {
     );
     await registry.waitForDeployment();
   });
+
+  // ── submitProof ──────────────────────────────────────────────────────────
 
   describe('submitProof', () => {
     it('accepts a valid proof and marks nullifier as spent', async () => {
@@ -78,7 +94,39 @@ describe('NullifierRegistry', () => {
         registry.submitProof(PROOF, zeroNullifier, MERKLE_ROOT, AMOUNT)
       ).to.be.revertedWithCustomError(registry, 'InvalidNullifier');
     });
+
+    // ── Full lifecycle ─────────────────────────────────────────────────────
+
+    it('full lifecycle: submit proof → nullifier recorded → cannot submit again (NullifierAlreadySpent)', async () => {
+      const nullifier2 = ethers.zeroPadValue(ethers.toBeHex(0xaaaa1234), 32);
+
+      // Step 1: Initially not spent
+      expect(await registry.isSpent(nullifier2)).to.equal(false);
+
+      // Step 2: Submit proof → success
+      await registry.submitProof(makeProofBytes(), nullifier2, MERKLE_ROOT, 500n);
+      expect(await registry.isSpent(nullifier2)).to.equal(true);
+
+      // Step 3: Second submission → double-spend revert
+      await expect(
+        registry.submitProof(makeProofBytes(), nullifier2, MERKLE_ROOT, 500n)
+      ).to.be.revertedWithCustomError(registry, 'NullifierAlreadySpent')
+        .withArgs(nullifier2);
+    });
+
+    it('different nullifiers can both be submitted independently', async () => {
+      const nA = ethers.zeroPadValue(ethers.toBeHex(0xaaa), 32);
+      const nB = ethers.zeroPadValue(ethers.toBeHex(0xbbb), 32);
+
+      await registry.submitProof(makeProofBytes(), nA, MERKLE_ROOT, 100n);
+      await registry.submitProof(makeProofBytes(), nB, MERKLE_ROOT, 200n);
+
+      expect(await registry.isSpent(nA)).to.equal(true);
+      expect(await registry.isSpent(nB)).to.equal(true);
+    });
   });
+
+  // ── freezeNullifier ──────────────────────────────────────────────────────
 
   describe('freezeNullifier', () => {
     it('auditor can freeze a nullifier', async () => {
@@ -94,10 +142,31 @@ describe('NullifierRegistry', () => {
         .withArgs(NULLIFIER, auditorAcc.address, 'sanctions', await latestTimestamp());
     });
 
-    it('non-auditor cannot freeze', async () => {
+    it('non-auditor cannot freeze → revert NotAuditor', async () => {
       await expect(
         registry.connect(stranger).freezeNullifier(NULLIFIER, 'unauthorized')
       ).to.be.revertedWithCustomError(registry, 'NotAuditor');
+    });
+
+    it('owner (non-auditor) also cannot freeze → revert NotAuditor', async () => {
+      // owner is not the auditor
+      await expect(
+        registry.connect(owner).freezeNullifier(NULLIFIER, 'owner attempt')
+      ).to.be.revertedWithCustomError(registry, 'NotAuditor');
+    });
+
+    it('freeze flow: auditor freezes nullifier → submitProof reverts with NullifierFrozenError', async () => {
+      const frozenNull = ethers.zeroPadValue(ethers.toBeHex(0xfeed), 32);
+
+      // Freeze the nullifier first
+      await registry.connect(auditorAcc).freezeNullifier(frozenNull, 'compliance hold');
+      expect(await registry.isFrozen(frozenNull)).to.equal(true);
+
+      // Now trying to submit a proof for that nullifier must fail
+      await expect(
+        registry.submitProof(makeProofBytes(), frozenNull, MERKLE_ROOT, 999n)
+      ).to.be.revertedWithCustomError(registry, 'NullifierFrozenError')
+        .withArgs(frozenNull);
     });
 
     it('auditor can unfreeze a nullifier', async () => {
@@ -105,7 +174,30 @@ describe('NullifierRegistry', () => {
       await registry.connect(auditorAcc).unfreezeNullifier(NULLIFIER);
       expect(await registry.isFrozen(NULLIFIER)).to.equal(false);
     });
+
+    it('unfreezeNullifier: after unfreeze, submitProof succeeds', async () => {
+      const nUnfreeze = ethers.zeroPadValue(ethers.toBeHex(0x9999), 32);
+
+      // Freeze
+      await registry.connect(auditorAcc).freezeNullifier(nUnfreeze, 'temp hold');
+      // Unfreeze
+      await registry.connect(auditorAcc).unfreezeNullifier(nUnfreeze);
+
+      // Should now succeed
+      await expect(
+        registry.submitProof(makeProofBytes(), nUnfreeze, MERKLE_ROOT, 1n)
+      ).to.emit(registry, 'PaymentConfirmed');
+    });
+
+    it('non-auditor cannot unfreeze → revert NotAuditor', async () => {
+      await registry.connect(auditorAcc).freezeNullifier(NULLIFIER, 'freeze');
+      await expect(
+        registry.connect(stranger).unfreezeNullifier(NULLIFIER)
+      ).to.be.revertedWithCustomError(registry, 'NotAuditor');
+    });
   });
+
+  // ── admin ────────────────────────────────────────────────────────────────
 
   describe('admin', () => {
     it('owner can update verifier address', async () => {
@@ -116,15 +208,63 @@ describe('NullifierRegistry', () => {
       expect(await registry.verifier()).to.equal(newVerifier);
     });
 
-    it('non-owner cannot update verifier', async () => {
+    it('non-owner cannot update verifier → revert NotOwner', async () => {
       await expect(
         registry.connect(stranger).updateVerifier(ethers.Wallet.createRandom().address)
       ).to.be.revertedWithCustomError(registry, 'NotOwner');
     });
 
+    it('auditor cannot update verifier → revert NotOwner', async () => {
+      await expect(
+        registry.connect(auditorAcc).updateVerifier(ethers.Wallet.createRandom().address)
+      ).to.be.revertedWithCustomError(registry, 'NotOwner');
+    });
+
+    it('updateVerifier works correctly: new verifier address is persisted', async () => {
+      // Deploy a second verifier instance and point the registry to it
+      const VerifierFactory = await ethers.getContractFactory('Groth16Verifier');
+      const verifier2 = await VerifierFactory.deploy();
+      await verifier2.waitForDeployment();
+      const v2Addr = await verifier2.getAddress();
+
+      await registry.updateVerifier(v2Addr);
+      expect(await registry.verifier()).to.equal(v2Addr);
+
+      // Registry still works: can submit proof via new verifier
+      const nv = ethers.zeroPadValue(ethers.toBeHex(0x1a2b), 32);
+      await expect(
+        registry.submitProof(makeProofBytes(), nv, MERKLE_ROOT, 10n)
+      ).to.emit(registry, 'PaymentConfirmed');
+    });
+
     it('owner can transfer ownership', async () => {
       await registry.transferOwnership(stranger.address);
       expect(await registry.owner()).to.equal(stranger.address);
+    });
+
+    it('after ownership transfer, old owner cannot update verifier', async () => {
+      await registry.transferOwnership(stranger.address);
+      await expect(
+        registry.connect(owner).updateVerifier(ethers.Wallet.createRandom().address)
+      ).to.be.revertedWithCustomError(registry, 'NotOwner');
+    });
+
+    it('owner can update auditor address', async () => {
+      await registry.updateAuditor(stranger.address);
+      expect(await registry.auditor()).to.equal(stranger.address);
+    });
+  });
+
+  // ── isSpent / isFrozen view functions ────────────────────────────────────
+
+  describe('view functions', () => {
+    it('isSpent returns false before submission', async () => {
+      const nNew = ethers.zeroPadValue(ethers.toBeHex(0xffff), 32);
+      expect(await registry.isSpent(nNew)).to.equal(false);
+    });
+
+    it('isFrozen returns false by default', async () => {
+      expect(await registry.isFrozen(NULLIFIER)).to.equal(false);
     });
   });
 });

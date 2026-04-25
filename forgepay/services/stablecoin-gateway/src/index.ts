@@ -31,6 +31,7 @@ import { getDb } from './lib/db.js';
 import { startChainMonitor } from './lib/monitor.js';
 import { buildDepositRoutes } from './routes/deposits.js';
 import { buildX402Routes } from './routes/x402.js';
+import { buildX402ShieldedRoutes } from './routes/x402-shielded.js';
 import { buildShieldedDepositRoutes } from './routes/shielded-deposits.js';
 import { startShieldedMonitor, startShieldedRecoveryPoller } from './lib/shielded-monitor.js';
 
@@ -43,6 +44,7 @@ async function main() {
   // Register routes
   await app.register(buildDepositRoutes,         { prefix: '/deposits' });
   await app.register(buildX402Routes,            { prefix: '/x402' });
+  await app.register(buildX402ShieldedRoutes,    { prefix: '/x402' });
   await app.register(buildShieldedDepositRoutes, { prefix: '/shielded-deposits' });
 
   // Health / readiness

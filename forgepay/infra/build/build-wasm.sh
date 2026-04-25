@@ -1,32 +1,35 @@
-#!/bin/bash
-# Build WASM module for privacy-payment
+#!/usr/bin/env bash
+# Build the privacy-payment-wasm crate into a publishable npm package.
+# Requires: wasm-pack, cargo (Rust toolchain with wasm32-unknown-unknown target)
+#
+# Usage:
+#   ./forgepay/infra/build/build-wasm.sh
+#   ./forgepay/infra/build/build-wasm.sh --release
+#
+# Output:
+#   forgepay/packages/sdk-js/vendor/privacy-payment-wasm/
+#   (ESM bundle suitable for browser and Node.js)
 
 set -euo pipefail
+REPO_ROOT="$(cd "$(dirname "$0")/../../../" && pwd)"
+CRATE_DIR="$REPO_ROOT/crates/privacy-payment-wasm"
+OUT_DIR="$REPO_ROOT/forgepay/packages/sdk-js/vendor/privacy-payment-wasm"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-WASM_CRATE="$PROJECT_ROOT/crates/privacy-payment-wasm"
-WASM_OUTPUT="$PROJECT_ROOT/packages/sdk-js/wasm"
+echo "[wasm-build] Building crate: $CRATE_DIR"
+echo "[wasm-build] Output: $OUT_DIR"
 
-echo "Building privacy-payment WASM module..."
+# Ensure wasm32 target is installed
+rustup target add wasm32-unknown-unknown
 
-# Check if wasm-pack is installed
-if ! command -v wasm-pack &> /dev/null; then
-    echo "Error: wasm-pack not found. Install it with: curl https://rustwasm.org/wasm-pack/installer/init.sh -sSf | sh"
-    exit 1
-fi
-
-# Build for bundler target (ESM + CommonJS)
-cd "$WASM_CRATE"
+# Build with wasm-pack
+# --target bundler: generates ESM with .js + .d.ts (compatible with webpack/vite)
 wasm-pack build \
-    --target bundler \
-    --release \
-    --out-dir "$WASM_OUTPUT" \
-    -- --features wasm
+  --target bundler \
+  --out-dir "$OUT_DIR" \
+  --out-name "privacy_payment_wasm" \
+  ${1:+--release} \
+  "$CRATE_DIR"
 
-echo "✅ WASM build complete: $WASM_OUTPUT"
-echo ""
-echo "Generated files:"
-ls -lh "$WASM_OUTPUT"
-echo ""
-echo "Next: Update forgepay/packages/sdk-js/package.json to add @forgepay/privacy-payment-wasm as dependency"
+echo "[wasm-build] Done. Output at: $OUT_DIR"
+echo "[wasm-build] Files:"
+ls -la "$OUT_DIR"
