@@ -12,18 +12,20 @@ import {
   Globe,
   Webhook,
   Zap,
+  Bot,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const NAV_ITEMS = [
-  { label: 'Overview',      href: '/',              icon: LayoutDashboard },
-  { label: 'Payments',      href: '/payments',      icon: CreditCard },
-  { label: 'Subscriptions', href: '/subscriptions', icon: RefreshCw },
-  { label: 'Analytics',     href: '/analytics',     icon: BarChart3 },
-  { label: 'Tax & MoR',     href: '/tax',           icon: Globe },
-  { label: 'Webhooks',      href: '/webhooks',      icon: Webhook },
-  { label: 'API Keys',      href: '/api-keys',      icon: Key },
-  { label: 'Settings',      href: '/settings',      icon: Settings },
+  { label: 'Overview',      href: '/',              icon: LayoutDashboard, badge: null },
+  { label: 'Payments',      href: '/payments',      icon: CreditCard,      badge: null },
+  { label: 'Subscriptions', href: '/subscriptions', icon: RefreshCw,       badge: null },
+  { label: 'Analytics',     href: '/analytics',     icon: BarChart3,       badge: null },
+  { label: 'Tax & MoR',     href: '/tax',           icon: Globe,           badge: null },
+  { label: 'Webhooks',      href: '/webhooks',      icon: Webhook,         badge: null },
+  { label: 'API Keys',      href: '/api-keys',      icon: Key,             badge: null },
+  { label: 'Forge Agent',   href: '/agent',         icon: Bot,             badge: 'Beta' },
+  { label: 'Settings',      href: '/settings',      icon: Settings,        badge: null },
 ];
 
 export default function Sidebar() {
@@ -39,7 +41,7 @@ export default function Sidebar() {
 
       {/* Nav */}
       <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
-        {NAV_ITEMS.map(({ label, href, icon: Icon }) => {
+        {NAV_ITEMS.map(({ label, href, icon: Icon, badge }) => {
           const active = href === '/' ? pathname === '/' : pathname.startsWith(href);
           return (
             <Link
@@ -53,7 +55,12 @@ export default function Sidebar() {
               )}
             >
               <Icon size={15} className={active ? 'text-cyan-400' : ''} />
-              {label}
+              <span className="flex-1">{label}</span>
+              {badge && (
+                <span className="rounded-full bg-cyan-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-cyan-400">
+                  {badge}
+                </span>
+              )}
             </Link>
           );
         })}

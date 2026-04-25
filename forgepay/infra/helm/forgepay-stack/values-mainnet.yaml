@@ -104,6 +104,11 @@ cryptoGateway:
     requests: { cpu: "200m",  memory: "256Mi" }
     limits:   { cpu: "500m",  memory: "512Mi" }
 
+# ── Forge Agent (Mainnet) ─────────────────────────────────────────────────────
+forgeAgent:
+  enabled:        false   # flip true to launch Forge Agent on prod
+  billingEnabled: false   # flip true to expose F.Billing (Kill Bill) tools
+
 # ── Chain Sync (Mainnet) ───────────────────────────────────────────────────────
 chainSync:
   enabled: false  # Enable after contracts deployed on all 4 chains

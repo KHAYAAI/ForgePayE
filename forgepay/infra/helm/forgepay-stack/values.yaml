@@ -198,6 +198,18 @@ chainSync:
       nullifierRegistry: "0x0000000000000000000000000000000000000000"
       commitmentTree:    "0x0000000000000000000000000000000000000000"
 
+# ── Forge Agent ──────────────────────────────────────────────────────────
+# AI billing assistant powered by Claude.
+# Two-flag launch sequence:
+#   1. Set forgeAgent.enabled: true  → activates Forge Agent (15 core tools)
+#   2. Set forgeAgent.billingEnabled: true → adds F.Billing tools (Kill Bill, 5 tools)
+forgeAgent:
+  enabled:        false   # flip true to launch Forge Agent
+  billingEnabled: false   # flip true to launch F.Billing Kill Bill tools
+  model:          "claude-opus-4-7"
+  maxTokens:      4096
+  approvalRequired: true  # gate destructive actions behind merchant confirmation
+
 # ── Shared infrastructure (disable if BYO) ───────────────────────────────
 postgresql:
   enabled: true

@@ -1,0 +1,60 @@
+{
+  "name":        "forgepay-forge-agent",
+  "displayName": "ForgePay — Forge Agent",
+  "description": "AI billing assistant for ForgePay merchants — integrate, analyze, and act from your IDE",
+  "version":     "0.1.0",
+  "publisher":   "forgepay",
+  "private":     true,
+  "engines":     { "vscode": "^1.85.0" },
+  "categories":  ["Other"],
+  "icon":        "assets/icon.png",
+  "activationEvents": [
+    "onCommand:forge.chat",
+    "onCommand:forge.integrate",
+    "onCommand:forge.insight"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "forge.chat",
+        "title":   "Forge Agent: Open Chat",
+        "icon":    "$(hubot)"
+      },
+      {
+        "command": "forge.integrate",
+        "title":   "Forge Agent: Integrate Mode",
+        "icon":    "$(code)"
+      },
+      {
+        "command": "forge.insight",
+        "title":   "Forge Agent: Insight Mode",
+        "icon":    "$(graph)"
+      }
+    ],
+    "configuration": {
+      "title": "ForgePay Forge Agent",
+      "properties": {
+        "forgepay.dashboardUrl": {
+          "type":        "string",
+          "default":     "https://dashboard.forgepay.io",
+          "description": "ForgePay dashboard URL (used as API endpoint)"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build":   "tsc --project tsconfig.json",
+    "package": "vsce package",
+    "watch":   "tsc --watch"
+  },
+  "dependencies": {
+    "eventsource-parser": "^1.1.2"
+  },
+  "devDependencies": {
+    "@types/node":   "^20.14.0",
+    "@types/vscode": "^1.85.0",
+    "typescript":    "^5.5.3",
+    "@vscode/vsce":  "^2.27.0"
+  }
+}
