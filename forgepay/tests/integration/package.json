@@ -1,0 +1,18 @@
+{
+  "name": "@forgepay/integration-tests",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Mock-based integration tests for the ForgePay core payment flow",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "type-check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "nock": "^13.5.4",
+    "typescript": "^5.5.3",
+    "vitest": "^2.0.4",
+    "zod": "^3.23.8"
+  }
+}

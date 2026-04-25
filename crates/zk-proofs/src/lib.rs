@@ -1,406 +1,300 @@
-//! ZK Proof Generation & Verification for Privacy-Preserving Payments
+//! ZK-proofs bridge crate for ForgePay.
 //!
-//! This crate bridges ForgePay with the Auditable-Privacy-Payment protocol (Groth16 on BN254).
-//! Current state: **STUBBED FOR TESTING** — replace implementations with real Groth16 logic when ready.
+//! Provides typed wrappers around arkworks Groth16 on BN254 for the deposit,
+//! transfer, and withdraw circuits.
 //!
-//! Architecture:
-//! - `Deposit`: Hide a payment amount using a commitment scheme
-//! - `Transfer`: Private transfer between UTXO accounts with balance verification
-//! - `Withdraw`: Redeem a hidden UTXO to a public amount
+//! CURRENT STATE: Proving key constants (ProvingKey/VerifyingKey) are not yet
+//! embedded — circuit finalization is required first. All prove() functions
+//! return a placeholder error; verify() works with real arkworks types.
 //!
-//! All operations use Groth16 zero-knowledge proofs to prove correctness without revealing plaintext.
+//! When the auditable-privacy-payment circuit is finalized:
+//!   1. Run `cargo run --bin export-keys` to export ProvingKey bytes
+//!   2. Embed the bytes as `include_bytes!("../keys/deposit.pk")` etc.
+//!   3. Remove the `ZkError::KeysNotEmbedded` early-return
 
+use ark_bn254::{Bn254, Fr};
+use ark_groth16::{Groth16, Proof};
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use ark_std::Zero;
 use serde::{Deserialize, Serialize};
-use std::fmt;
 use thiserror::Error;
 
-// ── Error Types ────────────────────────────────────────────────────────────
+pub use ark_bn254::Fr as ScalarField;
+pub use ark_groth16::{PreparedVerifyingKey, VerifyingKey};
 
-#[derive(Error, Debug)]
+// ── Error types ────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Error)]
 pub enum ZkError {
-    #[error("Proof generation failed: {0}")]
-    ProofGeneration(String),
-
-    #[error("Proof verification failed: {0}")]
-    ProofVerification(String),
-
-    #[error("Invalid circuit input: {0}")]
-    InvalidInput(String),
-
-    #[error("Merkle tree error: {0}")]
-    MerkleTreeError(String),
-
+    #[error("Proving keys not yet embedded — circuit finalization required")]
+    KeysNotEmbedded,
     #[error("Serialization error: {0}")]
-    SerializationError(#[from] serde_json::Error),
-
-    #[error("ZK system not initialized")]
-    NotInitialized,
-
-    #[error("Unsupported operation: {0}")]
-    Unsupported(String),
+    Serialization(String),
+    #[error("Proof verification failed")]
+    VerificationFailed,
+    #[error("Invalid public input: {0}")]
+    InvalidInput(String),
 }
 
-pub type Result<T> = std::result::Result<T, ZkError>;
+pub type ZkResult<T> = Result<T, ZkError>;
 
-// ── Type Definitions ───────────────────────────────────────────────────────
+// ── Proof types ────────────────────────────────────────────────────────────────
 
-/// Field element (Fr in BN254). Currently stubbed as hex string.
-/// TODO: Replace with actual arkworks::ff::PrimeField when integrated
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
-pub struct Fr(pub String);
+/// A serialized Groth16 proof over BN254 (arkworks canonical format, compressed).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SerializedProof(pub Vec<u8>);
 
-impl Fr {
-    pub fn from_hex(hex: &str) -> Self {
-        Fr(hex.to_string())
+impl SerializedProof {
+    /// Deserialize from arkworks canonical bytes.
+    pub fn to_ark_proof(&self) -> ZkResult<Proof<Bn254>> {
+        Proof::<Bn254>::deserialize_compressed(self.0.as_slice())
+            .map_err(|e| ZkError::Serialization(e.to_string()))
     }
 
-    pub fn to_hex(&self) -> &str {
-        &self.0
-    }
-}
-
-impl fmt::Display for Fr {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
+    /// Serialize an arkworks proof to canonical bytes.
+    pub fn from_ark_proof(proof: &Proof<Bn254>) -> ZkResult<Self> {
+        let mut buf = Vec::new();
+        proof
+            .serialize_compressed(&mut buf)
+            .map_err(|e| ZkError::Serialization(e.to_string()))?;
+        Ok(Self(buf))
     }
 }
 
-/// A Groth16 proof (serialized as JSON). Currently stubbed.
-/// TODO: Replace with actual arkworks::groth16::Proof
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Proof {
-    /// Serialized proof data. In real implementation: A, B, C points on BN254.
-    pub data: String,
-    /// Public inputs (Merkle root, nullifiers, commitments, etc.)
-    pub public_inputs: Vec<Fr>,
+// ── Public input helpers ──────────────────────────────────────────────────────
+
+/// Parse a 0x-prefixed hex string into a BN254 scalar field element.
+pub fn fr_from_hex(hex: &str) -> ZkResult<Fr> {
+    let hex = hex.trim_start_matches("0x");
+    let bytes = hex::decode(hex)
+        .map_err(|e| ZkError::InvalidInput(format!("invalid hex: {e}")))?;
+    // Pad to 32 bytes big-endian
+    let mut padded = [0u8; 32];
+    let start = padded.len().saturating_sub(bytes.len());
+    padded[start..].copy_from_slice(&bytes[bytes.len().saturating_sub(32)..]);
+    padded.reverse(); // arkworks uses little-endian
+    Fr::deserialize_compressed(padded.as_slice())
+        .map_err(|e| ZkError::InvalidInput(format!("field element out of range: {e}")))
 }
 
-impl Proof {
-    pub fn stub(label: &str) -> Self {
-        Proof {
-            data: format!("STUB_PROOF_{}", label),
-            public_inputs: vec![],
-        }
-    }
+/// Encode a BN254 scalar field element as a 0x-prefixed hex string.
+pub fn fr_to_hex(fr: &Fr) -> ZkResult<String> {
+    let mut buf = [0u8; 32];
+    fr.serialize_compressed(buf.as_mut_slice())
+        .map_err(|e| ZkError::Serialization(e.to_string()))?;
+    buf.reverse(); // to big-endian
+    Ok(format!("0x{}", hex::encode(buf)))
 }
 
-/// A commitment to a payment amount. Format: Poseidon(asset, amount, blind, owner).
-/// TODO: Replace with actual arkworks field arithmetic when integrated
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+// ── Commitment / Nullifier ────────────────────────────────────────────────────
+
+/// A UTXO commitment C = Poseidon(asset, amount, blind, owner_pk)
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Commitment(pub Fr);
 
 impl Commitment {
-    pub fn from_hex(hex: &str) -> Self {
-        Commitment(Fr::from_hex(hex))
+    pub fn from_hex(hex: &str) -> ZkResult<Self> {
+        Ok(Self(fr_from_hex(hex)?))
+    }
+    pub fn to_hex(&self) -> ZkResult<String> {
+        fr_to_hex(&self.0)
+    }
+    pub fn zero() -> Self {
+        Self(Fr::zero())
     }
 }
 
-/// A nullifier (unique per UTXO + spender). Prevents double-spending.
-/// Format: Poseidon(commitment, secret_key).
-/// TODO: Implement actual nullifier derivation
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+/// A nullifier N = Poseidon(commitment, blind_factor) — unique per UTXO spend
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Nullifier(pub Fr);
 
 impl Nullifier {
-    pub fn from_hex(hex: &str) -> Self {
-        Nullifier(Fr::from_hex(hex))
+    pub fn from_hex(hex: &str) -> ZkResult<Self> {
+        Ok(Self(fr_from_hex(hex)?))
+    }
+    pub fn to_hex(&self) -> ZkResult<String> {
+        fr_to_hex(&self.0)
     }
 }
 
-/// A Merkle tree proof of membership.
-/// TODO: Replace with actual arkworks merkle tree proofs
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct MerkleProof {
-    pub leaf_index: u32,
-    pub leaf: Fr,
-    pub path: Vec<Fr>, // sibling hashes
-    pub root: Fr,
+// ── Circuit public inputs ─────────────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct DepositPublicInputs {
+    pub merkle_root: Fr,
+    pub nullifier:   Fr,
+    pub asset_id:    Fr,
+    pub amount:      Fr,
 }
 
-// ── Deposit Circuit ────────────────────────────────────────────────────────
-
-/// Deposit operation: hide a payment amount in a commitment.
-///
-/// Proves: commitment = Poseidon(asset, amount, blind, owner) without revealing the commitment.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Deposit {
-    pub asset: u64,
-    pub amount: u128,
-    pub commitment: Commitment,
+#[derive(Debug, Clone)]
+pub struct TransferPublicInputs {
+    pub merkle_root:      Fr,
+    pub nullifiers:       Vec<Fr>,
+    pub new_commitments:  Vec<Fr>,
+    pub asset_id:         Fr,
 }
 
-impl Deposit {
-    /// Generate a deposit proof. **STUBBED: returns dummy proof.**
-    ///
-    /// TODO: Implement actual Groth16 circuit:
-    ///   - Compute commitment from (asset, amount, blind, owner)
-    ///   - Generate Groth16 proof proving commitment is correctly formed
-    ///   - Return public inputs: [commitment]
-    pub fn generate_proof(&self, _owner_secret: &str) -> Result<Proof> {
-        tracing::warn!(
-            "⚠️  STUB: Deposit::generate_proof called — returning dummy proof. Real Groth16 logic not yet integrated."
-        );
-
-        Ok(Proof {
-            data: format!("STUB_DEPOSIT_PROOF_{:?}", self.commitment),
-            public_inputs: vec![self.commitment.0.clone()],
-        })
-    }
-
-    /// Verify a deposit proof. **STUBBED: always returns true.**
-    ///
-    /// TODO: Implement actual Groth16 verification:
-    ///   - Call Groth16 verifier with proof and public inputs
-    ///   - Return Err if verification fails
-    pub fn verify_proof(&self, _proof: &Proof) -> Result<()> {
-        tracing::warn!(
-            "⚠️  STUB: Deposit::verify_proof called — always returning true. Real Groth16 verification not yet integrated."
-        );
-
-        Ok(())
-    }
+#[derive(Debug, Clone)]
+pub struct WithdrawPublicInputs {
+    pub merkle_root:     Fr,
+    pub nullifier:       Fr,
+    pub recipient:       Fr, // Ethereum address as field element
+    pub amount:          Fr,
+    pub asset_id:        Fr,
 }
 
-// ── Transfer Circuit ───────────────────────────────────────────────────────
+// ── Proof generation (stubbed until keys are embedded) ───────────────────────
 
-/// Transfer operation: private payment from one UTXO account to another.
-///
-/// Proves (without revealing amounts or owner):
-/// - Each input UTXO exists in the Merkle tree
-/// - Each input's secret key is known (via keypair validation)
-/// - Total input amount = total output amount (balance preservation)
-/// - Output commitments are correctly formed
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Transfer {
-    pub num_inputs: usize,
-    pub num_outputs: usize,
+pub fn prove_deposit(_inputs: &DepositPublicInputs) -> ZkResult<SerializedProof> {
+    Err(ZkError::KeysNotEmbedded)
 }
 
-impl Transfer {
-    /// Generate a transfer proof. **STUBBED: returns dummy proof.**
-    ///
-    /// TODO: Implement actual Groth16 circuit for UTXOs:
-    ///   - For each input:
-    ///     * Prove keypair validity: public_key = secret_key * G (BabyJubjub)
-    ///     * Recompute commitment from (asset, amount, blind, owner)
-    ///     * Compute nullifier = Poseidon(commitment, secret_key)
-    ///     * Verify Merkle membership proof
-    ///   - For all UTXOs:
-    ///     * Enforce balance: sum(input_amounts) = sum(output_amounts) per asset
-    ///     * Aggregate nullifiers and freezers as public inputs
-    ///   - Generate Groth16 proof
-    pub fn generate_proof(&self, _merkle_root: &Fr, _inputs: &[TransferInput]) -> Result<Proof> {
-        tracing::warn!(
-            "⚠️  STUB: Transfer::generate_proof called — returning dummy proof. Real UTXO circuit not yet integrated."
-        );
-
-        Ok(Proof {
-            data: format!(
-                "STUB_TRANSFER_PROOF_{}in_{}out",
-                self.num_inputs, self.num_outputs
-            ),
-            public_inputs: vec![_merkle_root.clone()],
-        })
-    }
-
-    /// Verify a transfer proof. **STUBBED: always returns true.**
-    pub fn verify_proof(&self, _proof: &Proof, _merkle_root: &Fr) -> Result<()> {
-        tracing::warn!(
-            "⚠️  STUB: Transfer::verify_proof called — always returning true. Real Groth16 verification not yet integrated."
-        );
-
-        Ok(())
-    }
+pub fn prove_transfer(_inputs: &TransferPublicInputs) -> ZkResult<SerializedProof> {
+    Err(ZkError::KeysNotEmbedded)
 }
 
-/// Input to a transfer (one UTXO being spent).
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct TransferInput {
-    pub commitment: Commitment,
-    pub merkle_proof: MerkleProof,
-    pub nullifier: Nullifier,
+pub fn prove_withdraw(_inputs: &WithdrawPublicInputs) -> ZkResult<SerializedProof> {
+    Err(ZkError::KeysNotEmbedded)
 }
 
-// ── Withdraw Circuit ───────────────────────────────────────────────────────
+// ── Proof verification ────────────────────────────────────────────────────────
+// verify_* functions accept a real arkworks PreparedVerifyingKey and a serialized
+// proof. When the VK is embedded (post circuit-finalization), call these from
+// the auditor crate.
 
-/// Withdraw operation: redeem a hidden UTXO to a public amount.
-///
-/// Proves knowledge of the secret key without revealing the original commitment.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Withdraw {
-    pub amount: u128,
-    pub asset: u64,
+pub fn verify_deposit(
+    pvk:    &PreparedVerifyingKey<Bn254>,
+    proof:  &SerializedProof,
+    inputs: &DepositPublicInputs,
+) -> ZkResult<bool> {
+    let ark_proof = proof.to_ark_proof()?;
+    let public_inputs = vec![
+        inputs.merkle_root,
+        inputs.nullifier,
+        inputs.asset_id,
+        inputs.amount,
+    ];
+    Ok(Groth16::<Bn254>::verify_with_processed_vk(pvk, &public_inputs, &ark_proof).is_ok())
 }
 
-impl Withdraw {
-    /// Generate a withdraw proof. **STUBBED: returns dummy proof.**
-    ///
-    /// TODO: Implement actual Groth16 circuit:
-    ///   - Prove keypair validity
-    ///   - Prove commitment is correctly formed
-    ///   - Compute and reveal nullifier
-    ///   - Verify Merkle membership
-    pub fn generate_proof(&self, _merkle_root: &Fr) -> Result<Proof> {
-        tracing::warn!(
-            "⚠️  STUB: Withdraw::generate_proof called — returning dummy proof. Real Groth16 logic not yet integrated."
-        );
-
-        Ok(Proof {
-            data: format!("STUB_WITHDRAW_PROOF_{}_{}", self.asset, self.amount),
-            public_inputs: vec![_merkle_root.clone()],
-        })
-    }
-
-    /// Verify a withdraw proof. **STUBBED: always returns true.**
-    pub fn verify_proof(&self, _proof: &Proof) -> Result<()> {
-        tracing::warn!(
-            "⚠️  STUB: Withdraw::verify_proof called — always returning true. Real Groth16 verification not yet integrated."
-        );
-
-        Ok(())
-    }
+pub fn verify_transfer(
+    pvk:    &PreparedVerifyingKey<Bn254>,
+    proof:  &SerializedProof,
+    inputs: &TransferPublicInputs,
+) -> ZkResult<bool> {
+    let ark_proof = proof.to_ark_proof()?;
+    let mut public_inputs = vec![inputs.merkle_root, inputs.asset_id];
+    public_inputs.extend_from_slice(&inputs.nullifiers);
+    public_inputs.extend_from_slice(&inputs.new_commitments);
+    Ok(Groth16::<Bn254>::verify_with_processed_vk(pvk, &public_inputs, &ark_proof).is_ok())
 }
 
-// ── Merkle Tree ────────────────────────────────────────────────────────────
-
-/// A simple Merkle tree accumulator for commitments.
-/// **STUBBED:** In-memory only, no persistence.
-///
-/// TODO: Replace with actual Poseidon Merkle tree (from auditable-privacy-payment):
-///   - Persistent storage via `Storage` trait
-///   - Versioning for multiple tree snapshots
-///   - Efficient proof generation and verification
-#[derive(Clone, Debug)]
-pub struct MerkleTree {
-    pub root: Fr,
-    pub leaves: Vec<Commitment>,
-    pub version: u32,
+pub fn verify_withdraw(
+    pvk:    &PreparedVerifyingKey<Bn254>,
+    proof:  &SerializedProof,
+    inputs: &WithdrawPublicInputs,
+) -> ZkResult<bool> {
+    let ark_proof = proof.to_ark_proof()?;
+    let public_inputs = vec![
+        inputs.merkle_root,
+        inputs.nullifier,
+        inputs.recipient,
+        inputs.amount,
+        inputs.asset_id,
+    ];
+    Ok(Groth16::<Bn254>::verify_with_processed_vk(pvk, &public_inputs, &ark_proof).is_ok())
 }
 
-impl MerkleTree {
-    pub fn new() -> Self {
-        MerkleTree {
-            root: Fr::from_hex("0"),
-            leaves: vec![],
-            version: 0,
-        }
-    }
-
-    /// Add a commitment to the tree. **STUBBED: no actual hashing.**
-    ///
-    /// TODO: Implement Poseidon-based tree:
-    ///   - Compute new root via Poseidon(left, right) for all levels
-    ///   - Update version counter
-    ///   - Persist if using Storage backend
-    pub fn insert(&mut self, commitment: Commitment) -> Result<u32> {
-        tracing::trace!(
-            "Merkle tree insert: leaf_index = {}, commitment = {}",
-            self.leaves.len(),
-            commitment.0
-        );
-
-        self.leaves.push(commitment);
-        let index = self.leaves.len() as u32 - 1;
-
-        // STUB: Don't actually recompute root
-        // TODO: Recompute Poseidon merkle root here
-
-        Ok(index)
-    }
-
-    /// Generate a proof of membership for a leaf. **STUBBED: returns dummy proof.**
-    pub fn prove(&self, leaf_index: u32) -> Result<MerkleProof> {
-        if leaf_index as usize >= self.leaves.len() {
-            return Err(ZkError::MerkleTreeError(
-                "leaf_index out of bounds".to_string(),
-            ));
-        }
-
-        Ok(MerkleProof {
-            leaf_index,
-            leaf: self.leaves[leaf_index as usize].0.clone(),
-            path: vec![], // STUB
-            root: self.root.clone(),
-        })
-    }
-
-    /// Verify a proof of membership. **STUBBED: always returns true.**
-    ///
-    /// TODO: Implement actual Poseidon Merkle verification
-    pub fn verify(&self, proof: &MerkleProof) -> Result<bool> {
-        if proof.leaf_index as usize >= self.leaves.len() {
-            return Ok(false);
-        }
-
-        Ok(true) // STUB
-    }
-}
-
-impl Default for MerkleTree {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-// ── Integration Tests ──────────────────────────────────────────────────────
+// ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_deposit_stub() {
-        let deposit = Deposit {
-            asset: 0,
-            amount: 1_000_000,
-            commitment: Commitment::from_hex("abc123"),
-        };
-
-        // STUB: This should call real Groth16 in the future
-        let proof = deposit.generate_proof("secret").expect("proof generation failed");
-
-        assert!(proof.data.contains("STUB_DEPOSIT_PROOF"));
-
-        // STUB: This should verify the actual Groth16 proof
-        assert!(deposit.verify_proof(&proof).is_ok());
+    fn test_fr_roundtrip_zero() {
+        let fr = Fr::zero();
+        let hex = fr_to_hex(&fr).expect("serialize zero");
+        let back = fr_from_hex(&hex).expect("deserialize zero");
+        assert_eq!(fr, back);
     }
 
     #[test]
-    fn test_merkle_tree_stub() {
-        let mut tree = MerkleTree::new();
-
-        let commitment = Commitment::from_hex("def456");
-        let index = tree.insert(commitment.clone()).expect("insert failed");
-
-        assert_eq!(index, 0);
-        assert_eq!(tree.leaves.len(), 1);
-
-        // STUB: Real merkle proof would be much more complex
-        let proof = tree
-            .prove(index)
-            .expect("merkle proof generation failed");
-
-        assert!(tree.verify(&proof).expect("verify failed"));
+    fn test_fr_from_hex_small_value() {
+        let fr = fr_from_hex("0x01").expect("parse 0x01");
+        let hex = fr_to_hex(&fr).expect("serialize");
+        // round-trip
+        let back = fr_from_hex(&hex).expect("deserialize");
+        assert_eq!(fr, back);
     }
 
     #[test]
-    fn test_transfer_stub() {
-        let transfer = Transfer {
-            num_inputs: 1,
-            num_outputs: 2,
+    fn test_commitment_zero() {
+        let c = Commitment::zero();
+        let hex = c.to_hex().expect("to_hex");
+        let back = Commitment::from_hex(&hex).expect("from_hex");
+        assert_eq!(c.0, back.0);
+    }
+
+    #[test]
+    fn test_commitment_roundtrip() {
+        // A small non-zero value
+        let c = Commitment::from_hex("0xdeadbeef").expect("from_hex");
+        let hex = c.to_hex().expect("to_hex");
+        let back = Commitment::from_hex(&hex).expect("from_hex roundtrip");
+        assert_eq!(c.0, back.0);
+    }
+
+    #[test]
+    fn test_nullifier_roundtrip() {
+        let n = Nullifier::from_hex("0xcafebabe").expect("from_hex");
+        let hex = n.to_hex().expect("to_hex");
+        let back = Nullifier::from_hex(&hex).expect("from_hex roundtrip");
+        assert_eq!(n.0, back.0);
+    }
+
+    #[test]
+    fn test_prove_deposit_returns_keys_not_embedded() {
+        let inputs = DepositPublicInputs {
+            merkle_root: Fr::zero(),
+            nullifier:   Fr::zero(),
+            asset_id:    Fr::zero(),
+            amount:      Fr::zero(),
         };
+        let err = prove_deposit(&inputs).unwrap_err();
+        assert!(matches!(err, ZkError::KeysNotEmbedded));
+    }
 
-        let merkle_root = Fr::from_hex("ffff0000");
-        let inputs = vec![];
+    #[test]
+    fn test_prove_transfer_returns_keys_not_embedded() {
+        let inputs = TransferPublicInputs {
+            merkle_root:     Fr::zero(),
+            nullifiers:      vec![],
+            new_commitments: vec![],
+            asset_id:        Fr::zero(),
+        };
+        let err = prove_transfer(&inputs).unwrap_err();
+        assert!(matches!(err, ZkError::KeysNotEmbedded));
+    }
 
-        // STUB: Should generate real Groth16 UTXO proof
-        let proof = transfer
-            .generate_proof(&merkle_root, &inputs)
-            .expect("transfer proof failed");
+    #[test]
+    fn test_prove_withdraw_returns_keys_not_embedded() {
+        let inputs = WithdrawPublicInputs {
+            merkle_root: Fr::zero(),
+            nullifier:   Fr::zero(),
+            recipient:   Fr::zero(),
+            amount:      Fr::zero(),
+            asset_id:    Fr::zero(),
+        };
+        let err = prove_withdraw(&inputs).unwrap_err();
+        assert!(matches!(err, ZkError::KeysNotEmbedded));
+    }
 
-        assert!(proof.data.contains("STUB_TRANSFER_PROOF_1in_2out"));
-
-        // STUB: Should verify actual proof
-        assert!(transfer.verify_proof(&proof, &merkle_root).is_ok());
+    #[test]
+    fn test_serialized_proof_rejects_garbage() {
+        let bad = SerializedProof(vec![0xde, 0xad, 0xbe, 0xef]);
+        let err = bad.to_ark_proof().unwrap_err();
+        assert!(matches!(err, ZkError::Serialization(_)));
     }
 }
