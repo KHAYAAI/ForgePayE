@@ -211,9 +211,8 @@ async def create_shielded_checkout_session(
         logger.error("Failed to decode base64 encrypted_memo: %s", exc)
         raise HTTPException(status_code=400, detail="Invalid base64 encoding for encrypted_memo") from exc
 
-    # TODO: Load auditor seed from Vault (never hardcode in production)
-    # For now, use a stub seed to initialize AuditorClient
-    auditor_seed = cfg.get("auditor_seed", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+    settings = get_settings()
+    auditor_seed = settings.auditor_seed_hex or "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
     try:
         auditor = AuditorClient.from_seed(auditor_seed)

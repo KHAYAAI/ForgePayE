@@ -18,7 +18,10 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
+
+import httpx
 
 from src.config import get_settings
 
@@ -47,7 +50,7 @@ _EU_VAT_RATES: dict[str, Decimal] = {
     "AT": Decimal("0.20"), "BE": Decimal("0.21"), "BG": Decimal("0.20"),
     "CY": Decimal("0.19"), "CZ": Decimal("0.21"), "DE": Decimal("0.19"),
     "DK": Decimal("0.25"), "EE": Decimal("0.22"), "ES": Decimal("0.21"),
-    "FI": Decimal("0.25.5"), "FR": Decimal("0.20"), "GR": Decimal("0.24"),
+    "FI": Decimal("0.255"), "FR": Decimal("0.20"), "GR": Decimal("0.24"),
     "HR": Decimal("0.25"), "HU": Decimal("0.27"), "IE": Decimal("0.23"),
     "IT": Decimal("0.22"), "LT": Decimal("0.21"), "LU": Decimal("0.17"),
     "LV": Decimal("0.21"), "MT": Decimal("0.18"), "NL": Decimal("0.21"),
@@ -185,10 +188,47 @@ class TaxCalculator:
         postal_code: str | None,
         tax_code: str | None,
     ) -> TaxResult | None:
-        # TODO: implement Avalara AvaTax CreateTransaction API call
-        # https://developer.avalara.com/api-reference/avatax/rest/v2/methods/Transactions/CreateTransaction/
-        logger.warning("Avalara integration not yet implemented; falling back to internal engine")
-        return self._calculate_internal(amount_cents, country, state)
+        if not self._settings.avalara_account_id or not self._settings.avalara_license_key:
+            logger.warning("Avalara credentials not configured; falling back to internal engine")
+            return self._calculate_internal(amount_cents, country, state)
+
+        try:
+            amount = amount_cents / 100
+            payload = {
+                "type": "SalesOrder",
+                "companyCode": "DEFAULT",
+                "date": date.today().isoformat(),
+                "lines": [{"amount": amount}],
+                "addresses": {
+                    "shipTo": {
+                        "country": country,
+                        "region": state or "",
+                        "postalCode": postal_code or "",
+                    }
+                },
+            }
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(
+                    "https://rest.avatax.com/api/v2/transactions/create",
+                    json=payload,
+                    auth=(self._settings.avalara_account_id, self._settings.avalara_license_key),
+                )
+                response.raise_for_status()
+
+            data = response.json()
+            total_tax: float = data.get("totalTax", 0.0)
+            rate = Decimal(str(total_tax / amount)) if amount else Decimal("0")
+            tax_cents = int(Decimal(str(total_tax * 100)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+            return TaxResult(
+                rate=rate,
+                amount_cents=tax_cents,
+                jurisdiction=country,
+                tax_type="VAT",
+                inclusive=False,
+            )
+        except Exception as exc:
+            logger.warning("Avalara API call failed (%s); falling back to internal engine", exc)
+            return self._calculate_internal(amount_cents, country, state)
 
     async def _calculate_taxjar(
         self,
@@ -197,6 +237,63 @@ class TaxCalculator:
         state: str | None,
         postal_code: str | None,
     ) -> TaxResult | None:
-        # TODO: implement TaxJar TaxForOrder API call
-        logger.warning("TaxJar integration not yet implemented; falling back to internal engine")
-        return self._calculate_internal(amount_cents, country, state)
+        if not self._settings.taxjar_token:
+            logger.warning("TaxJar token not configured; falling back to internal engine")
+            return self._calculate_internal(amount_cents, country, state)
+
+        try:
+            headers = {"Authorization": f"Token {self._settings.taxjar_token}"}
+            amount = amount_cents / 100
+
+            # Try GET rates endpoint first (quick rate lookup by postal code)
+            if postal_code:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    response = await client.get(
+                        f"https://api.taxjar.com/v2/rates/{postal_code}",
+                        headers=headers,
+                        params={"country": country, "state": state or ""},
+                    )
+                    response.raise_for_status()
+
+                rate_data = response.json().get("rate", {})
+                combined_rate_str: str = rate_data.get("combined_rate", "0")
+                rate = Decimal(combined_rate_str)
+                tax_cents = self._apply_rate(amount_cents, rate)
+                return TaxResult(
+                    rate=rate,
+                    amount_cents=tax_cents,
+                    jurisdiction=country if not state else f"{country}-{state}",
+                    tax_type="SALES_TAX" if country == "US" else "VAT",
+                    inclusive=False,
+                )
+
+            # Fall back to POST /taxes for full calculation when no postal code
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(
+                    "https://api.taxjar.com/v2/taxes",
+                    headers=headers,
+                    json={
+                        "from_country": country,
+                        "to_country": country,
+                        "to_state": state or "",
+                        "to_zip": postal_code or "",
+                        "amount": amount,
+                        "shipping": 0,
+                    },
+                )
+                response.raise_for_status()
+
+            tax_data = response.json().get("tax", {})
+            amount_to_collect: float = tax_data.get("amount_to_collect", 0.0)
+            rate_val: float = tax_data.get("rate", 0.0)
+            tax_cents = int(Decimal(str(amount_to_collect * 100)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+            return TaxResult(
+                rate=Decimal(str(rate_val)),
+                amount_cents=tax_cents,
+                jurisdiction=country if not state else f"{country}-{state}",
+                tax_type="SALES_TAX" if country == "US" else "VAT",
+                inclusive=False,
+            )
+        except Exception as exc:
+            logger.warning("TaxJar API call failed (%s); falling back to internal engine", exc)
+            return self._calculate_internal(amount_cents, country, state)
