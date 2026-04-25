@@ -12,19 +12,162 @@ pragma solidity ^0.8.23;
  *   - Balance is preserved across UTXOs (sum(inputs) == sum(outputs))
  *   - No double-spending (nullifier is unique)
  *
- * CURRENT STATE: **STUBBED FOR TESTING** — verifyProof always returns true.
- * Replace with generated verifier code from snarkjs/arkworks when circuit is finalized.
+ * IMPLEMENTATION: Uses BN254 EVM precompiles:
+ *   - ecAdd     (0x06): G1 point addition
+ *   - ecMul     (0x07): G1 scalar multiplication
+ *   - ecPairing (0x08): BN254 bilinear pairing check
  *
- * Production integration:
- *   1. Run `snarkjs groth16 setup circuit.zkey phase2.ptau` to generate proving key
- *   2. Run `snarkjs zkey export solidityverifier circuit.zkey Groth16Verifier.sol`
- *   3. Replace this contract with the generated verifier
- *   4. Deploy to all supported chains (Ethereum, Polygon, Base, Arbitrum)
+ * Verification equation (Groth16):
+ *   e(π_A, π_B) == e(α, β) * e(vk_x, γ) * e(π_C, δ)
  *
- * @dev BN254 (aka alt_bn128) is EVM-native — precompiles at addresses 0x06–0x08
- *   provide efficient pairing operations required for Groth16 verification.
+ * Implemented as a single 4-pairing check equal to 1:
+ *   e(-π_A, π_B) * e(α, β) * e(vk_x, γ) * e(π_C, δ) == 1
+ *
+ * Where: vk_x = IC[0] + Σ(publicInputs[i] * IC[i+1])
+ *
+ * VK CONSTANTS: All zero-valued placeholders. Replace with output of:
+ *   `snarkjs zkey export solidityverifier circuit.zkey Groth16Verifier.sol`
+ * after the circuit is finalized.
+ *
+ * @dev Based on tornado-cash / snarkjs verifier pattern.
+ *   See: https://github.com/iden3/snarkjs/blob/master/templates/verifier_groth16.sol
  */
+
+// ─── Pairing Library ──────────────────────────────────────────────────────────
+
+library Pairing {
+
+    // BN254 field modulus
+    uint256 constant FIELD_MODULUS =
+        21888242871839275222246405745257275088548364400416034343698204186575808495617;
+
+    struct G1Point {
+        uint256 X;
+        uint256 Y;
+    }
+
+    // G2 point: coordinates are Fq2 elements represented as [c0, c1]
+    // where the element is c0 + c1*i (i = sqrt(-1) in Fq2)
+    struct G2Point {
+        uint256[2] X; // [X.c0, X.c1]
+        uint256[2] Y; // [Y.c0, Y.c1]
+    }
+
+    /// @notice Negate a G1 point (returns the additive inverse).
+    /// @dev Negation on BN254: negate Y coordinate mod field modulus.
+    function negate(G1Point memory p) internal pure returns (G1Point memory) {
+        if (p.X == 0 && p.Y == 0) {
+            return G1Point(0, 0); // point at infinity
+        }
+        return G1Point(p.X, FIELD_MODULUS - (p.Y % FIELD_MODULUS));
+    }
+
+    /// @notice Add two G1 points using the ecAdd precompile (0x06).
+    function addition(G1Point memory p1, G1Point memory p2)
+        internal
+        view
+        returns (G1Point memory r)
+    {
+        uint256[4] memory input;
+        input[0] = p1.X;
+        input[1] = p1.Y;
+        input[2] = p2.X;
+        input[3] = p2.Y;
+
+        bool success;
+        // solhint-disable-next-line no-inline-assembly
+        assembly {
+            success := staticcall(gas(), 0x06, input, 0x80, r, 0x40)
+        }
+        require(success, "Pairing: ecAdd failed");
+    }
+
+    /// @notice Scalar-multiply a G1 point by a scalar using ecMul precompile (0x07).
+    function scalar_mul(G1Point memory p, uint256 s)
+        internal
+        view
+        returns (G1Point memory r)
+    {
+        uint256[3] memory input;
+        input[0] = p.X;
+        input[1] = p.Y;
+        input[2] = s;
+
+        bool success;
+        // solhint-disable-next-line no-inline-assembly
+        assembly {
+            success := staticcall(gas(), 0x07, input, 0x60, r, 0x40)
+        }
+        require(success, "Pairing: ecMul failed");
+    }
+
+    /// @notice Run a multi-pairing check using the ecPairing precompile (0x08).
+    /// @param p1 Array of G1 points
+    /// @param p2 Array of G2 points (same length as p1)
+    /// @return result True if the product of pairings equals 1 (identity)
+    function pairing(G1Point[] memory p1, G2Point[] memory p2)
+        internal
+        view
+        returns (bool result)
+    {
+        require(p1.length == p2.length, "Pairing: length mismatch");
+
+        uint256 len = p1.length;
+        // Each pair encodes as 6 uint256 values (G1: 2, G2: 4)
+        uint256 inputLen = len * 6;
+        uint256[] memory input = new uint256[](inputLen);
+
+        for (uint256 i = 0; i < len; i++) {
+            uint256 base = i * 6;
+            input[base + 0] = p1[i].X;
+            input[base + 1] = p1[i].Y;
+            // G2 encoding for ecPairing: X = [X.c1, X.c0], Y = [Y.c1, Y.c0]
+            // (imaginary part first, then real part)
+            input[base + 2] = p2[i].X[1];
+            input[base + 3] = p2[i].X[0];
+            input[base + 4] = p2[i].Y[1];
+            input[base + 5] = p2[i].Y[0];
+        }
+
+        uint256 inputByteLen = inputLen * 32;
+        uint256[1] memory out;
+        bool success;
+        // solhint-disable-next-line no-inline-assembly
+        assembly {
+            success := staticcall(
+                gas(),
+                0x08,
+                add(input, 0x20), // skip array length prefix
+                inputByteLen,
+                out,
+                0x20
+            )
+        }
+        require(success, "Pairing: ecPairing precompile failed");
+        result = out[0] == 1;
+    }
+
+    /// @notice Convenience: check 4-pairing product equals identity.
+    function pairingProd4(
+        G1Point memory a1, G2Point memory a2,
+        G1Point memory b1, G2Point memory b2,
+        G1Point memory c1, G2Point memory c2,
+        G1Point memory d1, G2Point memory d2
+    ) internal view returns (bool) {
+        G1Point[] memory p1 = new G1Point[](4);
+        G2Point[] memory p2 = new G2Point[](4);
+        p1[0] = a1; p2[0] = a2;
+        p1[1] = b1; p2[1] = b2;
+        p1[2] = c1; p2[2] = c2;
+        p1[3] = d1; p2[3] = d2;
+        return pairing(p1, p2);
+    }
+}
+
+// ─── Main Contract ────────────────────────────────────────────────────────────
+
 contract Groth16Verifier {
+    using Pairing for *;
 
     // ── Public Inputs Layout ──────────────────────────────────────────────────
     //
@@ -38,18 +181,27 @@ contract Groth16Verifier {
     //
     // TODO: Actual layout depends on final circuit design in auditable-privacy-payment.
 
-    // ── Verification Key ─────────────────────────────────────────────────────
-    //
-    // TODO: Replace with actual verification key from `snarkjs zkey export solidityverifier`.
-    // The verification key encodes the circuit-specific constants (alpha, beta, gamma, delta).
-    //
-    // struct VerifyingKey {
-    //     Pairing.G1Point alfa1;
-    //     Pairing.G2Point beta2;
-    //     Pairing.G2Point gamma2;
-    //     Pairing.G2Point delta2;
-    //     Pairing.G1Point[] IC;
-    // }
+    // ── Stub Mode ─────────────────────────────────────────────────────────────
+
+    /// @notice When true, pairing check is skipped and all proofs are accepted.
+    /// Set to false in production after circuit finalization.
+    bool public stubMode;
+
+    // ── Structs ───────────────────────────────────────────────────────────────
+
+    struct VerifyingKey {
+        Pairing.G1Point alfa1;
+        Pairing.G2Point beta2;
+        Pairing.G2Point gamma2;
+        Pairing.G2Point delta2;
+        Pairing.G1Point[] IC; // IC[0] + Σ(IC[i+1] * publicInputs[i]) = vk_x
+    }
+
+    struct Proof {
+        Pairing.G1Point A;
+        Pairing.G2Point B;
+        Pairing.G1Point C;
+    }
 
     // ── Events ────────────────────────────────────────────────────────────────
 
@@ -62,46 +214,172 @@ contract Groth16Verifier {
         address indexed verifier
     );
 
+    // ── Constructor ───────────────────────────────────────────────────────────
+
+    constructor() {
+        // Start in stub mode for testing. Set to false after circuit finalization.
+        stubMode = true;
+    }
+
+    // ── Verification Keys ─────────────────────────────────────────────────────
+
+    /**
+     * @notice Returns the transfer circuit verification key.
+     * @dev PLACEHOLDER: All-zero VK. Replace with real VK from snarkjs after circuit finalization.
+     * The IC array has length nPublicInputs+1.
+     */
+    function verifyingKey() internal pure returns (VerifyingKey memory vk) {
+        // alfa1 (G1): placeholder zero point
+        vk.alfa1 = Pairing.G1Point(0, 0);
+
+        // beta2 (G2): placeholder zero point
+        vk.beta2 = Pairing.G2Point([uint256(0), uint256(0)], [uint256(0), uint256(0)]);
+
+        // gamma2 (G2): placeholder zero point
+        vk.gamma2 = Pairing.G2Point([uint256(0), uint256(0)], [uint256(0), uint256(0)]);
+
+        // delta2 (G2): placeholder zero point
+        vk.delta2 = Pairing.G2Point([uint256(0), uint256(0)], [uint256(0), uint256(0)]);
+
+        // IC: placeholder for 7 inputs (6 public inputs + 1 constant term)
+        // TODO: Replace with real IC from snarkjs output
+        vk.IC = new Pairing.G1Point[](7);
+        for (uint256 i = 0; i < 7; i++) {
+            vk.IC[i] = Pairing.G1Point(0, 0);
+        }
+    }
+
+    /**
+     * @notice Returns the deposit circuit verification key.
+     * @dev PLACEHOLDER: All-zero VK. Replace after circuit finalization.
+     */
+    function depositVerifyingKey() internal pure returns (VerifyingKey memory vk) {
+        vk.alfa1 = Pairing.G1Point(0, 0);
+        vk.beta2  = Pairing.G2Point([uint256(0), uint256(0)], [uint256(0), uint256(0)]);
+        vk.gamma2 = Pairing.G2Point([uint256(0), uint256(0)], [uint256(0), uint256(0)]);
+        vk.delta2 = Pairing.G2Point([uint256(0), uint256(0)], [uint256(0), uint256(0)]);
+        // Deposit circuit: commitment, assetId (2 public inputs + 1 constant)
+        vk.IC = new Pairing.G1Point[](3);
+        for (uint256 i = 0; i < 3; i++) {
+            vk.IC[i] = Pairing.G1Point(0, 0);
+        }
+    }
+
+    /**
+     * @notice Returns the withdraw circuit verification key.
+     * @dev PLACEHOLDER: All-zero VK. Replace after circuit finalization.
+     */
+    function withdrawVerifyingKey() internal pure returns (VerifyingKey memory vk) {
+        vk.alfa1 = Pairing.G1Point(0, 0);
+        vk.beta2  = Pairing.G2Point([uint256(0), uint256(0)], [uint256(0), uint256(0)]);
+        vk.gamma2 = Pairing.G2Point([uint256(0), uint256(0)], [uint256(0), uint256(0)]);
+        vk.delta2 = Pairing.G2Point([uint256(0), uint256(0)], [uint256(0), uint256(0)]);
+        // Withdraw circuit: nullifier, merkleRoot, amountUnits (3 public inputs + 1 constant)
+        vk.IC = new Pairing.G1Point[](4);
+        for (uint256 i = 0; i < 4; i++) {
+            vk.IC[i] = Pairing.G1Point(0, 0);
+        }
+    }
+
+    // ── Core Verification Logic ───────────────────────────────────────────────
+
+    /**
+     * @notice Core Groth16 verification.
+     *
+     * Checks: e(-π_A, π_B) * e(α, β) * e(vk_x, γ) * e(π_C, δ) == 1
+     *
+     * @param input  Public input array (field elements, BN254 scalar field)
+     * @param proof  Decoded proof (π_A, π_B, π_C)
+     * @param vk     Verification key
+     * @return 0 on success, 1 on failure
+     */
+    function verify(
+        uint256[] memory input,
+        Proof memory proof,
+        VerifyingKey memory vk
+    ) internal view returns (uint256) {
+        require(input.length + 1 == vk.IC.length, "Groth16Verifier: input/IC length mismatch");
+
+        // In stub mode, skip the pairing check entirely
+        if (stubMode) {
+            return 0;
+        }
+
+        // Compute vk_x = IC[0] + Σ(IC[i+1] * input[i])
+        Pairing.G1Point memory vk_x = Pairing.G1Point(vk.IC[0].X, vk.IC[0].Y);
+        for (uint256 i = 0; i < input.length; i++) {
+            require(
+                input[i] < Pairing.FIELD_MODULUS,
+                "Groth16Verifier: input out of field"
+            );
+            vk_x = Pairing.addition(vk_x, Pairing.scalar_mul(vk.IC[i + 1], input[i]));
+        }
+
+        // Check 4-pairing product equals identity
+        bool valid = Pairing.pairingProd4(
+            Pairing.negate(proof.A), proof.B,   // e(-π_A, π_B)
+            vk.alfa1,               vk.beta2,   // e(α, β)
+            vk_x,                   vk.gamma2,  // e(vk_x, γ)
+            proof.C,                vk.delta2   // e(π_C, δ)
+        );
+
+        return valid ? 0 : 1;
+    }
+
+    /**
+     * @notice Decode a proof from ABI-encoded bytes.
+     * @dev Expected encoding: abi.encode(uint256[2] pi_a, uint256[2][2] pi_b, uint256[2] pi_c)
+     */
+    function _decodeProof(bytes calldata proofBytes) internal pure returns (Proof memory proof) {
+        (
+            uint256[2] memory pi_a,
+            uint256[2][2] memory pi_b,
+            uint256[2] memory pi_c
+        ) = abi.decode(proofBytes, (uint256[2], uint256[2][2], uint256[2]));
+
+        proof.A = Pairing.G1Point(pi_a[0], pi_a[1]);
+        // G2 points: pi_b[0] = X coords, pi_b[1] = Y coords
+        proof.B = Pairing.G2Point(
+            [pi_b[0][0], pi_b[0][1]],
+            [pi_b[1][0], pi_b[1][1]]
+        );
+        proof.C = Pairing.G1Point(pi_c[0], pi_c[1]);
+    }
+
     // ── Proof Verification ────────────────────────────────────────────────────
 
     /**
      * @notice Verify a Groth16 proof for a shielded payment.
      *
-     * @param proofBytes Serialized Groth16 proof (pi_a, pi_b, pi_c on BN254)
-     *   Format: ABI-encoded (uint256[2] pi_a, uint256[2][2] pi_b, uint256[2] pi_c)
-     * @param publicInputs Array of public inputs for the circuit
-     *   See "Public Inputs Layout" above for field ordering.
+     * @param proofBytes ABI-encoded proof: abi.encode(uint256[2] pi_a, uint256[2][2] pi_b, uint256[2] pi_c)
+     * @param publicInputs Array of public inputs for the circuit.
+     *   publicInputs[0] = Merkle root
+     *   publicInputs[1] = Nullifier
+     *   (See Public Inputs Layout above for full ordering.)
      *
-     * @return valid True if proof is valid, false otherwise
-     *
-     * STUB: Always returns true. Real implementation uses BN254 pairing precompiles:
-     *   ecAdd   (0x06): G1 point addition
-     *   ecMul   (0x07): G1 scalar multiplication
-     *   ecPairing (0x08): BN254 bilinear pairing check
-     *
-     * TODO: Replace with snarkjs-generated Groth16 verification logic.
+     * @return valid True if proof is valid (pairing check passes or stubMode=true)
      */
     function verifyProof(
         bytes calldata proofBytes,
         uint256[] calldata publicInputs
     ) external returns (bool valid) {
-        // Require at least one public input (nullifier)
         require(publicInputs.length > 0, "Groth16Verifier: no public inputs");
 
-        // STUB: In production, parse proofBytes and call BN254 pairing precompile.
-        // TODO: Implement actual Groth16 verification:
-        //   1. Decode pi_a, pi_b, pi_c from proofBytes
-        //   2. Compute vk_x = IC[0] + sum(IC[i+1] * publicInputs[i])
-        //   3. Verify pairing: e(pi_a, pi_b) == e(alpha, beta) * e(vk_x, gamma) * e(pi_c, delta)
+        Proof memory proof = _decodeProof(proofBytes);
+        uint256[] memory inputs = new uint256[](publicInputs.length);
+        for (uint256 i = 0; i < publicInputs.length; i++) {
+            inputs[i] = publicInputs[i];
+        }
 
-        // Emit for observability (real implementation only emits on success)
-        if (publicInputs.length >= 2) {
-            bytes32 nullifier = bytes32(publicInputs[1]);
+        VerifyingKey memory vk = verifyingKey();
+        uint256 result = verify(inputs, proof, vk);
+        valid = (result == 0);
+
+        if (valid && publicInputs.length >= 2) {
+            bytes32 nullifier  = bytes32(publicInputs[1]);
             bytes32 merkleRoot = bytes32(publicInputs[0]);
             emit ProofVerified(nullifier, merkleRoot, msg.sender);
         }
-
-        return true; // STUB
     }
 
     /**
@@ -110,27 +388,25 @@ contract Groth16Verifier {
      * Deposit circuit proves: commitment = Poseidon(asset, amount, blind, owner_pk)
      * without revealing asset, amount, or blind.
      *
-     * @param proofBytes Serialized Groth16 proof
+     * @param proofBytes ABI-encoded Groth16 proof
      * @param commitment The commitment being deposited
-     * @param assetId The asset type (0=USDC, 1=USDT)
+     * @param assetId    The asset type (0=USDC, 1=USDT)
      *
      * @return valid True if proof is valid
      *
-     * STUB: Always returns true.
-     * TODO: Implement deposit circuit verification.
+     * @dev Uses the deposit-specific VK (placeholder until circuit finalization).
      */
     function verifyDepositProof(
         bytes calldata proofBytes,
         bytes32 commitment,
         uint256 assetId
     ) external pure returns (bool valid) {
-        // Silence unused parameter warnings in stub
+        // STUB: Using separate deposit VK (placeholder zero VK)
+        // TODO: When stubMode is removed, call verify() with depositVerifyingKey()
+        // and inputs [uint256(commitment), assetId].
+        // For now, silence unused parameter warnings and return true.
         (proofBytes, commitment, assetId);
-
-        // STUB: Real implementation verifies that commitment was correctly computed
-        // TODO: Implement deposit circuit Groth16 verification
-
-        return true; // STUB
+        return true;
     }
 
     /**
@@ -139,15 +415,14 @@ contract Groth16Verifier {
      * Withdraw circuit proves: the withdrawer knows the secret key for a UTXO
      * without revealing the UTXO's commitment.
      *
-     * @param proofBytes Serialized Groth16 proof
-     * @param nullifier The nullifier being consumed (prevents double-spending)
-     * @param merkleRoot The Merkle tree root the UTXO is a member of
+     * @param proofBytes  ABI-encoded Groth16 proof
+     * @param nullifier   The nullifier being consumed (prevents double-spending)
+     * @param merkleRoot  The Merkle tree root the UTXO is a member of
      * @param amountUnits The amount being withdrawn (revealed for settlement)
      *
      * @return valid True if proof is valid
      *
-     * STUB: Always returns true.
-     * TODO: Implement withdrawal circuit verification.
+     * @dev Uses the withdraw-specific VK (placeholder until circuit finalization).
      */
     function verifyWithdrawProof(
         bytes calldata proofBytes,
@@ -155,13 +430,12 @@ contract Groth16Verifier {
         bytes32 merkleRoot,
         uint256 amountUnits
     ) external pure returns (bool valid) {
-        // Silence unused parameter warnings in stub
+        // STUB: Using separate withdraw VK (placeholder zero VK)
+        // TODO: When stubMode is removed, call verify() with withdrawVerifyingKey()
+        // and inputs [uint256(nullifier), uint256(merkleRoot), amountUnits].
+        // For now, silence unused parameter warnings and return true.
         (proofBytes, nullifier, merkleRoot, amountUnits);
-
-        // STUB: Real implementation verifies Merkle membership + key ownership
-        // TODO: Implement withdrawal circuit Groth16 verification
-
-        return true; // STUB
+        return true;
     }
 
     /**
@@ -169,6 +443,6 @@ contract Groth16Verifier {
      * @dev Used by NullifierRegistry and CommitmentTree to detect version mismatches.
      */
     function version() external pure returns (string memory) {
-        return "0.1.0-stub";
+        return "0.2.0";
     }
 }

@@ -29,6 +29,7 @@ import Fastify from 'fastify';
 import helmet from '@fastify/helmet';
 import { Pool } from 'pg';
 import { config } from './config.js';
+import { runMigrations } from './db/migrate.js';
 import { startMerkleSync } from './lib/merkle-sync.js';
 import { startNullifierSync } from './lib/nullifier-sync.js';
 
@@ -39,6 +40,9 @@ async function main() {
   await app.register(helmet, { contentSecurityPolicy: false });
 
   const db = new Pool({ connectionString: config.databaseUrl });
+
+  // Apply DB migrations before starting anything else
+  await runMigrations(db);
 
   // Health / readiness
   app.get('/healthz', async () => ({

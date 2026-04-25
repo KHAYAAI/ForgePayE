@@ -43,6 +43,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.api import checkout, customers, webhooks
+from src.api.auditor import router as auditor_router
 from src.api.merchants import auth_router, router as merchants_router
 from src.config import get_settings
 
@@ -90,6 +91,9 @@ app.include_router(webhooks.router,  prefix="/v1")   # HMAC auth via signature h
 # Protected routes (JWT Bearer token required — dependency in each route handler)
 app.include_router(checkout.router,  prefix="/v1")
 app.include_router(customers.router, prefix="/v1")
+
+# Internal routes (restricted to cluster network + X-Internal-Secret header)
+app.include_router(auditor_router)   # prefix already set in auditor.py (/v1/auditor)
 
 
 @app.get("/healthz", include_in_schema=False)

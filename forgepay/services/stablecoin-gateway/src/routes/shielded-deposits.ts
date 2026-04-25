@@ -12,8 +12,9 @@
  *   Auditor   → decrypts encrypted_memo to know amount (for tax)
  *   Public    → sees: nullifier spent on NullifierRegistry (no amount)
  *
- * STUB MODE: All cryptographic steps (Groth16 verify, ECDH decrypt) are
- * stubbed. Real integration requires auditable-privacy-payment production lib.
+ * Crypto steps (Groth16 verify, ECDH decrypt) are implemented in
+ * lib/proof-verifier.ts, which calls the on-chain NullifierRegistry
+ * and the MoR auditor service respectively.
  *
  * POST /shielded-deposits        — create shielded deposit
  * GET  /shielded-deposits/:id    — retrieve shielded deposit status
@@ -25,6 +26,7 @@ import { randomUUID } from 'node:crypto';
 import { getDb } from '../lib/db.js';
 import { config } from '../config.js';
 import { forwardToUnifiedRouter } from '../lib/events.js';
+import { decryptMemoViaAuditor, verifyGroth16Proof } from '../lib/proof-verifier.js';
 
 interface CreateShieldedDepositBody {
   merchant_id:    string;
@@ -36,37 +38,10 @@ interface CreateShieldedDepositBody {
   metadata?:      Record<string, string>;
 }
 
-// ── Stub: calls auditor service to decrypt encrypted memo ─────────────────────
-// When auditable-privacy-payment is integrated, this will POST to the MoR
-// auditor endpoint which uses ECDH + AES-GCM to reveal amount to MoR only.
-async function decryptMemoViaAuditor(
-  encryptedMemo: string,
-): Promise<{ amount_units: string; amount_usd: number }> {
-  // TODO: Replace with real call to auditor service
-  // POST config.shielded.auditorServiceUrl + '/v1/auditor/decrypt'
-  // Body: { encrypted_memo: encryptedMemo }
-  // Response: { asset, amount, owner_pk, nullifier, commitment, merchant_id }
-  console.warn('⚠️  STUB: decryptMemoViaAuditor — returning dummy amount; integrate auditor service');
-  return {
-    amount_units: '4999000',  // 4.999 USDC units (6 decimals)
-    amount_usd:   4.999,
-  };
-}
-
-// ── Stub: verifies Groth16 deposit proof ──────────────────────────────────────
-// When auditable-privacy-payment is integrated, this calls NullifierRegistry
-// via ethers.js to verify the proof on-chain (or verify locally using snarkjs).
-async function verifyGroth16Proof(
-  _proofBytes: string,
-  _nullifier:  string,
-  _chain:      string,
-): Promise<boolean> {
-  // TODO: Replace with real on-chain verification
-  // const registry = new ethers.Contract(contractAddress, REGISTRY_ABI, provider);
-  // return await registry.verifyProof(proofBytes, nullifier);
-  console.warn('⚠️  STUB: verifyGroth16Proof — returning true; integrate NullifierRegistry contract');
-  return true;
-}
+// decryptMemoViaAuditor and verifyGroth16Proof are imported from
+// lib/proof-verifier.ts where the real implementations live. They are
+// re-exported from there so x402-shielded.ts can also use them without
+// duplicating logic.
 
 export async function buildShieldedDepositRoutes(app: FastifyInstance) {
   // ── Create shielded deposit ───────────────────────────────────────────────

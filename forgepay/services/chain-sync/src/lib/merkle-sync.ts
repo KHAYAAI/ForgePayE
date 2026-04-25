@@ -21,6 +21,7 @@ import { ethers } from 'ethers';
 import { randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
 import { forwardToUnifiedRouter } from './events.js';
+import { withAutoReconnect } from './reconnect.js';
 import type { ChainConfig } from '../config.js';
 
 // Minimal ABI for CommitmentTree events we listen to
@@ -29,6 +30,9 @@ const COMMITMENT_TREE_ABI = [
   'function currentRoot() view returns (bytes32)',
   'function currentVersion() view returns (uint256)',
 ];
+
+// How long to wait without receiving any event before doing a manual poll (ms).
+const STALL_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
 export async function startMerkleSync(
   chain: string,
@@ -45,14 +49,40 @@ export async function startMerkleSync(
     return;
   }
 
+  // withAutoReconnect ensures the monitor restarts if the provider drops.
+  await withAutoReconnect(`merkle-sync/${chain}`, () =>
+    runMerkleMonitor(chain, chainConfig, db),
+  );
+}
+
+async function runMerkleMonitor(
+  chain: string,
+  chainConfig: ChainConfig,
+  db: Pool,
+): Promise<void> {
   const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrl);
+
+  // Verify the provider is reachable before attaching listeners.
+  await provider.getBlockNumber();
+
   const commitmentTree = new ethers.Contract(
     chainConfig.commitmentTreeAddr,
     COMMITMENT_TREE_ABI,
     provider,
   );
 
-  console.log(`[chain-sync] Listening for Merkle root updates on ${chain} (${chainConfig.commitmentTreeAddr})`);
+  console.log(
+    `[chain-sync] Listening for Merkle root updates on ${chain} (${chainConfig.commitmentTreeAddr})`,
+  );
+
+  // Track the last time we received an event to detect stalls.
+  let lastEventAt = Date.now();
+
+  // Throw on provider errors to trigger the withAutoReconnect restart loop.
+  provider.on('error', (err: unknown) => {
+    console.error(`[chain-sync] merkle-sync/${chain}: provider error — will reconnect:`, err);
+    throw err;
+  });
 
   commitmentTree.on(
     'RootUpdated',
@@ -64,11 +94,12 @@ export async function startMerkleSync(
       timestamp: bigint,
       eventObj:  ethers.EventLog,
     ) => {
+      lastEventAt = Date.now();
       const txHash      = eventObj.transactionHash;
       const blockNumber = eventObj.blockNumber;
 
       console.log(
-        `[chain-sync] Merkle root updated on ${chain}: version=${version} root=${newRoot.slice(0, 10)}... (tx: ${txHash})`
+        `[chain-sync] Merkle root updated on ${chain}: version=${version} root=${newRoot.slice(0, 10)}... (tx: ${txHash})`,
       );
 
       // Store in chain_events table
@@ -95,19 +126,49 @@ export async function startMerkleSync(
 
       // Forward event to unified-router
       await forwardToUnifiedRouter({
-        eventId:     randomUUID(),
-        type:        'chain.merkle_root_updated',
+        eventId:    randomUUID(),
+        type:       'chain.merkle_root_updated',
         chain,
-        version:     Number(version),
+        version:    Number(version),
         newRoot,
         prevRoot,
-        leafCount:   Number(leafCount),
+        leafCount:  Number(leafCount),
         txHash,
         blockNumber,
-        occurredAt:  new Date(Number(timestamp) * 1000).toISOString(),
+        occurredAt: new Date(Number(timestamp) * 1000).toISOString(),
       });
     },
   );
+
+  // Stall detector: if no event arrives within STALL_TIMEOUT_MS, do a manual
+  // poll of currentRoot() to confirm the provider is still alive.  If the
+  // call fails we throw so withAutoReconnect can restart.
+  await new Promise<never>((_, reject) => {
+    const timer = setInterval(async () => {
+      const elapsed = Date.now() - lastEventAt;
+      if (elapsed < STALL_TIMEOUT_MS) return;
+
+      console.warn(
+        `[chain-sync] merkle-sync/${chain}: no events for ${Math.round(elapsed / 1000)}s — polling currentRoot()`,
+      );
+      try {
+        const root = await commitmentTree.currentRoot() as string;
+        const version = await commitmentTree.currentVersion() as bigint;
+        console.log(
+          `[chain-sync] merkle-sync/${chain}: poll ok — root=${root.slice(0, 10)}... version=${version}`,
+        );
+        lastEventAt = Date.now(); // reset stall clock after a successful poll
+      } catch (err) {
+        clearInterval(timer);
+        reject(new Error(`[chain-sync] merkle-sync/${chain}: stall poll failed — reconnecting: ${err}`));
+      }
+    }, STALL_TIMEOUT_MS);
+
+    // Allow the process to exit even if this interval is still running.
+    if (typeof timer === 'object' && timer !== null && 'unref' in timer) {
+      (timer as NodeJS.Timeout).unref();
+    }
+  });
 }
 
 async function checkMerkleRootDivergence(
@@ -149,7 +210,7 @@ async function checkMerkleRootDivergence(
       ` version=${onChainVersion}` +
       ` on-chain=${onChainRoot.slice(0, 10)}...` +
       ` off-chain=${dbRoot.slice(0, 10)}...` +
-      ` — Investigation required immediately.`
+      ` — Investigation required immediately.`,
     );
     // TODO: Alert PagerDuty / Slack webhook here
   }
