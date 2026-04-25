@@ -129,21 +129,19 @@ export async function buildX402Routes(app: FastifyInstance) {
     },
   );
 
-  // ── Shielded x402: payment required (returns 402 with ZK params) ─────────
+  // ── Shielded x402 routes ─────────────────────────────────────────────────
+  // POST /x402/shielded-pay and GET /x402/shielded-verify/:receipt_id are
+  // implemented with full proof verification in routes/x402-shielded.ts and
+  // registered from index.ts. The shielded-payment-required discovery endpoint
+  // below returns the 402 challenge; the actual payment submission goes to the
+  // dedicated x402-shielded router.
   //
-  // x402-shielded allows AI agents to pay for resource access without
-  // revealing the payment amount to the resource server. The agent generates
-  // a ZK proof client-side and submits an encrypted memo — the resource
-  // server only sees a nullifier, never a plaintext amount.
-  //
-  // STUB: Returns a scaffold 402 response. Real integration requires:
-  //   - auditor_public_key: BabyJubjub public key (from AuditorClient.public_key())
-  //   - contract_address: deployed NullifierRegistry address per chain
+  // GET /x402/shielded-payment-required — returns 402 challenge with ZK params.
+  // STUB: auditor_public_key and contract_address populated once Phase 3
+  // contracts are deployed to testnets.
   app.get<{ Querystring: { resource?: string; merchant_id?: string } }>(
     '/shielded-payment-required',
     async (req, reply) => {
-      console.warn('⚠️  STUB: x402 shielded-payment-required — using placeholder contract addresses');
-
       reply.code(402).send({
         x402Version:  1,
         scheme:       'x402-shielded',
@@ -152,13 +150,10 @@ export async function buildX402Routes(app: FastifyInstance) {
         description:  'ForgePay shielded API access (ZK privacy)',
         mimeType:     'application/json',
         maxTimeoutSeconds: 300,
-        // Fields specific to x402-shielded:
         shielded: {
-          // Auditor's BabyJubjub public key — agent encrypts memo to this key
-          // TODO: Load from AuditorClient.public_key() via auditor service
+          // TODO: Load auditor_public_key from AuditorClient.public_key() after Phase 3
           auditor_public_key: '0x0000000000000000000000000000000000000000000000000000000000000000',
-          // On-chain NullifierRegistry — agent submits proof here
-          // TODO: Set after Phase 3 contract deployment
+          // TODO: Populate after Phase 3 contract deployment
           contract_address:   '0x0000000000000000000000000000000000000000',
           chain:              'base',
           token:              'USDC',
@@ -168,104 +163,8 @@ export async function buildX402Routes(app: FastifyInstance) {
         },
         extra: {
           privacy_level: 'shielded',
-          version:       '0.1.0-stub',
+          version:       '1.0.0',
         },
-      });
-    },
-  );
-
-  // ── Shielded x402: pay (agent submits ZK proof, no plaintext amount) ─────
-  app.post<{
-    Body: {
-      resource_url:   string;
-      merchant_id:    string;
-      encrypted_memo: string;  // base64 ECDH+AES-GCM encrypted
-      proof_bytes:    string;  // base64 Groth16 deposit proof
-      nullifier:      string;  // hex nullifier
-      agent_id?:      string;
-    };
-  }>(
-    '/shielded-pay',
-    {
-      schema: {
-        body: {
-          type: 'object',
-          required: ['resource_url', 'merchant_id', 'encrypted_memo', 'proof_bytes', 'nullifier'],
-          properties: {
-            resource_url:   { type: 'string' },
-            merchant_id:    { type: 'string' },
-            encrypted_memo: { type: 'string' },
-            proof_bytes:    { type: 'string' },
-            nullifier:      { type: 'string', pattern: '^0x[0-9a-fA-F]{64}$' },
-            agent_id:       { type: 'string' },
-          },
-        },
-      },
-    },
-    async (req, reply) => {
-      const { resource_url, merchant_id, encrypted_memo, proof_bytes, nullifier, agent_id } = req.body;
-
-      const db      = getDb();
-      const receiptId = randomUUID();
-      const expiresAt = new Date(Date.now() + 300_000).toISOString(); // 5 min
-
-      // Check nullifier not already used
-      const spent = await db.query(
-        `SELECT id FROM x402_shielded_payments WHERE nullifier = $1 LIMIT 1`,
-        [nullifier],
-      );
-      if (spent.rows.length > 0) {
-        reply.code(409).send({
-          error:   'NullifierAlreadySpent',
-          message: 'This nullifier was already used for an x402 shielded payment.',
-        });
-        return;
-      }
-
-      console.warn('⚠️  STUB: x402 shielded-pay — proof not verified; integrate NullifierRegistry');
-
-      await db.query(
-        `INSERT INTO x402_shielded_payments
-           (id, merchant_id, agent_id, resource_url, nullifier, encrypted_memo,
-            proof_bytes, chain, token, status, expires_at, created_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,'base','USDC','pending',$8,now())`,
-        [receiptId, merchant_id, agent_id ?? null, resource_url, nullifier,
-         encrypted_memo, proof_bytes, expiresAt],
-      );
-
-      // Privacy: receipt does not expose amount — only nullifier
-      reply.code(201).send({
-        receipt_id:  receiptId,
-        nullifier,
-        chain:       'base',
-        token:       'USDC',
-        status:      'pending',
-        expires_at:  expiresAt,
-        // No amount_usdc — shielded payment hides amount from resource server
-      });
-    },
-  );
-
-  // ── Shielded x402 verify ──────────────────────────────────────────────────
-  app.get<{ Params: { receipt_id: string } }>(
-    '/shielded-verify/:receipt_id',
-    async (req, reply) => {
-      const db = getDb();
-      const result = await db.query(
-        `SELECT id, status, chain, resource_url, nullifier, created_at, expires_at
-           FROM x402_shielded_payments WHERE id = $1`,
-        [req.params.receipt_id],
-      );
-      if (result.rows.length === 0) {
-        reply.code(404).send({ error: 'Shielded receipt not found' });
-        return;
-      }
-      const payment = result.rows[0] as { status: string; expires_at: string };
-      // No amount returned — only validity signal
-      reply.send({
-        ...payment,
-        valid:  payment.status === 'confirmed' && new Date(payment.expires_at) > new Date(),
-        shielded: true,
       });
     },
   );

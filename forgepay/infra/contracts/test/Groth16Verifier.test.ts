@@ -7,21 +7,69 @@
  *   2. Valid public inputs matching the circuit's expected layout
  *   3. Invalid proof test that expects revert
  *
- * CURRENT STATE: STUB MODE — all proofs accepted unconditionally.
+ * CURRENT STATE: STUB MODE — all proofs accepted unconditionally when stubMode=true.
  * TODO: After circuit finalization, add real proof/input test vectors.
  */
 
 import { expect } from 'chai';
 import { ethers } from 'hardhat';
+import { AbiCoder } from 'ethers';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a valid ABI-encoded proof bytes payload.
+ * Format: abi.encode(uint256[2] pi_a, uint256[2][2] pi_b, uint256[2] pi_c)
+ */
+function makeProofBytes(
+  pi_a: [bigint, bigint] = [0n, 0n],
+  pi_b: [[bigint, bigint], [bigint, bigint]] = [[0n, 0n], [0n, 0n]],
+  pi_c: [bigint, bigint] = [0n, 0n]
+): Uint8Array {
+  const coder = AbiCoder.defaultAbiCoder();
+  const encoded = coder.encode(
+    ['uint256[2]', 'uint256[2][2]', 'uint256[2]'],
+    [pi_a, pi_b, pi_c]
+  );
+  return ethers.getBytes(encoded);
+}
 
 describe('Groth16Verifier', () => {
   let verifier: any;
+  let owner: any;
 
   beforeEach(async () => {
+    [owner] = await ethers.getSigners();
     const Factory = await ethers.getContractFactory('Groth16Verifier');
     verifier = await Factory.deploy();
     await verifier.waitForDeployment();
   });
+
+  // ── stubMode flag ────────────────────────────────────────────────────────
+
+  describe('stubMode', () => {
+    it('stubMode is true after deployment', async () => {
+      expect(await verifier.stubMode()).to.equal(true);
+    });
+
+    it('stubMode=true skips pairing check — garbage proof still returns true', async () => {
+      // Completely invalid (garbage) proof data — not valid G1/G2 points.
+      // In stub mode the pairing check is bypassed, so this must succeed.
+      const garbageProof = makeProofBytes(
+        [12345678901234567890n, 98765432109876543210n],
+        [[11n, 22n], [33n, 44n]],
+        [55n, 66n]
+      );
+      const publicInputs = [1n, 2n, 3n, 4n, 5n, 6n];
+
+      const valid = await verifier.verifyProof(garbageProof, publicInputs);
+      expect(valid).to.equal(true, 'stub mode must accept any proof');
+    });
+  });
+
+  // ── verifyProof ──────────────────────────────────────────────────────────
 
   describe('verifyProof', () => {
     it('returns true for any proof in stub mode', async () => {
@@ -34,6 +82,15 @@ describe('Groth16Verifier', () => {
 
       // STUB: always returns true
       const valid = await verifier.verifyProof(proofBytes, publicInputs);
+      expect(valid).to.equal(true);
+    });
+
+    it('accepts a properly ABI-encoded proof with all-zero points', async () => {
+      // All-zero G1/G2 points — the point at infinity.
+      const zeroProof = makeProofBytes();
+      const publicInputs = [1n, 2n, 3n, 4n, 5n, 6n];
+
+      const valid = await verifier.verifyProof(zeroProof, publicInputs);
       expect(valid).to.equal(true);
     });
 
@@ -55,12 +112,55 @@ describe('Groth16Verifier', () => {
         .withArgs(nullifierHex, rootHex, await (await ethers.getSigners())[0].getAddress());
     });
 
+    it('ProofVerified event uses correct indexed args (nullifier at [1], root at [0])', async () => {
+      const nullifier  = ethers.zeroPadValue(ethers.toBeHex(0xdeadbeefn), 32);
+      const merkleRoot = ethers.zeroPadValue(ethers.toBeHex(0xcafebaben), 32);
+
+      const proofBytes = makeProofBytes();
+      const publicInputs = [
+        BigInt(merkleRoot),   // [0] = merkle root
+        BigInt(nullifier),    // [1] = nullifier
+        500_000n,             // [2] = amount
+      ];
+
+      const tx = await verifier.verifyProof(proofBytes, publicInputs);
+      const receipt = await tx.wait();
+
+      // Confirm the event was actually emitted with correct args
+      const iface = verifier.interface;
+      const parsedLogs = receipt.logs
+        .map((log: any) => { try { return iface.parseLog(log); } catch { return null; } })
+        .filter(Boolean);
+
+      const proofVerifiedLog = parsedLogs.find((l: any) => l.name === 'ProofVerified');
+      expect(proofVerifiedLog).to.not.be.undefined;
+      expect(proofVerifiedLog.args.nullifier).to.equal(nullifier);
+      expect(proofVerifiedLog.args.merkleRoot).to.equal(merkleRoot);
+      expect(proofVerifiedLog.args.verifier).to.equal(owner.address);
+    });
+
+    it('does NOT emit ProofVerified when only 1 public input is supplied', async () => {
+      // Only 1 input → no event emitted (needs at least 2 to extract nullifier+root)
+      const proofBytes = makeProofBytes();
+      const tx = await verifier.verifyProof(proofBytes, [42n]);
+      const receipt = await tx.wait();
+
+      const iface = verifier.interface;
+      const proofVerifiedLogs = receipt.logs
+        .map((log: any) => { try { return iface.parseLog(log); } catch { return null; } })
+        .filter((l: any) => l && l.name === 'ProofVerified');
+
+      expect(proofVerifiedLogs.length).to.equal(0, 'no ProofVerified event with <2 inputs');
+    });
+
     it('reverts when no public inputs provided', async () => {
       await expect(
         verifier.verifyProof(ethers.toUtf8Bytes('proof'), [])
       ).to.be.revertedWith('Groth16Verifier: no public inputs');
     });
   });
+
+  // ── verifyDepositProof ───────────────────────────────────────────────────
 
   describe('verifyDepositProof', () => {
     it('returns true for any deposit proof in stub mode', async () => {
@@ -71,7 +171,27 @@ describe('Groth16Verifier', () => {
       );
       expect(valid).to.equal(true);
     });
+
+    it('returns true for USDT asset ID (1)', async () => {
+      const valid = await verifier.verifyDepositProof(
+        makeProofBytes(),
+        ethers.zeroPadValue(ethers.toBeHex(0xabc), 32),
+        1n // USDT asset ID
+      );
+      expect(valid).to.equal(true);
+    });
+
+    it('returns true with ABI-encoded zero proof', async () => {
+      const valid = await verifier.verifyDepositProof(
+        makeProofBytes(),
+        ethers.zeroPadValue(ethers.toBeHex(1), 32),
+        0n
+      );
+      expect(valid).to.equal(true);
+    });
   });
+
+  // ── verifyWithdrawProof ──────────────────────────────────────────────────
 
   describe('verifyWithdrawProof', () => {
     it('returns true for any withdraw proof in stub mode', async () => {
@@ -83,11 +203,23 @@ describe('Groth16Verifier', () => {
       );
       expect(valid).to.equal(true);
     });
+
+    it('returns true with ABI-encoded zero proof and all-zero args', async () => {
+      const valid = await verifier.verifyWithdrawProof(
+        makeProofBytes(),
+        ethers.zeroPadValue(ethers.toBeHex(1), 32),
+        ethers.zeroPadValue(ethers.toBeHex(2), 32),
+        0n
+      );
+      expect(valid).to.equal(true);
+    });
   });
 
+  // ── version ──────────────────────────────────────────────────────────────
+
   describe('version', () => {
-    it('returns stub version string', async () => {
-      expect(await verifier.version()).to.equal('0.1.0-stub');
+    it('returns version 0.2.0', async () => {
+      expect(await verifier.version()).to.equal('0.2.0');
     });
   });
 });
