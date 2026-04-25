@@ -14,14 +14,13 @@ terraform {
     }
   }
 
-  # Production: Uncomment for remote state
-  # backend "s3" {
-  #   bucket         = "forgepay-terraform-state"
-  #   key            = "prod/terraform.tfstate"
-  #   region         = "us-east-1"
-  #   encrypt        = true
-  #   dynamodb_table = "forgepay-terraform-locks"
-  # }
+  backend "s3" {
+    bucket         = "forgepay-terraform-state"
+    key            = "forgepay/terraform.tfstate"
+    region         = "us-east-1"
+    encrypt        = true
+    dynamodb_table = "forgepay-terraform-locks"
+  }
 }
 
 provider "aws" {

@@ -46,3 +46,15 @@ export const config = {
   merchantWebhookTimeoutMs: parseInt(optional('MERCHANT_WEBHOOK_TIMEOUT_MS', '5000'), 10),
   merchantWebhookMaxRetries: parseInt(optional('MERCHANT_WEBHOOK_MAX_RETRIES', '5'), 10),
 } as const;
+
+if (config.env === 'production') {
+  const blankSecrets = Object.entries(config.webhookSecrets)
+    .filter(([, v]) => !v)
+    .map(([k]) => k);
+  if (blankSecrets.length > 0) {
+    console.warn(
+      `[unified-router] WARNING: webhook secrets not configured for sources: ${blankSecrets.join(', ')}. ` +
+      'Webhooks from these sources will fail HMAC verification.'
+    );
+  }
+}

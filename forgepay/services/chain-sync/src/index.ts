@@ -44,6 +44,24 @@ async function main() {
   // Apply DB migrations before starting anything else
   await runMigrations(db);
 
+  // Validate contract address consistency before starting
+  for (const [chain, chainCfg] of Object.entries(config.chains)) {
+    if (!chainCfg) continue;
+    const addrs = [
+      chainCfg.groth16VerifierAddr,
+      chainCfg.nullifierRegistryAddr,
+      chainCfg.commitmentTreeAddr,
+    ];
+    const ZERO = '0x0000000000000000000000000000000000000000';
+    const configured = addrs.filter(a => a !== ZERO).length;
+    if (configured > 0 && configured < 3) {
+      throw new Error(
+        `[chain-sync] Incomplete contract addresses for ${chain}: ` +
+        `${configured}/3 configured. Either set all three or none.`
+      );
+    }
+  }
+
   // Health / readiness
   app.get('/healthz', async () => ({
     status: 'ok',

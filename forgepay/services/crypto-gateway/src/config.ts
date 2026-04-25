@@ -1,6 +1,11 @@
 function opt(name: string, fallback: string): string {
   return process.env[name] ?? fallback;
 }
+function req(name: string): string {
+  const v = process.env[name];
+  if (!v) throw new Error(`Required env var ${name} is not set`);
+  return v;
+}
 
 export const config = {
   port: parseInt(opt('PORT', '8030'), 10),
@@ -11,13 +16,13 @@ export const config = {
     port:     parseInt(opt('POSTGRES_PORT', '5432'), 10),
     database: opt('POSTGRES_DB',       'forgepay_dev'),
     user:     opt('POSTGRES_USER',     'forgepay'),
-    password: opt('POSTGRES_PASSWORD', 'devpassword'),
+    password: req('POSTGRES_PASSWORD'),
   },
 
   redis: { url: opt('REDIS_URL', 'redis://localhost:6379') },
 
   unifiedRouterUrl:      opt('UNIFIED_ROUTER_URL',       'http://unified-router:8000'),
-  internalWebhookSecret: opt('INTERNAL_WEBHOOK_SECRET',  'dev-internal-secret-change-me'),
+  internalWebhookSecret: req('INTERNAL_WEBHOOK_SECRET'),
 
   // Invoice expiry (1 hour)
   invoiceExpirySeconds: parseInt(opt('INVOICE_EXPIRY_SECONDS', '3600'), 10),

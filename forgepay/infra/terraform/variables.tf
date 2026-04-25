@@ -160,3 +160,15 @@ variable "alert_email" {
   description = "Email for CloudWatch alerts"
   type        = string
 }
+
+variable "tf_state_bucket" {
+  description = "S3 bucket name for Terraform remote state"
+  type        = string
+  default     = "forgepay-terraform-state"
+}
+
+variable "tf_locks_table" {
+  description = "DynamoDB table name for Terraform state locking"
+  type        = string
+  default     = "forgepay-terraform-locks"
+}

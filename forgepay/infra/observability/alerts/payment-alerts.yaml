@@ -1,0 +1,90 @@
+groups:
+  - name: forgepay.payments
+    interval: 30s
+    rules:
+      # Payment success rate SLO: 99.5% over 5 minutes
+      - alert: PaymentSuccessRateLow
+        expr: |
+          (
+            sum(rate(forgepay_payment_completed_total[5m]))
+          /
+            sum(rate(forgepay_payment_attempted_total[5m]))
+          ) < 0.995
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "Payment success rate below 99.5% SLO"
+          description: "Success rate is {{ $value | humanizePercentage }} over last 5m"
+
+      # P99 checkout latency SLO: under 3 seconds
+      - alert: CheckoutLatencyHigh
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(forgepay_checkout_duration_seconds_bucket[5m])) by (le)
+          ) > 3
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Checkout P99 latency above 3s SLO"
+          description: "P99 latency is {{ $value }}s"
+
+      # Webhook delivery failure rate
+      - alert: WebhookDeliveryFailureHigh
+        expr: |
+          sum(rate(forgepay_webhook_delivery_failed_total[10m]))
+          /
+          sum(rate(forgepay_webhook_delivery_attempted_total[10m]))
+          > 0.05
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Webhook delivery failure rate above 5%"
+          description: "{{ $value | humanizePercentage }} of webhooks failing over last 10m"
+
+      # Stablecoin deposit confirmation stall
+      - alert: StablecoinDepositConfirmationStall
+        expr: |
+          forgepay_stablecoin_deposits_pending_total > 50
+          and
+          rate(forgepay_stablecoin_deposits_confirmed_total[30m]) == 0
+        for: 30m
+        labels: { severity: critical }
+        annotations:
+          summary: "Stablecoin deposits pending with no confirmations for 30m"
+          description: "{{ $value }} deposits pending — chain monitor may be down"
+
+      # Database connection pool exhaustion
+      - alert: DatabaseConnectionPoolExhausted
+        expr: forgepay_db_pool_waiting_total > 5
+        for: 2m
+        labels: { severity: warning }
+        annotations:
+          summary: "Database connection pool waiting queue > 5"
+
+      # Service down
+      - alert: ServiceDown
+        expr: up{job=~"forgepay-.*"} == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "ForgePay service {{ $labels.job }} is down"
+
+  - name: forgepay.contracts
+    rules:
+      # Chain sync stall: no merkle root update in 30 minutes
+      - alert: ChainSyncMerkleRootStall
+        expr: |
+          time() - forgepay_chain_sync_last_root_update_timestamp > 1800
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Chain sync has not received a Merkle root update in 30m"
+          description: "Chain {{ $labels.chain }} — last update {{ $value | humanizeDuration }} ago"
+
+      # Nullifier registry not responding
+      - alert: NullifierRegistryUnreachable
+        expr: forgepay_chain_sync_registry_probe_success == 0
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "NullifierRegistry health probe failing on {{ $labels.chain }}"

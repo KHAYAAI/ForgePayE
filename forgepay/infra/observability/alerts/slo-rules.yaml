@@ -1,0 +1,23 @@
+groups:
+  - name: forgepay.slo.recording
+    interval: 30s
+    rules:
+      - record: forgepay:payment_success_rate:5m
+        expr: |
+          sum(rate(forgepay_payment_completed_total[5m]))
+          /
+          sum(rate(forgepay_payment_attempted_total[5m]))
+
+      - record: forgepay:checkout_p99_latency:5m
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(forgepay_checkout_duration_seconds_bucket[5m])) by (le)
+          )
+
+      - record: forgepay:webhook_delivery_success_rate:10m
+        expr: |
+          1 - (
+            sum(rate(forgepay_webhook_delivery_failed_total[10m]))
+            /
+            sum(rate(forgepay_webhook_delivery_attempted_total[10m]))
+          )

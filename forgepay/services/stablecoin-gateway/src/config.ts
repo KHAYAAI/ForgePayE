@@ -17,14 +17,14 @@ export const config = {
     port:     parseInt(opt('POSTGRES_PORT', '5432'), 10),
     database: opt('POSTGRES_DB',       'forgepay_dev'),
     user:     opt('POSTGRES_USER',     'forgepay'),
-    password: opt('POSTGRES_PASSWORD', 'devpassword'),
+    password: req('POSTGRES_PASSWORD'),
   },
 
   redis: { url: opt('REDIS_URL', 'redis://localhost:6379') },
 
   // Unified-router for event forwarding
   unifiedRouterUrl:       opt('UNIFIED_ROUTER_URL', 'http://unified-router:8000'),
-  internalWebhookSecret:  opt('INTERNAL_WEBHOOK_SECRET', 'dev-internal-secret-change-me'),
+  internalWebhookSecret:  req('INTERNAL_WEBHOOK_SECRET'),
 
   // Confirmation thresholds (number of block confirmations required)
   confirmations: {
