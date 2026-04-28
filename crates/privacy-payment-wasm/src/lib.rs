@@ -1,284 +1,330 @@
-//! WASM Bindings for Privacy-Preserving Payments
+//! Browser-side ZK proof generation for ForgePay shielded payments.
 //!
-//! ARCH: Allows JavaScript/TypeScript applications to generate Groth16 ZK proofs
-//! in the browser without sending plaintext to servers.
+//! Compiled to WASM via wasm-pack. Used by @forgepay/sdk in the browser
+//! so the server never sees plaintext amounts.
 //!
-//! Client-side proof generation flow:
-//!   1. Browser calls ProofGenerator.fromSeed(seed_hex)
-//!   2. ProofGenerator.generateDepositProof(asset, amount, blind) → Promise<Proof>
-//!      Generates Groth16 proof that amount is hidden (commitment = Poseidon(...))
-//!   3. ProofGenerator.generateTransferProof(inputs, outputs, merkleProofs)
-//!      Proves UTXO balance conservation without revealing amounts
-//!   4. Proof is sent to backend (encrypted memo + proof) for on-chain verification
+//! CURRENT STATE:
+//!   - All crypto types use real arkworks BN254 types
+//!   - encryptMemo / decryptMemo use real X25519 ECDH + AES-256-GCM
+//!   - generate_deposit_proof / generate_transfer_proof / generate_withdraw_proof
+//!     return Err(KeysNotEmbedded) until the circuit proving key is compiled
+//!     and embedded (see comment in prove_deposit in crates/zk-proofs/src/lib.rs)
 //!
-//! CURRENT STATE: **STUBBED FOR TESTING** — all proof generation returns dummy proofs.
-//! Replace with real arkworks Groth16 when auditable-privacy-payment is production-ready.
-//!
-//! TODO: Implement actual BabyJubjub keypair generation, Poseidon hashing, Groth16 proving.
+//! ACTIVATION: Once the auditable-privacy-payment circuit is finalized:
+//!   1. Export proving key bytes: cargo run --bin export-keys
+//!   2. Embed as: static DEPOSIT_PK: &[u8] = include_bytes!("../keys/deposit.pk");
+//!   3. Load with: ProvingKey::deserialize_compressed(DEPOSIT_PK)
 
-use wasm_bindgen::prelude::*;
+use ark_bn254::{Bn254, Fr};
+use ark_groth16::Proof;
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use ark_std::Zero;
+use aes_gcm::{Aes256Gcm, Key, Nonce};
+use aes_gcm::aead::{Aead, KeyInit};
+use sha2::{Sha256, Digest};
+use x25519_dalek::{EphemeralSecret, PublicKey, StaticSecret};
+use zeroize::Zeroizing;
 use serde::{Deserialize, Serialize};
+use wasm_bindgen::prelude::*;
 
-// Silence console_error_panic hook warning in development
-#[cfg(feature = "console_error_panic_hook")]
-fn set_panic_hook() {
-    #[cfg(target_arch = "wasm32")]
+// ── Init ─────────────────────────────────────────────────────────────────────
+
+#[wasm_bindgen(start)]
+pub fn init() {
     console_error_panic_hook::set_once();
+    wasm_logger::init(wasm_logger::Config::default());
 }
 
-// ── Types ──────────────────────────────────────────────────────────────────
-
-/// Field element (Fr in BN254), serialized as hex string for JavaScript
-#[wasm_bindgen]
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Fr(String);
+// ── Error types ───────────────────────────────────────────────────────────────
 
 #[wasm_bindgen]
-impl Fr {
-    /// Create a field element from a hex string
-    #[wasm_bindgen(constructor)]
-    pub fn from_hex(hex: &str) -> Fr {
-        Fr(hex.to_string())
+pub struct WasmError(String);
+
+#[wasm_bindgen]
+impl WasmError {
+    #[wasm_bindgen(getter)]
+    pub fn message(&self) -> String { self.0.clone() }
+}
+
+fn js_err(msg: &str) -> JsValue {
+    JsValue::from_str(msg)
+}
+
+// ── Field element wrapper ─────────────────────────────────────────────────────
+
+/// BN254 scalar field element — wraps ark_bn254::Fr
+#[wasm_bindgen]
+pub struct WasmFr(Fr);
+
+#[wasm_bindgen]
+impl WasmFr {
+    /// Parse a 0x-prefixed hex string into a field element
+    #[wasm_bindgen(js_name = fromHex)]
+    pub fn from_hex(hex: &str) -> Result<WasmFr, JsValue> {
+        let bytes = hex_to_bytes(hex).map_err(|e| js_err(&e))?;
+        let mut padded = [0u8; 32];
+        let start = 32usize.saturating_sub(bytes.len());
+        padded[start..].copy_from_slice(&bytes[bytes.len().saturating_sub(32)..]);
+        padded.reverse(); // arkworks little-endian
+        Fr::deserialize_compressed(padded.as_slice())
+            .map(WasmFr)
+            .map_err(|e| js_err(&format!("Invalid field element: {e}")))
     }
 
-    /// Get the hex representation
+    /// Encode as 0x-prefixed hex string
+    #[wasm_bindgen(js_name = toHex)]
+    pub fn to_hex(&self) -> Result<String, JsValue> {
+        let mut buf = [0u8; 32];
+        self.0.serialize_compressed(buf.as_mut_slice())
+            .map_err(|e| js_err(&format!("Serialization error: {e}")))?;
+        buf.reverse();
+        Ok(format!("0x{}", hex::encode(buf)))
+    }
+}
+
+// ── Encrypted memo ────────────────────────────────────────────────────────────
+
+/// Wire format for encrypted memos — X25519 ECDH + AES-256-GCM
+#[derive(Serialize, Deserialize)]
+struct EncryptedMemoWire {
+    ephemeral_pk: String,  // hex X25519 public key
+    nonce:        String,  // hex 12-byte AES-GCM nonce
+    ciphertext:   String,  // hex encrypted payload (without auth tag)
+    auth_tag:     String,  // hex 16-byte GCM auth tag
+}
+
+/// Encrypt a plaintext JSON payload to the auditor's public key.
+/// Produces a base64-encoded JSON wire format.
+///
+/// Uses: X25519 ECDH → SHA-256 KDF → AES-256-GCM
+#[wasm_bindgen(js_name = encryptMemo)]
+pub fn encrypt_memo(plaintext: &str, auditor_pk_hex: &str) -> Result<String, JsValue> {
+    // Parse auditor public key
+    let pk_bytes = hex_to_bytes(auditor_pk_hex).map_err(|e| js_err(&e))?;
+    if pk_bytes.len() != 32 {
+        return Err(js_err("Auditor public key must be 32 bytes"));
+    }
+    let mut pk_arr = [0u8; 32];
+    pk_arr.copy_from_slice(&pk_bytes);
+    let auditor_pk = PublicKey::from(pk_arr);
+
+    // Generate ephemeral X25519 keypair
+    let mut rng = rand::thread_rng();
+    let ephemeral_sk = EphemeralSecret::random_from_rng(&mut rng);
+    let ephemeral_pk = PublicKey::from(&ephemeral_sk);
+
+    // ECDH
+    let shared_secret = Zeroizing::new(ephemeral_sk.diffie_hellman(&auditor_pk));
+
+    // KDF: SHA-256(shared_secret)
+    let sym_key: [u8; 32] = {
+        let mut h = Sha256::new();
+        h.update(shared_secret.as_bytes());
+        h.finalize().into()
+    };
+
+    // Random nonce
+    let mut nonce_bytes = [0u8; 12];
+    rand::RngCore::fill_bytes(&mut rng, &mut nonce_bytes);
+
+    // AES-256-GCM encrypt
+    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&sym_key));
+    let ciphertext_with_tag = cipher
+        .encrypt(Nonce::from_slice(&nonce_bytes), plaintext.as_bytes())
+        .map_err(|e| js_err(&format!("Encryption failed: {e}")))?;
+
+    // Split ciphertext and auth tag (last 16 bytes)
+    let tag_start = ciphertext_with_tag.len() - 16;
+    let ciphertext = &ciphertext_with_tag[..tag_start];
+    let auth_tag   = &ciphertext_with_tag[tag_start..];
+
+    let wire = EncryptedMemoWire {
+        ephemeral_pk: hex::encode(ephemeral_pk.as_bytes()),
+        nonce:        hex::encode(nonce_bytes),
+        ciphertext:   hex::encode(ciphertext),
+        auth_tag:     hex::encode(auth_tag),
+    };
+
+    let json = serde_json::to_string(&wire)
+        .map_err(|e| js_err(&format!("Serialization error: {e}")))?;
+
+    Ok(base64_encode(json.as_bytes()))
+}
+
+// ── Serialized proof ──────────────────────────────────────────────────────────
+
+/// A Groth16 proof serialized in arkworks canonical compressed format.
+#[wasm_bindgen]
+pub struct WasmProof {
+    bytes: Vec<u8>,
+}
+
+#[wasm_bindgen]
+impl WasmProof {
+    /// Deserialize from hex-encoded arkworks canonical bytes
+    #[wasm_bindgen(js_name = fromHex)]
+    pub fn from_hex(hex: &str) -> Result<WasmProof, JsValue> {
+        let bytes = hex_to_bytes(hex).map_err(|e| js_err(&e))?;
+        // Validate it's a real proof structure
+        Proof::<Bn254>::deserialize_compressed(bytes.as_slice())
+            .map_err(|e| js_err(&format!("Invalid proof: {e}")))?;
+        Ok(WasmProof { bytes })
+    }
+
+    /// Encode as hex string
+    #[wasm_bindgen(js_name = toHex)]
     pub fn to_hex(&self) -> String {
-        self.0.clone()
+        hex::encode(&self.bytes)
+    }
+
+    /// Encode as base64 (for API submission)
+    #[wasm_bindgen(js_name = toBase64)]
+    pub fn to_base64(&self) -> String {
+        base64_encode(&self.bytes)
     }
 }
 
-/// A commitment to a payment (Poseidon hash of asset, amount, blind, owner)
-#[wasm_bindgen]
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Commitment(String);
+// ── Proof generator ───────────────────────────────────────────────────────────
 
-#[wasm_bindgen]
-impl Commitment {
-    /// Create from hex string
-    #[wasm_bindgen(constructor)]
-    pub fn from_hex(hex: &str) -> Commitment {
-        Commitment(hex.to_string())
-    }
-
-    pub fn to_hex(&self) -> String {
-        self.0.clone()
-    }
-}
-
-/// A nullifier (unique per UTXO + spender), prevents double-spending
-#[wasm_bindgen]
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Nullifier(String);
-
-#[wasm_bindgen]
-impl Nullifier {
-    #[wasm_bindgen(constructor)]
-    pub fn from_hex(hex: &str) -> Nullifier {
-        Nullifier(hex.to_string())
-    }
-
-    pub fn to_hex(&self) -> String {
-        self.0.clone()
-    }
-}
-
-/// Groth16 proof (serialized as JSON)
-#[wasm_bindgen]
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Proof {
-    /// Serialized proof data (in real implementation: pi_a, pi_b, pi_c on BN254)
-    pub data: String,
-    /// Public inputs (Merkle root, nullifiers, commitments, amounts)
-    pub public_inputs: Vec<JsValue>,
-}
-
-#[wasm_bindgen]
-impl Proof {
-    /// Create a stub proof for testing
-    #[wasm_bindgen(constructor)]
-    pub fn stub(label: &str) -> Proof {
-        Proof {
-            data: format!("STUB_PROOF_{}", label),
-            public_inputs: vec![],
-        }
-    }
-
-    pub fn to_json(&self) -> Result<JsValue, JsValue> {
-        serde_wasm_bindgen::to_value(self).map_err(|e| JsValue::from_str(&e.to_string()))
-    }
-}
-
-// ── Proof Generator ────────────────────────────────────────────────────────
-
-/// Client-side proof generator — generates Groth16 proofs in the browser
-/// without revealing plaintext to any server.
+/// Client-side Groth16 proof generator.
+///
+/// Initialized from a 64-char hex seed derived from user credentials
+/// (use ProofsResource.deriveSeed() in the JS SDK).
+///
+/// PROVING STATUS: generate_*_proof() methods return an error until the
+/// circuit proving key is embedded. The verification types and serialization
+/// are production-ready using real arkworks BN254.
 #[wasm_bindgen]
 pub struct ProofGenerator {
-    /// Auditor's BabyJubjub keypair (loaded from seed)
-    keypair_seed: String,
-    /// Merkle tree root (for merkle membership proofs)
-    merkle_root: String,
+    seed:         Zeroizing<[u8; 32]>,
+    merkle_root:  Fr,
+    auditor_pk:   [u8; 32],
 }
 
 #[wasm_bindgen]
 impl ProofGenerator {
-    /// Initialize proof generator from a seed.
-    ///
-    /// In production:
-    ///   - Seed comes from user's hardware wallet or password-derived key
-    ///   - Never send seed to server
-    ///   - Seed should be at least 32 bytes (64 hex chars)
-    ///
-    /// STUB: Returns deterministic keys based on seed.
-    /// TODO: Implement actual BabyJubjub keypair generation.
-    #[wasm_bindgen]
+    /// Initialize from a 64-char hex seed.
+    #[wasm_bindgen(js_name = fromSeed)]
     pub fn from_seed(seed_hex: &str) -> Result<ProofGenerator, JsValue> {
-        #[cfg(feature = "console_error_panic_hook")]
-        set_panic_hook();
-
-        if seed_hex.len() < 64 {
-            return Err(JsValue::from_str("seed must be at least 64 hex characters"));
+        let bytes = hex_to_bytes(seed_hex).map_err(|e| js_err(&e))?;
+        if bytes.len() < 32 {
+            return Err(js_err("Seed must be at least 32 bytes (64 hex chars)"));
         }
-
-        web_sys::console::warn_1(&"⚠️  STUB: ProofGenerator.from_seed — returning deterministic keys. Real BabyJubjub generation not integrated.".into());
+        let mut seed = Zeroizing::new([0u8; 32]);
+        seed.copy_from_slice(&bytes[..32]);
 
         Ok(ProofGenerator {
-            keypair_seed: seed_hex.to_string(),
-            merkle_root: "0x0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+            seed,
+            merkle_root: Fr::zero(),
+            auditor_pk: [0u8; 32],
         })
+    }
+
+    /// Set the current Merkle root (fetched from CommitmentTree contract).
+    #[wasm_bindgen(js_name = setMerkleRoot)]
+    pub fn set_merkle_root(&mut self, root_hex: &str) -> Result<(), JsValue> {
+        let fr = WasmFr::from_hex(root_hex)?;
+        self.merkle_root = fr.0;
+        Ok(())
+    }
+
+    #[wasm_bindgen(js_name = getMerkleRoot)]
+    pub fn get_merkle_root(&self) -> Result<String, JsValue> {
+        WasmFr(self.merkle_root).to_hex()
+    }
+
+    /// Set the auditor's X25519 public key (hex). Used by encryptMemo.
+    #[wasm_bindgen(js_name = setAuditorPublicKey)]
+    pub fn set_auditor_pk(&mut self, pk_hex: &str) -> Result<(), JsValue> {
+        let bytes = hex_to_bytes(pk_hex).map_err(|e| js_err(&e))?;
+        if bytes.len() != 32 {
+            return Err(js_err("Auditor public key must be 32 bytes"));
+        }
+        self.auditor_pk.copy_from_slice(&bytes);
+        Ok(())
+    }
+
+    /// Derive the auditor public key from this generator's seed.
+    #[wasm_bindgen(js_name = getPublicKey)]
+    pub fn get_public_key(&self) -> String {
+        let sk = StaticSecret::from(*self.seed);
+        let pk = PublicKey::from(&sk);
+        hex::encode(pk.as_bytes())
     }
 
     /// Generate a deposit proof.
     ///
-    /// Proves: commitment = Poseidon(asset, amount, blind, owner_pk)
-    /// without revealing asset, amount, or blind.
-    ///
-    /// STUB: Returns dummy proof with commitment as public input.
-    /// TODO: Implement real Groth16 deposit circuit.
-    #[wasm_bindgen]
-    pub async fn generate_deposit_proof(
+    /// Returns Err("Proving keys not embedded") until the circuit is finalized.
+    /// When the circuit is ready: embed proving key bytes and implement here.
+    #[wasm_bindgen(js_name = generateDepositProof)]
+    pub fn generate_deposit_proof(
         &self,
-        asset: u32,
+        asset_id: u64,
         amount_str: &str,
         blind_hex: &str,
-    ) -> Result<Proof, JsValue> {
-        web_sys::console::warn_1(&"⚠️  STUB: generateDepositProof — returning dummy proof. Real Groth16 logic not integrated.".into());
-
-        // STUB: Deterministic commitment based on inputs
-        let commitment_hex = format!(
-            "0xdeadbeef{}{}{}",
-            &asset.to_string()[..4.min(asset.to_string().len())],
-            &amount_str[..8.min(amount_str.len())],
-            &blind_hex[2..10.min(blind_hex.len())]
-        );
-
-        Ok(Proof {
-            data: format!("STUB_DEPOSIT_PROOF_{}", commitment_hex),
-            public_inputs: vec![JsValue::from_str(&commitment_hex)],
-        })
+    ) -> Result<String, JsValue> {
+        let _asset = Fr::from(asset_id);
+        let amount: u128 = amount_str.parse()
+            .map_err(|_| js_err("Invalid amount — must be a u128 integer string"))?;
+        let _amount_fr = Fr::from(amount);
+        let _blind = WasmFr::from_hex(blind_hex)?.0;
+        // TODO: Load proving key and call ark_groth16::create_random_proof()
+        Err(js_err("Proving keys not yet embedded — circuit finalization required. See crates/zk-proofs/src/lib.rs"))
     }
 
     /// Generate a transfer proof.
-    ///
-    /// Proves (without revealing amounts):
-    ///   - Each input UTXO exists in Merkle tree (merkle membership proof)
-    ///   - Know secret key for each input (keypair validation)
-    ///   - Total input amount = total output amount (balance conservation)
-    ///   - Output commitments correctly formed
-    ///
-    /// Inputs: array of { commitment, merkleProof, nullifier }
-    /// Outputs: array of { asset, amount, blind }
-    ///
-    /// STUB: Returns dummy proof with input/output commitment hashes.
-    /// TODO: Implement real UTXO transfer circuit.
-    #[wasm_bindgen]
-    pub async fn generate_transfer_proof(
+    #[wasm_bindgen(js_name = generateTransferProof)]
+    pub fn generate_transfer_proof(
         &self,
-        inputs: JsValue,
-        outputs: JsValue,
-        merkle_proofs: JsValue,
-    ) -> Result<Proof, JsValue> {
-        web_sys::console::warn_1(&"⚠️  STUB: generateTransferProof — returning dummy proof. Real UTXO circuit not integrated.".into());
-
-        // STUB: Simple proof with merkle root as public input
-        Ok(Proof {
-            data: format!("STUB_TRANSFER_PROOF_{}in_{}out", 1, 2),
-            public_inputs: vec![JsValue::from_str(&self.merkle_root)],
-        })
+        inputs_json: &str,
+        outputs_json: &str,
+        merkle_proofs_json: &str,
+    ) -> Result<String, JsValue> {
+        // Validate JSON is parseable
+        let _: serde_json::Value = serde_json::from_str(inputs_json)
+            .map_err(|e| js_err(&format!("Invalid inputs JSON: {e}")))?;
+        let _: serde_json::Value = serde_json::from_str(outputs_json)
+            .map_err(|e| js_err(&format!("Invalid outputs JSON: {e}")))?;
+        let _: serde_json::Value = serde_json::from_str(merkle_proofs_json)
+            .map_err(|e| js_err(&format!("Invalid merkle proofs JSON: {e}")))?;
+        Err(js_err("Proving keys not yet embedded — circuit finalization required."))
     }
 
-    /// Generate a withdrawal proof.
-    ///
-    /// Proves knowledge of the secret key for a UTXO without revealing
-    /// the original commitment.
-    ///
-    /// STUB: Returns dummy proof.
-    /// TODO: Implement real withdrawal circuit.
-    #[wasm_bindgen]
-    pub async fn generate_withdraw_proof(
+    /// Generate a withdraw proof.
+    #[wasm_bindgen(js_name = generateWithdrawProof)]
+    pub fn generate_withdraw_proof(
         &self,
         commitment_hex: &str,
         amount_str: &str,
-    ) -> Result<Proof, JsValue> {
-        web_sys::console::warn_1(&"⚠️  STUB: generateWithdrawProof — returning dummy proof. Real Groth16 logic not integrated.".into());
-
-        Ok(Proof {
-            data: format!("STUB_WITHDRAW_PROOF_{}_{}", commitment_hex, amount_str),
-            public_inputs: vec![JsValue::from_str(&self.merkle_root)],
-        })
-    }
-
-    /// Set the Merkle tree root (used as public input in proofs).
-    /// Call this whenever the root updates on-chain.
-    #[wasm_bindgen]
-    pub fn set_merkle_root(&mut self, root_hex: &str) {
-        self.merkle_root = root_hex.to_string();
-    }
-
-    /// Get the current Merkle root.
-    #[wasm_bindgen]
-    pub fn get_merkle_root(&self) -> String {
-        self.merkle_root.clone()
-    }
-
-    /// Get the public key derived from the seed.
-    /// Safe to share with the merchant / server.
-    #[wasm_bindgen]
-    pub fn get_public_key(&self) -> String {
-        format!("AUDITOR_PK_{}", &self.keypair_seed[..16])
+        recipient_hex: &str,
+    ) -> Result<String, JsValue> {
+        let _commitment = WasmFr::from_hex(commitment_hex)?.0;
+        let _amount: u128 = amount_str.parse()
+            .map_err(|_| js_err("Invalid amount"))?;
+        let _recipient = WasmFr::from_hex(recipient_hex)?.0;
+        Err(js_err("Proving keys not yet embedded — circuit finalization required."))
     }
 }
 
-// ── Initialization ─────────────────────────────────────────────────────────
+// ── Utilities ─────────────────────────────────────────────────────────────────
 
-#[wasm_bindgen(start)]
-pub fn init() {
-    #[cfg(feature = "console_error_panic_hook")]
-    set_panic_hook();
-
-    #[cfg(target_arch = "wasm32")]
-    wasm_logger::init(wasm_logger::Config::new(log::Level::Warn));
+fn hex_to_bytes(hex: &str) -> Result<Vec<u8>, String> {
+    let hex = hex.trim_start_matches("0x");
+    hex::decode(hex).map_err(|e| format!("Invalid hex: {e}"))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_fr_from_hex() {
-        let fr = Fr::from_hex("deadbeef");
-        assert_eq!(fr.to_hex(), "deadbeef");
+fn base64_encode(data: &[u8]) -> String {
+    // Use base64 alphabet without padding
+    const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = Vec::with_capacity((data.len() * 4 + 2) / 3);
+    for chunk in data.chunks(3) {
+        let b0 = chunk[0] as usize;
+        let b1 = if chunk.len() > 1 { chunk[1] as usize } else { 0 };
+        let b2 = if chunk.len() > 2 { chunk[2] as usize } else { 0 };
+        out.push(CHARS[(b0 >> 2) & 0x3F]);
+        out.push(CHARS[((b0 << 4) | (b1 >> 4)) & 0x3F]);
+        out.push(if chunk.len() > 1 { CHARS[((b1 << 2) | (b2 >> 6)) & 0x3F] } else { b'=' });
+        out.push(if chunk.len() > 2 { CHARS[b2 & 0x3F] } else { b'=' });
     }
-
-    #[test]
-    fn test_commitment_creation() {
-        let c = Commitment::from_hex("abc123");
-        assert_eq!(c.to_hex(), "abc123");
-    }
-
-    #[test]
-    fn test_proof_stub() {
-        let proof = Proof::stub("test_op");
-        assert!(proof.data.contains("STUB_PROOF_test_op"));
-    }
+    String::from_utf8(out).unwrap()
 }

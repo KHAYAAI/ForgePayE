@@ -2,35 +2,49 @@
 name = "privacy-payment-wasm"
 version = "0.1.0"
 edition = "2021"
-description = "WASM bindings for auditable-privacy-payment (BN254 Groth16 ZK proofs)"
 license = "Apache-2.0"
+description = "Browser-side ZK proof generation for ForgePay shielded payments"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-# Privacy payment circuit (when integrated)
-# app-payment = { path = "../privacy-payment" }
-# arkworks = { version = "0.4", features = ["parallel"] }
-
-wasm-bindgen = "0.2.91"
+# WASM runtime
+wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
-serde = { version = "1.0", features = ["derive"] }
-serde-wasm-bindgen = "0.4"
-serde_json = "1.0"
-rand = "0.8"
-hex = "0.4"
-getrandom = { version = "0.2", features = ["js"] }
-
-# Logging in WASM
 wasm-logger = "0.2"
 log = "0.4"
+console_error_panic_hook = "0.1"
 
-[dev-dependencies]
-wasm-bindgen-test = "1.3"
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde-wasm-bindgen = "0.6"
+serde_json = "1"
+hex = "0.4"
+
+# Cryptography
+getrandom = { version = "0.2", features = ["js"] }
+rand = "0.8"
+sha2 = "0.10"
+aes-gcm = "0.10"
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+zeroize = { version = "1", features = ["derive"] }
+
+# ZK — arkworks BN254 Groth16
+# NOTE: These are correct types but prove_* returns KeysNotEmbedded until
+# the circuit proving key is compiled and embedded here.
+ark-ff       = { version = "0.4", default-features = false, features = ["std"] }
+ark-ec       = { version = "0.4", default-features = false, features = ["std"] }
+ark-bn254    = { version = "0.4", default-features = false }
+ark-groth16  = { version = "0.4", default-features = false, features = ["std"] }
+ark-serialize = { version = "0.4", default-features = false, features = ["std"] }
+ark-std      = { version = "0.4", default-features = false, features = ["std"] }
 
 [profile.release]
+# Optimize for WASM bundle size
 opt-level = "z"
 lto = true
-codegen-units = 1
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ["-Oz", "--enable-mutable-globals"]
