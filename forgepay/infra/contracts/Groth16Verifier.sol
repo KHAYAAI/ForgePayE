@@ -25,9 +25,10 @@ pragma solidity ^0.8.23;
  *
  * Where: vk_x = IC[0] + Σ(publicInputs[i] * IC[i+1])
  *
- * VK CONSTANTS: All zero-valued placeholders. Replace with output of:
- *   `snarkjs zkey export solidityverifier circuit.zkey Groth16Verifier.sol`
- * after the circuit is finalized.
+ * ACTIVATION:
+ *   1. Deploy contract (starts in stubMode=true, no real VK)
+ *   2. After circuit finalization: call setVerifyingKey() for each circuit
+ *   3. Call setStubMode(false) to enforce real pairing checks
  *
  * @dev Based on tornado-cash / snarkjs verifier pattern.
  *   See: https://github.com/iden3/snarkjs/blob/master/templates/verifier_groth16.sol
@@ -181,11 +182,26 @@ contract Groth16Verifier {
     //
     // TODO: Actual layout depends on final circuit design in auditable-privacy-payment.
 
+    // ── Circuit IDs ───────────────────────────────────────────────────────────
+
+    uint8 public constant CIRCUIT_TRANSFER = 0;
+    uint8 public constant CIRCUIT_DEPOSIT  = 1;
+    uint8 public constant CIRCUIT_WITHDRAW = 2;
+
     // ── Stub Mode ─────────────────────────────────────────────────────────────
 
     /// @notice When true, pairing check is skipped and all proofs are accepted.
-    /// Set to false in production after circuit finalization.
+    /// Flip to false via setStubMode(false) after circuit finalization + VK injection.
     bool public stubMode;
+
+    // ── Access Control ────────────────────────────────────────────────────────
+
+    address public owner;
+
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Groth16Verifier: caller is not owner");
+        _;
+    }
 
     // ── Structs ───────────────────────────────────────────────────────────────
 
@@ -203,81 +219,176 @@ contract Groth16Verifier {
         Pairing.G1Point C;
     }
 
+    // Packed storage for a single G1 point
+    struct StoredG1 { uint256 x; uint256 y; }
+
+    // Packed storage for a single G2 point (Fq2 coords)
+    struct StoredG2 { uint256[2] x; uint256[2] y; }
+
+    // On-chain storage for a circuit's verifying key.
+    // IC stored as parallel arrays (dynamic-length arrays inside a struct are
+    // stored as separate mappings under the hood; this layout is gas-efficient).
+    struct StoredVK {
+        bool      isSet;
+        StoredG1  alfa1;
+        StoredG2  beta2;
+        StoredG2  gamma2;
+        StoredG2  delta2;
+        uint256[] icX;
+        uint256[] icY;
+    }
+
+    // ── VK Storage ────────────────────────────────────────────────────────────
+
+    StoredVK private _transferVK;
+    StoredVK private _depositVK;
+    StoredVK private _withdrawVK;
+
     // ── Events ────────────────────────────────────────────────────────────────
 
-    /**
-     * @dev Emitted when a proof is successfully verified.
-     */
+    /// @dev Emitted when a proof is successfully verified.
     event ProofVerified(
         bytes32 indexed nullifier,
         bytes32 indexed merkleRoot,
         address indexed verifier
     );
 
+    /// @dev Emitted when a circuit's verifying key is updated.
+    /// @param circuitId  0=transfer, 1=deposit, 2=withdraw
+    /// @param setBy      Address that called setVerifyingKey
+    event VerifyingKeyUpdated(uint8 indexed circuitId, address indexed setBy);
+
+    /// @dev Emitted when stub mode is toggled.
+    event StubModeChanged(bool enabled);
+
     // ── Constructor ───────────────────────────────────────────────────────────
 
     constructor() {
-        // Start in stub mode for testing. Set to false after circuit finalization.
+        owner    = msg.sender;
+        // Start in stub mode. Call setStubMode(false) after injecting all VKs.
         stubMode = true;
+    }
+
+    // ── Admin Functions ───────────────────────────────────────────────────────
+
+    /// @notice Transfer ownership to a new address (e.g. timelock or multisig).
+    function transferOwnership(address newOwner) external onlyOwner {
+        require(newOwner != address(0), "Groth16Verifier: zero address");
+        owner = newOwner;
+    }
+
+    /// @notice Enable or disable stub mode.
+    /// Production: call setStubMode(false) only after all three VKs are set.
+    function setStubMode(bool enabled) external onlyOwner {
+        stubMode = enabled;
+        emit StubModeChanged(enabled);
+    }
+
+    /**
+     * @notice Inject a circuit's verifying key into contract storage.
+     *
+     * Call this once per circuit after `snarkjs zkey export solidityverifier`
+     * produces the VK parameters. Then call setStubMode(false).
+     *
+     * @param circuitId   0=transfer, 1=deposit, 2=withdraw (see CIRCUIT_* constants)
+     * @param alfa1       G1 point α: [x, y]
+     * @param beta2       G2 point β: [[X.c0, X.c1], [Y.c0, Y.c1]]
+     * @param gamma2      G2 point γ: same encoding
+     * @param delta2      G2 point δ: same encoding
+     * @param icX         IC x-coordinates, length = nPublicInputs + 1
+     * @param icY         IC y-coordinates, same length as icX
+     */
+    function setVerifyingKey(
+        uint8             circuitId,
+        uint256[2]    calldata alfa1,
+        uint256[2][2] calldata beta2,
+        uint256[2][2] calldata gamma2,
+        uint256[2][2] calldata delta2,
+        uint256[]     calldata icX,
+        uint256[]     calldata icY
+    ) external onlyOwner {
+        require(icX.length == icY.length && icX.length >= 2,
+            "Groth16Verifier: IC length must be >= 2 (nInputs+1)");
+
+        StoredVK storage vk = _storedVK(circuitId);
+
+        vk.isSet  = true;
+        vk.alfa1  = StoredG1(alfa1[0], alfa1[1]);
+        vk.beta2  = StoredG2([beta2[0][0],  beta2[0][1]],
+                              [beta2[1][0],  beta2[1][1]]);
+        vk.gamma2 = StoredG2([gamma2[0][0], gamma2[0][1]],
+                              [gamma2[1][0], gamma2[1][1]]);
+        vk.delta2 = StoredG2([delta2[0][0], delta2[0][1]],
+                              [delta2[1][0], delta2[1][1]]);
+        vk.icX    = icX;
+        vk.icY    = icY;
+
+        emit VerifyingKeyUpdated(circuitId, msg.sender);
+    }
+
+    /// @notice Returns true if the given circuit's VK has been set.
+    function isVKSet(uint8 circuitId) external view returns (bool) {
+        return _storedVK(circuitId).isSet;
     }
 
     // ── Verification Keys ─────────────────────────────────────────────────────
 
     /**
      * @notice Returns the transfer circuit verification key.
-     * @dev PLACEHOLDER: All-zero VK. Replace with real VK from snarkjs after circuit finalization.
-     * The IC array has length nPublicInputs+1.
+     * Returns the on-chain stored VK if set; otherwise a placeholder zero VK
+     * that is only valid while stubMode=true.
      */
-    function verifyingKey() internal pure returns (VerifyingKey memory vk) {
-        // alfa1 (G1): placeholder zero point
-        vk.alfa1 = Pairing.G1Point(0, 0);
-
-        // beta2 (G2): placeholder zero point
-        vk.beta2 = Pairing.G2Point([uint256(0), uint256(0)], [uint256(0), uint256(0)]);
-
-        // gamma2 (G2): placeholder zero point
-        vk.gamma2 = Pairing.G2Point([uint256(0), uint256(0)], [uint256(0), uint256(0)]);
-
-        // delta2 (G2): placeholder zero point
-        vk.delta2 = Pairing.G2Point([uint256(0), uint256(0)], [uint256(0), uint256(0)]);
-
-        // IC: placeholder for 7 inputs (6 public inputs + 1 constant term)
-        // TODO: Replace with real IC from snarkjs output
-        vk.IC = new Pairing.G1Point[](7);
-        for (uint256 i = 0; i < 7; i++) {
-            vk.IC[i] = Pairing.G1Point(0, 0);
-        }
+    function verifyingKey() internal view returns (VerifyingKey memory vk) {
+        if (_transferVK.isSet) return _loadStoredVK(_transferVK);
+        vk.alfa1  = Pairing.G1Point(0, 0);
+        vk.beta2  = Pairing.G2Point([uint256(0), 0], [uint256(0), 0]);
+        vk.gamma2 = Pairing.G2Point([uint256(0), 0], [uint256(0), 0]);
+        vk.delta2 = Pairing.G2Point([uint256(0), 0], [uint256(0), 0]);
+        vk.IC     = new Pairing.G1Point[](7); // 6 public inputs + constant term
     }
 
     /**
      * @notice Returns the deposit circuit verification key.
-     * @dev PLACEHOLDER: All-zero VK. Replace after circuit finalization.
      */
-    function depositVerifyingKey() internal pure returns (VerifyingKey memory vk) {
-        vk.alfa1 = Pairing.G1Point(0, 0);
-        vk.beta2  = Pairing.G2Point([uint256(0), uint256(0)], [uint256(0), uint256(0)]);
-        vk.gamma2 = Pairing.G2Point([uint256(0), uint256(0)], [uint256(0), uint256(0)]);
-        vk.delta2 = Pairing.G2Point([uint256(0), uint256(0)], [uint256(0), uint256(0)]);
-        // Deposit circuit: commitment, assetId (2 public inputs + 1 constant)
-        vk.IC = new Pairing.G1Point[](3);
-        for (uint256 i = 0; i < 3; i++) {
-            vk.IC[i] = Pairing.G1Point(0, 0);
-        }
+    function depositVerifyingKey() internal view returns (VerifyingKey memory vk) {
+        if (_depositVK.isSet) return _loadStoredVK(_depositVK);
+        vk.alfa1  = Pairing.G1Point(0, 0);
+        vk.beta2  = Pairing.G2Point([uint256(0), 0], [uint256(0), 0]);
+        vk.gamma2 = Pairing.G2Point([uint256(0), 0], [uint256(0), 0]);
+        vk.delta2 = Pairing.G2Point([uint256(0), 0], [uint256(0), 0]);
+        vk.IC     = new Pairing.G1Point[](3); // commitment + assetId + constant
     }
 
     /**
      * @notice Returns the withdraw circuit verification key.
-     * @dev PLACEHOLDER: All-zero VK. Replace after circuit finalization.
      */
-    function withdrawVerifyingKey() internal pure returns (VerifyingKey memory vk) {
-        vk.alfa1 = Pairing.G1Point(0, 0);
-        vk.beta2  = Pairing.G2Point([uint256(0), uint256(0)], [uint256(0), uint256(0)]);
-        vk.gamma2 = Pairing.G2Point([uint256(0), uint256(0)], [uint256(0), uint256(0)]);
-        vk.delta2 = Pairing.G2Point([uint256(0), uint256(0)], [uint256(0), uint256(0)]);
-        // Withdraw circuit: nullifier, merkleRoot, amountUnits (3 public inputs + 1 constant)
-        vk.IC = new Pairing.G1Point[](4);
-        for (uint256 i = 0; i < 4; i++) {
-            vk.IC[i] = Pairing.G1Point(0, 0);
+    function withdrawVerifyingKey() internal view returns (VerifyingKey memory vk) {
+        if (_withdrawVK.isSet) return _loadStoredVK(_withdrawVK);
+        vk.alfa1  = Pairing.G1Point(0, 0);
+        vk.beta2  = Pairing.G2Point([uint256(0), 0], [uint256(0), 0]);
+        vk.gamma2 = Pairing.G2Point([uint256(0), 0], [uint256(0), 0]);
+        vk.delta2 = Pairing.G2Point([uint256(0), 0], [uint256(0), 0]);
+        vk.IC     = new Pairing.G1Point[](4); // nullifier + root + amount + constant
+    }
+
+    // ── Internal Helpers ──────────────────────────────────────────────────────
+
+    function _storedVK(uint8 circuitId) internal view returns (StoredVK storage) {
+        if (circuitId == CIRCUIT_TRANSFER) return _transferVK;
+        if (circuitId == CIRCUIT_DEPOSIT)  return _depositVK;
+        if (circuitId == CIRCUIT_WITHDRAW) return _withdrawVK;
+        revert("Groth16Verifier: unknown circuitId");
+    }
+
+    function _loadStoredVK(StoredVK storage s) internal view returns (VerifyingKey memory vk) {
+        vk.alfa1  = Pairing.G1Point(s.alfa1.x, s.alfa1.y);
+        vk.beta2  = Pairing.G2Point(s.beta2.x,  s.beta2.y);
+        vk.gamma2 = Pairing.G2Point(s.gamma2.x, s.gamma2.y);
+        vk.delta2 = Pairing.G2Point(s.delta2.x, s.delta2.y);
+        uint256 n = s.icX.length;
+        vk.IC     = new Pairing.G1Point[](n);
+        for (uint256 i = 0; i < n; i++) {
+            vk.IC[i] = Pairing.G1Point(s.icX[i], s.icY[i]);
         }
     }
 
@@ -318,9 +429,9 @@ contract Groth16Verifier {
         // Check 4-pairing product equals identity
         bool valid = Pairing.pairingProd4(
             Pairing.negate(proof.A), proof.B,   // e(-π_A, π_B)
-            vk.alfa1,               vk.beta2,   // e(α, β)
-            vk_x,                   vk.gamma2,  // e(vk_x, γ)
-            proof.C,                vk.delta2   // e(π_C, δ)
+            vk.alfa1,                vk.beta2,   // e(α, β)
+            vk_x,                    vk.gamma2,  // e(vk_x, γ)
+            proof.C,                 vk.delta2   // e(π_C, δ)
         );
 
         return valid ? 0 : 1;
@@ -349,15 +460,11 @@ contract Groth16Verifier {
     // ── Proof Verification ────────────────────────────────────────────────────
 
     /**
-     * @notice Verify a Groth16 proof for a shielded payment.
+     * @notice Verify a Groth16 proof for a shielded transfer.
      *
-     * @param proofBytes ABI-encoded proof: abi.encode(uint256[2] pi_a, uint256[2][2] pi_b, uint256[2] pi_c)
-     * @param publicInputs Array of public inputs for the circuit.
-     *   publicInputs[0] = Merkle root
-     *   publicInputs[1] = Nullifier
-     *   (See Public Inputs Layout above for full ordering.)
-     *
-     * @return valid True if proof is valid (pairing check passes or stubMode=true)
+     * @param proofBytes   ABI-encoded proof: abi.encode(uint256[2], uint256[2][2], uint256[2])
+     * @param publicInputs Circuit public inputs (see Public Inputs Layout above)
+     * @return valid True if proof is valid
      */
     function verifyProof(
         bytes calldata proofBytes,
@@ -391,22 +498,19 @@ contract Groth16Verifier {
      * @param proofBytes ABI-encoded Groth16 proof
      * @param commitment The commitment being deposited
      * @param assetId    The asset type (0=USDC, 1=USDT)
-     *
      * @return valid True if proof is valid
-     *
-     * @dev Uses the deposit-specific VK (placeholder until circuit finalization).
      */
     function verifyDepositProof(
         bytes calldata proofBytes,
         bytes32 commitment,
         uint256 assetId
-    ) external pure returns (bool valid) {
-        // STUB: Using separate deposit VK (placeholder zero VK)
-        // TODO: When stubMode is removed, call verify() with depositVerifyingKey()
-        // and inputs [uint256(commitment), assetId].
-        // For now, silence unused parameter warnings and return true.
-        (proofBytes, commitment, assetId);
-        return true;
+    ) external view returns (bool valid) {
+        if (stubMode) return true;
+        uint256[] memory inputs = new uint256[](2);
+        inputs[0] = uint256(commitment);
+        inputs[1] = assetId;
+        Proof memory proof = _decodeProof(proofBytes);
+        return verify(inputs, proof, depositVerifyingKey()) == 0;
     }
 
     /**
@@ -419,23 +523,21 @@ contract Groth16Verifier {
      * @param nullifier   The nullifier being consumed (prevents double-spending)
      * @param merkleRoot  The Merkle tree root the UTXO is a member of
      * @param amountUnits The amount being withdrawn (revealed for settlement)
-     *
      * @return valid True if proof is valid
-     *
-     * @dev Uses the withdraw-specific VK (placeholder until circuit finalization).
      */
     function verifyWithdrawProof(
         bytes calldata proofBytes,
         bytes32 nullifier,
         bytes32 merkleRoot,
         uint256 amountUnits
-    ) external pure returns (bool valid) {
-        // STUB: Using separate withdraw VK (placeholder zero VK)
-        // TODO: When stubMode is removed, call verify() with withdrawVerifyingKey()
-        // and inputs [uint256(nullifier), uint256(merkleRoot), amountUnits].
-        // For now, silence unused parameter warnings and return true.
-        (proofBytes, nullifier, merkleRoot, amountUnits);
-        return true;
+    ) external view returns (bool valid) {
+        if (stubMode) return true;
+        uint256[] memory inputs = new uint256[](3);
+        inputs[0] = uint256(nullifier);
+        inputs[1] = uint256(merkleRoot);
+        inputs[2] = amountUnits;
+        Proof memory proof = _decodeProof(proofBytes);
+        return verify(inputs, proof, withdrawVerifyingKey()) == 0;
     }
 
     /**
@@ -443,6 +545,6 @@ contract Groth16Verifier {
      * @dev Used by NullifierRegistry and CommitmentTree to detect version mismatches.
      */
     function version() external pure returns (string memory) {
-        return "0.2.0";
+        return "0.3.0";
     }
 }

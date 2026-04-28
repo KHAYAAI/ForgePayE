@@ -120,55 +120,103 @@ export class ProofsResource {
   constructor(private client: FPHttpClient) {}
 
   /**
-   * Derive a deterministic seed from user email + password.
+   * Derive a deterministic seed from user email + password using PBKDF2.
    * This seed is used to generate the ZK keypair.
    *
-   * IMPORTANT: Seed never leaves the browser.
+   * Uses PBKDF2-SHA-256 with 210,000 iterations (OWASP recommendation for 2024+).
+   * Result is a 32-byte (64-char hex) seed.
    *
-   * In production:
-   *   - Use argon2 or similar for key derivation
-   *   - Seed stored in browser localStorage (encrypted) or IndexedDB
-   *   - Older browsers: fall back to server-side proof generation
+   * IMPORTANT: Seed never leaves the browser. Store encrypted in localStorage or IndexedDB.
    *
-   * STUB: Uses simple PBKDF2-like mixing.
-   * TODO: Implement proper key derivation (argon2id or scrypt).
+   * Browser: uses SubtleCrypto (async)
+   * Node.js: uses crypto module (async via webcrypto interface)
    */
   async deriveSeed(email: string, password: string): Promise<string> {
-    console.warn('⚠️  STUB: ProofsResource.deriveSeed — using naive key derivation. Real argon2id/scrypt not integrated.');
+    const salt = new TextEncoder().encode(`ForgePay-${email}`);
+    const passwordBytes = new TextEncoder().encode(password);
 
-    // STUB: Simple mixing for testing
-    const combined = `${email}:${password}`;
-    const buffer = new TextEncoder().encode(combined);
-    let seed = '';
+    let derivedKey: ArrayBuffer;
 
-    for (let i = 0; i < buffer.length; i++) {
-      seed += buffer[i].toString(16).padStart(2, '0');
+    if (typeof window !== 'undefined' && window.crypto && window.crypto.subtle) {
+      // Browser environment
+      const baseKey = await window.crypto.subtle.importKey(
+        'raw',
+        passwordBytes,
+        'PBKDF2',
+        false,
+        ['deriveBits']
+      );
+      derivedKey = await window.crypto.subtle.deriveBits(
+        {
+          name: 'PBKDF2',
+          salt,
+          iterations: 210_000,
+          hash: 'SHA-256',
+        },
+        baseKey,
+        256 // 256 bits = 32 bytes
+      );
+    } else {
+      // Node.js environment
+      const crypto = await import('crypto').then(m => m.webcrypto);
+      const baseKey = await crypto.subtle.importKey(
+        'raw',
+        passwordBytes,
+        'PBKDF2',
+        false,
+        ['deriveBits']
+      );
+      derivedKey = await crypto.subtle.deriveBits(
+        {
+          name: 'PBKDF2',
+          salt,
+          iterations: 210_000,
+          hash: 'SHA-256',
+        },
+        baseKey,
+        256
+      );
     }
 
-    // Pad to 64 hex chars (32 bytes)
-    return (seed + '0'.repeat(64)).slice(0, 64);
+    // Convert to hex string
+    const bytes = new Uint8Array(derivedKey);
+    return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
   }
 
   /**
    * Initialize the proof generator from a seed.
-   * This loads the WASM module and prepares client-side proof generation.
+   * Dynamically imports the WASM module (@forgepay/privacy-payment-wasm).
    *
-   * STUB: Returns mock generator.
-   * TODO: Import and instantiate privacy-payment-wasm.ProofGenerator.
+   * If WASM is unavailable (browser doesn't support it, module not installed),
+   * falls back to a mock generator that returns dummy proofs.
    */
   async initProofGenerator(seedHex: string): Promise<void> {
-    console.warn('⚠️  STUB: ProofsResource.initProofGenerator — WASM not loaded. Real Groth16 generation not available.');
-
     if (seedHex.length < 64) {
       throw new Error('Seed must be at least 64 hex characters');
     }
 
-    // STUB: Create mock generator object
-    this.proofGenerator = {
-      seed: seedHex,
-      merkleRoot: '0x' + '0'.repeat(64),
-      getPublicKey: () => `AUDITOR_PK_${seedHex.slice(0, 16)}`,
-    };
+    try {
+      // Try to load WASM module
+      const module = await import('@forgepay/privacy-payment-wasm');
+      if (!module.ProofGenerator) {
+        throw new Error('ProofGenerator not exported from WASM module');
+      }
+
+      // Initialize real WASM proof generator
+      this.proofGenerator = module.ProofGenerator.fromSeed(seedHex);
+      console.log('[ProofsResource] WASM proof generator initialized successfully');
+    } catch (err) {
+      // WASM unavailable — fall back to mock generator
+      console.warn(
+        `[ProofsResource] WASM not available (${err instanceof Error ? err.message : 'unknown error'}); using stub mode`
+      );
+      this.proofGenerator = {
+        seed: seedHex,
+        merkleRoot: '0x' + '0'.repeat(64),
+        getPublicKey: () => `AUDITOR_PK_${seedHex.slice(0, 16)}`,
+        isWasm: false,
+      };
+    }
   }
 
   /**
@@ -279,13 +327,25 @@ export class ProofsResource {
   }
 
   /**
-   * Check if WASM is available (e.g., browser support for WebAssembly).
+   * Check if WASM module is available and can be loaded.
    *
-   * If false, the SDK falls back to server-side proof generation.
+   * Returns false if:
+   * - Browser doesn't support WebAssembly
+   * - @forgepay/privacy-payment-wasm package is not installed
+   * - Dynamic import fails
    */
   async isWasmAvailable(): Promise<boolean> {
-    // STUB: Always return false (WASM not loaded)
-    // TODO: Check if WASM module can be imported
-    return false;
+    // Check if WebAssembly is supported
+    if (typeof WebAssembly === 'undefined') {
+      return false;
+    }
+
+    try {
+      // Try to dynamically import the module
+      await import('@forgepay/privacy-payment-wasm');
+      return true;
+    } catch {
+      return false;
+    }
   }
 }

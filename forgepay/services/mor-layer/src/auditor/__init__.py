@@ -323,13 +323,14 @@ class AuditorClient:
         return f"AuditorClient(pk={self._public_key_hex[:16]}...)"
 
 
-def compute_tax_on_shielded(
+async def compute_tax_on_shielded(
     client: AuditorClient, memo_bytes: bytes, jurisdiction: str
 ) -> TaxBreakdown:
     """
     Decrypt a shielded transaction memo and compute applicable tax.
 
     Main integration point between the auditor and MoR checkout endpoint.
+    Uses the production TaxCalculator (Avalara/TaxJar fallback to internal rules).
 
     Args:
         client: AuditorClient with decryption key
@@ -338,6 +339,8 @@ def compute_tax_on_shielded(
 
     Returns:
         TaxBreakdown with gross/tax/net amounts
+
+    Note: This function is async to support async TaxCalculator.calculate().
     """
     tx_data = client.decrypt_shielded_tx(memo_bytes)
     logger.info(
@@ -345,16 +348,37 @@ def compute_tax_on_shielded(
         tx_data.asset, tx_data.amount, jurisdiction,
     )
 
-    # TODO: Replace with real TaxCalculator.compute(jurisdiction, tx_data.amount)
-    tax_rate = 0.08  # STUB: 8% default
-    tax_amount = int(tx_data.amount * tax_rate)
-    net_amount = tx_data.amount - tax_amount
+    # Parse jurisdiction string into country/state components
+    # E.g., "US_CA" → country="US", state="CA"; "EU_DE" → country="DE"
+    jurisdiction_parts = jurisdiction.split("_", 1)
+    country = jurisdiction_parts[0]
+    state = jurisdiction_parts[1] if len(jurisdiction_parts) > 1 else None
 
+    # Use real TaxCalculator to compute tax on decrypted amount
+    from src.tax.calculator import TaxCalculator
+    calculator = TaxCalculator()
+
+    # Amount is in smallest unit (cents for USDC/USDT)
+    amount_cents = int(tx_data.amount)
+    tax_result = await calculator.calculate(amount_cents, country, state)
+
+    # If no tax applies, return zero breakdown
+    if tax_result is None:
+        return TaxBreakdown(
+            gross_amount=tx_data.amount,
+            tax_rate=0.0,
+            tax_amount=0,
+            net_amount=tx_data.amount,
+            jurisdiction=jurisdiction,
+            tax_type="No Tax",
+        )
+
+    # Otherwise, use the computed tax breakdown
     return TaxBreakdown(
         gross_amount=tx_data.amount,
-        tax_rate=tax_rate,
-        tax_amount=tax_amount,
-        net_amount=net_amount,
+        tax_rate=float(tax_result.rate),
+        tax_amount=tax_result.amount_cents,
+        net_amount=tx_data.amount - tax_result.amount_cents,
         jurisdiction=jurisdiction,
-        tax_type="Sales Tax",
+        tax_type=tax_result.tax_type,
     )

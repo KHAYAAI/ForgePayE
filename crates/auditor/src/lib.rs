@@ -17,6 +17,8 @@ use aes_gcm::{Aes256Gcm, Key, Nonce};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
 use thiserror::Error;
 use x25519_dalek::{EphemeralSecret, PublicKey, StaticSecret};
 use zeroize::Zeroize;
@@ -267,19 +269,38 @@ impl EncryptedMemo {
 ///
 /// Used by MoR Layer (Python) via FFI bindings. In production, the secret key
 /// is loaded from Vault/HSM and never leaves the auditor service boundary.
-#[derive(Clone)]
+///
+/// The frozen_nullifiers set is maintained in-memory and shared across threads.
+/// In production, this should be backed by a database table and synced with
+/// the on-chain NullifierRegistry contract.
 pub struct AuditorClient {
     keypair: AuditorKeypair,
+    frozen_nullifiers: Arc<Mutex<HashSet<String>>>,
+}
+
+impl Clone for AuditorClient {
+    fn clone(&self) -> Self {
+        AuditorClient {
+            keypair: self.keypair.clone(),
+            frozen_nullifiers: Arc::clone(&self.frozen_nullifiers),
+        }
+    }
 }
 
 impl AuditorClient {
     pub fn new(keypair: AuditorKeypair) -> Self {
-        AuditorClient { keypair }
+        AuditorClient {
+            keypair,
+            frozen_nullifiers: Arc::new(Mutex::new(HashSet::new())),
+        }
     }
 
     pub fn from_seed(seed_hex: &str) -> Result<Self> {
         let keypair = AuditorKeypair::from_seed(seed_hex)?;
-        Ok(AuditorClient { keypair })
+        Ok(AuditorClient {
+            keypair,
+            frozen_nullifiers: Arc::new(Mutex::new(HashSet::new())),
+        })
     }
 
     /// Auditor's X25519 public key — share this with clients for encryption.
@@ -356,30 +377,73 @@ impl AuditorClient {
 
     /// Verify a Groth16 audit proof.
     ///
+    /// Validates proof structure: must be 128 bytes (compressed arkworks format)
+    /// or 256 bytes (ABI-encoded format).
+    ///
     /// TODO: Implement real Groth16 verification when auditable-privacy-payment
-    /// is integrated. For now, always returns true (stub mode).
-    pub fn verify_audit_proof(&self, _proof_bytes: &[u8]) -> Result<bool> {
-        tracing::warn!(
-            "⚠️  STUB: verify_audit_proof — Groth16 verification not yet integrated, returning true"
-        );
-        Ok(true)
+    /// is integrated. Currently accepts any structurally valid proof.
+    pub fn verify_audit_proof(&self, proof_bytes: &[u8]) -> Result<bool> {
+        match proof_bytes.len() {
+            128 | 256 => {
+                tracing::info!(
+                    "verify_audit_proof: proof length {} bytes (structurally valid)",
+                    proof_bytes.len()
+                );
+                Ok(true)
+            }
+            len => {
+                tracing::warn!(
+                    "verify_audit_proof: invalid proof length {} (expected 128 or 256)",
+                    len
+                );
+                Err(AuditorError::ProofVerificationFailed(
+                    format!("proof length {len} is invalid"),
+                ))
+            }
+        }
     }
 
     /// Check if a nullifier is in the compliance freeze set.
     ///
-    /// TODO: Query PostgreSQL frozen_nullifiers table or on-chain
-    /// NullifierRegistry.isFrozen(). Stub always returns false.
+    /// Checks the in-memory HashSet first (fast path).
+    /// TODO: Also query the on-chain NullifierRegistry contract for distributed freeze state.
     pub fn is_nullifier_frozen(&self, nullifier: &str) -> Result<bool> {
-        tracing::debug!(%nullifier, "checking nullifier freeze status");
-        Ok(false) // TODO: DB query
+        let frozen = self.frozen_nullifiers.lock().map_err(|e| {
+            AuditorError::FreezingFailed(format!("mutex lock: {e}"))
+        })?;
+        let normalized = nullifier.to_lowercase().trim().to_string();
+        Ok(frozen.contains(&normalized))
     }
 
     /// Freeze a nullifier for compliance (sanctions, fraud, court order).
     ///
-    /// TODO: INSERT into frozen_nullifiers table and call
+    /// Adds to the in-memory HashSet and logs the action.
+    /// TODO: Also INSERT into frozen_nullifiers table and call
     /// NullifierRegistry.freezeNullifier() on all chains.
     pub fn freeze_nullifier(&self, nullifier: &str) -> Result<()> {
-        tracing::warn!(%nullifier, "⚠️  STUB: freeze_nullifier — no-op, DB/chain write not integrated");
+        let mut frozen = self.frozen_nullifiers.lock().map_err(|e| {
+            AuditorError::FreezingFailed(format!("mutex lock: {e}"))
+        })?;
+        let normalized = nullifier.to_lowercase().trim().to_string();
+        frozen.insert(normalized.clone());
+        tracing::warn!(
+            nullifier = %normalized.chars().take(12).collect::<String>(),
+            "Auditor froze nullifier for compliance"
+        );
+        Ok(())
+    }
+
+    /// Unfreeze a nullifier (e.g., after court order reversed).
+    pub fn unfreeze_nullifier(&self, nullifier: &str) -> Result<()> {
+        let mut frozen = self.frozen_nullifiers.lock().map_err(|e| {
+            AuditorError::FreezingFailed(format!("mutex lock: {e}"))
+        })?;
+        let normalized = nullifier.to_lowercase().trim().to_string();
+        frozen.remove(&normalized);
+        tracing::info!(
+            nullifier = %normalized.chars().take(12).collect::<String>(),
+            "Auditor unfroze nullifier"
+        );
         Ok(())
     }
 }
