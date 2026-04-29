@@ -26,6 +26,8 @@
 
 import Fastify from 'fastify';
 import helmet from '@fastify/helmet';
+import rateLimit from '@fastify/rate-limit';
+import cors from '@fastify/cors';
 import { config } from './config.js';
 import { getDb } from './lib/db.js';
 import { startChainMonitor } from './lib/monitor.js';
@@ -38,6 +40,23 @@ import { startShieldedMonitor, startShieldedRecoveryPoller } from './lib/shielde
 async function main() {
   const app = Fastify({ logger: true, trustProxy: true });
   await app.register(helmet, { contentSecurityPolicy: false });
+
+  await app.register(rateLimit, {
+    max: 300,
+    timeWindow: '1 minute',
+    keyGenerator: (req) => req.headers['x-forwarded-for'] as string ?? req.ip,
+    errorResponseBuilder: (_req, context) => ({
+      statusCode: 429,
+      error: 'Too Many Requests',
+      message: `Rate limit exceeded. Try again in ${Math.ceil(context.ttl / 1000)}s`,
+    }),
+  });
+
+  await app.register(cors, {
+    origin: config.corsAllowedOrigins,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    credentials: false,
+  });
 
   const db = getDb();
 

@@ -25,7 +25,10 @@
 import Navbar from '@/components/Navbar';
 import Hero from '@/components/Hero';
 import Features from '@/components/Features';
+import PrivacyFeature from '@/components/PrivacyFeature';
+import ForgeAgentSection from '@/components/ForgeAgentSection';
 import HowItWorks from '@/components/HowItWorks';
+import SocialProof from '@/components/SocialProof';
 import Pricing from '@/components/Pricing';
 import ROICalculator from '@/components/ROICalculator';
 import DeveloperPreview from '@/components/DeveloperPreview';
@@ -37,7 +40,10 @@ export default function Home() {
       <Navbar />
       <Hero />
       <Features />
+      <PrivacyFeature />
+      <ForgeAgentSection />
       <HowItWorks />
+      <SocialProof />
       <DeveloperPreview />
       <Pricing />
       <ROICalculator />

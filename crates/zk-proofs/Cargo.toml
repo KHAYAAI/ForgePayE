@@ -6,18 +6,28 @@ description = "ZK proof generation and verification bridge for ForgePay (Groth16
 license = "Apache-2.0"
 
 [dependencies]
-ark-ff       = { version = "0.4", default-features = false, features = ["std"] }
-ark-ec       = { version = "0.4", default-features = false, features = ["std"] }
-ark-bn254    = { version = "0.4", default-features = false }
-ark-groth16  = { version = "0.4", default-features = false, features = ["std"] }
+ark-ff        = { version = "0.4", default-features = false, features = ["std"] }
+ark-ec        = { version = "0.4", default-features = false, features = ["std"] }
+ark-bn254     = { version = "0.4", default-features = false, features = ["curve"] }
+ark-groth16   = { version = "0.4", default-features = false, features = ["std"] }
 ark-serialize = { version = "0.4", default-features = false, features = ["std"] }
-ark-std      = { version = "0.4", default-features = false, features = ["std"] }
-async-trait  = "0.1"
-hex          = "0.4"
-serde        = { version = "1", features = ["derive"] }
-serde_json   = "1"
-thiserror    = "1"
-rand         = "0.8"
+ark-std       = { version = "0.4", default-features = false, features = ["std"] }
+ark-relations = { version = "0.4", default-features = false, features = ["std"] }
+async-trait   = "0.1"
+hex           = "0.4"
+serde         = { version = "1", features = ["derive"] }
+serde_json    = "1"
+thiserror     = "1"
+rand          = "0.8"
+sha2          = "0.10"
+
+[features]
+embed-keys = []
+
+[[bin]]
+name = "export-keys"
+path = "src/bin/export_keys.rs"
+required-features = []
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }

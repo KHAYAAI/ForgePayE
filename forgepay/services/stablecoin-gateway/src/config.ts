@@ -55,6 +55,12 @@ export const config = {
   // Payment expiry (1 hour to pay)
   paymentExpirySeconds: parseInt(opt('PAYMENT_EXPIRY_SECONDS', '3600'), 10),
 
+  // CORS allowed origins (comma-separated list)
+  corsAllowedOrigins: opt('CORS_ALLOWED_ORIGINS', 'http://localhost:3001')
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean),
+
   // Shielded stablecoin payments (ZK-proof privacy)
   shielded: {
     enabled: opt('SHIELDED_ENABLED', 'false') === 'true',

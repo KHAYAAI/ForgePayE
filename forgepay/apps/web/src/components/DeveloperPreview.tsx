@@ -1,4 +1,11 @@
-const CODE_SNIPPET = `import { ForgePay } from '@forgepay/sdk';
+'use client';
+
+import { useState } from 'react';
+import { Copy, CheckCheck } from 'lucide-react';
+
+// ─── Code snippets ────────────────────────────────────────────────────────────
+
+const SNIPPET_SDK = `import { ForgePay } from '@forgepay/sdk';
 
 const fp = new ForgePay({ apiKey: process.env.FORGEPAY_API_KEY });
 
@@ -32,7 +39,84 @@ await fp.usage.report({
   timestamp: new Date(),
 });`;
 
+const SNIPPET_SHIELDED = `// Shielded payment — client never sends plaintext amount
+const seed = await fp.proofs.deriveSeed(email, password);
+await fp.proofs.initProofGenerator(seed);
+
+const { proof, commitment } = await fp.proofs.generateDepositProof({
+  asset: 0,      // USDC
+  amountUsd: 49.00,
+});
+
+const session = await fp.checkout.createShielded({
+  merchant_id: 'merch_123',
+  encrypted_memo: encryptedMemo,
+  audit_proof: proof,
+  success_url: 'https://yourapp.com/success',
+});`;
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type TabKey = 'SDK' | 'Shielded';
+
+const TABS: { key: TabKey; label: string; filename: string; snippet: string }[] = [
+  { key: 'SDK',      label: 'SDK',      filename: 'payments.ts',          snippet: SNIPPET_SDK },
+  { key: 'Shielded', label: 'Shielded', filename: 'shielded-payment.ts',  snippet: SNIPPET_SHIELDED },
+];
+
+// ─── Syntax highlight helper ──────────────────────────────────────────────────
+
+function highlight(line: string): string {
+  return line
+    .replace(/\/\/ .*$/g,                  (m) => `<span class="text-gray-500">${m}</span>`)
+    .replace(/(import|const|await|new|process\.env\.\w+)/g, (m) => `<span class="text-purple-400">${m}</span>`)
+    .replace(/('[^']*')/g,                 (m) => `<span class="text-green-400">${m}</span>`)
+    .replace(/\b(\d[\d_.]*)\b/g,           (m) => `<span class="text-orange-300">${m}</span>`);
+}
+
+// ─── Copy button ──────────────────────────────────────────────────────────────
+
+function CopyButton({ code }: { code: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // clipboard unavailable in some contexts — silently ignore
+    }
+  };
+
+  return (
+    <button
+      onClick={handleCopy}
+      aria-label="Copy code"
+      className="flex items-center gap-1.5 text-white/30 hover:text-white/60 text-xs font-medium transition-colors duration-150 px-2 py-1 rounded-md hover:bg-white/5"
+    >
+      {copied ? (
+        <>
+          <CheckCheck size={13} className="text-cyan-400" />
+          <span className="text-cyan-400">Copied</span>
+        </>
+      ) : (
+        <>
+          <Copy size={13} />
+          <span>Copy</span>
+        </>
+      )}
+    </button>
+  );
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
+
 export default function DeveloperPreview() {
+  const [activeTab, setActiveTab] = useState<TabKey>('SDK');
+
+  const current = TABS.find((t) => t.key === activeTab)!;
+
   return (
     <section className="py-24 px-4 sm:px-6 lg:px-8">
       <div className="max-w-6xl mx-auto">
@@ -72,30 +156,52 @@ export default function DeveloperPreview() {
             {/* Glow effect behind code block */}
             <div className="absolute -inset-4 bg-cyan-500/5 rounded-3xl blur-xl" />
             <div className="relative bg-navy-900/80 border border-white/10 rounded-2xl overflow-hidden">
-              {/* Title bar */}
+              {/* Title bar with tab switcher */}
               <div className="flex items-center gap-1.5 px-4 py-3 border-b border-white/10 bg-white/[0.02]">
+                {/* Traffic lights */}
                 <div className="w-3 h-3 rounded-full bg-red-500/60" />
                 <div className="w-3 h-3 rounded-full bg-yellow-500/60" />
                 <div className="w-3 h-3 rounded-full bg-green-500/60" />
-                <span className="ml-3 text-xs text-gray-500 font-mono">payments.ts</span>
+
+                {/* Tabs */}
+                <div className="flex gap-1 ml-3">
+                  {TABS.map((tab) => (
+                    <button
+                      key={tab.key}
+                      onClick={() => setActiveTab(tab.key)}
+                      className={`px-3 py-0.5 rounded-md text-xs font-mono transition-all duration-150 ${
+                        activeTab === tab.key
+                          ? 'bg-white/10 text-white'
+                          : 'text-gray-500 hover:text-gray-300'
+                      }`}
+                    >
+                      {tab.label}
+                      {tab.key === 'Shielded' && (
+                        <span className="ml-1.5 text-[9px] font-semibold text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 rounded-full px-1.5 py-px uppercase tracking-wide align-middle">
+                          ZK
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+
+                {/* filename + copy button */}
+                <div className="ml-auto flex items-center gap-2">
+                  <span className="text-xs text-gray-600 font-mono hidden sm:inline">
+                    {current.filename}
+                  </span>
+                  <CopyButton code={current.snippet} />
+                </div>
               </div>
 
               {/* Code */}
               <pre className="p-5 overflow-x-auto text-[12px] leading-relaxed font-mono">
                 <code className="text-gray-300 whitespace-pre">
-                  {CODE_SNIPPET
+                  {current.snippet
                     .split('\n')
-                    .map((line, i) => {
-                      // Very lightweight syntax highlights via spans
-                      const highlighted = line
-                        .replace(/\/\/ .*$/g, (m) => `<span class="text-gray-500">${m}</span>`)
-                        .replace(/(import|const|await|new|process\.env\.\w+)/g, (m) => `<span class="text-purple-400">${m}</span>`)
-                        .replace(/('[^']*')/g, (m) => `<span class="text-green-400">${m}</span>`)
-                        .replace(/\b(\d[\d_]*)\b/g, (m) => `<span class="text-orange-300">${m}</span>`);
-                      return (
-                        <span key={i} dangerouslySetInnerHTML={{ __html: highlighted + '\n' }} />
-                      );
-                    })}
+                    .map((line, i) => (
+                      <span key={i} dangerouslySetInnerHTML={{ __html: highlight(line) + '\n' }} />
+                    ))}
                 </code>
               </pre>
             </div>

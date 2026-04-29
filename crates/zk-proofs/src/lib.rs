@@ -12,8 +12,10 @@
 //!   2. Embed the bytes as `include_bytes!("../keys/deposit.pk")` etc.
 //!   3. Remove the `ZkError::KeysNotEmbedded` early-return
 
+pub mod circuits;
+
 use ark_bn254::{Bn254, Fr};
-use ark_groth16::{Groth16, Proof};
+use ark_groth16::{verify_proof, Groth16, Proof};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::Zero;
 use serde::{Deserialize, Serialize};
@@ -30,6 +32,10 @@ pub enum ZkError {
     KeysNotEmbedded,
     #[error("Serialization error: {0}")]
     Serialization(String),
+    #[error("Serialization error: {0}")]
+    SerializationError(String),
+    #[error("Proof generation failed: {0}")]
+    ProofGenerationFailed(String),
     #[error("Proof verification failed")]
     VerificationFailed,
     #[error("Invalid public input: {0}")]
@@ -89,8 +95,25 @@ pub fn fr_to_hex(fr: &Fr) -> ZkResult<String> {
 // ── Commitment / Nullifier ────────────────────────────────────────────────────
 
 /// A UTXO commitment C = Poseidon(asset, amount, blind, owner_pk)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// Serialized as a 0x-prefixed big-endian hex string because ark_bn254::Fr has
+/// no serde implementation in v0.4.
+#[derive(Debug, Clone)]
 pub struct Commitment(pub Fr);
+
+impl Serialize for Commitment {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let hex = fr_to_hex(&self.0).map_err(serde::ser::Error::custom)?;
+        serializer.serialize_str(&hex)
+    }
+}
+
+impl<'de> Deserialize<'de> for Commitment {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        fr_from_hex(&s).map(Commitment).map_err(serde::de::Error::custom)
+    }
+}
 
 impl Commitment {
     pub fn from_hex(hex: &str) -> ZkResult<Self> {
@@ -105,8 +128,24 @@ impl Commitment {
 }
 
 /// A nullifier N = Poseidon(commitment, blind_factor) — unique per UTXO spend
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// Serialized as a 0x-prefixed big-endian hex string (same reason as Commitment).
+#[derive(Debug, Clone)]
 pub struct Nullifier(pub Fr);
+
+impl Serialize for Nullifier {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let hex = fr_to_hex(&self.0).map_err(serde::ser::Error::custom)?;
+        serializer.serialize_str(&hex)
+    }
+}
+
+impl<'de> Deserialize<'de> for Nullifier {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        fr_from_hex(&s).map(Nullifier).map_err(serde::de::Error::custom)
+    }
+}
 
 impl Nullifier {
     pub fn from_hex(hex: &str) -> ZkResult<Self> {
@@ -148,6 +187,36 @@ pub struct WithdrawPublicInputs {
 
 pub fn prove_deposit(_inputs: &DepositPublicInputs) -> ZkResult<SerializedProof> {
     Err(ZkError::KeysNotEmbedded)
+}
+
+#[cfg(feature = "embed-keys")]
+pub fn prove_deposit_embedded(inputs: &DepositPublicInputs) -> ZkResult<SerializedProof> {
+    use crate::circuits::deposit::DepositCircuit;
+    use ark_groth16::Groth16;
+    use ark_serialize::CanonicalDeserialize;
+
+    static DEPOSIT_PK_BYTES: &[u8] =
+        include_bytes!("../../privacy-payment-wasm/keys/deposit.pk");
+
+    let pk = ark_groth16::ProvingKey::<Bn254>::deserialize_compressed(DEPOSIT_PK_BYTES)
+        .map_err(|e| ZkError::ProofGenerationFailed(format!("PK deserialize: {e}")))?;
+
+    let circuit = DepositCircuit {
+        commitment: inputs.merkle_root,
+        asset_id:   inputs.asset_id,
+        amount:     ark_bn254::Fr::from(0u64),
+        blind:      ark_bn254::Fr::from(0u64),
+    };
+
+    let proof = Groth16::<Bn254>::prove(&pk, circuit, &mut ark_std::test_rng())
+        .map_err(|e| ZkError::ProofGenerationFailed(format!("Groth16 prove: {e}")))?;
+
+    let mut bytes = Vec::new();
+    proof
+        .serialize_compressed(&mut bytes)
+        .map_err(|e| ZkError::SerializationError(e.to_string()))?;
+
+    Ok(SerializedProof(bytes))
 }
 
 pub fn prove_transfer(_inputs: &TransferPublicInputs) -> ZkResult<SerializedProof> {

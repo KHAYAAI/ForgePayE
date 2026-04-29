@@ -45,4 +45,10 @@ export const config = {
 
   // Price feed API (used to convert crypto amounts to USD)
   priceFeedUrl: opt('PRICE_FEED_URL', 'https://api.coingecko.com/api/v3'),
+
+  // CORS allowed origins (comma-separated list)
+  corsAllowedOrigins: opt('CORS_ALLOWED_ORIGINS', 'http://localhost:3001')
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean),
 } as const;
