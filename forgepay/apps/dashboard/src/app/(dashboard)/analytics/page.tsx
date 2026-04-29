@@ -2,10 +2,10 @@
 
 import { useState } from 'react';
 import useSWR from 'swr';
-import type { Metadata } from 'next';
 import {
   AreaChart, Area, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  PieChart, Pie, Cell, Legend,
 } from 'recharts';
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
@@ -13,6 +13,28 @@ const fetcher = (url: string) => fetch(url).then((r) => r.json());
 function fmt(cents: number) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100);
 }
+
+const PIE_DATA = [
+  { name: 'Card',          value: 71 },
+  { name: 'USDC',          value: 18 },
+  { name: 'Crypto',        value: 7  },
+  { name: 'Bank Transfer', value: 4  },
+];
+
+const PIE_COLORS: Record<string, string> = {
+  Card:          '#00F0FF',
+  USDC:          '#10B981',
+  Crypto:        '#F59E0B',
+  'Bank Transfer': '#6366F1',
+};
+
+const TOP_COUNTRIES = [
+  { flag: '🇺🇸', name: 'United States', share: 45, revenue: '$128,400' },
+  { flag: '🇬🇧', name: 'United Kingdom', share: 18, revenue: '$51,300'  },
+  { flag: '🇩🇪', name: 'Germany',        share: 12, revenue: '$34,200'  },
+  { flag: '🇨🇦', name: 'Canada',         share: 8,  revenue: '$22,800'  },
+  { flag: '🇦🇺', name: 'Australia',      share: 7,  revenue: '$19,950'  },
+];
 
 export default function AnalyticsPage() {
   const [days, setDays] = useState(30);
@@ -106,6 +128,85 @@ export default function AnalyticsPage() {
             <Bar dataKey="count" fill="#00F0FF" opacity={0.7} radius={[3, 3, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
+      </div>
+
+      {/* Payment method breakdown */}
+      <div className="card p-5">
+        <h3 className="text-sm font-semibold text-white mb-4">Payment Method Breakdown</h3>
+        <div className="flex flex-col lg:flex-row items-center gap-6">
+          <ResponsiveContainer width="100%" height={220} className="lg:max-w-xs">
+            <PieChart>
+              <Pie
+                data={PIE_DATA}
+                cx="50%"
+                cy="50%"
+                innerRadius={60}
+                outerRadius={90}
+                paddingAngle={3}
+                dataKey="value"
+              >
+                {PIE_DATA.map((entry) => (
+                  <Cell key={entry.name} fill={PIE_COLORS[entry.name]} />
+                ))}
+              </Pie>
+              <Tooltip
+                formatter={(v: number) => [`${v}%`, 'Share']}
+                contentStyle={{ background: '#0d1b2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 12 }}
+              />
+            </PieChart>
+          </ResponsiveContainer>
+          <div className="flex-1 w-full space-y-2">
+            {PIE_DATA.map((entry) => (
+              <div key={entry.name} className="flex items-center justify-between text-xs py-2 border-b border-white/[0.05] last:border-0">
+                <div className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full shrink-0" style={{ background: PIE_COLORS[entry.name] }} />
+                  <span className="text-gray-300">{entry.name}</span>
+                </div>
+                <span className="text-white font-semibold tabular-nums">{entry.value}%</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Top countries */}
+      <div className="card overflow-hidden">
+        <div className="px-5 py-4 border-b border-white/[0.07]">
+          <h3 className="text-sm font-semibold text-white">Top Countries</h3>
+        </div>
+        <table className="w-full fp-table">
+          <thead>
+            <tr>
+              <th>Country</th>
+              <th>Share</th>
+              <th>Revenue</th>
+            </tr>
+          </thead>
+          <tbody>
+            {TOP_COUNTRIES.map((row) => (
+              <tr key={row.name}>
+                <td>
+                  <span className="flex items-center gap-2">
+                    <span className="text-base">{row.flag}</span>
+                    <span className="text-sm text-gray-200">{row.name}</span>
+                  </span>
+                </td>
+                <td>
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 max-w-[80px] h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-cyan-500"
+                        style={{ width: `${row.share}%` }}
+                      />
+                    </div>
+                    <span className="text-xs text-gray-300 tabular-nums w-8">{row.share}%</span>
+                  </div>
+                </td>
+                <td className="text-sm font-semibold text-white tabular-nums">{row.revenue}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );

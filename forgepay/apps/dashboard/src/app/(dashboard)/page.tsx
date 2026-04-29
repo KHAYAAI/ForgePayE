@@ -1,9 +1,9 @@
 'use client';
 
-import type { Metadata } from 'next';
 import useSWR from 'swr';
-import { CreditCard, RefreshCw, Users, DollarSign } from 'lucide-react';
+import { CreditCard, RefreshCw, Users, DollarSign, ShieldCheck } from 'lucide-react';
 import StatCard from '@/components/dashboard/StatCard';
+import { StatCardSkeleton } from '@/components/ui/Skeleton';
 import RevenueChart from '@/components/dashboard/RevenueChart';
 import RecentPayments from '@/components/payments/RecentPayments';
 
@@ -24,6 +24,8 @@ export default function OverviewPage() {
   const subCount    = subs    ? String((subs.data ?? []).length)  : '—';
   const custCount   = custs   ? String((custs.data ?? []).length) : '—';
 
+  const shieldedEnabled = process.env.NEXT_PUBLIC_SHIELDED_ENABLED === 'true';
+
   return (
     <div className="space-y-6">
       <div>
@@ -32,10 +34,55 @@ export default function OverviewPage() {
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard title="Gross Revenue"        value={revenue}    change="" trend="up" icon={DollarSign} sub="last 30 days" />
-        <StatCard title="Successful Payments"  value={successCnt} change="" trend="up" icon={CreditCard} sub={successRate} />
-        <StatCard title="Active Subscriptions" value={subCount}   change="" trend="up" icon={RefreshCw}  sub="Kill Bill" />
-        <StatCard title="Active Customers"     value={custCount}  change="" trend="up" icon={Users}      sub="this period" />
+        {!summary ? (
+          <>
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+          </>
+        ) : (
+          <>
+            <StatCard title="Gross Revenue"        value={revenue}    change="" trend="up" icon={DollarSign} sub="last 30 days" />
+            <StatCard title="Successful Payments"  value={successCnt} change="" trend="up" icon={CreditCard} sub={successRate} />
+            <StatCard title="Active Subscriptions" value={subCount}   change="" trend="up" icon={RefreshCw}  sub="Kill Bill" />
+            <StatCard title="Active Customers"     value={custCount}  change="" trend="up" icon={Users}      sub="this period" />
+          </>
+        )}
+      </div>
+
+      {/* Shielded Payments panel */}
+      <div className="card p-5 flex items-start gap-4">
+        <div className="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center shrink-0">
+          <ShieldCheck size={20} className="text-cyan-400" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1">
+            <h3 className="text-sm font-semibold text-white">Shielded Payments</h3>
+            {!shieldedEnabled && (
+              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-white/[0.06] border border-white/[0.1] text-gray-400">
+                Feature disabled
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-gray-400 leading-relaxed">
+            Zero-knowledge privacy for stablecoin payments. Merchants see commitments, not amounts.
+          </p>
+          {!shieldedEnabled ? (
+            <a
+              href="https://forgepay.dev/docs/shielded-payments"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block mt-2 text-xs text-cyan-400 hover:text-cyan-300 transition-colors"
+            >
+              Learn more →
+            </a>
+          ) : (
+            <div className="mt-2 text-xs text-cyan-400 font-semibold">
+              {summary?.shielded_count ?? 0} shielded transactions
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -69,7 +116,11 @@ export default function OverviewPage() {
               <div>
                 <div className="text-xs text-gray-400">Tax Collected (MoR)</div>
                 <div className="text-base font-bold text-white mt-0.5">
-                  {summary ? fmt(Math.round((summary.gross_revenue_cents ?? 0) * 0.08)) : '—'}
+                  {summary
+                    ? (summary.tax_collected != null
+                        ? fmt(summary.tax_collected)
+                        : '–')
+                    : '—'}
                 </div>
               </div>
               <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full font-semibold">

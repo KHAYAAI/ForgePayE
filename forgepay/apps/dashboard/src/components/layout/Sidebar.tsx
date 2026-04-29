@@ -13,12 +13,14 @@ import {
   Webhook,
   Zap,
   Bot,
+  Users,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const NAV_ITEMS = [
   { label: 'Overview',      href: '/',              icon: LayoutDashboard, badge: null },
   { label: 'Payments',      href: '/payments',      icon: CreditCard,      badge: null },
+  { label: 'Customers',     href: '/customers',     icon: Users,           badge: null },
   { label: 'Subscriptions', href: '/subscriptions', icon: RefreshCw,       badge: null },
   { label: 'Analytics',     href: '/analytics',     icon: BarChart3,       badge: null },
   { label: 'Tax & MoR',     href: '/tax',           icon: Globe,           badge: null },
