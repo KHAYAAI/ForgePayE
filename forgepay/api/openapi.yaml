@@ -1,0 +1,380 @@
+openapi: "3.1.0"
+info:
+  title: ForgePay API
+  version: "2026-04"
+  description: |
+    ForgePay unified payment API — accept card, stablecoin, and crypto payments;
+    manage subscriptions; and query events. All amounts are integers in the
+    smallest currency unit (cents for USD/EUR) unless noted.
+  contact:
+    name: ForgePay Developer Support
+    url: https://forgepay.io/docs
+    email: api@forgepay.io
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+servers:
+  - url: https://api.forgepay.io
+    description: Production
+  - url: https://api.sandbox.forgepay.io
+    description: Sandbox
+
+security:
+  - BearerAuth: []
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: "Use your ForgePay API key: Authorization: Bearer sk_live_..."
+
+  schemas:
+    Money:
+      type: object
+      properties:
+        value:    { type: string, example: "49.00" }
+        currency: { type: string, example: "USD" }
+      required: [value, currency]
+
+    Payment:
+      type: object
+      properties:
+        id:             { type: string, example: "pay_01HXYZ..." }
+        amount:         { type: integer, example: 4900 }
+        currency:       { type: string, example: "USD" }
+        status:         { type: string, enum: [created, processing, succeeded, failed, cancelled, refunded] }
+        customer_id:    { type: string }
+        client_secret:  { type: string }
+        payment_method: { type: string, enum: [card, bank_transfer, wallet] }
+        created_at:     { type: string, format: date-time }
+        metadata:       { type: object }
+      required: [id, amount, currency, status]
+
+    Subscription:
+      type: object
+      properties:
+        id:           { type: string }
+        customer_id:  { type: string }
+        plan_id:      { type: string }
+        status:       { type: string, enum: [active, cancelled, past_due, trialing] }
+        created_at:   { type: string, format: date-time }
+        current_period_start: { type: string, format: date-time }
+        current_period_end:   { type: string, format: date-time }
+      required: [id, customer_id, plan_id, status]
+
+    Customer:
+      type: object
+      properties:
+        id:         { type: string }
+        email:      { type: string, format: email }
+        name:       { type: string }
+        created_at: { type: string, format: date-time }
+      required: [id, email]
+
+    ForgePayEvent:
+      type: object
+      properties:
+        id:           { type: string }
+        type:         { type: string }
+        source:       { type: string }
+        merchant_id:  { type: string }
+        occurred_at:  { type: string, format: date-time }
+        data:         { type: object }
+      required: [id, type, source, merchant_id, occurred_at, data]
+
+    Error:
+      type: object
+      properties:
+        error:   { type: string }
+        message: { type: string }
+        code:    { type: string }
+      required: [error, message]
+
+    ListMeta:
+      type: object
+      properties:
+        has_more:    { type: boolean }
+        total_count: { type: integer }
+        next_cursor: { type: string }
+
+paths:
+  /v1/payments:
+    post:
+      summary: Create a payment
+      operationId: createPayment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                amount:          { type: integer, example: 4900 }
+                currency:        { type: string, example: "USD" }
+                customer_id:     { type: string }
+                payment_method_data: { type: object }
+                idempotency_key: { type: string }
+                metadata:        { type: object }
+              required: [amount, currency]
+      responses:
+        "200": { description: Payment created, content: { application/json: { schema: { $ref: "#/components/schemas/Payment" } } } }
+        "400": { description: Bad request, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+        "429": { description: Rate limit exceeded }
+    get:
+      summary: List payments
+      operationId: listPayments
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, default: 20, maximum: 100 } }
+        - { name: cursor, in: query, schema: { type: string } }
+        - { name: customer_id, in: query, schema: { type: string } }
+        - { name: status, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: List of payments
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ListMeta"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/Payment" }
+
+  /v1/payments/{payment_id}:
+    get:
+      summary: Retrieve a payment
+      operationId: retrievePayment
+      parameters:
+        - { name: payment_id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Payment, content: { application/json: { schema: { $ref: "#/components/schemas/Payment" } } } }
+        "404": { description: Not found }
+
+  /v1/payments/{payment_id}/cancel:
+    post:
+      summary: Cancel a payment
+      operationId: cancelPayment
+      parameters:
+        - { name: payment_id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string }
+      responses:
+        "200": { description: Cancelled payment, content: { application/json: { schema: { $ref: "#/components/schemas/Payment" } } } }
+
+  /v1/payments/{payment_id}/refund:
+    post:
+      summary: Refund a payment
+      operationId: refundPayment
+      parameters:
+        - { name: payment_id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                amount: { type: integer, description: "Amount to refund in smallest currency unit; omit for full refund" }
+                reason: { type: string, enum: [requested_by_customer, fraudulent, duplicate] }
+                metadata: { type: object }
+      responses:
+        "200":
+          description: Refund created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  refund_id:  { type: string }
+                  payment_id: { type: string }
+                  amount:     { type: integer }
+                  status:     { type: string, enum: [pending, succeeded, failed] }
+                  reason:     { type: string }
+                  created_at: { type: string, format: date-time }
+        "400": { description: Bad request, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+        "404": { description: Payment not found }
+
+  /v1/subscriptions:
+    post:
+      summary: Create a subscription
+      operationId: createSubscription
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                customer_id: { type: string }
+                plan_id:     { type: string }
+                metadata:    { type: object }
+              required: [customer_id, plan_id]
+      responses:
+        "200": { description: Subscription, content: { application/json: { schema: { $ref: "#/components/schemas/Subscription" } } } }
+    get:
+      summary: List subscriptions
+      operationId: listSubscriptions
+      parameters:
+        - { name: customer_id, in: query, schema: { type: string } }
+        - { name: status, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, default: 20 } }
+      responses:
+        "200":
+          description: List of subscriptions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/Subscription" } }
+
+  /v1/subscriptions/{subscription_id}:
+    get:
+      summary: Retrieve a subscription
+      operationId: retrieveSubscription
+      parameters:
+        - { name: subscription_id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Subscription, content: { application/json: { schema: { $ref: "#/components/schemas/Subscription" } } } }
+
+  /v1/subscriptions/{subscription_id}/cancel:
+    post:
+      summary: Cancel a subscription
+      operationId: cancelSubscription
+      parameters:
+        - { name: subscription_id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Cancelled subscription, content: { application/json: { schema: { $ref: "#/components/schemas/Subscription" } } } }
+
+  /v1/customers:
+    post:
+      summary: Create a customer
+      operationId: createCustomer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email: { type: string, format: email }
+                name:  { type: string }
+                metadata: { type: object }
+              required: [email]
+      responses:
+        "200": { description: Customer, content: { application/json: { schema: { $ref: "#/components/schemas/Customer" } } } }
+    get:
+      summary: List customers
+      operationId: listCustomers
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, default: 20 } }
+        - { name: cursor, in: query, schema: { type: string } }
+        - { name: email, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: List of customers
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/Customer" } }
+
+  /v1/customers/{customer_id}:
+    get:
+      summary: Retrieve a customer
+      operationId: retrieveCustomer
+      parameters:
+        - { name: customer_id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Customer, content: { application/json: { schema: { $ref: "#/components/schemas/Customer" } } } }
+        "404": { description: Not found }
+
+  /v1/events:
+    get:
+      summary: List events
+      operationId: listEvents
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, default: 20, maximum: 100 } }
+        - { name: cursor, in: query, schema: { type: string } }
+        - { name: type, in: query, schema: { type: string } }
+        - { name: source, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: List of events
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/ForgePayEvent" } }
+
+  /v1/webhooks:
+    post:
+      summary: Register a webhook endpoint
+      operationId: createWebhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                url:    { type: string, format: uri }
+                events: { type: array, items: { type: string } }
+                description: { type: string }
+              required: [url]
+      responses:
+        "200":
+          description: Webhook endpoint created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:     { type: string }
+                  url:    { type: string }
+                  secret: { type: string, description: "HMAC-SHA256 signing secret — shown once" }
+                  events: { type: array, items: { type: string } }
+    get:
+      summary: List webhook endpoints
+      operationId: listWebhooks
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, default: 20 } }
+      responses:
+        "200":
+          description: List of webhook endpoints
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:          { type: string }
+                        url:         { type: string }
+                        events:      { type: array, items: { type: string } }
+                        description: { type: string }
+                        created_at:  { type: string, format: date-time }
+
+  /v1/webhooks/{webhook_id}:
+    delete:
+      summary: Delete a webhook endpoint
+      operationId: deleteWebhook
+      parameters:
+        - { name: webhook_id, in: path, required: true, schema: { type: string } }
+      responses:
+        "204": { description: Webhook deleted }
+        "404": { description: Not found }

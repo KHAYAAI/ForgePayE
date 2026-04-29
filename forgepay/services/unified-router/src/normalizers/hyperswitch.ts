@@ -39,13 +39,13 @@ const STATUS_MAP: Record<string, PaymentEventData['status']> = {
 };
 
 const EVENT_TYPE_MAP: Record<string, EventType> = {
-  payment_intent.created:    'payment.created',
-  payment_intent.processing: 'payment.processing',
-  payment_intent.succeeded:  'payment.succeeded',
-  payment_intent.failed:     'payment.failed',
-  payment_intent.cancelled:  'payment.cancelled',
-  refund.succeeded:          'payment.refunded',
-  dispute.opened:            'payment.disputed',
+  'payment_intent.created':    'payment.created',
+  'payment_intent.processing': 'payment.processing',
+  'payment_intent.succeeded':  'payment.succeeded',
+  'payment_intent.failed':     'payment.failed',
+  'payment_intent.cancelled':  'payment.cancelled',
+  'refund.succeeded':          'payment.refunded',
+  'dispute.opened':            'payment.disputed',
 };
 
 export function normalizeHyperswitchEvent(
