@@ -53,3 +53,20 @@ observability:
   otel_endpoint: http://otel-collector:4317
   traces_enabled: false
   metrics_enabled: true
+
+contracts:
+  groth16Verifier:
+    sepolia: "0x0000000000000000000000000000000000000000"    # TODO: Replace with deployed address
+    baseSepolia: "0x0000000000000000000000000000000000000000"
+
+  nullifierRegistry:
+    sepolia: "0x0000000000000000000000000000000000000000"    # TODO: Replace with deployed address
+    baseSepolia: "0x0000000000000000000000000000000000000000"
+
+  commitmentTree:
+    sepolia: "0x0000000000000000000000000000000000000000"    # TODO: Replace with deployed address
+    baseSepolia: "0x0000000000000000000000000000000000000000"
+
+  poseidonHasher:
+    sepolia: "0x0000000000000000000000000000000000000000"    # Library (not deployed separately)
+    baseSepolia: "0x0000000000000000000000000000000000000000"
