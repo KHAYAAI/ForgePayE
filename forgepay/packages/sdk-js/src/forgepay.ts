@@ -45,6 +45,7 @@ import { CryptoResource } from './resources/crypto.js';
 import { WebhooksResource } from './resources/webhooks.js';
 import { ProofsResource } from './resources/proofs.js';
 import { ShieldedCheckoutResource } from './resources/shielded-checkout.js';
+import { AccountsResource } from './resources/accounts.js';
 
 export class ForgePay {
   /** Accept fiat card, bank transfer, and wallet payments */
@@ -67,6 +68,8 @@ export class ForgePay {
   readonly proofs:           ProofsResource;
   /** Privacy-preserving shielded checkout sessions */
   readonly shieldedCheckout: ShieldedCheckoutResource;
+  /** Stablecoin-backed accounts: wallets, KYC, deposits, withdrawals */
+  readonly accounts:         AccountsResource;
 
   /** Verify and construct incoming webhook events (static shortcut) */
   static readonly webhooks = WebhooksResource;
@@ -85,5 +88,6 @@ export class ForgePay {
     this.webhooks          = new WebhooksResource(this._httpClient);
     this.proofs            = new ProofsResource(this._httpClient);
     this.shieldedCheckout  = new ShieldedCheckoutResource(this._httpClient);
+    this.accounts          = new AccountsResource(this._httpClient);
   }
 }

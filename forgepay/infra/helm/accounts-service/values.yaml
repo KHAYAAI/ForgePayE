@@ -1,0 +1,68 @@
+replicaCount: 2
+
+image:
+  repository: forgepay/accounts-service
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8040
+
+env:
+  NODE_ENV: production
+  LOG_LEVEL: info
+  PORT: "8040"
+
+# Kubernetes secret with sensitive values — never hardcode here
+# Expected keys:
+#   POSTGRES_PASSWORD
+#   INTERNAL_WEBHOOK_SECRET
+#   PRIVATE_KEY_ENCRYPTION_KEY  (64-char hex / 32 bytes — AES-256-GCM key)
+#   CIRCLE_API_KEY              (Circle API for USD<->USDC conversion)
+#   CIRCLE_WEBHOOK_SECRET       (Circle webhook signature secret)
+#   ONFIDO_API_KEY              (Onfido KYC verification)
+secretRef: "forgepay-accounts-service-secrets"
+
+# KYC/AML configuration
+kyc:
+  ofacScreeningEnabled: false  # enable once OFAC provider is configured
+
+# Account limits
+accounts:
+  defaultChain:        "polygon"
+  minDepositUsd:       "10"
+  maxDepositUsd:       "50000"
+  withdrawalFeePercent: "0.5"
+
+# Phase 2: ZK proof generation (disabled by default — enable after circuit finalization)
+zkProofs:
+  enabled: false  # Set true in Phase 2 after deploying proving keys + ZK sidecar
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "256Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: 8040
+  initialDelaySeconds: 10
+  periodSeconds: 15
+
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: 8040
+  initialDelaySeconds: 5
+  periodSeconds: 10

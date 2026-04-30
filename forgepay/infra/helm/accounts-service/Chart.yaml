@@ -1,0 +1,6 @@
+apiVersion: v2
+name: accounts-service
+description: "ForgePay Accounts Service — stablecoin-backed accounts, KYC/AML, Circle deposits/withdrawals"
+type: application
+version: 0.1.0
+appVersion: "2026.04.15"

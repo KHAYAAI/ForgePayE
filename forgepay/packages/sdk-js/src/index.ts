@@ -104,3 +104,18 @@ export {
 
 // Static webhook verification (importable without instantiation)
 export { WebhooksResource } from './resources/webhooks.js';
+
+// Stablecoin-backed accounts (Phase 2)
+export { AccountsResource } from './resources/accounts.js';
+export type {
+  Account,
+  AccountCreateParams,
+  KycSubmitParams,
+  KycVerification,
+  AccountBalance,
+  Deposit,
+  DepositCreateParams,
+  Withdrawal,
+  WithdrawalCreateParams,
+  AccountTransaction,
+} from './resources/accounts.js';

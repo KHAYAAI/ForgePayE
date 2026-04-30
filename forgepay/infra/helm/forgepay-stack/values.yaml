@@ -198,6 +198,31 @@ chainSync:
       nullifierRegistry: "0x0000000000000000000000000000000000000000"
       commitmentTree:    "0x0000000000000000000000000000000000000000"
 
+# ── Accounts Service (Phase 2: stablecoin-backed accounts) ───────────────
+# Manages USD/USDC wallets, KYC/AML (Onfido), Circle deposits/withdrawals.
+# ZK proofs gated behind zkProofs.enabled (Phase 2).
+accountsService:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: forgepay/accounts-service
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  service:
+    port: 8040
+  resources:
+    requests: { cpu: "100m", memory: "256Mi" }
+    limits:   { cpu: "500m", memory: "512Mi" }
+  kyc:
+    ofacScreeningEnabled: false
+  accounts:
+    defaultChain:         "polygon"
+    minDepositUsd:        "10"
+    maxDepositUsd:        "50000"
+    withdrawalFeePercent: "0.5"
+  zkProofs:
+    enabled: false  # Phase 2: set true after ZK sidecar deployment + circuit finalization
+
 # ── Forge Agent ──────────────────────────────────────────────────────────
 # AI billing assistant powered by Claude.
 # Two-flag launch sequence:
