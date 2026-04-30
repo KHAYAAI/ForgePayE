@@ -82,7 +82,7 @@ services:
       REDIS_URL:                   redis://redis:6379
       INTERNAL_WEBHOOK_SECRET:     dev-internal-secret-change-me
       HYPERSWITCH_WEBHOOK_SECRET:  dev-hs-secret
-      KILLBILL_WEBHOOK_SECRET:     dev-kb-secret
+      KILLBILL_WEBHOOK_SECRET:     dev-kb-secret-12345
       STABLECOIN_GW_WEBHOOK_SECRET: dev-sc-secret
       CRYPTO_GW_WEBHOOK_SECRET:    dev-crypto-secret
       LOG_LEVEL:                   debug

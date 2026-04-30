@@ -1,0 +1,55 @@
+replicaCount: 2
+
+image:
+  repository: forgepay/payment-engine
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8080
+
+env:
+  PORT: "8080"
+  ENVIRONMENT: production
+  LOG_LEVEL: debug
+
+# Hyperswitch-specific config
+hyperswitch:
+  secretsFile: /etc/forgepay/secrets.toml
+  vaultUrl: "http://vault:8200"
+
+secretRef: "forgepay-payment-engine-secrets"
+# Expected keys in that secret:
+#   POSTGRES_PASSWORD
+#   VAULT_TOKEN  (for PCI card data vault)
+#   WEBHOOK_SIGNATURE_KEY
+#   MASTER_ENCRYPTION_KEY
+
+resources:
+  requests:
+    cpu: "500m"
+    memory: "512Mi"
+  limits:
+    cpu: "2000m"
+    memory: "2048Mi"
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 8
+  targetCPUUtilizationPercentage: 70
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 8080
+  initialDelaySeconds: 30
+  periodSeconds: 15
+
+readinessProbe:
+  httpGet:
+    path: /health/ready
+    port: 8080
+  initialDelaySeconds: 10
+  periodSeconds: 10

@@ -35,11 +35,11 @@ export const config = {
 
   // Per-source HMAC secrets (set by each service)
   webhookSecrets: {
-    hyperswitch:        optional('HYPERSWITCH_WEBHOOK_SECRET', ''),
-    killbill:           optional('KILLBILL_WEBHOOK_SECRET', ''),
+    hyperswitch:        required('HYPERSWITCH_WEBHOOK_SECRET'),
+    killbill:           required('KILLBILL_WEBHOOK_SECRET'),
     morLayer:           optional('MOR_LAYER_WEBHOOK_SECRET', ''),
-    stablecoinGateway:  optional('STABLECOIN_GW_WEBHOOK_SECRET', ''),
-    cryptoGateway:      optional('CRYPTO_GW_WEBHOOK_SECRET', ''),
+    stablecoinGateway:  required('STABLECOIN_GW_WEBHOOK_SECRET'),
+    cryptoGateway:      required('CRYPTO_GW_WEBHOOK_SECRET'),
   },
 
   // Merchant webhook delivery

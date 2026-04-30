@@ -24,6 +24,8 @@ secretRef: "forgepay-unified-router-secrets"
 #   MOR_LAYER_WEBHOOK_SECRET
 #   STABLECOIN_GW_WEBHOOK_SECRET
 #   CRYPTO_GW_WEBHOOK_SECRET
+# Note: Kill Bill must post webhooks to http://forgepay-unified-router:8000/webhooks/killbill
+# with the KILLBILL_WEBHOOK_SECRET in the x-killbill-signature header (HMAC-SHA256)
 
 resources:
   requests:

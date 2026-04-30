@@ -68,7 +68,7 @@ async function main() {
   // ── 2. Deploy CommitmentTree ───────────────────────────────────────────────
   console.log('2/3  Deploying CommitmentTree...');
   const CommitmentTreeFactory = await ethers.getContractFactory('CommitmentTree');
-  const tree = await CommitmentTreeFactory.deploy(ownerAddress, updaterAddress);
+  const tree = await CommitmentTreeFactory.deploy(updaterAddress);
   await tree.waitForDeployment();
   const treeAddress = await tree.getAddress();
   console.log(`     ✓ CommitmentTree:     ${treeAddress}`);
@@ -78,7 +78,6 @@ async function main() {
   const NullifierRegistryFactory = await ethers.getContractFactory('NullifierRegistry');
   const registry = await NullifierRegistryFactory.deploy(
     verifierAddress,
-    ownerAddress,
     auditorAddress,
   );
   await registry.waitForDeployment();

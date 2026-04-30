@@ -1,0 +1,6 @@
+apiVersion: v2
+name: mor-layer
+description: "ForgePay MoR Layer — Merchant of Record, tax, checkout (Polar fork)"
+type: application
+version: 0.1.0
+appVersion: "2026.04.15"
