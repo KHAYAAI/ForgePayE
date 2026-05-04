@@ -208,3 +208,57 @@ jobs:
 
       - name: Lint monitoring
         run: helm lint forgepay/infra/helm/monitoring/ || true
+
+  # ── Load Testing (Baseline Validation) ───────────────────────────────────────
+  load-test-baseline:
+    name: "load-tests — baseline validation"
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install k6
+        run: |
+          apt-get update && apt-get install -y gpg curl
+          curl https://dl.k6.io/key.gpg | gpg --no-default-keyring --keyring ./k6-keyring.gpg --import
+          curl https://dl.k6.io/deb/debian/k6.gpg | gpg --no-default-keyring --keyring ./k6-keyring.gpg --import
+          curl https://dl.k6.io/deb/repos/amd64/pool/main/k6_latest_amd64.deb -o k6.deb
+          dpkg -i k6.deb
+
+      - name: Run checkout load test
+        env:
+          BASE_URL: ${{ secrets.STAGING_API_URL || 'http://localhost:8010' }}
+        run: |
+          mkdir -p forgepay/infra/load-tests/results
+          cd forgepay/infra/load-tests
+          k6 run --out json=results/checkout-baseline.json checkout-load-test.js || true
+
+      - name: Compare to baseline
+        id: baseline-compare
+        run: |
+          cd forgepay/infra/load-tests
+          if [ -f results/baseline.json ]; then
+            bash compare-baseline.sh results/checkout-baseline.json results/baseline.json && echo "comparison_passed=true" >> $GITHUB_OUTPUT || echo "comparison_passed=false" >> $GITHUB_OUTPUT
+          else
+            echo "No baseline found; skipping comparison"
+            echo "comparison_passed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload load test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: load-test-results
+          path: forgepay/infra/load-tests/results/
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request' && steps.baseline-compare.outputs.comparison_passed == 'false'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '❌ Load test comparison failed: Performance regression detected vs baseline.\n\nCheck the [load test results](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.'
+            })

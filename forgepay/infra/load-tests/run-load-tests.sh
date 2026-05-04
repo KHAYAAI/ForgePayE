@@ -2,18 +2,22 @@
 set -euo pipefail
 
 # ForgePay Load Test Runner
-# Usage: ./run-load-tests.sh [checkout|stablecoin|crypto|all] [--base-url URL]
+# Usage: ./run-load-tests.sh [checkout|stablecoin|crypto|stress|spike|all] [--base-url URL] [--capture-baseline] [--compare-baseline]
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RESULTS_DIR="${SCRIPT_DIR}/results"
 TEST="${1:-all}"
 BASE_URL="${BASE_URL:-}"
+CAPTURE_BASELINE=false
+COMPARE_BASELINE=false
 
-# Parse --base-url flag
+# Parse flags
 shift || true
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --base-url) BASE_URL="$2"; shift 2 ;;
+    --capture-baseline) CAPTURE_BASELINE=true; shift ;;
+    --compare-baseline) COMPARE_BASELINE=true; shift ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
@@ -58,6 +62,12 @@ case "$TEST" in
   checkout)
     run_test "checkout" "checkout-load-test.js"
     ;;
+  stress)
+    run_test "checkout-stress" "checkout-stress-test.js"
+    ;;
+  spike)
+    run_test "checkout-spike" "checkout-spike-test.js"
+    ;;
   stablecoin)
     run_test "stablecoin" "stablecoin-load-test.js"
     ;;
@@ -70,10 +80,35 @@ case "$TEST" in
     run_test "crypto"     "crypto-load-test.js"
     ;;
   *)
-    echo "Usage: $0 [checkout|stablecoin|crypto|all] [--base-url URL]"
+    echo "Usage: $0 [checkout|stablecoin|crypto|stress|spike|all] [--base-url URL] [--capture-baseline] [--compare-baseline]"
     exit 1
     ;;
 esac
+
+# Handle baseline operations
+if [[ "$COMPARE_BASELINE" == true ]]; then
+  LATEST=$(ls -t "$RESULTS_DIR"/checkout_*.json 2>/dev/null | head -1 || echo "")
+  if [[ -z "$LATEST" ]]; then
+    echo "⚠️  No recent checkout test results found for baseline comparison"
+  elif [[ ! -f "$RESULTS_DIR/baseline.json" ]]; then
+    echo "⚠️  No baseline.json found. Run with --capture-baseline first."
+  else
+    if bash "$SCRIPT_DIR/compare-baseline.sh" "$LATEST" "$RESULTS_DIR/baseline.json"; then
+      echo "✅ Baseline comparison passed"
+    else
+      echo "❌ Baseline comparison failed"
+      FAILED=$((FAILED + 1))
+    fi
+  fi
+fi
+
+if [[ "$CAPTURE_BASELINE" == true ]]; then
+  LATEST=$(ls -t "$RESULTS_DIR"/checkout_*.json 2>/dev/null | head -1 || echo "")
+  if [[ -n "$LATEST" ]]; then
+    cp "$LATEST" "$RESULTS_DIR/baseline.json"
+    echo "✅ Baseline captured: $RESULTS_DIR/baseline.json"
+  fi
+fi
 
 echo ""
 if [[ $FAILED -eq 0 ]]; then

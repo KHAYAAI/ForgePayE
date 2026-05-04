@@ -24,6 +24,7 @@ import time
 from dataclasses import dataclass
 from typing import Optional
 
+import redis
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.serialization import (
@@ -69,7 +70,7 @@ class AuditorClient:
     Never serialize or log the secret key.
     """
 
-    def __init__(self, public_key_hex: str, secret_key_hex: str):
+    def __init__(self, public_key_hex: str, secret_key_hex: str, redis_url: Optional[str] = None):
         """Internal constructor. Use from_seed() or generate() instead."""
         if len(public_key_hex) != 64:
             raise ValueError("public_key_hex must be 64 hex chars (32 bytes)")
@@ -77,12 +78,23 @@ class AuditorClient:
             raise ValueError("secret_key_hex must be 64 hex chars (32 bytes)")
         self._public_key_hex = public_key_hex
         self._secret_key_hex = secret_key_hex
-        # In-memory frozen nullifier set.  For production this backs onto a
-        # Redis cache which in turn mirrors the on-chain NullifierRegistry state.
+        # In-memory frozen nullifier set (fallback if Redis unavailable).
         self._frozen_nullifiers: set[str] = set()
+        # Redis client for distributed nullifier state
+        self._redis: Optional[redis.Redis] = None
+        if redis_url:
+            try:
+                self._redis = redis.from_url(redis_url, decode_responses=True)
+                self._redis.ping()
+                logger.info("Connected to Redis for nullifier state")
+            except Exception as e:
+                logger.warning("Redis connection failed; falling back to in-memory nullifier set: %s", e)
+        # Feature flag: ZK proof verification enabled
+        self._zk_verification_enabled = os.getenv("ZK_PROOF_VERIFICATION_ENABLED", "false").lower() == "true"
+        self._zk_sidecar_url = os.getenv("ZK_SIDECAR_URL", "http://localhost:8090")
 
     @classmethod
-    def from_seed(cls, seed_hex: str) -> "AuditorClient":
+    def from_seed(cls, seed_hex: str, redis_url: Optional[str] = None) -> "AuditorClient":
         """
         Derive a deterministic X25519 keypair from a hex seed.
 
@@ -91,7 +103,12 @@ class AuditorClient:
 
         Args:
             seed_hex: At least 64 hex characters (32 bytes)
+            redis_url: Optional Redis connection string (defaults to env var REDIS_URL)
         """
+        # Use provided redis_url or env var
+        if redis_url is None:
+            redis_url = os.getenv("REDIS_URL")
+
         seed_bytes = bytes.fromhex(seed_hex)
         if len(seed_bytes) < 32:
             raise ValueError("seed must be at least 32 bytes (64 hex chars)")
@@ -104,18 +121,25 @@ class AuditorClient:
         pk_hex = public_key.public_bytes(Encoding.Raw, PublicFormat.Raw).hex()
         sk_hex = private_key.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption()).hex()
 
-        return cls(public_key_hex=pk_hex, secret_key_hex=sk_hex)
+        return cls(public_key_hex=pk_hex, secret_key_hex=sk_hex, redis_url=redis_url)
 
     @classmethod
-    def generate(cls) -> "AuditorClient":
-        """Generate a random X25519 keypair using OS entropy."""
+    def generate(cls, redis_url: Optional[str] = None) -> "AuditorClient":
+        """Generate a random X25519 keypair using OS entropy.
+
+        Args:
+            redis_url: Optional Redis connection string (defaults to env var REDIS_URL)
+        """
+        if redis_url is None:
+            redis_url = os.getenv("REDIS_URL")
+
         private_key = X25519PrivateKey.generate()
         public_key = private_key.public_key()
 
         pk_hex = public_key.public_bytes(Encoding.Raw, PublicFormat.Raw).hex()
         sk_hex = private_key.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption()).hex()
 
-        return cls(public_key_hex=pk_hex, secret_key_hex=sk_hex)
+        return cls(public_key_hex=pk_hex, secret_key_hex=sk_hex, redis_url=redis_url)
 
     @property
     def public_key(self) -> str:
@@ -250,7 +274,7 @@ class AuditorClient:
         }
         return json.dumps(memo).encode()
 
-    def verify_audit_proof(self, proof_bytes: bytes) -> bool:
+    def verify_audit_proof(self, proof_bytes: bytes, public_inputs: Optional[list] = None) -> bool:
         """
         Verify a Groth16 audit circuit proof.
 
@@ -261,53 +285,103 @@ class AuditorClient:
         (uint256[2], uint256[2][2], uint256[2]) = 256 bytes.
         Accept either format for compatibility.
 
-        TODO: Call Groth16Verifier.verifyProof() once VK is set and contracts deployed.
+        If ZK_PROOF_VERIFICATION_ENABLED=false (default): Accepts structurally valid proofs (stub mode).
+        If ZK_PROOF_VERIFICATION_ENABLED=true: Calls ZK sidecar HTTP service for real Groth16 verification.
         """
         if len(proof_bytes) not in (128, 256):
             logger.warning(
                 "Invalid proof length %d (expected 128 or 256 bytes)", len(proof_bytes)
             )
             return False
-        # In stub mode (before circuit finalization), accept any structurally valid proof.
-        # TODO: Call Groth16Verifier.verifyProof() once VK is set and contracts deployed.
-        logger.info("Audit proof structurally valid (%d bytes)", len(proof_bytes))
-        return True
+
+        # Stub mode (default): accept any structurally valid proof
+        if not self._zk_verification_enabled:
+            logger.debug("ZK proof verification disabled; accepting structurally valid proof")
+            return True
+
+        # Production mode: call ZK sidecar for real Groth16 verification
+        try:
+            import requests
+            import base64
+            proof_b64 = base64.b64encode(proof_bytes).decode()
+            response = requests.post(
+                f"{self._zk_sidecar_url}/verify",
+                json={"proof": proof_b64, "public_inputs": public_inputs or []},
+                timeout=5,
+            )
+            if response.status_code == 200:
+                data = response.json()
+                is_valid = data.get("valid", False)
+                logger.info("ZK proof verification result: %s", is_valid)
+                return is_valid
+            else:
+                logger.error("ZK sidecar returned %d: %s", response.status_code, response.text)
+                return False
+        except Exception as e:
+            logger.error("ZK sidecar verification failed: %s", e)
+            return False
 
     def is_nullifier_frozen(self, nullifier_hex: str) -> bool:
         """
         Check if a nullifier is in the compliance freeze set.
 
-        Checks the in-memory set first (fast path).  For production this would
-        also query the NullifierRegistry contract on-chain via Web3.
+        Checks Redis first (distributed state); falls back to in-memory set if Redis unavailable.
         """
         normalized = nullifier_hex.lower().strip()
+
+        # Try Redis first (distributed, survives pod restart)
+        if self._redis:
+            try:
+                is_frozen = self._redis.sismember("nullifiers:frozen", normalized)
+                if is_frozen:
+                    logger.debug("Nullifier frozen (Redis): %s", normalized[:12])
+                    return True
+            except Exception as e:
+                logger.warning("Redis lookup failed; falling back to in-memory: %s", e)
+
+        # Fallback: in-memory set (fast, but lost on pod restart)
         if normalized in self._frozen_nullifiers:
+            logger.debug("Nullifier frozen (in-memory): %s", normalized[:12])
             return True
-        # TODO: Also query NullifierRegistry contract via Web3 when chain config available.
+
         return False
 
     def freeze_nullifier(self, nullifier_hex: str, reason: str = "auditor freeze") -> None:
         """
         Freeze a nullifier for compliance (sanctions, fraud, court order).
 
-        Adds to the in-memory set and emits a warning log.
-        TODO: Also INSERT into frozen_nullifiers table and call
-        NullifierRegistry.freezeNullifier() on all EVM chains.
+        Adds to Redis (distributed) and in-memory set.
+        Note: Also requires INSERT into frozen_nullifiers table (done by caller via ORM).
         """
         normalized = nullifier_hex.lower().strip()
         self._frozen_nullifiers.add(normalized)
-        logger.warning(
-            "Auditor froze nullifier %s: %s", normalized[:12], reason
-        )
+
+        if self._redis:
+            try:
+                self._redis.sadd("nullifiers:frozen", normalized)
+                logger.warning("Auditor froze nullifier %s (Redis + in-memory): %s", normalized[:12], reason)
+            except Exception as e:
+                logger.error("Failed to freeze nullifier in Redis: %s", e)
+        else:
+            logger.warning("Auditor froze nullifier %s (in-memory): %s", normalized[:12], reason)
 
     def unfreeze_nullifier(self, nullifier_hex: str) -> None:
         """
         Remove a nullifier from the compliance freeze set.
 
-        TODO: Also remove from frozen_nullifiers table and call
-        NullifierRegistry.unfreezeNullifier() on all EVM chains.
+        Removes from Redis (distributed) and in-memory set.
         """
-        self._frozen_nullifiers.discard(nullifier_hex.lower().strip())
+        normalized = nullifier_hex.lower().strip()
+        self._frozen_nullifiers.discard(normalized)
+
+        if self._redis:
+            try:
+                self._redis.srem("nullifiers:frozen", normalized)
+                logger.info("Unfroze nullifier %s (Redis + in-memory)", normalized[:12])
+            except Exception as e:
+                logger.error("Failed to unfreeze nullifier in Redis: %s", e)
+        else:
+            logger.info("Unfroze nullifier %s (in-memory)", normalized[:12])
 
     def rotate_keys(self, new_seed: str) -> "AuditorClient":
         """

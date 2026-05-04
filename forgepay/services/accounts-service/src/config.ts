@@ -72,4 +72,10 @@ export const config = {
     enabled:       opt('ZK_PROOFS_ENABLED', 'false') === 'true',
     exportKeysBin: opt('ZK_EXPORT_KEYS_BIN', '/usr/local/bin/export-keys'),
   },
+
+  // AWS KMS for custodial account key management
+  aws: {
+    region:      opt('AWS_REGION', 'us-east-1'),
+    kmsKeyArn:   optSecret('KMS_KEY_ARN') || '',  // ARN of main CMK for custodial accounts
+  },
 } as const;

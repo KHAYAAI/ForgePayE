@@ -12,6 +12,7 @@ interface CreateAccountBody {
   email:          string;
   display_name?:  string;
   default_chain?: string;
+  account_type?:  'custodial' | 'self_custodial';
 }
 
 interface KycBody {
@@ -54,8 +55,9 @@ export async function buildAccountRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const { merchant_id, email, display_name, default_chain } = req.body;
+    const { merchant_id, email, display_name, default_chain, account_type } = req.body;
     const chain = default_chain ?? config.accounts.defaultChain;
+    const accType = account_type ?? 'self_custodial';
 
     // Generate deterministic account number
     const seqResult = await db.query(`SELECT COUNT(*) AS cnt FROM fp_accounts`);
@@ -63,17 +65,17 @@ export async function buildAccountRoutes(app: FastifyInstance) {
     const year      = new Date().getFullYear();
     const accountNumber = `FP-${year}-${String(seq).padStart(5, '0')}`;
 
-    // Generate wallet
-    const wallet = await wallets.generateWallet(chain);
+    // Generate wallet (custodial or self_custodial)
+    const wallet = await wallets.generateWallet(chain, accType);
 
     const accountId = randomUUID();
     await db.query(
       `INSERT INTO fp_accounts
          (id, merchant_id, account_number, email, display_name, default_chain,
-          wallet_address, encrypted_key)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          wallet_address, encrypted_key, account_type, kms_key_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
       [accountId, merchant_id, accountNumber, email, display_name ?? null,
-       chain, wallet.address, wallet.encryptedKey],
+       chain, wallet.address, wallet.encryptedKey ?? null, accType, wallet.kmsKeyId ?? null],
     );
 
     const result = await db.query(`SELECT * FROM fp_accounts WHERE id=$1`, [accountId]);
@@ -81,7 +83,7 @@ export async function buildAccountRoutes(app: FastifyInstance) {
 
     await forwardToUnifiedRouter(buildEvent(
       'account.created', merchant_id, accountId,
-      { accountNumber, email, chain, walletAddress: wallet.address },
+      { accountNumber, email, chain, walletAddress: wallet.address, accountType: accType },
     ));
 
     reply.code(201).send(account);

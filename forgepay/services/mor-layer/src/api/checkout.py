@@ -331,6 +331,20 @@ async def create_shielded_checkout_session(
     db.add(session_row)
     await db.commit()
 
+    # Store shielded checkout mapping for compliance audit trail
+    # Links nullifier to Polar session ID so tax authorities can trace shielded TXs
+    from ..db.models import ShieldedCheckoutMapping
+    mapping = ShieldedCheckoutMapping(
+        nullifier=tx_data.nullifier,
+        polar_session_id=session_id,
+        merchant_id=body.merchant_id,
+        amount_decrypted_cents=amount_cents,
+        jurisdiction=body.customer_country or "US",
+        tax_amount_cents=tax_cents,
+    )
+    db.add(mapping)
+    await db.commit()
+
     # Cache in Redis
     redis = get_redis()
     await redis.setex(

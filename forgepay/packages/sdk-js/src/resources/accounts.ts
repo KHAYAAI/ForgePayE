@@ -6,22 +6,25 @@ export interface Account {
   account_number:  string;
   email:           string;
   display_name?:   string;
+  account_type:    'custodial' | 'self_custodial';
   kyc_status:      'not_started' | 'pending' | 'approved' | 'rejected' | 'requires_review';
   risk_score:      number;
   balance_usdc:    string;
   balance_usdt:    string;
   default_chain:   string;
   wallet_address?: string;
+  kms_key_id?:     string;
   is_active:       boolean;
   created_at:      string;
   updated_at:      string;
 }
 
 export interface AccountCreateParams {
-  merchant_id:    string;
-  email:          string;
-  display_name?:  string;
-  default_chain?: 'polygon' | 'base' | 'ethereum' | 'arbitrum';
+  merchant_id:     string;
+  email:           string;
+  display_name?:   string;
+  default_chain?:  'polygon' | 'base' | 'ethereum' | 'arbitrum';
+  account_type?:   'custodial' | 'self_custodial';
 }
 
 export interface KycSubmitParams {

@@ -7,7 +7,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func as sa_func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -65,3 +65,18 @@ class CheckoutSession(Base):
     audit_timestamp: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     merchant: Mapped["Merchant"] = relationship(back_populates="checkout_sessions")
+
+
+class ShieldedCheckoutMapping(Base):
+    __tablename__ = "shielded_checkout_mapping"
+
+    id:                        Mapped[str]      = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    nullifier:                 Mapped[str]      = mapped_column(String(66), nullable=False, unique=True, index=True)
+    polar_session_id:          Mapped[str]      = mapped_column(String(255), nullable=False, index=True)
+    merchant_id:               Mapped[str]      = mapped_column(String(255), nullable=False, index=True)
+    amount_decrypted_cents:    Mapped[int]      = mapped_column(Integer, nullable=False)
+    jurisdiction:              Mapped[str]      = mapped_column(String(10), nullable=False)
+    tax_amount_cents:          Mapped[int]      = mapped_column(Integer, nullable=False)
+    audit_timestamp:           Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=sa_func.now())
+    created_at:                Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at:                Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
