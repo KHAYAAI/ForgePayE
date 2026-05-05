@@ -1,0 +1,182 @@
+# ForgePay Staging Environment Configuration
+# This is a non-production environment for testing deployment and integration flows.
+
+global:
+  environment: staging
+  log_level: debug
+  otel_collector_host: otel-collector.staging.svc.cluster.local
+  otel_collector_port: 4317
+
+# Payment Engine
+payment_engine:
+  enabled: true
+  port: 8000
+  api_key: test_key_staging
+  db_url: postgresql://forgepay:forgepay@postgres.staging.svc.cluster.local:5432/hyperswitch_staging
+  redis_url: redis://redis.staging.svc.cluster.local:6379/0
+  vault_enabled: true
+  vault_url: https://vault-staging.example.com
+  vault_namespace: forgepay-staging
+
+# Unified Router
+unified_router:
+  enabled: true
+  port: 8000
+  payment_engine_url: http://payment-engine:8000
+  billing_engine_url: http://billing-engine:8020
+  stablecoin_gateway_url: http://stablecoin-gateway:8020
+  crypto_gateway_url: http://crypto-gateway:8030
+  chain_sync_url: http://chain-sync:8040
+  mor_layer_url: http://mor-layer:8010
+  db_url: postgresql://forgepay:forgepay@postgres.staging.svc.cluster.local:5432/forgepay_staging
+  db_pool_size: 10
+  redis_url: redis://redis.staging.svc.cluster.local:6379/1
+  webhook_signing_secret: staging_webhook_secret_do_not_use_in_prod
+  rate_limit_enabled: true
+  rate_limit_requests_per_minute: 5000
+  metrics_port: 9090
+
+# Billing Engine
+billing_engine:
+  enabled: true
+  port: 8020
+  admin_port: 8021
+  killbill_db_url: postgresql://forgepay:forgepay@postgres.staging.svc.cluster.local:5432/killbill_staging
+  hyperswitch_api_key: test_key_staging
+  hyperswitch_url: http://payment-engine:8000
+  webhook_secret: staging_webhook_secret_do_not_use_in_prod
+
+# MoR Layer
+mor_layer:
+  enabled: true
+  port: 8010
+  hyperswitch_api_key: test_key_staging
+  hyperswitch_url: http://payment-engine:8000
+  database_url: postgresql://forgepay:forgepay@postgres.staging.svc.cluster.local:5432/mor_layer_staging
+  redis_url: redis://redis.staging.svc.cluster.local:6379/2
+  tax_engine: test
+  internal_webhook_secret: staging_webhook_secret_do_not_use_in_prod
+
+# Stablecoin Gateway
+stablecoin_gateway:
+  enabled: true
+  port: 8020
+  chains:
+    polygon:
+      rpc_url: https://rpc-mumbai.maticvigil.com  # Mumbai testnet
+      commitment_tree_addr: "0x0000000000000000000000000000000000000000"
+      nullifier_registry_addr: "0x0000000000000000000000000000000000000000"
+      groth16_verifier_addr: "0x0000000000000000000000000000000000000000"
+      usdc_contract_addr: "0x0FA8781a83E46826621b3BC094Ea2A0212e71B23"
+      usdt_contract_addr: "0x3813e82e6f7098b9f523595496C6dCB81135e389"
+  db_url: postgresql://forgepay:forgepay@postgres.staging.svc.cluster.local:5432/stablecoin_gw_staging
+  redis_url: redis://redis.staging.svc.cluster.local:6379/3
+  x402_enabled: true
+  x402_proof_timeout_seconds: 3600
+
+# Crypto Gateway
+crypto_gateway:
+  enabled: true
+  port: 8030
+  chains:
+    bitcoin:
+      rpc_url: http://bitcoin-testnet:18332
+      network: testnet
+      confirmation_depth: 1
+    ethereum:
+      rpc_url: https://goerli.infura.io/v3/YOUR_INFURA_KEY
+      network: testnet
+    litecoin:
+      rpc_url: http://litecoin-testnet:19332
+      network: testnet
+    monero:
+      rpc_url: http://monero-node:18081
+      network: stagenet
+  db_url: postgresql://forgepay:forgepay@postgres.staging.svc.cluster.local:5432/crypto_gw_staging
+  redis_url: redis://redis.staging.svc.cluster.local:6379/4
+  hd_wallet_seed: test_seed_do_not_use_in_production
+  invoice_expiry_minutes: 60
+
+# Chain Sync
+chain_sync:
+  enabled: true
+  port: 8040
+  chains:
+    ethereum:
+      rpc_url: https://goerli.infura.io/v3/YOUR_INFURA_KEY
+      confirmation_blocks: 12
+      commitment_tree_addr: "0x0000000000000000000000000000000000000000"
+      nullifier_registry_addr: "0x0000000000000000000000000000000000000000"
+      groth16_verifier_addr: "0x0000000000000000000000000000000000000000"
+    polygon:
+      rpc_url: https://rpc-mumbai.maticvigil.com
+      confirmation_blocks: 256
+      commitment_tree_addr: "0x0000000000000000000000000000000000000000"
+      nullifier_registry_addr: "0x0000000000000000000000000000000000000000"
+      groth16_verifier_addr: "0x0000000000000000000000000000000000000000"
+  db_url: postgresql://forgepay:forgepay@postgres.staging.svc.cluster.local:5432/chain_sync_staging
+  sync_interval_seconds: 120
+
+# Accounts Service
+accounts_service:
+  enabled: true
+  port: 8050
+  circle_api_key: test_key_staging
+  circle_api_url: https://api-sandbox.circle.com/v1
+  db_url: postgresql://forgepay:forgepay@postgres.staging.svc.cluster.local:5432/accounts_staging
+  redis_url: redis://redis.staging.svc.cluster.local:6379/5
+  kyc_provider: test
+  onfido_api_key: test_key_staging
+
+# Forge Agent
+forge_agent:
+  enabled: true
+  port: 8060
+  claude_api_key: test_key_staging
+  claude_model: claude-opus-4-7
+  db_url: postgresql://forgepay:forgepay@postgres.staging.svc.cluster.local:5432/forge_agent_staging
+  max_token_budget: 100000
+  max_monthly_spend_usd: 1000  # Lower limit in staging
+
+# Database
+postgres:
+  primary_host: postgres.staging.svc.cluster.local
+  primary_port: 5432
+  replica_host: postgres-replica.staging.svc.cluster.local
+  replica_port: 5432
+  username: forgepay
+  password: forgepay
+  ssl_enabled: false
+  backup_enabled: true
+  backup_schedule: "0 2 * * *"
+
+# Redis
+redis:
+  primary_host: redis.staging.svc.cluster.local
+  primary_port: 6379
+  cluster_enabled: false
+  persistence_enabled: true
+  backup_schedule: "0 3 * * *"
+
+# Kubernetes
+kubernetes:
+  namespace: forgepay-staging
+  ingress_class: nginx
+  domain: staging.forgepay.io
+  tls_enabled: true
+  tls_issuer: letsencrypt-staging
+  prometheus_enabled: true
+  prometheus_scrape_interval: 30s
+  jaeger_enabled: true
+  jaeger_endpoint: http://jaeger.monitoring-staging.svc.cluster.local:14268/api/traces
+
+# Observability
+observability:
+  service_name: forgepay-staging
+  environment: staging
+  metrics_path: /metrics
+  metrics_port: 9090
+  log_format: json
+  log_level: debug
+  trace_sample_rate: 0.5
+  alert_email: staging-alerts@forgepay.io

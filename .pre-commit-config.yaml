@@ -1,0 +1,119 @@
+# Pre-commit hooks for ForgePay
+# Install: pip install pre-commit && pre-commit install
+# Run: pre-commit run --all-files
+
+repos:
+  # General checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+        args: ['--maxkb=1024']
+      - id: check-merge-conflict
+      - id: mixed-line-ending
+        args: ['--fix=lf']
+
+  # Secrets scanning
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: ['--baseline', '.secrets.baseline']
+        exclude: 'forgepay/infra/contracts/node_modules'
+
+  # YAML validation
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.35.1
+    hooks:
+      - id: yamllint
+        args: ['-d', '{rules: {line-length: {max: 120}, indentation: {spaces: 2}}}']
+        files: '^(forgepay|crates)/.*\.ya?ml$'
+
+  # TypeScript/JavaScript
+  - repo: https://github.com/pre-commit/mirrors-eslint
+    rev: v9.6.0
+    hooks:
+      - id: eslint
+        files: '^forgepay/(services|apps|packages)/.*\.(ts|tsx|js|jsx)$'
+        types: [file]
+        args: ['--fix', '--ext', '.ts,.tsx,.js,.jsx']
+        exclude: 'node_modules|dist'
+
+  # Python
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.5.6
+    hooks:
+      - id: ruff
+        args: ['--fix']
+        files: '^forgepay/(services|packages)/.*\.py$'
+        exclude: 'venv|__pycache__'
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.11.1
+    hooks:
+      - id: mypy
+        files: '^forgepay/(services|packages)/.*\.py$'
+        exclude: 'venv|__pycache__|tests'
+        additional_dependencies: ['types-all']
+
+  # Markdown
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.41.0
+    hooks:
+      - id: markdownlint
+        args: ['--fix']
+        files: '\.md$'
+
+  # Helm
+  - repo: https://github.com/helm/helm
+    rev: v3.15.0
+    hooks:
+      - id: helm-lint
+        args: ['--strict']
+        files: '^forgepay/infra/helm/.*/Chart\.yaml$'
+
+  # Terraform
+  - repo: https://github.com/pre-commit/pre-commit-terraform
+    rev: v1.92.0
+    hooks:
+      - id: terraform_fmt
+        files: '^forgepay/infra/terraform/.*\.tf$'
+      - id: terraform_validate
+        files: '^forgepay/infra/terraform/.*\.tf$'
+
+  # Git checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: check-case-conflict
+      - id: check-docstring-first
+      - id: debug-statements
+
+# Configuration
+default_language_version:
+  python: python3.12
+  node: '20'
+
+exclude: |
+  (?x)^(
+    crates/router|
+    forgepay/infra/contracts/node_modules|
+    \.git|
+    __pycache__|
+    \.venv|
+    node_modules|
+    dist|
+    build
+  )/
+
+ci:
+  autofix_commit_msg: 'chore: pre-commit auto fixes'
+  autofix_prs: true
+  autoupdate_branch: ''
+  autoupdate_commit_msg: 'chore: pre-commit autoupdate'
+  autoupdate_schedule: weekly
+  skip: [helm-lint, terraform-fmt, terraform-validate]  # Skip in CI
+  stages: [commit]

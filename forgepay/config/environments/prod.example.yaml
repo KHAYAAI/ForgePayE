@@ -1,0 +1,263 @@
+# ForgePay Production Environment Configuration
+# IMPORTANT: Never commit secrets to git. Use AWS Secrets Manager or Vault.
+# Copy this file to prod.yaml and fill in actual values.
+
+# Global service configuration
+global:
+  environment: production
+  log_level: info
+  # Tracing
+  otel_collector_host: otel-collector.monitoring.svc.cluster.local
+  otel_collector_port: 4317
+
+# Hyperswitch Payment Engine (Rust)
+payment_engine:
+  enabled: true
+  port: 8000
+  # Secrets from AWS Secrets Manager
+  api_key: ${PAYMENT_ENGINE_API_KEY}
+  db_url: postgresql://${DB_USER}:${DB_PASS}@postgres-primary.default.svc.cluster.local:5432/hyperswitch
+  redis_url: redis://redis-primary.default.svc.cluster.local:6379/0
+  # PCI Vault (never disable in production)
+  vault_enabled: true
+  vault_url: https://vault.example.com
+  vault_namespace: forgepay
+
+# Unified Router (TypeScript/Fastify)
+unified_router:
+  enabled: true
+  port: 8000
+  # Service discovery
+  payment_engine_url: http://payment-engine:8000
+  billing_engine_url: http://billing-engine:8020
+  stablecoin_gateway_url: http://stablecoin-gateway:8020
+  crypto_gateway_url: http://crypto-gateway:8030
+  chain_sync_url: http://chain-sync:8040
+  mor_layer_url: http://mor-layer:8010
+  # Database
+  db_url: postgresql://${DB_USER}:${DB_PASS}@postgres-primary.default.svc.cluster.local:5432/forgepay
+  db_pool_size: 20
+  redis_url: redis://redis-primary.default.svc.cluster.local:6379/1
+  # Webhooks
+  webhook_signing_secret: ${WEBHOOK_SIGNING_SECRET}
+  # Rate limiting
+  rate_limit_enabled: true
+  rate_limit_requests_per_minute: 1000
+  # Monitoring
+  metrics_port: 9090
+
+# Billing Engine (Kill Bill Java)
+billing_engine:
+  enabled: true
+  port: 8020
+  admin_port: 8021
+  # Kill Bill core
+  killbill_db_url: postgresql://${DB_USER}:${DB_PASS}@postgres-primary.default.svc.cluster.local:5432/killbill
+  # Hyperswitch plugin
+  hyperswitch_api_key: ${PAYMENT_ENGINE_API_KEY}
+  hyperswitch_url: http://payment-engine:8000
+  # Webhooks
+  webhook_secret: ${WEBHOOK_SIGNING_SECRET}
+
+# MoR Layer (Python/FastAPI)
+mor_layer:
+  enabled: true
+  port: 8010
+  # Hyperswitch integration
+  hyperswitch_api_key: ${PAYMENT_ENGINE_API_KEY}
+  hyperswitch_url: http://payment-engine:8000
+  # Database
+  database_url: postgresql://${DB_USER}:${DB_PASS}@postgres-primary.default.svc.cluster.local:5432/mor_layer
+  redis_url: redis://redis-primary.default.svc.cluster.local:6379/2
+  # Tax engine (Avalara/TaxJar API)
+  tax_engine: avalara
+  avalara_account_id: ${AVALARA_ACCOUNT_ID}
+  avalara_license_key: ${AVALARA_LICENSE_KEY}
+  # Webhooks
+  internal_webhook_secret: ${WEBHOOK_SIGNING_SECRET}
+
+# Stablecoin Gateway (TypeScript)
+stablecoin_gateway:
+  enabled: true
+  port: 8020
+  # Smart contract addresses (Polygon mainnet)
+  chains:
+    polygon:
+      rpc_url: https://polygon-rpc.com
+      commitment_tree_addr: "0x..."
+      nullifier_registry_addr: "0x..."
+      groth16_verifier_addr: "0x..."
+      usdc_contract_addr: "0xA8D0E6799FF3Fd19c6639CFF5e8b0742e1C9a27e"
+      usdt_contract_addr: "0xc2132D05D31c914a87C6611C10748AEb04B58e8F"
+    arbitrum:
+      rpc_url: https://arb1.arbitrum.io/rpc
+      commitment_tree_addr: "0x..."
+      nullifier_registry_addr: "0x..."
+      groth16_verifier_addr: "0x..."
+  # Database
+  db_url: postgresql://${DB_USER}:${DB_PASS}@postgres-primary.default.svc.cluster.local:5432/stablecoin_gw
+  redis_url: redis://redis-primary.default.svc.cluster.local:6379/3
+  # x402 payment proof
+  x402_enabled: true
+  x402_proof_timeout_seconds: 3600
+
+# Crypto Gateway (TypeScript)
+crypto_gateway:
+  enabled: true
+  port: 8030
+  # Blockchain RPC endpoints
+  chains:
+    bitcoin:
+      rpc_url: ${BITCOIN_RPC_URL}
+      network: mainnet
+      confirmation_depth: 3
+    ethereum:
+      rpc_url: ${ETHEREUM_RPC_URL}
+      network: mainnet
+    litecoin:
+      rpc_url: ${LITECOIN_RPC_URL}
+      network: mainnet
+    monero:
+      rpc_url: http://monero-node:18081
+      network: mainnet
+  # Database
+  db_url: postgresql://${DB_USER}:${DB_PASS}@postgres-primary.default.svc.cluster.local:5432/crypto_gw
+  redis_url: redis://redis-primary.default.svc.cluster.local:6379/4
+  # HD Wallet
+  hd_wallet_seed: ${CRYPTO_GATEWAY_SEED}  # Never commit!
+  # Invoice expiry
+  invoice_expiry_minutes: 60
+
+# Chain Sync (TypeScript)
+chain_sync:
+  enabled: true
+  port: 8040
+  # Contract monitoring
+  chains:
+    ethereum:
+      rpc_url: ${ETHEREUM_RPC_URL}
+      confirmation_blocks: 12
+      commitment_tree_addr: "0x..."
+      nullifier_registry_addr: "0x..."
+      groth16_verifier_addr: "0x..."
+    polygon:
+      rpc_url: https://polygon-rpc.com
+      confirmation_blocks: 256
+      commitment_tree_addr: "0x..."
+      nullifier_registry_addr: "0x..."
+      groth16_verifier_addr: "0x..."
+    base:
+      rpc_url: https://mainnet.base.org
+      confirmation_blocks: 2
+      commitment_tree_addr: "0x..."
+      nullifier_registry_addr: "0x..."
+      groth16_verifier_addr: "0x..."
+  # Database
+  db_url: postgresql://${DB_USER}:${DB_PASS}@postgres-primary.default.svc.cluster.local:5432/chain_sync
+  sync_interval_seconds: 60
+
+# Accounts Service (TypeScript)
+accounts_service:
+  enabled: true
+  port: 8050
+  # Circle API
+  circle_api_key: ${CIRCLE_API_KEY}
+  circle_api_url: https://api.circle.com/v1
+  # Database
+  db_url: postgresql://${DB_USER}:${DB_PASS}@postgres-primary.default.svc.cluster.local:5432/accounts
+  redis_url: redis://redis-primary.default.svc.cluster.local:6379/5
+  # KYC/AML
+  kyc_provider: onfido
+  onfido_api_key: ${ONFIDO_API_KEY}
+
+# Forge Agent (AI billing agent - Python)
+forge_agent:
+  enabled: true
+  port: 8060
+  # Claude API
+  claude_api_key: ${CLAUDE_API_KEY}
+  claude_model: claude-opus-4-7
+  # Database
+  db_url: postgresql://${DB_USER}:${DB_PASS}@postgres-primary.default.svc.cluster.local:5432/forge_agent
+  # Constraints
+  max_token_budget: 100000
+  max_monthly_spend_usd: 5000
+
+# Database
+postgres:
+  primary_host: postgres-primary.default.svc.cluster.local
+  primary_port: 5432
+  replica_host: postgres-replica.default.svc.cluster.local
+  replica_port: 5432
+  username: ${DB_USER}
+  password: ${DB_PASS}
+  # SSL
+  ssl_enabled: true
+  ssl_mode: require
+  # Backup
+  backup_enabled: true
+  backup_schedule: "0 2 * * *"  # 2 AM daily
+
+# Redis
+redis:
+  primary_host: redis-primary.default.svc.cluster.local
+  primary_port: 6379
+  # Cluster mode (optional)
+  cluster_enabled: false
+  # Persistence
+  persistence_enabled: true
+  # Backup
+  backup_schedule: "0 3 * * *"
+
+# Vault
+vault:
+  url: https://vault.example.com
+  token_file: /var/run/secrets/vault/token
+  namespace: forgepay
+  # KV v2 secret paths
+  secret_paths:
+    payment_engine: forgepay/payment-engine
+    unified_router: forgepay/unified-router
+    billing_engine: forgepay/billing-engine
+
+# Kubernetes / Container Orchestration
+kubernetes:
+  namespace: forgepay
+  # Ingress
+  ingress_class: nginx
+  domain: forgepay.io
+  # TLS
+  tls_enabled: true
+  tls_issuer: letsencrypt-prod
+  # Observability
+  prometheus_enabled: true
+  prometheus_scrape_interval: 15s
+  jaeger_enabled: true
+  jaeger_endpoint: http://jaeger.monitoring.svc.cluster.local:14268/api/traces
+
+# Observability
+observability:
+  service_name: forgepay
+  environment: production
+  # Prometheus
+  metrics_path: /metrics
+  metrics_port: 9090
+  # Logs
+  log_format: json
+  log_level: info
+  # Traces
+  trace_sample_rate: 0.1
+  # Alerts
+  alert_email: eng@forgepay.io
+  alert_slack_webhook: ${SLACK_WEBHOOK_URL}
+
+# API Keys & Secrets (use Vault/Secrets Manager in production)
+secrets:
+  # These should be injected at runtime, not stored in config
+  payment_engine_api_key: ${PAYMENT_ENGINE_API_KEY}
+  webhook_signing_secret: ${WEBHOOK_SIGNING_SECRET}
+  crypto_gateway_seed: ${CRYPTO_GATEWAY_SEED}
+  circle_api_key: ${CIRCLE_API_KEY}
+  claude_api_key: ${CLAUDE_API_KEY}
+  avalara_license_key: ${AVALARA_LICENSE_KEY}
+  onfido_api_key: ${ONFIDO_API_KEY}
