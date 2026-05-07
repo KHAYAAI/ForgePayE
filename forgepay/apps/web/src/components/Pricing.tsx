@@ -4,58 +4,60 @@ import { PRICING } from '@/lib/pricing';
 
 const PLANS = [
   {
-    name: 'Growth',
-    monthlyFee: PRICING.monthly,
-    monthlyNote: PRICING.monthlyNote,
-    transactionFee: PRICING.card.fee,
-    transactionNote: 'per fiat transaction',
-    highlight: true,
-    description: 'Everything you need to start and scale.',
+    id: 'free',
+    name: 'Free',
+    monthlyFee: PRICING.tiers.free.monthlyFee,
+    monthlyNote: PRICING.tiers.free.monthlyFeeLabel,
+    transactionFee: PRICING.tiers.free.transaction_fees.card,
+    transactionNote: 'per card transaction',
+    highlight: false,
+    description: 'Perfect for getting started with ForgePay.',
     features: [
-      'Cards, ACH, SEPA',
-      `Stablecoin & crypto (${PRICING.stablecoin.fee})`,
+      'Card payments (Visa, Mastercard, Amex)',
+      `Stablecoin & crypto (${PRICING.tiers.free.transaction_fees.stablecoin})`,
       'Hosted checkout',
-      'Merchant of Record (global tax)',
-      'Subscriptions & usage billing',
-      'Smart payment routing',
-      'AI/agent payments (x402)',
-      'Advanced webhooks + retry',
-      'Priority support',
+      'Basic analytics',
+      'Up to $25k monthly volume',
+      'Community support',
+      'Webhook infrastructure',
     ],
-    cta: 'Start free trial',
+    cta: 'Start free',
     ctaHref: '/signup',
   },
   {
-    name: 'Enterprise',
-    monthlyFee: 'Custom',
-    monthlyNote: 'volume discounts',
-    transactionFee: 'Custom',
-    transactionNote: 'negotiated rate',
-    highlight: false,
-    description: 'High volume, custom routing, dedicated infra.',
+    id: 'standard',
+    name: 'Standard',
+    monthlyFee: PRICING.tiers.standard.monthlyFee,
+    monthlyNote: PRICING.tiers.standard.monthlyFeeLabel,
+    transactionFee: PRICING.tiers.standard.transaction_fees.card,
+    transactionNote: 'per card transaction',
+    highlight: true,
+    description: 'For scaling merchants who need compliance and control.',
     features: [
-      'Everything in Growth',
-      'Self-hosting option',
-      'Custom connectors',
-      'Dedicated Slack channel',
-      'SLA with penalties',
-      'Custom compliance reports',
-      'Onboarding engineer',
+      'All Free features',
+      'Unlimited monthly volume',
+      'Merchant of Record (200+ jurisdictions)',
+      'Automatic tax calculation & filing',
+      'Subscriptions & usage-based billing',
+      'Advanced analytics & reporting',
+      'Priority support (2h response)',
+      'Team members (up to 10)',
+      'Dunning & chargeback management',
     ],
-    cta: 'Talk to us',
-    ctaHref: '/contact',
+    cta: 'Get started',
+    ctaHref: '/signup?plan=standard',
   },
 ];
 
 const COMPARE_ROWS = [
-  { item: PRICING.card.label,       forgepay: PRICING.card.fee,       stripe: PRICING.card.stripeComparison, paddle: PRICING.card.paddleComparison },
-  { item: PRICING.stablecoin.label, forgepay: PRICING.stablecoin.fee, stripe: 'N/A', paddle: 'N/A' },
-  { item: PRICING.crypto.label,     forgepay: PRICING.crypto.fee,     stripe: 'N/A', paddle: 'N/A' },
-  { item: 'MoR tax handling',    forgepay: 'Included',        stripe: 'Extra',         paddle: 'Yes (at 5%+)' },
-  { item: 'Advanced billing',    forgepay: 'Included',        stripe: 'Extra $$$',     paddle: 'Limited' },
-  { item: 'AI/agent payments',   forgepay: 'Native (x402)',   stripe: 'No',            paddle: 'No' },
-  { item: 'Smart routing',       forgepay: 'Included',        stripe: 'No',            paddle: 'No' },
-  { item: 'Self-hosting',        forgepay: 'Enterprise tier', stripe: 'No',            paddle: 'No' },
+  { item: 'Card payments (Free)',    forgepay: '2.8% + $0.24',  stripe: '2.9% + $0.30', paddle: '5% + $0.50' },
+  { item: 'Card payments (Standard)', forgepay: '2.4% + $0.24',  stripe: '2.9% + $0.30', paddle: '5% + $0.50' },
+  { item: 'Monthly platform fee',   forgepay: '$0 (Free) / $28 (Standard)', stripe: '$0', paddle: '$0' },
+  { item: 'Stablecoin & crypto',    forgepay: 'Native 1.8%/1.4%', stripe: 'N/A', paddle: 'N/A' },
+  { item: 'Merchant of Record',     forgepay: 'Standard tier', stripe: 'Not offered', paddle: 'Yes (5%+)' },
+  { item: 'Tax in 200+ jurisdictions', forgepay: 'Included (Standard)', stripe: 'N/A', paddle: 'N/A' },
+  { item: 'Subscriptions & billing', forgepay: 'Included',        stripe: 'Extra $$$',     paddle: 'Limited' },
+  { item: 'x402 agent payments',    forgepay: 'Native',        stripe: 'No',            paddle: 'No' },
 ];
 
 export default function Pricing() {
@@ -68,12 +70,12 @@ export default function Pricing() {
             Transparent pricing
           </div>
           <h2 className="text-4xl sm:text-5xl font-black mb-4 tracking-tight">
-            More features.{' '}
-            <span className="text-cyan-500">Lower cost.</span>
+            Start free.{' '}
+            <span className="text-cyan-500">Upgrade when you grow.</span>
           </h2>
           <p className="text-gray-400 text-lg max-w-2xl mx-auto">
-            ForgePay costs less than Stripe at every volume, and includes global tax, advanced billing,
-            and stablecoin support that Stripe charges extra for — or doesn&apos;t offer at all.
+            Begin with zero monthly fees and accept payments immediately — cards, stablecoins, and crypto.
+            Upgrade to Standard for automatic tax compliance across 200+ jurisdictions when you need it.
           </p>
         </div>
 
