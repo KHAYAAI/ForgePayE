@@ -58,6 +58,11 @@ class Settings(BaseSettings):
     # MOR_AUDITOR_SEED_HEX. Required in production.
     auditor_seed_hex: str = ""  # required in production; loaded from K8s Secret MOR_AUDITOR_SEED_HEX
 
+    # ── Kill Bill (billing-engine) ────────────────────────────────────────────
+    killbill_base_url:   str = "http://billing-engine:8020"
+    killbill_api_key:    str = "forgepay"          # Kill Bill tenant API key
+    killbill_api_secret: str = ""                  # injected from MOR_KILLBILL_API_SECRET
+
     # ── Feature flags ─────────────────────────────────────────────────────
     enable_crypto_checkout: bool = True
     enable_stablecoin_checkout: bool = True

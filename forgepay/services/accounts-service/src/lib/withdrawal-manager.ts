@@ -114,8 +114,36 @@ export class WithdrawalManager {
     if (result.rows.length === 0) throw new Error(`Withdrawal ${withdrawalId} not found`);
     const wd = toRecord(result.rows[0] as Record<string, unknown>);
 
-    // In production: poll Circle payout API for status
-    // For now: return current DB state
+    // Only poll Circle for non-terminal states that have a payout ID
+    if (!wd.circlePayoutId || wd.status === 'completed' || wd.status === 'failed') {
+      return wd;
+    }
+
+    let circlePayout;
+    try {
+      circlePayout = await this.circle.getPayout(wd.circlePayoutId);
+    } catch (err) {
+      console.warn('[withdrawal-manager] Could not poll Circle for payout status:', err);
+      return wd;
+    }
+
+    const newStatus: WithdrawalRecord['status'] =
+      circlePayout.status === 'complete' ? 'completed' :
+      circlePayout.status === 'failed'   ? 'failed'    :
+      wd.status;
+
+    if (newStatus !== wd.status) {
+      await this.db.query(
+        `UPDATE fp_withdrawals
+         SET status = $1, completed_at = CASE WHEN $1 = 'completed' THEN now() ELSE completed_at END,
+             updated_at = now()
+         WHERE id = $2`,
+        [newStatus, withdrawalId],
+      );
+      wd.status = newStatus;
+      if (newStatus === 'completed') wd.completedAt = new Date().toISOString();
+    }
+
     return wd;
   }
 }

@@ -35,8 +35,10 @@ export interface CircleTransferResponse {
 }
 
 export interface CirclePayoutResponse {
-  id:     string;
-  status: string;
+  id:          string;
+  status:      string;
+  createDate?: string;
+  updateDate?: string;
 }
 
 const CHAIN_MAP: Record<string, string> = {
@@ -103,6 +105,10 @@ export class CircleClient {
       destination:    { type: 'blockchain', address: req.destinationAddress, chain },
       amount:         { amount: req.amountUsd, currency: 'USD' },
     });
+  }
+
+  async getPayout(payoutId: string): Promise<CirclePayoutResponse> {
+    return this.request<CirclePayoutResponse>('GET', `/payouts/${payoutId}`);
   }
 
   async createPayout(

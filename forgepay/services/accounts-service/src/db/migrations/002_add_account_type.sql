@@ -12,3 +12,9 @@ ALTER TABLE fp_accounts
 -- Indexes
 CREATE INDEX ix_fp_accounts_account_type ON fp_accounts(account_type);
 CREATE INDEX ix_fp_accounts_kms_key_id ON fp_accounts(kms_key_id) WHERE account_type = 'custodial';
+
+-- ── Down migration ──────────────────────────────────────────────────────────
+-- DROP INDEX IF EXISTS ix_fp_accounts_kms_key_id;
+-- DROP INDEX IF EXISTS ix_fp_accounts_account_type;
+-- ALTER TABLE fp_accounts DROP COLUMN IF EXISTS kms_key_id;
+-- ALTER TABLE fp_accounts DROP COLUMN IF EXISTS account_type;

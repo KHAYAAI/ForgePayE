@@ -6,6 +6,7 @@ import { config } from './config.js';
 import { getDb } from './lib/db.js';
 import { buildAccountRoutes } from './routes/accounts.js';
 import { buildTransactionRoutes } from './routes/transactions.js';
+import { buildWebhookRoutes } from './routes/webhooks.js';
 
 const app = Fastify({ logger: true });
 
@@ -42,6 +43,7 @@ app.get('/readyz', async (_req, reply) => {
 // API routes
 await app.register(buildAccountRoutes,     { prefix: '/v1/accounts' });
 await app.register(buildTransactionRoutes, { prefix: '/v1/accounts' });
+await app.register(buildWebhookRoutes,     { prefix: '/v1/webhooks' });
 
 // Start
 try {

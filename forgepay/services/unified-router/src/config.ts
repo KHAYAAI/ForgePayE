@@ -45,6 +45,13 @@ export const config = {
   // Merchant webhook delivery
   merchantWebhookTimeoutMs: parseInt(optional('MERCHANT_WEBHOOK_TIMEOUT_MS', '5000'), 10),
   merchantWebhookMaxRetries: parseInt(optional('MERCHANT_WEBHOOK_MAX_RETRIES', '5'), 10),
+
+  // Kill Bill API for enriching subscription/invoice data in webhook normalizer
+  killbill: {
+    baseUrl:   optional('KILLBILL_BASE_URL', 'http://billing-engine:8020'),
+    apiKey:    optional('KILLBILL_API_KEY', 'forgepay'),
+    apiSecret: optional('KILLBILL_API_SECRET', ''),
+  },
 } as const;
 
 if (config.env === 'production') {

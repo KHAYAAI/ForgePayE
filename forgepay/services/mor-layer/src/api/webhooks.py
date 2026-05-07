@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 
 from src.bridges.hyperswitch import verify_hyperswitch_webhook
+from src.bridges.killbill import get_killbill_client
 from src.config import Settings, get_settings
 from src.db.models import CheckoutSession
 from src.db.session import get_db
@@ -83,6 +84,33 @@ async def _handle_payment_succeeded(event: dict, cfg: Settings, db: AsyncSession
         )
         await db.commit()
         logger.info("Checkout session %s marked completed", session_id)
+
+    # If this payment is for a subscription product, create the Kill Bill subscription
+    # so recurring billing takes over. The merchant passes subscription_plan_id in metadata.
+    subscription_plan_id = metadata.get("subscription_plan_id", "")
+    kb_account_id        = metadata.get("kb_account_id", "")  # Kill Bill account UUID
+
+    if subscription_plan_id and kb_account_id:
+        merchant_id = metadata.get("forgepay_merchant_id", "")
+        try:
+            kb = get_killbill_client()
+            result = await kb.create_subscription(
+                account_id=kb_account_id,
+                plan_name=subscription_plan_id,
+                merchant_id=merchant_id,
+            )
+            logger.info(
+                "Kill Bill subscription created after payment: "
+                "session_id=%s subscription_id=%s plan=%s",
+                session_id, result.get("subscription_id"), subscription_plan_id,
+            )
+        except Exception as exc:
+            # Log but don't fail — payment already succeeded; KB creation can be retried
+            logger.error(
+                "Failed to create Kill Bill subscription after payment: "
+                "session_id=%s plan=%s error=%s",
+                session_id, subscription_plan_id, exc,
+            )
 
     # Fulfillment webhook to merchant will be dispatched by the unified-router
     # after it receives the forwarded event (see _forward_to_unified_router below).

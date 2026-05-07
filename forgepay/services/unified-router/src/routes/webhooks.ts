@@ -117,7 +117,7 @@ interface HandleWebhookArgs {
   source:          string;
   secret:          string;
   signatureHeader: string;
-  normalize:       (body: WebhookBody) => ForgePayEvent | null;
+  normalize:       (body: WebhookBody) => ForgePayEvent | null | Promise<ForgePayEvent | null>;
 }
 
 async function handleIncomingWebhook({
@@ -140,8 +140,8 @@ async function handleIncomingWebhook({
     return;
   }
 
-  // 2. Normalize to canonical event
-  const event = normalize(req.body as WebhookBody);
+  // 2. Normalize to canonical event (normalizer may be async for KB enrichment)
+  const event = await normalize(req.body as WebhookBody);
   if (!event) {
     // Unrecognized event type — ack and ignore
     reply.code(200).send({ received: true, processed: false });
