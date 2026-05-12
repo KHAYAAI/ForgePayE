@@ -194,6 +194,11 @@ export interface AchTransferParams {
 
 /**
  * Initiate an ACH transfer via the Plaid Transfer API.
+ *
+ * The modern Plaid Transfer flow is two-step:
+ *   1. /transfer/authorization/create  → get an authorization_id
+ *   2. /transfer/create                → execute using that authorization_id
+ *
  * Returns the Plaid transfer id for status polling.
  *
  * NOTE: Plaid Transfer requires additional product enrollment in the
@@ -204,18 +209,40 @@ export async function initiateAchTransfer(
 ): Promise<{ transferId: string; status: string }> {
   const client = getClient();
 
+  // Step 1: authorize the transfer
+  let authorizationId: string;
+  try {
+    const authRes = await client.transferAuthorizationCreate({
+      access_token: params.accessToken,
+      account_id:   params.accountId,
+      type:         TransferType.Debit,
+      network:      TransferNetwork.Ach,
+      amount:       params.amount.toFixed(2),
+      ach_class:    (params.achClass ?? 'ppd') as ACHClass,
+      user: {
+        legal_name: params.legalName,
+      },
+    });
+
+    const decision = authRes.data.authorization.decision;
+    if (decision !== 'approved') {
+      const rationale = authRes.data.authorization.decision_rationale;
+      throw new Error(
+        `Transfer authorization declined: ${rationale?.description ?? decision}`,
+      );
+    }
+    authorizationId = authRes.data.authorization.id;
+  } catch (err) {
+    logger.error({ err, params: { ...params, accessToken: '[REDACTED]' } }, 'Plaid transferAuthorizationCreate failed');
+    throw wrapPlaidError(err, 'Transfer authorization failed');
+  }
+
+  // Step 2: create the transfer using the authorization_id
   const request: TransferCreateRequest = {
-    access_token:    params.accessToken,
-    account_id:      params.accountId,
-    type:            TransferType.Debit,  // pull funds into ForgePay
-    network:         TransferNetwork.Ach,
-    amount:          params.amount.toFixed(2),
-    description:     params.description.slice(0, 15),  // ACH limit
-    ach_class:       (params.achClass ?? 'ppd') as ACHClass,
-    user: {
-      legal_name: params.legalName,
-    },
-    idempotency_key: params.idempotencyKey,
+    access_token:     params.accessToken,
+    account_id:       params.accountId,
+    authorization_id: authorizationId,
+    description:      params.description.slice(0, 15),  // ACH 15-char limit
   };
 
   try {
