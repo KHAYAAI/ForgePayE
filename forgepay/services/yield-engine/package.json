@@ -1,0 +1,40 @@
+{
+  "name": "@forgepay/yield-engine",
+  "version": "0.1.0",
+  "description": "ForgePay Yield Engine — auto-sweep idle stablecoin balances into Aave/Compound/Ondo vaults",
+  "type": "commonjs",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev":        "tsx watch src/index.ts",
+    "build":      "tsc",
+    "start":      "node dist/index.js",
+    "type-check": "tsc --noEmit",
+    "lint":       "eslint src",
+    "test":       "vitest run"
+  },
+  "dependencies": {
+    "fastify":              "^4.27.0",
+    "@fastify/helmet":      "^11.1.1",
+    "@fastify/cors":        "^9.0.0",
+    "@fastify/rate-limit":  "^9.0.0",
+    "@fastify/jwt":         "^8.0.1",
+    "ethers":               "^6.12.1",
+    "axios":                "^1.7.2",
+    "zod":                  "^3.23.8",
+    "pino":                 "^9.2.0",
+    "dotenv":               "^16.4.5",
+    "uuid":                 "^10.0.0",
+    "node-cron":            "^3.0.3"
+  },
+  "devDependencies": {
+    "@types/node":        "^20.14.0",
+    "@types/uuid":        "^10.0.0",
+    "@types/node-cron":   "^3.0.11",
+    "typescript":         "^5.5.3",
+    "tsx":                "^4.16.0",
+    "vitest":             "^1.6.0",
+    "eslint":             "^8.57.0",
+    "@typescript-eslint/eslint-plugin": "^7.14.1",
+    "@typescript-eslint/parser":        "^7.14.1"
+  }
+}
