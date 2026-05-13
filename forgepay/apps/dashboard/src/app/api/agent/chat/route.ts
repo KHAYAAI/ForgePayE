@@ -9,6 +9,9 @@ const FORGE_AGENT_ENABLED =
 const FORGE_AGENT_BILLING_ENABLED =
   process.env.FORGE_AGENT_BILLING_ENABLED === "true";
 
+const FORGE_AGENT_MEMORY_ENABLED =
+  process.env.FORGE_AGENT_MEMORY_ENABLED === "true";
+
 export async function GET() {
   if (!FORGE_AGENT_ENABLED) {
     return NextResponse.json({ enabled: false, message: "Coming soon" });
@@ -33,9 +36,10 @@ export async function POST(req: NextRequest) {
     messages:        AgentMessage[];
     mode:            AgentMode;
     approvals?:      Record<string, boolean>;
+    skillNames?:     string[];
   };
 
-  const { messages, mode, approvals = {} } = body;
+  const { messages, mode, approvals = {}, skillNames } = body;
 
   if (!messages || !Array.isArray(messages) || !mode) {
     return NextResponse.json(
@@ -60,7 +64,9 @@ export async function POST(req: NextRequest) {
           merchantId,
           merchantName,
           mode,
-          billingEnabled: FORGE_AGENT_BILLING_ENABLED,
+          billingEnabled:  FORGE_AGENT_BILLING_ENABLED,
+          memoryEnabled:   FORGE_AGENT_MEMORY_ENABLED,
+          skillNames,
           killBillUrl:    process.env.KILL_BILL_URL,
           killBillAuth:   process.env.KILL_BILL_AUTH,
           model:          process.env.FORGE_AGENT_MODEL ?? "claude-opus-4-7",

@@ -1,14 +1,16 @@
 {
   "name": "@forgepay/forge-agent",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "Forge Agent — AI billing assistant core package",
+  "description": "Forge Agent — AI billing assistant (Hermes-pattern architecture)",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
     "build":      "tsc --project tsconfig.json",
     "dev":        "tsc --watch",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "test":       "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.26.0",
@@ -16,6 +18,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
-    "typescript":  "^5.5.3"
+    "typescript":  "^5.5.3",
+    "vitest":      "^1.6.0"
   }
 }

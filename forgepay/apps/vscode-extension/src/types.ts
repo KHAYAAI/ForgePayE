@@ -6,4 +6,7 @@ export type SSEEvent =
   | { type: "tool_result";       id: string; name: string; result: unknown }
   | { type: "approval_required"; id: string; name: string; input: Record<string, unknown> }
   | { type: "error";             message: string }
-  | { type: "done" };
+  | { type: "done" }
+  | { type: "iteration";     n: number; max: number }
+  | { type: "memory_update"; summary?: string }
+  | { type: "delegation";    subtask: string; role: "leaf" };

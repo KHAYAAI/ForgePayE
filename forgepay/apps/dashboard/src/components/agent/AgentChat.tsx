@@ -139,11 +139,12 @@ function ApprovalCard({
 // ── Main component ────────────────────────────────────────────────────────
 
 export default function AgentChat({ enabled }: { enabled: boolean }) {
-  const [mode, setMode]           = useState<AgentMode>("insight");
-  const [input, setInput]         = useState("");
-  const [messages, setMessages]   = useState<ChatMessage[]>([]);
-  const [loading, setLoading]     = useState(false);
-  const [approvals, setApprovals] = useState<Record<string, boolean>>({});
+  const [mode, setMode]               = useState<AgentMode>("insight");
+  const [input, setInput]             = useState("");
+  const [messages, setMessages]       = useState<ChatMessage[]>([]);
+  const [loading, setLoading]         = useState(false);
+  const [approvals, setApprovals]     = useState<Record<string, boolean>>({});
+  const [iterationCount, setIterationCount] = useState(0);
   const bottomRef                 = useRef<HTMLDivElement>(null);
   const textareaRef               = useRef<HTMLTextAreaElement>(null);
 
@@ -183,6 +184,7 @@ export default function AgentChat({ enabled }: { enabled: boolean }) {
       setMessages((prev) => [...prev, userMsg]);
       setInput("");
       setLoading(true);
+      setIterationCount(0);
 
       // Build conversation history for API
       const history = [...messages, userMsg]
@@ -262,6 +264,34 @@ export default function AgentChat({ enabled }: { enabled: boolean }) {
                   name:   event.name,
                   input:  event.input,
                   status: "pending",
+                },
+              ]);
+            }
+
+            if (event.type === "iteration") {
+              setIterationCount(event.n);
+            }
+
+            if (event.type === "memory_update") {
+              setMessages((prev) => [
+                ...prev,
+                {
+                  type:    "text",
+                  role:    "assistant",
+                  content: `ℹ️ Memory updated${event.summary ? `: ${event.summary}` : ""}`,
+                },
+              ]);
+            }
+
+            if (event.type === "delegation") {
+              setMessages((prev) => [
+                ...prev,
+                {
+                  type:     "tool_call",
+                  id:       `delegation-${Date.now()}`,
+                  name:     "delegate_task",
+                  input:    { subtask: event.subtask, role: event.role },
+                  expanded: false,
                 },
               ]);
             }
@@ -391,10 +421,15 @@ export default function AgentChat({ enabled }: { enabled: boolean }) {
         })}
 
         {loading && (
-          <div className="flex justify-start">
+          <div className="flex justify-start items-center gap-2">
             <div className="rounded-2xl bg-gray-100 px-4 py-2 text-sm text-gray-500">
               <span className="animate-pulse">Thinking…</span>
             </div>
+            {iterationCount > 0 && (
+              <span className="rounded-full bg-[#0A2540] px-2 py-0.5 text-xs font-semibold text-[#00F0FF]">
+                {iterationCount}
+              </span>
+            )}
           </div>
         )}
         <div ref={bottomRef} />
