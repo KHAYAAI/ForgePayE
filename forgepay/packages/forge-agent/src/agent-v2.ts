@@ -5,11 +5,13 @@ import { IterationBudget } from "./core/iteration-budget";
 import { sanitizeMessages } from "./core/message-sanitizer";
 import { createProvider } from "./core/provider";
 import { buildSystemPrompt } from "./core/prompt-builder";
-import { InMemoryStore } from "./memory/in-memory-store";
 import { summarizeSession } from "./memory/summarizer";
-import { loadSkills } from "./skills/loader";
+import { getMerchantProfile, formatProfileForPrompt } from "./memory/merchant-profile";
+import { learnFromSession } from "./evolution/session-learner";
+import { loadSkillsWithDynamic } from "./skills/loader";
 // Trigger self-registration of all tools by importing the barrel
 import "./tools/toolsets";
+import "./tools/evolution/platform-discovery";
 import type { AgentConfig, AgentMessage, AgentRole, SSEEvent, ToolContext, ToolsetName } from "./core/types";
 import type { MemoryStore } from "./memory/store";
 
@@ -24,7 +26,9 @@ export async function* runAgentV2(
   role: AgentRole = "orchestrator"
 ): AsyncGenerator<SSEEvent> {
   // 1. Load skills and derive extra toolsets
-  const skillDefs    = loadSkills(config.skillNames ?? []);
+  // Load skills asynchronously (includes dynamically learned skills)
+  const skillIds = [...(config.skillNames ?? []), "all_learned"];
+  const skillDefs    = await loadSkillsWithDynamic(skillIds);
   const extraToolsets = skillDefs.flatMap(s => s.toolsets) as ToolsetName[];
 
   // 2. Compose toolsets based on mode + billingEnabled + skill toolsets
@@ -40,12 +44,17 @@ export async function* runAgentV2(
     ? await memoryStore.recall(config.merchantId)
     : undefined;
 
+  const merchantProfile = memoryStore
+    ? await getMerchantProfile(config.merchantId, config.merchantName, memoryStore)
+    : undefined;
+
+  const profileText = merchantProfile ? formatProfileForPrompt(merchantProfile) : undefined;
   const systemBlocks = buildSystemPrompt({
     merchantName:  config.merchantName,
     merchantId:    config.merchantId,
     mode:          config.mode,
     date,
-    merchantMemory: merchantMemory || undefined,
+    merchantMemory: [merchantMemory, profileText].filter(Boolean).join("\n\n") || undefined,
     activeSkills:  skillDefs,
   });
 
@@ -225,9 +234,10 @@ export async function* runAgentV2(
     ];
   }
 
-  // 10. End-of-session memory summarization
+  // 10. End-of-session learning (summarization + merchant profile update + skill suggestion)
   if (config.memoryEnabled && memoryStore && messages.length >= 4) {
     try {
+      // Session summarization
       const summary = await summarizeSession(
         messages,
         config.merchantId,
@@ -238,8 +248,21 @@ export async function* runAgentV2(
         await memoryStore.appendSessionSummary(config.merchantId, summary);
         yield { type: "memory_update", summary };
       }
+      // Deep session learning — profile updates + skill suggestions
+      const learning = await learnFromSession(
+        messages,
+        config.merchantId,
+        config.merchantName,
+        config.apiKey,
+        config.model ?? "claude-opus-4-7",
+        memoryStore
+      );
+      if (learning.suggestedSkill) {
+        const { getDynamicSkillStore } = await import("./skills/dynamic-store");
+        await getDynamicSkillStore().createSkill(learning.suggestedSkill as import("./skills/types").SkillDefinition);
+      }
     } catch {
-      // Never let summarization failure break the agent
+      // Don't let learning failure break the agent
     }
   }
 
