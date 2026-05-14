@@ -32,14 +32,15 @@ export const READ_ONLY_TOOLS = new Set([
 ]);
 
 import { runAgentV2 } from "./agent-v2";
+import { FileStore } from "./memory/file-store";
 import { InMemoryStore } from "./memory/in-memory-store";
 import type { AgentConfig, AgentMessage, SSEEvent } from "./core/types";
 
-// Singleton in-memory store — one instance for the lifetime of this process
-let _memoryStore: InMemoryStore | undefined;
-function getMemoryStore(): InMemoryStore {
-  if (!_memoryStore) _memoryStore = new InMemoryStore();
-  return _memoryStore;
+// Use FileStore (persistent) when a path is set; fall back to InMemoryStore
+function getMemoryStore(dbPath?: string): FileStore | InMemoryStore {
+  if (dbPath) return new FileStore(dbPath);
+  // Use FileStore by default (persists to ~/.forgepay/agent/)
+  return new FileStore();
 }
 
 export async function* runAgent(
@@ -47,7 +48,7 @@ export async function* runAgent(
   config: AgentConfig,
   pendingApprovals: Map<string, boolean> = new Map()
 ): AsyncGenerator<SSEEvent> {
-  const memoryStore = config.memoryEnabled ? getMemoryStore() : undefined;
+  const memoryStore = config.memoryEnabled ? getMemoryStore(config.memoryDbPath) : undefined;
   yield* runAgentV2(
     messages,
     config,

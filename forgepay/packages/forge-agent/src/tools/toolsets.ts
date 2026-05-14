@@ -15,3 +15,4 @@ import "./evolution/create-skill";
 import "./evolution/improve-skill";
 import "./evolution/list-skills";
 import "./evolution/submit-feedback";
+import "./evolution/platform-discovery";

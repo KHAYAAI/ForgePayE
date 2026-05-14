@@ -51,6 +51,7 @@ export interface AgentConfig {
   maxTokens?:       number;
   // New optional fields
   memoryEnabled?:   boolean;
+  memoryDbPath?:    string;
   skillNames?:      string[];
   maxIterations?:   number;
   role?:            AgentRole;

@@ -1,6 +1,6 @@
 import { registry } from "../../core/registry";
 import { getDynamicSkillStore } from "../../skills/dynamic-store";
-import type { ToolContext } from "../../core/types";
+import type { ToolContext, ToolsetName } from "../../core/types";
 
 registry.register({
   definition: {
@@ -29,7 +29,7 @@ registry.register({
       name:         input.name as string,
       description:  (input.description as string | undefined) ?? (input.name as string),
       instructions: input.instructions as string,
-      toolsets:     (input.toolsets as string[] | undefined) ?? ["analytics"],
+      toolsets:     ((input.toolsets as string[] | undefined) ?? ["analytics"]) as ToolsetName[],
       modes:        (input.modes as string[] | undefined) ?? ["insight", "act"],
     });
     return {
