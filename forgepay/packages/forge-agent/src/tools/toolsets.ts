@@ -11,3 +11,7 @@ import "./memory/store";
 import "./delegation/delegate";
 import "./billing/invoices";
 import "./billing/credits";
+import "./evolution/create-skill";
+import "./evolution/improve-skill";
+import "./evolution/list-skills";
+import "./evolution/submit-feedback";

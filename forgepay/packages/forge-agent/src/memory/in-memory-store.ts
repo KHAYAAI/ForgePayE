@@ -52,6 +52,10 @@ export class InMemoryStore implements MemoryStore {
     this.entries.set(merchantId, merchantEntries);
   }
 
+  async getEntry(merchantId: string, key: string): Promise<string | undefined> {
+    return this.entries.get(merchantId)?.find(e => e.key === key)?.value;
+  }
+
   async appendSessionSummary(
     merchantId: string,
     summary: string

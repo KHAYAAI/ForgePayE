@@ -17,6 +17,7 @@ export interface SessionSummary {
 export interface MemoryStore {
   recall(merchantId: string): Promise<string>;
   store(merchantId: string, key: string, value: string): Promise<void>;
+  getEntry(merchantId: string, key: string): Promise<string | undefined>;
   appendSessionSummary(merchantId: string, summary: string): Promise<void>;
   getRecentSummaries(merchantId: string, n: number): Promise<SessionSummary[]>;
   close(): void;
