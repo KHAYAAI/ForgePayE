@@ -1,0 +1,21 @@
+{
+  "name": "@forgepay/claude-agents-cookbook",
+  "version": "0.1.0",
+  "description": "Example Claude AI agents using ForgePay for autonomous payments",
+  "private": true,
+  "scripts": {
+    "example:x402": "tsx examples/x402-payment-agent.ts",
+    "example:treasury": "tsx examples/treasury-agent.ts",
+    "example:marketplace": "tsx examples/marketplace-agent.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.26.0",
+    "axios": "^1.6.7"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.2",
+    "tsx": "^4.7.1",
+    "@types/node": "^20.11.20"
+  },
+  "keywords": ["claude", "forgepay", "payments", "x402", "USDC", "agents", "autonomous"]
+}
