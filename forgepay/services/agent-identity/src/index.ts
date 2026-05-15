@@ -21,7 +21,8 @@
  *   POST /v1/verify-signature                — verify Ed25519 signature
  */
 
-import Fastify from 'fastify';
+import Fastify, { type FastifyError } from 'fastify';
+import helmet from '@fastify/helmet';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import { v4 as uuidv4 } from 'uuid';
@@ -65,6 +66,8 @@ async function buildApp() {
     credentials: false,
   });
 
+  await app.register(helmet, { contentSecurityPolicy: false });
+
   await app.register(rateLimit, {
     max:        RATE_LIMIT,
     timeWindow: '1 minute',
@@ -100,6 +103,17 @@ async function buildApp() {
     }
     if (!body['ownerMerchantId'] || typeof body['ownerMerchantId'] !== 'string') {
       return reply.status(400).send({ error: 'ValidationError', message: 'ownerMerchantId is required' });
+    }
+    if (body['reputationScore'] !== undefined) {
+      const score = body['reputationScore'];
+      if (typeof score !== 'number' || score < 0 || score > 1000) {
+        return reply.status(400).send({ error: 'ValidationError', message: 'reputationScore must be a number between 0 and 1000' });
+      }
+    }
+    if (body['capabilities'] !== undefined) {
+      if (!Array.isArray(body['capabilities']) || !(body['capabilities'] as unknown[]).every((c) => typeof c === 'string')) {
+        return reply.status(400).send({ error: 'ValidationError', message: 'capabilities must be an array of strings' });
+      }
     }
 
     const id  = uuidv4();
@@ -336,7 +350,7 @@ async function buildApp() {
   });
 
   // ── Error handlers ─────────────────────────────────────────────────────────
-  app.setErrorHandler((err, req, reply) => {
+  app.setErrorHandler<FastifyError>((err, req, reply) => {
     req.log.error({ err, url: req.url }, 'Unhandled request error');
     const isDev = process.env['NODE_ENV'] !== 'production';
     reply.status(err.statusCode ?? 500).send({

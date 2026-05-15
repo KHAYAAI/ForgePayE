@@ -23,7 +23,8 @@
  *   GET  /v1/escrow/:id                      — get escrow status
  */
 
-import Fastify from 'fastify';
+import Fastify, { type FastifyError } from 'fastify';
+import helmet from '@fastify/helmet';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import apiKeyAuth from './plugins/api-key-auth';
@@ -56,6 +57,8 @@ async function buildApp() {
     methods:     ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     credentials: false,
   });
+
+  await app.register(helmet, { contentSecurityPolicy: false });
 
   await app.register(rateLimit, {
     max:        RATE_LIMIT,
@@ -95,6 +98,9 @@ async function buildApp() {
     }
     if (!Array.isArray(body['initialTerms'])) {
       return reply.status(400).send({ error: 'ValidationError', message: 'initialTerms must be an array' });
+    }
+    if (body['initiatorAgentId'] === body['responderAgentId']) {
+      return reply.status(422).send({ error: 'ValidationError', message: 'initiatorAgentId and responderAgentId must be different agents' });
     }
 
     const session = await createSession({
@@ -334,7 +340,7 @@ async function buildApp() {
   });
 
   // ── Error handlers ─────────────────────────────────────────────────────────
-  app.setErrorHandler((err, req, reply) => {
+  app.setErrorHandler<FastifyError>((err, req, reply) => {
     req.log.error({ err, url: req.url }, 'Unhandled request error');
     const isDev = process.env['NODE_ENV'] !== 'production';
     reply.status(err.statusCode ?? 500).send({

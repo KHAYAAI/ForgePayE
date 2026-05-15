@@ -7,47 +7,52 @@ import "./Groth16Verifier.sol";
  * @title NullifierRegistry
  * @notice On-chain registry of spent nullifiers (prevents double-spending).
  *
- * ARCH: Each shielded UTXO has a unique nullifier = Poseidon(commitment, secret_key).
+ * ARCH: Each shielded UTXO has a unique nullifier = MiMC(secret, leaf_index).
  * When a UTXO is spent, its nullifier is revealed and stored here.
- * Any subsequent attempt to spend the same UTXO will fail (nullifier already exists).
+ * Any subsequent attempt to spend the same UTXO will fail.
  *
- * This contract is the canonical source of truth for "is this UTXO spent?".
- * The ForgePay chain-sync service polls this contract for new events and
- * keeps the off-chain nullifier set in PostgreSQL synchronized.
+ * Security properties:
+ *   - Verifier upgrades require 48-hour timelock (prevents rushed upgrades)
+ *   - Two-step ownership (prevents accidental transfer to wrong address)
+ *   - Pausable (emergency stop in case of discovered exploit)
+ *   - All state changes emit indexed events for off-chain monitoring
  *
  * Access Control:
- *   - Anyone can call submitProof (payment is public intent)
- *   - Only auditor can call freezeNullifier (compliance enforcement)
- *   - Owner can upgrade verifier address (via owner-gated function)
+ *   - Anyone can call submitProof (open payment submission)
+ *   - Only auditor can freeze/unfreeze nullifiers (compliance enforcement)
+ *   - Owner can propose/execute verifier upgrades and pause/unpause
+ *   - Owner transfer requires two steps (propose + accept)
  *
- * CURRENT STATE: **STUBBED FOR TESTING** — verifier call always succeeds.
- * Deploy to testnet first; mainnet after external audit.
+ * Deploy to testnet first; mainnet after external audit + Gnosis Safe multisig.
  */
 contract NullifierRegistry {
 
+    // ── Constants ─────────────────────────────────────────────────────────────
+
+    uint256 public constant UPGRADE_TIMELOCK = 48 hours;
+
     // ── State ─────────────────────────────────────────────────────────────────
 
-    /// @notice Owner (ForgePay operations key, multisig in production)
     address public owner;
-
-    /// @notice Auditor address (can freeze nullifiers for compliance)
+    address public pendingOwner;
     address public auditor;
-
-    /// @notice Address of the Groth16 verifier contract
     address public verifier;
+    address public pendingVerifier;
+    uint256 public pendingVerifierExecuteAfter;
+    bool    public paused;
 
-    /// @notice Set of spent nullifiers
-    mapping(bytes32 => bool) public nullifiers;
+    mapping(bytes32 => bool)         public nullifiers;
+    mapping(bytes32 => bool)         public frozenNullifiers;
+    mapping(bytes32 => FreezeRecord) public freezeRecords;
 
-    /// @notice Set of frozen nullifiers (auditor enforcement)
-    mapping(bytes32 => bool) public frozenNullifiers;
+    struct FreezeRecord {
+        address frozenBy;
+        uint256 frozenAt;
+        string  reason;
+    }
 
     // ── Events ────────────────────────────────────────────────────────────────
 
-    /**
-     * @dev Emitted when a payment is confirmed (proof verified, nullifier recorded).
-     * Indexed so chain-sync can efficiently filter by merchant or nullifier.
-     */
     event PaymentConfirmed(
         bytes32 indexed nullifier,
         bytes32 indexed merkleRoot,
@@ -55,34 +60,65 @@ contract NullifierRegistry {
         uint256 amountUnits,
         uint256 timestamp
     );
-
-    /**
-     * @dev Emitted when auditor freezes a nullifier (sanctions/fraud enforcement).
-     */
     event NullifierFrozen(
         bytes32 indexed nullifier,
-        address indexed auditor,
-        string reason,
+        address indexed frozenBy,
+        string  reason,
         uint256 timestamp
     );
-
-    /**
-     * @dev Emitted when verifier address is updated (contract upgrade path).
-     */
-    event VerifierUpdated(address indexed oldVerifier, address indexed newVerifier);
+    event NullifierUnfrozen(
+        bytes32 indexed nullifier,
+        address indexed unfrozenBy,
+        uint256 timestamp
+    );
+    event VerifierUpgradeProposed(
+        address indexed proposedVerifier,
+        uint256 executeAfter,
+        uint256 timestamp
+    );
+    event VerifierUpgradeExecuted(
+        address indexed oldVerifier,
+        address indexed newVerifier,
+        uint256 timestamp
+    );
+    event VerifierUpgradeCancelled(address indexed cancelledVerifier, uint256 timestamp);
+    event OwnershipTransferProposed(
+        address indexed currentOwner,
+        address indexed proposedOwner,
+        uint256 timestamp
+    );
+    event OwnershipTransferred(
+        address indexed previousOwner,
+        address indexed newOwner,
+        uint256 timestamp
+    );
+    event AuditorUpdated(
+        address indexed previousAuditor,
+        address indexed newAuditor,
+        uint256 timestamp
+    );
+    event Paused(address indexed by, uint256 timestamp);
+    event Unpaused(address indexed by, uint256 timestamp);
 
     // ── Errors ────────────────────────────────────────────────────────────────
 
     error NotOwner();
+    error NotPendingOwner();
     error NotAuditor();
+    error ContractPaused();
     error NullifierAlreadySpent(bytes32 nullifier);
-    error NullifierFrozenError(bytes32 nullifier);
+    error NullifierIsFrozen(bytes32 nullifier);
     error ProofVerificationFailed();
     error InvalidNullifier();
+    error NoUpgradePending();
+    error TimelockNotExpired(uint256 executeAfter, uint256 currentTime);
+    error ZeroAddress();
 
     // ── Constructor ───────────────────────────────────────────────────────────
 
     constructor(address _verifier, address _auditor) {
+        if (_verifier == address(0)) revert ZeroAddress();
+        if (_auditor  == address(0)) revert ZeroAddress();
         owner    = msg.sender;
         verifier = _verifier;
         auditor  = _auditor;
@@ -90,50 +126,22 @@ contract NullifierRegistry {
 
     // ── Modifiers ─────────────────────────────────────────────────────────────
 
-    modifier onlyOwner() {
-        if (msg.sender != owner) revert NotOwner();
-        _;
-    }
+    modifier onlyOwner()      { if (msg.sender != owner)   revert NotOwner();   _; }
+    modifier onlyAuditor()    { if (msg.sender != auditor) revert NotAuditor(); _; }
+    modifier whenNotPaused()  { if (paused) revert ContractPaused();            _; }
 
-    modifier onlyAuditor() {
-        if (msg.sender != auditor) revert NotAuditor();
-        _;
-    }
+    // ── Core: Payment Submission ──────────────────────────────────────────────
 
-    // ── Core Functions ────────────────────────────────────────────────────────
-
-    /**
-     * @notice Submit a Groth16 proof to confirm a shielded payment.
-     *
-     * Flow:
-     *   1. Verify proof using Groth16Verifier
-     *   2. Check nullifier not already spent
-     *   3. Check nullifier not frozen by auditor
-     *   4. Record nullifier as spent
-     *   5. Emit PaymentConfirmed event
-     *
-     * @param proofBytes Serialized Groth16 proof (pi_a, pi_b, pi_c on BN254)
-     * @param nullifier The nullifier being consumed (Poseidon(commitment, sk))
-     * @param merkleRoot The Merkle tree root commitment was included in
-     * @param amountUnits Amount being transferred (public, for settlement)
-     *
-     * @dev nullifier must not be bytes32(0) (reserved as "empty")
-     *
-     * STUB: Groth16Verifier.verifyProof always returns true in testing mode.
-     * TODO: When real verifier is deployed, this will fail for invalid proofs.
-     */
     function submitProof(
         bytes calldata proofBytes,
         bytes32 nullifier,
         bytes32 merkleRoot,
         uint256 amountUnits
-    ) external {
-        if (nullifier == bytes32(0)) revert InvalidNullifier();
-        if (nullifiers[nullifier]) revert NullifierAlreadySpent(nullifier);
-        if (frozenNullifiers[nullifier]) revert NullifierFrozenError(nullifier);
+    ) external whenNotPaused {
+        if (nullifier == bytes32(0))     revert InvalidNullifier();
+        if (nullifiers[nullifier])       revert NullifierAlreadySpent(nullifier);
+        if (frozenNullifiers[nullifier]) revert NullifierIsFrozen(nullifier);
 
-        // Verify Groth16 proof via external verifier contract
-        // Public inputs: [merkleRoot, nullifier, amountUnits]
         uint256[] memory publicInputs = new uint256[](3);
         publicInputs[0] = uint256(merkleRoot);
         publicInputs[1] = uint256(nullifier);
@@ -142,99 +150,85 @@ contract NullifierRegistry {
         bool valid = Groth16Verifier(verifier).verifyProof(proofBytes, publicInputs);
         if (!valid) revert ProofVerificationFailed();
 
-        // Record nullifier as spent (prevents double-spending)
         nullifiers[nullifier] = true;
-
-        emit PaymentConfirmed(
-            nullifier,
-            merkleRoot,
-            msg.sender,
-            amountUnits,
-            block.timestamp
-        );
+        emit PaymentConfirmed(nullifier, merkleRoot, msg.sender, amountUnits, block.timestamp);
     }
 
-    /**
-     * @notice Check if a nullifier has been spent.
-     * @param nullifier The nullifier to check
-     * @return spent True if the nullifier has been spent
-     */
-    function isSpent(bytes32 nullifier) external view returns (bool spent) {
-        return nullifiers[nullifier];
-    }
+    // ── View Functions ────────────────────────────────────────────────────────
 
-    /**
-     * @notice Check if a nullifier is frozen (blocked by auditor).
-     * @param nullifier The nullifier to check
-     * @return frozen True if the nullifier is frozen
-     */
-    function isFrozen(bytes32 nullifier) external view returns (bool frozen) {
-        return frozenNullifiers[nullifier];
+    function isSpent(bytes32 nullifier)  external view returns (bool) { return nullifiers[nullifier]; }
+    function isFrozen(bytes32 nullifier) external view returns (bool) { return frozenNullifiers[nullifier]; }
+    function isUsable(bytes32 nullifier) external view returns (bool) {
+        return !nullifiers[nullifier] && !frozenNullifiers[nullifier];
     }
 
     // ── Auditor Functions ─────────────────────────────────────────────────────
 
-    /**
-     * @notice Freeze a nullifier to prevent its UTXO from being spent.
-     *
-     * Called by auditor for compliance enforcement (sanctions, fraud, court orders).
-     * A frozen nullifier cannot be submitted via submitProof.
-     *
-     * @param nullifier The nullifier to freeze
-     * @param reason Human-readable reason for freezing (logged to event)
-     *
-     * STUB: Works correctly in stub mode.
-     * TODO: Add Merkle proof requirement that nullifier exists in commitment tree
-     */
-    function freezeNullifier(
-        bytes32 nullifier,
-        string calldata reason
-    ) external onlyAuditor {
+    function freezeNullifier(bytes32 nullifier, string calldata reason) external onlyAuditor {
         frozenNullifiers[nullifier] = true;
-
-        emit NullifierFrozen(
-            nullifier,
-            msg.sender,
-            reason,
-            block.timestamp
-        );
+        freezeRecords[nullifier] = FreezeRecord({ frozenBy: msg.sender, frozenAt: block.timestamp, reason: reason });
+        emit NullifierFrozen(nullifier, msg.sender, reason, block.timestamp);
     }
 
-    /**
-     * @notice Unfreeze a nullifier (remove compliance hold).
-     * @param nullifier The nullifier to unfreeze
-     */
     function unfreezeNullifier(bytes32 nullifier) external onlyAuditor {
         frozenNullifiers[nullifier] = false;
+        delete freezeRecords[nullifier];
+        emit NullifierUnfrozen(nullifier, msg.sender, block.timestamp);
     }
 
-    // ── Admin Functions ───────────────────────────────────────────────────────
+    // ── Owner: Verifier Upgrade (48h Timelock) ────────────────────────────────
 
-    /**
-     * @notice Update the Groth16 verifier contract address.
-     * Used when the circuit is updated and a new verifier is deployed.
-     *
-     * @param newVerifier Address of the new Groth16Verifier contract
-     */
-    function updateVerifier(address newVerifier) external onlyOwner {
-        address old = verifier;
-        verifier    = newVerifier;
-        emit VerifierUpdated(old, newVerifier);
+    function proposeVerifierUpgrade(address newVerifier) external onlyOwner {
+        if (newVerifier == address(0)) revert ZeroAddress();
+        pendingVerifier             = newVerifier;
+        pendingVerifierExecuteAfter = block.timestamp + UPGRADE_TIMELOCK;
+        emit VerifierUpgradeProposed(newVerifier, pendingVerifierExecuteAfter, block.timestamp);
     }
 
-    /**
-     * @notice Update the auditor address.
-     * @param newAuditor Address of the new auditor
-     */
-    function updateAuditor(address newAuditor) external onlyOwner {
-        auditor = newAuditor;
+    function executeVerifierUpgrade() external onlyOwner {
+        if (pendingVerifier == address(0)) revert NoUpgradePending();
+        if (block.timestamp < pendingVerifierExecuteAfter)
+            revert TimelockNotExpired(pendingVerifierExecuteAfter, block.timestamp);
+        address old     = verifier;
+        verifier        = pendingVerifier;
+        pendingVerifier = address(0);
+        pendingVerifierExecuteAfter = 0;
+        emit VerifierUpgradeExecuted(old, verifier, block.timestamp);
     }
 
-    /**
-     * @notice Transfer ownership to a new address (multisig recommended).
-     * @param newOwner Address of the new owner
-     */
+    function cancelVerifierUpgrade() external onlyOwner {
+        if (pendingVerifier == address(0)) revert NoUpgradePending();
+        address cancelled           = pendingVerifier;
+        pendingVerifier             = address(0);
+        pendingVerifierExecuteAfter = 0;
+        emit VerifierUpgradeCancelled(cancelled, block.timestamp);
+    }
+
+    // ── Owner: Two-Step Ownership Transfer ────────────────────────────────────
+
     function transferOwnership(address newOwner) external onlyOwner {
-        owner = newOwner;
+        if (newOwner == address(0)) revert ZeroAddress();
+        pendingOwner = newOwner;
+        emit OwnershipTransferProposed(owner, newOwner, block.timestamp);
     }
+
+    function acceptOwnership() external {
+        if (msg.sender != pendingOwner) revert NotPendingOwner();
+        address previous = owner;
+        owner        = pendingOwner;
+        pendingOwner = address(0);
+        emit OwnershipTransferred(previous, owner, block.timestamp);
+    }
+
+    function updateAuditor(address newAuditor) external onlyOwner {
+        if (newAuditor == address(0)) revert ZeroAddress();
+        address previous = auditor;
+        auditor = newAuditor;
+        emit AuditorUpdated(previous, newAuditor, block.timestamp);
+    }
+
+    // ── Owner: Emergency Pause ────────────────────────────────────────────────
+
+    function pause()   external onlyOwner { paused = true;  emit Paused(msg.sender, block.timestamp);   }
+    function unpause() external onlyOwner { paused = false; emit Unpaused(msg.sender, block.timestamp); }
 }

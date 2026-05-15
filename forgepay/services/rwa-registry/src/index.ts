@@ -39,7 +39,8 @@
  *   POST /v1/nav/refresh          — manually trigger NAV refresh
  */
 
-import Fastify from 'fastify';
+import Fastify, { type FastifyError } from 'fastify';
+import helmet from '@fastify/helmet';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import { v4 as uuidv4 } from 'uuid';
@@ -88,6 +89,8 @@ async function buildApp() {
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     credentials: false,
   });
+
+  await app.register(helmet, { contentSecurityPolicy: false });
 
   await app.register(rateLimit, {
     max: RATE_LIMIT_PER_MIN,
@@ -474,7 +477,7 @@ async function buildApp() {
   });
 
   // ── Error handlers ─────────────────────────────────────────────────────────
-  app.setErrorHandler((err, req, reply) => {
+  app.setErrorHandler<FastifyError>((err, req, reply) => {
     req.log.error({ err, url: req.url }, 'Unhandled request error');
     const isDev = process.env['NODE_ENV'] !== 'production';
     reply.status(err.statusCode ?? 500).send({

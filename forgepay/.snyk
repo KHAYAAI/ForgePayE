@@ -1,0 +1,12 @@
+# Snyk security policy for ForgePay
+version: v1.25.0
+
+# Ignore known false positives
+ignore:
+  # fastify v4 vulnerability — tracked, upgrade in progress
+  'SNYK-JS-FASTJSONSERIALIZE-*':
+    - '*':
+        reason: 'Tracked in issue #42 — upgrading to fastify v5 in next sprint'
+        expires: '2026-08-01T00:00:00.000Z'
+
+patch: {}

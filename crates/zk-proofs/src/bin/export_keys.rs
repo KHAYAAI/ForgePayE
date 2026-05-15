@@ -64,7 +64,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // ── Deposit ──────────────────────────────────────────────────────────────
     println!("\n[deposit]");
     {
-        let circuit = DepositCircuit::default();
+        let circuit = DepositCircuit::new(
+            ark_bn254::Fr::from(1u64),  // amount (any valid witness for setup)
+            ark_bn254::Fr::from(2u64),  // blind
+            ark_bn254::Fr::from(3u64),  // asset_id
+        );
         let pk = Groth16::<Bn254>::generate_random_parameters_with_reduction(circuit, &mut rng)?;
         let vk = pk.vk.clone();
 
@@ -80,7 +84,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // ── Transfer ─────────────────────────────────────────────────────────────
     println!("\n[transfer]");
     {
-        let circuit = TransferCircuit::default();
+        let circuit = TransferCircuit::new(
+            ark_bn254::Fr::from(1u64),  // secret (any valid witness for setup)
+            ark_bn254::Fr::from(2u64),  // leaf_index
+        );
         let pk = Groth16::<Bn254>::generate_random_parameters_with_reduction(circuit, &mut rng)?;
         let vk = pk.vk.clone();
 
@@ -96,7 +103,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // ── Withdraw ─────────────────────────────────────────────────────────────
     println!("\n[withdraw]");
     {
-        let circuit = WithdrawCircuit::default();
+        let circuit = WithdrawCircuit::new(
+            ark_bn254::Fr::from(1u64),    // secret (any valid witness for setup)
+            ark_bn254::Fr::from(2u64),    // leaf_index
+            ark_bn254::Fr::from(1000u64), // amount_units
+        );
         let pk = Groth16::<Bn254>::generate_random_parameters_with_reduction(circuit, &mut rng)?;
         let vk = pk.vk.clone();
 

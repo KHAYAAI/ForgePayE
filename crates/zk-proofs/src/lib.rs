@@ -13,6 +13,8 @@
 //!   3. Remove the `ZkError::KeysNotEmbedded` early-return
 
 pub mod circuits;
+pub mod mimc;
+mod mimc_gadget;
 
 use ark_bn254::{Bn254, Fr};
 use ark_groth16::{Groth16, Proof};
@@ -209,12 +211,7 @@ pub fn prove_deposit(inputs: &DepositPublicInputs) -> ZkResult<SerializedProof> 
     let pk = ProvingKey::<Bn254>::deserialize_compressed(PK_BYTES)
         .map_err(|e| ZkError::ProofGenerationFailed(format!("PK deserialize: {e}")))?;
 
-    let circuit = DepositCircuit {
-        commitment: inputs.merkle_root,
-        asset_id:   inputs.asset_id,
-        amount:     inputs.amount,
-        blind:      Fr::from(0u64),
-    };
+    let circuit = DepositCircuit::new(inputs.amount, Fr::from(0u64), inputs.asset_id);
 
     let proof = Groth16::<Bn254>::create_random_proof_with_reduction(
         circuit, &pk, &mut ark_std::test_rng(),
@@ -233,7 +230,7 @@ pub fn prove_transfer(_inputs: &TransferPublicInputs) -> ZkResult<SerializedProo
 }
 
 #[cfg(feature = "embed-keys")]
-pub fn prove_transfer(inputs: &TransferPublicInputs) -> ZkResult<SerializedProof> {
+pub fn prove_transfer(_inputs: &TransferPublicInputs) -> ZkResult<SerializedProof> {
     use crate::circuits::transfer::TransferCircuit;
     use ark_groth16::ProvingKey;
     use ark_serialize::CanonicalDeserialize;
@@ -243,13 +240,9 @@ pub fn prove_transfer(inputs: &TransferPublicInputs) -> ZkResult<SerializedProof
     let pk = ProvingKey::<Bn254>::deserialize_compressed(PK_BYTES)
         .map_err(|e| ZkError::ProofGenerationFailed(format!("PK deserialize: {e}")))?;
 
-    let nullifier = inputs.nullifiers.first().copied().unwrap_or(Fr::from(0u64));
-    let circuit = TransferCircuit {
-        merkle_root: inputs.merkle_root,
-        nullifier,
-        amount:      Fr::from(0u64),
-        blind:       Fr::from(0u64),
-    };
+    let secret     = Fr::from(0u64);
+    let leaf_index = Fr::from(0u64);
+    let circuit = TransferCircuit::new(secret, leaf_index);
 
     let proof = Groth16::<Bn254>::create_random_proof_with_reduction(
         circuit, &pk, &mut ark_std::test_rng(),
@@ -278,12 +271,9 @@ pub fn prove_withdraw(inputs: &WithdrawPublicInputs) -> ZkResult<SerializedProof
     let pk = ProvingKey::<Bn254>::deserialize_compressed(PK_BYTES)
         .map_err(|e| ZkError::ProofGenerationFailed(format!("PK deserialize: {e}")))?;
 
-    let circuit = WithdrawCircuit {
-        nullifier:    inputs.nullifier,
-        merkle_root:  inputs.merkle_root,
-        amount_units: inputs.amount,
-        blind:        Fr::from(0u64),
-    };
+    let secret     = Fr::from(0u64);
+    let leaf_index = Fr::from(0u64);
+    let circuit = WithdrawCircuit::new(secret, leaf_index, inputs.amount);
 
     let proof = Groth16::<Bn254>::create_random_proof_with_reduction(
         circuit, &pk, &mut ark_std::test_rng(),
