@@ -2,15 +2,20 @@
  * Integration tests for the Agent Identity Registry service.
  *
  * Uses Fastify's built-in app.inject() to exercise HTTP routes
- * without binding to a real port.
+ * without binding to a real port. The apiKeyAuth plugin allows any
+ * non-empty key in non-production mode, so we include a test key header
+ * on all non-health requests.
  */
 
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { buildApp } from '../index';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 type FastifyApp = Awaited<ReturnType<typeof buildApp>>;
+
+/** Default headers with an API key for non-health routes. */
+const AUTH = { 'x-api-key': 'test-key' };
 
 async function makeApp(): Promise<FastifyApp> {
   const app = await buildApp();
@@ -47,6 +52,7 @@ describe('Agent Identity Registry', () => {
     const res = await app.inject({
       method:  'POST',
       url:     '/v1/agents',
+      headers: AUTH,
       payload: {
         name:            'Test Negotiation Agent',
         framework:       'elizaos',
@@ -73,6 +79,7 @@ describe('Agent Identity Registry', () => {
     const res = await app.inject({
       method:  'POST',
       url:     '/v1/agents',
+      headers: AUTH,
       payload: {
         framework:       'elizaos',
         ownerMerchantId: 'test_mer_001',
@@ -88,6 +95,7 @@ describe('Agent Identity Registry', () => {
     const res = await app.inject({
       method:  'POST',
       url:     '/v1/agents',
+      headers: AUTH,
       payload: {
         name:            'No Framework Agent',
         ownerMerchantId: 'test_mer_001',
@@ -104,6 +112,7 @@ describe('Agent Identity Registry', () => {
     const res = await app.inject({
       method:  'POST',
       url:     '/v1/agents',
+      headers: AUTH,
       payload: {
         name:            'Bad Framework Agent',
         framework:       'unknown_framework',
@@ -118,6 +127,7 @@ describe('Agent Identity Registry', () => {
     const res = await app.inject({
       method:  'POST',
       url:     '/v1/agents',
+      headers: AUTH,
       payload: {
         name:      'Agent Without Owner',
         framework: 'forgepay',
@@ -132,10 +142,11 @@ describe('Agent Identity Registry', () => {
   // ── GET /v1/agents/:id — Retrieve agent ───────────────────────────────────
 
   it('GET /v1/agents/:id retrieves a registered agent', async () => {
-    // First register an agent
+    // Register a fresh agent
     const createRes = await app.inject({
       method:  'POST',
       url:     '/v1/agents',
+      headers: AUTH,
       payload: {
         name:            'Retrieval Test Agent',
         framework:       'autogen',
@@ -147,7 +158,11 @@ describe('Agent Identity Registry', () => {
     const agentId = created.data.id;
 
     // Retrieve by ID
-    const getRes = await app.inject({ method: 'GET', url: `/v1/agents/${agentId}` });
+    const getRes = await app.inject({
+      method:  'GET',
+      url:     `/v1/agents/${agentId}`,
+      headers: AUTH,
+    });
     expect(getRes.statusCode).toBe(200);
     const body = getRes.json<{ data: { id: string; name: string } }>();
     expect(body.data.id).toBe(agentId);
@@ -155,7 +170,11 @@ describe('Agent Identity Registry', () => {
   });
 
   it('GET /v1/agents/:id returns 404 for unknown agent', async () => {
-    const res = await app.inject({ method: 'GET', url: '/v1/agents/nonexistent-agent-xyz' });
+    const res = await app.inject({
+      method:  'GET',
+      url:     '/v1/agents/nonexistent-agent-xyz',
+      headers: AUTH,
+    });
     expect(res.statusCode).toBe(404);
     const body = res.json<{ error: string }>();
     expect(body.error).toBe('NotFound');
@@ -168,6 +187,7 @@ describe('Agent Identity Registry', () => {
     await app.inject({
       method:  'POST',
       url:     '/v1/agents',
+      headers: AUTH,
       payload: {
         name:            'Discover Target Agent',
         framework:       'langchain',
@@ -176,27 +196,37 @@ describe('Agent Identity Registry', () => {
       },
     });
 
-    const res = await app.inject({ method: 'GET', url: '/v1/discover?capability=negotiation' });
+    const res = await app.inject({
+      method:  'GET',
+      url:     '/v1/discover?capability=negotiation',
+      headers: AUTH,
+    });
     expect(res.statusCode).toBe(200);
     const body = res.json<{ data: Array<{ capabilities: string[] }>; total: number }>();
     expect(body.total).toBeGreaterThan(0);
-    // Every returned agent should include the requested capability
     body.data.forEach((agent) => {
       expect(agent.capabilities).toContain('negotiation');
     });
   });
 
   it('GET /v1/discover without capability param returns 400', async () => {
-    const res = await app.inject({ method: 'GET', url: '/v1/discover' });
+    const res = await app.inject({
+      method:  'GET',
+      url:     '/v1/discover',
+      headers: AUTH,
+    });
     expect(res.statusCode).toBe(400);
     const body = res.json<{ error: string }>();
     expect(body.error).toBe('ValidationError');
   });
 
   it('GET /v1/discover?minReputation=50 returns only agents with score >= 50', async () => {
-    // Seed agents with reputationScore 500 (default); one of the seed agents
-    // has score 820, so at least one should be returned with minReputation=50.
-    const res = await app.inject({ method: 'GET', url: '/v1/discover?capability=payment&minReputation=50' });
+    // The seed agents and newly registered agents all have score >= 500 by default.
+    const res = await app.inject({
+      method:  'GET',
+      url:     '/v1/discover?capability=payment&minReputation=50',
+      headers: AUTH,
+    });
     expect(res.statusCode).toBe(200);
     const body = res.json<{ data: Array<{ reputationScore: number }>; total: number }>();
     body.data.forEach((agent) => {
@@ -211,6 +241,7 @@ describe('Agent Identity Registry', () => {
     const createRes = await app.inject({
       method:  'POST',
       url:     '/v1/agents',
+      headers: AUTH,
       payload: {
         name:            'Reputation Test Agent',
         framework:       'crewai',
@@ -224,6 +255,7 @@ describe('Agent Identity Registry', () => {
     const repRes = await app.inject({
       method:  'POST',
       url:     `/v1/agents/${agent.id}/reputation`,
+      headers: AUTH,
       payload: {
         eventType:   'transaction_success',
         description: 'Completed API data purchase successfully',
@@ -233,10 +265,14 @@ describe('Agent Identity Registry', () => {
     expect(repRes.statusCode).toBe(201);
     const repBody = repRes.json<{ data: { eventType: string; scoreDelta: number } }>();
     expect(repBody.data.eventType).toBe('transaction_success');
-    expect(repBody.data.scoreDelta).toBe(5); // +5 per reputation.ts
+    expect(repBody.data.scoreDelta).toBe(5); // +5 per reputation.ts score table
 
-    // Verify score increased
-    const getRes  = await app.inject({ method: 'GET', url: `/v1/agents/${agent.id}` });
+    // Verify score increased on the agent
+    const getRes  = await app.inject({
+      method:  'GET',
+      url:     `/v1/agents/${agent.id}`,
+      headers: AUTH,
+    });
     const updated = getRes.json<{ data: { reputationScore: number } }>().data;
     expect(updated.reputationScore).toBe(505);
   });
@@ -245,6 +281,7 @@ describe('Agent Identity Registry', () => {
     const res = await app.inject({
       method:  'POST',
       url:     '/v1/agents/treasury-oracle-1/reputation',
+      headers: AUTH,
       payload: {
         eventType:   'invalid_event',
         description: 'Should fail',
@@ -257,6 +294,7 @@ describe('Agent Identity Registry', () => {
     const res = await app.inject({
       method:  'POST',
       url:     '/v1/agents/treasury-oracle-1/reputation',
+      headers: AUTH,
       payload: { eventType: 'transaction_success' },
     });
     expect(res.statusCode).toBe(400);
@@ -265,17 +303,22 @@ describe('Agent Identity Registry', () => {
   // ── GET /v1/agents/:id/reputation — History ───────────────────────────────
 
   it('GET /v1/agents/:id/reputation returns reputation event history', async () => {
-    // Record an event
+    // Record an event first to ensure history is non-empty
     await app.inject({
       method:  'POST',
       url:     '/v1/agents/treasury-oracle-1/reputation',
+      headers: AUTH,
       payload: {
         eventType:   'vouched_by_trusted',
         description: 'Vouched by institutional partner',
       },
     });
 
-    const res = await app.inject({ method: 'GET', url: '/v1/agents/treasury-oracle-1/reputation' });
+    const res = await app.inject({
+      method:  'GET',
+      url:     '/v1/agents/treasury-oracle-1/reputation',
+      headers: AUTH,
+    });
     expect(res.statusCode).toBe(200);
     const body = res.json<{ data: unknown[]; total: number }>();
     expect(body.total).toBeGreaterThan(0);
@@ -284,11 +327,12 @@ describe('Agent Identity Registry', () => {
 
   // ── DELETE /v1/agents/:id — Deregister ───────────────────────────────────
 
-  it('DELETE /v1/agents/:id deregisters an agent and subsequent GET returns 404', async () => {
+  it('DELETE /v1/agents/:id deregisters an agent', async () => {
     // Register a fresh agent to deregister
     const createRes = await app.inject({
       method:  'POST',
       url:     '/v1/agents',
+      headers: AUTH,
       payload: {
         name:            'To Be Deleted Agent',
         framework:       'custom',
@@ -298,17 +342,50 @@ describe('Agent Identity Registry', () => {
     });
     const agentId = createRes.json<{ data: { id: string } }>().data.id;
 
-    // Deregister
-    const delRes = await app.inject({ method: 'DELETE', url: `/v1/agents/${agentId}` });
+    const delRes = await app.inject({
+      method:  'DELETE',
+      url:     `/v1/agents/${agentId}`,
+      headers: AUTH,
+    });
     expect(delRes.statusCode).toBe(204);
+  });
 
-    // Subsequent GET should 404 (deregistered agents are excluded from lookup)
-    const getRes = await app.inject({ method: 'GET', url: `/v1/agents/${agentId}` });
+  it('GET /v1/agents/:id after deletion returns 404', async () => {
+    // Register and immediately deregister
+    const createRes = await app.inject({
+      method:  'POST',
+      url:     '/v1/agents',
+      headers: AUTH,
+      payload: {
+        name:            'Another Deleted Agent',
+        framework:       'swarms',
+        ownerMerchantId: 'test_mer_006',
+        capabilities:   [],
+      },
+    });
+    const agentId = createRes.json<{ data: { id: string } }>().data.id;
+
+    await app.inject({
+      method:  'DELETE',
+      url:     `/v1/agents/${agentId}`,
+      headers: AUTH,
+    });
+
+    // Deregistered agents are excluded from getAgent lookup
+    const getRes = await app.inject({
+      method:  'GET',
+      url:     `/v1/agents/${agentId}`,
+      headers: AUTH,
+    });
     expect(getRes.statusCode).toBe(404);
   });
 
   it('DELETE /v1/agents/:id for unknown agent returns 404', async () => {
-    const res = await app.inject({ method: 'DELETE', url: '/v1/agents/does-not-exist-agent' });
+    const res = await app.inject({
+      method:  'DELETE',
+      url:     '/v1/agents/does-not-exist-agent',
+      headers: AUTH,
+    });
     expect(res.statusCode).toBe(404);
   });
 
@@ -318,6 +395,7 @@ describe('Agent Identity Registry', () => {
     const res = await app.inject({
       method:  'POST',
       url:     '/v1/agents/treasury-oracle-1/attestations',
+      headers: AUTH,
       payload: {
         claim:            'verified_treasury_operator',
         issuerMerchantId: 'merchant-forgepay-internal',
@@ -332,7 +410,11 @@ describe('Agent Identity Registry', () => {
   });
 
   it('GET /v1/agents/:id/attestations returns attestation list', async () => {
-    const res = await app.inject({ method: 'GET', url: '/v1/agents/treasury-oracle-1/attestations' });
+    const res = await app.inject({
+      method:  'GET',
+      url:     '/v1/agents/treasury-oracle-1/attestations',
+      headers: AUTH,
+    });
     expect(res.statusCode).toBe(200);
     const body = res.json<{ data: unknown[]; total: number }>();
     expect(body.total).toBeGreaterThan(0);
@@ -341,7 +423,11 @@ describe('Agent Identity Registry', () => {
   // ── GET /v1/agents — List with filters ───────────────────────────────────
 
   it('GET /v1/agents returns paginated agent list', async () => {
-    const res = await app.inject({ method: 'GET', url: '/v1/agents' });
+    const res = await app.inject({
+      method:  'GET',
+      url:     '/v1/agents',
+      headers: AUTH,
+    });
     expect(res.statusCode).toBe(200);
     const body = res.json<{ data: unknown[]; total: number }>();
     expect(body.total).toBeGreaterThan(0);
@@ -349,11 +435,22 @@ describe('Agent Identity Registry', () => {
   });
 
   it('GET /v1/agents?framework=elizaos filters by framework', async () => {
-    const res = await app.inject({ method: 'GET', url: '/v1/agents?framework=elizaos' });
+    const res = await app.inject({
+      method:  'GET',
+      url:     '/v1/agents?framework=elizaos',
+      headers: AUTH,
+    });
     expect(res.statusCode).toBe(200);
     const body = res.json<{ data: Array<{ framework: string }> }>();
     body.data.forEach((agent) => {
       expect(agent.framework).toBe('elizaos');
     });
+  });
+
+  // ── Auth enforcement ─────────────────────────────────────────────────────
+
+  it('Requests without X-Api-Key return 401', async () => {
+    const res = await app.inject({ method: 'GET', url: '/v1/agents' });
+    expect(res.statusCode).toBe(401);
   });
 });
