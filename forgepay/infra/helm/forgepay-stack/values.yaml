@@ -223,6 +223,65 @@ accountsService:
   zkProofs:
     enabled: false  # Phase 2: set true after ZK sidecar deployment + circuit finalization
 
+# ── Enterprise Treasury ─────────────────────────────────────────────────
+enterpriseTreasury:
+  enabled: false   # flip true to expose treasury tools
+  replicaCount: 1
+  image:
+    repository: forgepay/enterprise-treasury
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  service:
+    port: 3012
+  resources:
+    requests: { cpu: "100m", memory: "256Mi" }
+    limits:   { cpu: "500m", memory: "512Mi" }
+
+# ── Agent Identity ───────────────────────────────────────────────────────
+# AI agent registry for agentic commerce (discovery, reputation).
+agentIdentity:
+  enabled: false   # flip true to enable agentic commerce
+  replicaCount: 1
+  image:
+    repository: forgepay/agent-identity
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  service:
+    port: 3010
+  resources:
+    requests: { cpu: "100m", memory: "128Mi" }
+    limits:   { cpu: "300m", memory: "256Mi" }
+
+# ── Agent Negotiation ────────────────────────────────────────────────────
+# Structured negotiation + USDC escrow between AI agents.
+agentNegotiation:
+  enabled: false   # flip true alongside agentIdentity
+  replicaCount: 1
+  image:
+    repository: forgepay/agent-negotiation
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  service:
+    port: 3011
+  resources:
+    requests: { cpu: "100m", memory: "128Mi" }
+    limits:   { cpu: "300m", memory: "256Mi" }
+
+# ── RWA Registry ─────────────────────────────────────────────────────────
+# Tokenized Real-World Asset positions (Ondo USDY, TBILL, BUIDL, FOBXX).
+rwaRegistry:
+  enabled: false   # flip true to expose RWA investments
+  replicaCount: 1
+  image:
+    repository: forgepay/rwa-registry
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  service:
+    port: 3008
+  resources:
+    requests: { cpu: "100m", memory: "128Mi" }
+    limits:   { cpu: "300m", memory: "256Mi" }
+
 # ── Forge Agent ──────────────────────────────────────────────────────────
 # AI billing assistant powered by Claude.
 # Two-flag launch sequence:
@@ -234,6 +293,14 @@ forgeAgent:
   model:          "claude-opus-4-7"
   maxTokens:      4096
   approvalRequired: true  # gate destructive actions behind merchant confirmation
+  # Service URLs used by Forge Agent tools — set automatically from sub-chart ports
+  serviceUrls:
+    enterpriseTreasury: "http://enterprise-treasury:3012"
+    agentIdentity:      "http://agent-identity:3010"
+    agentNegotiation:   "http://agent-negotiation:3011"
+    rwaRegistry:        "http://rwa-registry:3008"
+    complianceMonitor:  "http://compliance-monitor:8003"
+    forecaster:         "http://liquidity-forecaster:8002"
 
 # ── Shared infrastructure (disable if BYO) ───────────────────────────────
 postgresql:

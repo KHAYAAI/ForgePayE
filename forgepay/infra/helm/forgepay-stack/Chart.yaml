@@ -50,6 +50,26 @@ dependencies:
     repository: "file://../accounts-service"
     condition: accountsService.enabled
 
+  - name: enterprise-treasury
+    version: "0.1.0"
+    repository: "file://../enterprise-treasury"
+    condition: enterpriseTreasury.enabled
+
+  - name: agent-identity
+    version: "0.1.0"
+    repository: "file://../agent-identity"
+    condition: agentIdentity.enabled
+
+  - name: agent-negotiation
+    version: "0.1.0"
+    repository: "file://../agent-negotiation"
+    condition: agentNegotiation.enabled
+
+  - name: rwa-registry
+    version: "0.1.0"
+    repository: "file://../rwa-registry"
+    condition: rwaRegistry.enabled
+
   # Shared infrastructure (can be disabled if you bring your own)
   - name: postgresql
     version: "15.5.x"

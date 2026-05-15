@@ -104,6 +104,36 @@ cryptoGateway:
     requests: { cpu: "200m",  memory: "256Mi" }
     limits:   { cpu: "500m",  memory: "512Mi" }
 
+# ── Agentic Commerce + RWA (Mainnet) ─────────────────────────────────────────
+# Feature-flagged: enable per-service as capacity is provisioned.
+enterpriseTreasury:
+  enabled: false   # flip true after bank connectivity is tested
+  replicaCount: 2
+  resources:
+    requests: { cpu: "200m", memory: "512Mi" }
+    limits:   { cpu: "1000m", memory: "1Gi" }
+
+agentIdentity:
+  enabled: false   # flip true to open agentic commerce to merchants
+  replicaCount: 2
+  resources:
+    requests: { cpu: "200m", memory: "256Mi" }
+    limits:   { cpu: "500m", memory: "512Mi" }
+
+agentNegotiation:
+  enabled: false   # flip true alongside agentIdentity
+  replicaCount: 2
+  resources:
+    requests: { cpu: "200m", memory: "256Mi" }
+    limits:   { cpu: "500m", memory: "512Mi" }
+
+rwaRegistry:
+  enabled: false   # flip true after Ondo/OpenEden provider agreements signed
+  replicaCount: 2
+  resources:
+    requests: { cpu: "200m", memory: "256Mi" }
+    limits:   { cpu: "500m", memory: "512Mi" }
+
 # ── Forge Agent (Mainnet) ─────────────────────────────────────────────────────
 forgeAgent:
   enabled:        false   # flip true to launch Forge Agent on prod
