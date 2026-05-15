@@ -28,7 +28,7 @@ import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import apiKeyAuth from './plugins/api-key-auth';
 
-import { getSession, listSessions, getEscrow } from './store';
+import { getSession, listSessions, getEscrow, initStore } from './store';
 import { createSession, addMessage, getAgreedTerms, isExpired } from './negotiation';
 import { createEscrow, fundEscrow, releaseEscrow, refundEscrow, disputeEscrow } from './escrow';
 import type { NegotiationSession, NegotiationTerm, MessageRole } from './types';
@@ -97,7 +97,7 @@ async function buildApp() {
       return reply.status(400).send({ error: 'ValidationError', message: 'initialTerms must be an array' });
     }
 
-    const session = createSession({
+    const session = await createSession({
       initiatorAgentId: body['initiatorAgentId'] as string,
       responderAgentId: body['responderAgentId'] as string,
       subject:          body['subject'] as string,
@@ -112,7 +112,7 @@ async function buildApp() {
   // ── GET /v1/sessions — List sessions ──────────────────────────────────────
   app.get<{ Querystring: Record<string, string> }>('/v1/sessions', async (req, reply) => {
     const q        = req.query;
-    const sessions = listSessions({
+    const sessions = await listSessions({
       agentId: q['agentId'],
       status:  q['status'] as NegotiationSession['status'] | undefined,
     });
@@ -121,7 +121,7 @@ async function buildApp() {
 
   // ── GET /v1/sessions/:id — Get session ────────────────────────────────────
   app.get<{ Params: { id: string } }>('/v1/sessions/:id', async (req, reply) => {
-    const session = getSession(req.params.id);
+    const session = await getSession(req.params.id);
     if (!session) {
       return reply.status(404).send({ error: 'NotFound', message: `Session ${req.params.id} not found` });
     }
@@ -149,7 +149,7 @@ async function buildApp() {
       return reply.status(400).send({ error: 'ValidationError', message: 'terms must be an array' });
     }
 
-    const result = addMessage(req.params.id, {
+    const result = await addMessage(req.params.id, {
       fromAgentId:      body['fromAgentId'] as string,
       role:             body['role'] as MessageRole,
       terms:            body['terms'] as NegotiationTerm[],
@@ -169,7 +169,7 @@ async function buildApp() {
   // ── POST /v1/sessions/:id/accept — Accept shortcut ────────────────────────
   app.post<{ Params: { id: string } }>('/v1/sessions/:id/accept', async (req, reply) => {
     const body    = req.body as Record<string, unknown>;
-    const session = getSession(req.params.id);
+    const session = await getSession(req.params.id);
     if (!session) {
       return reply.status(404).send({ error: 'NotFound', message: `Session ${req.params.id} not found` });
     }
@@ -182,7 +182,7 @@ async function buildApp() {
     const lastMessage = session.messages[session.messages.length - 1];
     const terms       = lastMessage?.terms ?? [];
 
-    const result = addMessage(req.params.id, {
+    const result = await addMessage(req.params.id, {
       fromAgentId: body['fromAgentId'] as string,
       role:        'accept',
       terms,
@@ -200,7 +200,7 @@ async function buildApp() {
   // ── POST /v1/sessions/:id/reject — Reject shortcut ────────────────────────
   app.post<{ Params: { id: string } }>('/v1/sessions/:id/reject', async (req, reply) => {
     const body    = req.body as Record<string, unknown>;
-    const session = getSession(req.params.id);
+    const session = await getSession(req.params.id);
     if (!session) {
       return reply.status(404).send({ error: 'NotFound', message: `Session ${req.params.id} not found` });
     }
@@ -209,7 +209,7 @@ async function buildApp() {
       return reply.status(400).send({ error: 'ValidationError', message: 'fromAgentId is required' });
     }
 
-    const result = addMessage(req.params.id, {
+    const result = await addMessage(req.params.id, {
       fromAgentId: body['fromAgentId'] as string,
       role:        'reject',
       terms:       [],
@@ -226,7 +226,7 @@ async function buildApp() {
 
   // ── GET /v1/sessions/:id/agreed-terms — Get agreed terms ─────────────────
   app.get<{ Params: { id: string } }>('/v1/sessions/:id/agreed-terms', async (req, reply) => {
-    const result = getAgreedTerms(req.params.id);
+    const result = await getAgreedTerms(req.params.id);
     if ('error' in result) {
       const status = result.error.includes('not found') ? 404 : 422;
       return reply.status(status).send({ error: 'NegotiationError', message: result.error });
@@ -257,7 +257,7 @@ async function buildApp() {
       return reply.status(400).send({ error: 'ValidationError', message: `chain must be one of: ${VALID_CHAINS.join(', ')}` });
     }
 
-    const result = createEscrow({
+    const result = await createEscrow({
       sessionId:     body['sessionId'] as string,
       buyerAgentId:  body['buyerAgentId'] as string,
       sellerAgentId: body['sellerAgentId'] as string,
@@ -277,7 +277,7 @@ async function buildApp() {
   // ── POST /v1/escrow/:id/fund — Fund escrow ────────────────────────────────
   app.post<{ Params: { id: string } }>('/v1/escrow/:id/fund', async (req, reply) => {
     app.log.info({ escrowId: req.params.id }, '[agent-negotiation] Escrow fund requested — stub call to stablecoin-gateway');
-    const result = fundEscrow(req.params.id);
+    const result = await fundEscrow(req.params.id);
     if ('error' in result) {
       const status = result.error.includes('not found') ? 404 : 422;
       return reply.status(status).send({ error: 'EscrowError', message: result.error });
@@ -289,7 +289,7 @@ async function buildApp() {
   app.post<{ Params: { id: string } }>('/v1/escrow/:id/release', async (req, reply) => {
     const body            = req.body as Record<string, unknown>;
     const settlementTxId  = body['settlementTxId'] as string | undefined;
-    const result          = releaseEscrow(req.params.id, settlementTxId);
+    const result          = await releaseEscrow(req.params.id, settlementTxId);
     if ('error' in result) {
       const status = result.error.includes('not found') ? 404 : 422;
       return reply.status(status).send({ error: 'EscrowError', message: result.error });
@@ -302,7 +302,7 @@ async function buildApp() {
   app.post<{ Params: { id: string } }>('/v1/escrow/:id/refund', async (req, reply) => {
     const body   = req.body as Record<string, unknown>;
     const reason = typeof body['reason'] === 'string' ? body['reason'] : 'No reason provided';
-    const result = refundEscrow(req.params.id, reason);
+    const result = await refundEscrow(req.params.id, reason);
     if ('error' in result) {
       const status = result.error.includes('not found') ? 404 : 422;
       return reply.status(status).send({ error: 'EscrowError', message: result.error });
@@ -315,7 +315,7 @@ async function buildApp() {
   app.post<{ Params: { id: string } }>('/v1/escrow/:id/dispute', async (req, reply) => {
     const body   = req.body as Record<string, unknown>;
     const reason = typeof body['reason'] === 'string' ? body['reason'] : 'Dispute opened without reason';
-    const result = disputeEscrow(req.params.id, reason);
+    const result = await disputeEscrow(req.params.id, reason);
     if ('error' in result) {
       const status = result.error.includes('not found') ? 404 : 422;
       return reply.status(status).send({ error: 'EscrowError', message: result.error });
@@ -326,7 +326,7 @@ async function buildApp() {
 
   // ── GET /v1/escrow/:id — Get escrow status ────────────────────────────────
   app.get<{ Params: { id: string } }>('/v1/escrow/:id', async (req, reply) => {
-    const escrow = getEscrow(req.params.id);
+    const escrow = await getEscrow(req.params.id);
     if (!escrow) {
       return reply.status(404).send({ error: 'NotFound', message: `Escrow ${req.params.id} not found` });
     }
@@ -356,6 +356,8 @@ export { buildApp };
 // ── Startup ───────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
+  await initStore();
+
   const app = await buildApp();
 
   const shutdown = async () => {

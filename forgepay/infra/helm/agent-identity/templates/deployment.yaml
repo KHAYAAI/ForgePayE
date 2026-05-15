@@ -43,6 +43,12 @@ spec:
               value: {{ .Values.agentNegotiationUrl | quote }}
             - name: RATE_LIMIT_PER_MIN
               value: {{ .Values.rateLimitPerMinute | quote }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secretRef }}
+                  key: DATABASE_URL
+                  optional: true
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:

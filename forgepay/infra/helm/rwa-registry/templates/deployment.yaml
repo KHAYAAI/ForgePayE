@@ -45,6 +45,15 @@ spec:
               value: {{ .Values.stablecoinGatewayUrl | quote }}
             - name: RATE_LIMIT_PER_MIN
               value: {{ .Values.rateLimitPerMinute | quote }}
+            {{- if .Values.persistence.enabled }}
+            - name: DATA_DIR
+              value: {{ .Values.persistence.mountPath | quote }}
+            {{- end }}
+          {{- if .Values.persistence.enabled }}
+          volumeMounts:
+            - name: rwa-registry-data
+              mountPath: {{ .Values.persistence.mountPath }}
+          {{- end }}
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:
@@ -56,3 +65,9 @@ spec:
             readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
+      {{- if .Values.persistence.enabled }}
+      volumes:
+        - name: rwa-registry-data
+          persistentVolumeClaim:
+            claimName: {{ .Release.Name }}-rwa-registry-data
+      {{- end }}

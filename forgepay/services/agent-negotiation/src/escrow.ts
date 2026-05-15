@@ -23,8 +23,8 @@ export interface CreateEscrowOptions {
   chain:         Escrow['chain'];
 }
 
-export function createEscrow(opts: CreateEscrowOptions): Escrow | { error: string } {
-  const session = getSession(opts.sessionId);
+export async function createEscrow(opts: CreateEscrowOptions): Promise<Escrow | { error: string }> {
+  const session = await getSession(opts.sessionId);
   if (!session) return { error: `Session ${opts.sessionId} not found` };
 
   const escrow: Escrow = {
@@ -39,18 +39,18 @@ export function createEscrow(opts: CreateEscrowOptions): Escrow | { error: strin
     createdAt:     new Date().toISOString(),
   };
 
-  setEscrow(escrow);
+  await setEscrow(escrow);
 
   // Link escrow to session
-  setSession({ ...session, escrowId: escrow.id, updatedAt: new Date().toISOString() });
+  await setSession({ ...session, escrowId: escrow.id, updatedAt: new Date().toISOString() });
 
   return escrow;
 }
 
 // ── Fund Escrow ───────────────────────────────────────────────────────────────
 
-export function fundEscrow(escrowId: string): Escrow | { error: string } {
-  const escrow = getEscrow(escrowId);
+export async function fundEscrow(escrowId: string): Promise<Escrow | { error: string }> {
+  const escrow = await getEscrow(escrowId);
   if (!escrow) return { error: `Escrow ${escrowId} not found` };
   if (escrow.status !== 'pending') {
     return { error: `Escrow cannot be funded — current status: ${escrow.status}` };
@@ -67,14 +67,14 @@ export function fundEscrow(escrowId: string): Escrow | { error: string } {
     status:   'funded',
     fundedAt: new Date().toISOString(),
   };
-  setEscrow(updated);
+  await setEscrow(updated);
   return updated;
 }
 
 // ── Release Escrow ────────────────────────────────────────────────────────────
 
-export function releaseEscrow(escrowId: string, settlementTxId?: string): Escrow | { error: string } {
-  const escrow = getEscrow(escrowId);
+export async function releaseEscrow(escrowId: string, settlementTxId?: string): Promise<Escrow | { error: string }> {
+  const escrow = await getEscrow(escrowId);
   if (!escrow) return { error: `Escrow ${escrowId} not found` };
   if (escrow.status !== 'funded') {
     return { error: `Escrow cannot be released — current status: ${escrow.status}` };
@@ -92,12 +92,12 @@ export function releaseEscrow(escrowId: string, settlementTxId?: string): Escrow
     status:     'released',
     releasedAt: now,
   };
-  setEscrow(updated);
+  await setEscrow(updated);
 
   // Update session with settlement tx
-  const session = getSession(escrow.sessionId);
+  const session = await getSession(escrow.sessionId);
   if (session && settlementTxId) {
-    setSession({ ...session, settlementTxId, status: 'settled', updatedAt: now });
+    await setSession({ ...session, settlementTxId, status: 'settled', updatedAt: now });
   }
 
   return updated;
@@ -105,8 +105,8 @@ export function releaseEscrow(escrowId: string, settlementTxId?: string): Escrow
 
 // ── Refund Escrow ─────────────────────────────────────────────────────────────
 
-export function refundEscrow(escrowId: string, reason: string): Escrow | { error: string } {
-  const escrow = getEscrow(escrowId);
+export async function refundEscrow(escrowId: string, reason: string): Promise<Escrow | { error: string }> {
+  const escrow = await getEscrow(escrowId);
   if (!escrow) return { error: `Escrow ${escrowId} not found` };
   if (escrow.status !== 'funded') {
     return { error: `Escrow cannot be refunded — current status: ${escrow.status}` };
@@ -122,14 +122,14 @@ export function refundEscrow(escrowId: string, reason: string): Escrow | { error
     ...escrow,
     status: 'refunded',
   };
-  setEscrow(updated);
+  await setEscrow(updated);
   return updated;
 }
 
 // ── Dispute Escrow ────────────────────────────────────────────────────────────
 
-export function disputeEscrow(escrowId: string, reason: string): Escrow | { error: string } {
-  const escrow = getEscrow(escrowId);
+export async function disputeEscrow(escrowId: string, reason: string): Promise<Escrow | { error: string }> {
+  const escrow = await getEscrow(escrowId);
   if (!escrow) return { error: `Escrow ${escrowId} not found` };
   if (escrow.status === 'released' || escrow.status === 'refunded') {
     return { error: `Escrow cannot be disputed — already in terminal state: ${escrow.status}` };
@@ -140,12 +140,12 @@ export function disputeEscrow(escrowId: string, reason: string): Escrow | { erro
     status:        'disputed',
     disputeReason: reason,
   };
-  setEscrow(updated);
+  await setEscrow(updated);
 
   // Mark session as disputed too
-  const session = getSession(escrow.sessionId);
+  const session = await getSession(escrow.sessionId);
   if (session) {
-    setSession({ ...session, status: 'disputed', updatedAt: new Date().toISOString() });
+    await setSession({ ...session, status: 'disputed', updatedAt: new Date().toISOString() });
   }
 
   return updated;

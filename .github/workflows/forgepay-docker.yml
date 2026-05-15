@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       service:
-        description: "Service to build (all | web | dashboard | unified-router | mor-layer | billing-engine | stablecoin-gateway | crypto-gateway | agent-identity | agent-negotiation | rwa-registry)"
+        description: "Service to build (all | web | dashboard | unified-router | mor-layer | billing-engine | stablecoin-gateway | crypto-gateway | agent-identity | agent-negotiation | rwa-registry | enterprise-treasury | bank-whitelabel)"
         required: false
         default: "all"
 
@@ -22,16 +22,18 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     outputs:
-      web:                ${{ steps.filter.outputs.web }}
-      dashboard:          ${{ steps.filter.outputs.dashboard }}
-      unified-router:     ${{ steps.filter.outputs.unified-router }}
-      mor-layer:          ${{ steps.filter.outputs.mor-layer }}
-      billing-engine:     ${{ steps.filter.outputs.billing-engine }}
-      stablecoin-gateway: ${{ steps.filter.outputs.stablecoin-gateway }}
-      crypto-gateway:     ${{ steps.filter.outputs.crypto-gateway }}
-      agent-identity:     ${{ steps.filter.outputs.agent-identity }}
-      agent-negotiation:  ${{ steps.filter.outputs.agent-negotiation }}
-      rwa-registry:       ${{ steps.filter.outputs.rwa-registry }}
+      web:                    ${{ steps.filter.outputs.web }}
+      dashboard:              ${{ steps.filter.outputs.dashboard }}
+      unified-router:         ${{ steps.filter.outputs.unified-router }}
+      mor-layer:              ${{ steps.filter.outputs.mor-layer }}
+      billing-engine:         ${{ steps.filter.outputs.billing-engine }}
+      stablecoin-gateway:     ${{ steps.filter.outputs.stablecoin-gateway }}
+      crypto-gateway:         ${{ steps.filter.outputs.crypto-gateway }}
+      agent-identity:         ${{ steps.filter.outputs.agent-identity }}
+      agent-negotiation:      ${{ steps.filter.outputs.agent-negotiation }}
+      rwa-registry:           ${{ steps.filter.outputs.rwa-registry }}
+      enterprise-treasury:    ${{ steps.filter.outputs.enterprise-treasury }}
+      bank-whitelabel:        ${{ steps.filter.outputs.bank-whitelabel }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -58,6 +60,10 @@ jobs:
               - 'forgepay/services/agent-negotiation/**'
             rwa-registry:
               - 'forgepay/services/rwa-registry/**'
+            enterprise-treasury:
+              - 'forgepay/services/enterprise-treasury/**'
+            bank-whitelabel:
+              - 'forgepay/services/bank-whitelabel/**'
 
   build:
     needs: changes
@@ -99,6 +105,12 @@ jobs:
           - service: rwa-registry
             context: forgepay/services/rwa-registry
             condition: ${{ needs.changes.outputs.rwa-registry == 'true' }}
+          - service: enterprise-treasury
+            context: forgepay/services/enterprise-treasury
+            condition: ${{ needs.changes.outputs.enterprise-treasury == 'true' }}
+          - service: bank-whitelabel
+            context: forgepay/services/bank-whitelabel
+            condition: ${{ needs.changes.outputs.bank-whitelabel == 'true' }}
 
     steps:
       - uses: actions/checkout@v4

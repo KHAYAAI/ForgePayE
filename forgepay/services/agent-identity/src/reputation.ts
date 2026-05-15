@@ -34,13 +34,13 @@ export interface RecordEventOptions {
   transactionId?:   string;
 }
 
-export function recordReputationEvent(
+export async function recordReputationEvent(
   agentId:     string,
   eventType:   ReputationEvent['eventType'],
   description: string,
   options:     RecordEventOptions = {}
-): ReputationEvent | { error: string } {
-  const agent = getAgent(agentId);
+): Promise<ReputationEvent | { error: string }> {
+  const agent = await getAgent(agentId);
   if (!agent) {
     return { error: `Agent ${agentId} not found` };
   }
@@ -72,7 +72,7 @@ export function recordReputationEvent(
     lastActiveAt: new Date().toISOString(),
   };
 
-  setAgent(updatedAgent);
+  await setAgent(updatedAgent);
 
   const event: ReputationEvent = {
     id:             uuidv4(),
@@ -85,6 +85,6 @@ export function recordReputationEvent(
     createdAt:      new Date().toISOString(),
   };
 
-  pushReputationEvent(event);
+  await pushReputationEvent(event);
   return event;
 }

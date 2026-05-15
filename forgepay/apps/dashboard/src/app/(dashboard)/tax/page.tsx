@@ -1,6 +1,7 @@
 'use client';
 
 import useSWR from 'swr';
+import { TableRowSkeleton } from '@/components/ui/Skeleton';
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
@@ -8,24 +9,34 @@ function fmt(cents: number) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100);
 }
 
-const JURISDICTIONS = [
-  { region: 'United States',  type: 'Sales Tax', rate: '8.0%',  collected: 42_800, remitted: 42_800 },
-  { region: 'European Union', type: 'VAT',       rate: '20.0%', collected: 31_200, remitted: 31_200 },
-  { region: 'United Kingdom', type: 'VAT',       rate: '20.0%', collected: 12_400, remitted: 12_400 },
-  { region: 'Australia',      type: 'GST',       rate: '10.0%', collected:  8_100, remitted:  8_100 },
-  { region: 'Canada',         type: 'GST/HST',   rate: '13.0%', collected:  5_900, remitted:  5_900 },
-  { region: 'Singapore',      type: 'GST',       rate: '9.0%',  collected:  2_600, remitted:  2_600 },
-];
+interface Jurisdiction {
+  region:    string;
+  type:      string;
+  rate:      string;
+  collected: number;
+  remitted:  number;
+}
+
+interface TaxSummary {
+  total_tax_cents:     number;
+  jurisdiction_count:  number;
+  gross_revenue_cents: number;
+  effective_tax_rate:  number;
+  jurisdictions:       Jurisdiction[];
+}
 
 export default function TaxPage() {
-  const { data: summary } = useSWR('/api/analytics/summary?days=30', fetcher);
-  const grossRevenue = summary?.gross_revenue_cents ?? 0;
-  const totalTax     = Math.round(grossRevenue * 0.08);
+  const { data, isLoading } = useSWR<TaxSummary>('/api/tax?days=30', fetcher);
+
+  const totalTax  = data?.total_tax_cents ?? 0;
+  const jCount    = data?.jurisdiction_count ?? 0;
+  const effRate   = data ? `${(data.effective_tax_rate * 100).toFixed(1)}%` : '—';
+  const juris     = data?.jurisdictions?.filter(j => j.collected > 0) ?? [];
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-bold text-white">Tax & Compliance</h1>
+        <h1 className="text-xl font-bold text-white">Tax &amp; Compliance</h1>
         <p className="text-sm text-gray-400">ForgePay acts as Merchant of Record — tax is collected and remitted on your behalf.</p>
       </div>
 
@@ -33,18 +44,18 @@ export default function TaxPage() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="card p-5">
           <div className="text-xs text-gray-400 mb-1">Tax Collected (30d)</div>
-          <div className="text-2xl font-bold text-white">{fmt(totalTax)}</div>
-          <div className="text-xs text-emerald-400 mt-1">Across 37+ jurisdictions</div>
+          <div className="text-2xl font-bold text-white">{isLoading ? '—' : fmt(totalTax)}</div>
+          <div className="text-xs text-emerald-400 mt-1">{isLoading ? '…' : `Across ${jCount} jurisdictions`}</div>
         </div>
         <div className="card p-5">
           <div className="text-xs text-gray-400 mb-1">Tax Remitted (30d)</div>
-          <div className="text-2xl font-bold text-white">{fmt(totalTax)}</div>
+          <div className="text-2xl font-bold text-white">{isLoading ? '—' : fmt(totalTax)}</div>
           <div className="text-xs text-emerald-400 mt-1">Auto-remitted by ForgePay</div>
         </div>
         <div className="card p-5">
-          <div className="text-xs text-gray-400 mb-1">Tax Provider</div>
-          <div className="text-2xl font-bold text-white">Internal</div>
-          <div className="text-xs text-gray-400 mt-1">37+ jurisdictions, no Avalara needed</div>
+          <div className="text-xs text-gray-400 mb-1">Effective Tax Rate</div>
+          <div className="text-2xl font-bold text-white">{isLoading ? '—' : effRate}</div>
+          <div className="text-xs text-gray-400 mt-1">Blended across jurisdictions</div>
         </div>
       </div>
 
@@ -75,20 +86,30 @@ export default function TaxPage() {
             </tr>
           </thead>
           <tbody>
-            {JURISDICTIONS.map((j) => (
-              <tr key={j.region}>
-                <td className="font-medium">{j.region}</td>
-                <td className="text-gray-400">{j.type}</td>
-                <td className="text-gray-400">{j.rate}</td>
-                <td className="tabular-nums">{fmt(j.collected)}</td>
-                <td className="tabular-nums">{fmt(j.remitted)}</td>
-                <td>
-                  <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full font-semibold">
-                    Remitted
-                  </span>
+            {isLoading ? (
+              Array.from({ length: 6 }, (_, i) => <TableRowSkeleton key={i} cols={6} />)
+            ) : juris.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="text-center text-gray-500 py-8 text-sm">
+                  No tax data yet — process your first payment to see jurisdiction breakdown.
                 </td>
               </tr>
-            ))}
+            ) : (
+              juris.map((j) => (
+                <tr key={j.region}>
+                  <td className="font-medium">{j.region}</td>
+                  <td className="text-gray-400">{j.type}</td>
+                  <td className="text-gray-400">{j.rate}</td>
+                  <td className="tabular-nums">{fmt(j.collected)}</td>
+                  <td className="tabular-nums">{fmt(j.remitted)}</td>
+                  <td>
+                    <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full font-semibold">
+                      Remitted
+                    </span>
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>

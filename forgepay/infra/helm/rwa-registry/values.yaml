@@ -44,3 +44,9 @@ readinessProbe:
     port: 3008
   initialDelaySeconds: 5
   periodSeconds: 10
+
+persistence:
+  enabled: true
+  size: 5Gi
+  storageClass: ""  # uses cluster default
+  mountPath: /data  # adjust to match actual DB path

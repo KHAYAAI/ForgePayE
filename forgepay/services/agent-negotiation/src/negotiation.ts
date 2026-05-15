@@ -29,7 +29,7 @@ export interface CreateSessionOptions {
   maxRounds?:       number;
 }
 
-export function createSession(opts: CreateSessionOptions): NegotiationSession {
+export async function createSession(opts: CreateSessionOptions): Promise<NegotiationSession> {
   const now      = new Date();
   const expiresAt = new Date(now.getTime() + SESSION_TTL_HOURS * 60 * 60 * 1000);
   const id       = uuidv4();
@@ -59,7 +59,7 @@ export function createSession(opts: CreateSessionOptions): NegotiationSession {
     expiresAt:        expiresAt.toISOString(),
   };
 
-  setSession(session);
+  await setSession(session);
   return session;
 }
 
@@ -79,17 +79,17 @@ export interface AddMessageResult {
   error?:  string;
 }
 
-export function addMessage(
+export async function addMessage(
   sessionId: string,
   opts:      AddMessageOptions
-): AddMessageResult | { error: string } {
-  const session = getSession(sessionId);
+): Promise<AddMessageResult | { error: string }> {
+  const session = await getSession(sessionId);
   if (!session) return { error: `Session ${sessionId} not found` };
 
   // Check expiry
   if (isExpired(session)) {
     const expired = { ...session, status: 'expired' as const, updatedAt: new Date().toISOString() };
-    setSession(expired);
+    await setSession(expired);
     return { error: 'Session has expired' };
   }
 
@@ -150,14 +150,14 @@ export function addMessage(
     updatedAt:   now,
   };
 
-  setSession(updatedSession);
+  await setSession(updatedSession);
   return { session: updatedSession, msg };
 }
 
 // ── Get Agreed Terms ──────────────────────────────────────────────────────────
 
-export function getAgreedTerms(sessionId: string): NegotiationTerm[] | { error: string } {
-  const session = getSession(sessionId);
+export async function getAgreedTerms(sessionId: string): Promise<NegotiationTerm[] | { error: string }> {
+  const session = await getSession(sessionId);
   if (!session) return { error: `Session ${sessionId} not found` };
   if (session.status !== 'accepted' && session.status !== 'settled') {
     return { error: `Session is not accepted (current status: ${session.status})` };

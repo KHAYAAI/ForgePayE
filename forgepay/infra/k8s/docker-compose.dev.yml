@@ -13,6 +13,9 @@ version: "3.9"
 #   8080  → payment-engine      Hyperswitch REST API (POST /payments, GET /payments/:id)
 #   3000  → web                 Marketing site
 #   3001  → grafana             Grafana dashboards    (admin / devpassword)
+#   3008  → rwa-registry        RWA asset registry    [profile: agentic]
+#   3010  → agent-identity      Agent identity service [profile: agentic]
+#   3011  → agent-negotiation   Agent negotiation svc  [profile: agentic]
 #   4317  → otel-collector      OTLP gRPC receiver    (from all services)
 #   4318  → otel-collector      OTLP HTTP receiver
 #   8889  → otel-collector      Prometheus metrics scrape endpoint
@@ -230,3 +233,52 @@ services:
       - "16686:16686"  # UI
       - "14317:4317"   # OTLP gRPC (host port offset to avoid clash)
     networks: [forgepay]
+
+  # ── Agentic services (opt-in: docker compose --profile agentic up) ─────
+  rwa-registry:
+    build:
+      context: ../../services/rwa-registry
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: development
+      PORT:     "3008"
+      LOG_LEVEL: debug
+    ports:
+      - "3008:3008"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis:    { condition: service_healthy }
+    networks: [forgepay]
+    profiles: [agentic]
+
+  agent-identity:
+    build:
+      context: ../../services/agent-identity
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: development
+      PORT:     "3010"
+      LOG_LEVEL: debug
+    ports:
+      - "3010:3010"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis:    { condition: service_healthy }
+    networks: [forgepay]
+    profiles: [agentic]
+
+  agent-negotiation:
+    build:
+      context: ../../services/agent-negotiation
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: development
+      PORT:     "3011"
+      LOG_LEVEL: debug
+    ports:
+      - "3011:3011"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis:    { condition: service_healthy }
+    networks: [forgepay]
+    profiles: [agentic]

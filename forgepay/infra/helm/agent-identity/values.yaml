@@ -13,6 +13,7 @@ env:
   NODE_ENV: production
   LOG_LEVEL: info
   PORT: "3010"
+  DATABASE_URL: ""  # Set via external secret; falls back to in-memory if empty
 
 agentNegotiationUrl: "http://agent-negotiation:3011"
 rateLimitPerMinute: 200

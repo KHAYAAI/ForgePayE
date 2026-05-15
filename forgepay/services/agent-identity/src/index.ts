@@ -35,6 +35,7 @@ import {
   getReputationEventsByAgentId,
   getAttestationsBySubjectAgentId,
   setAttestation,
+  initStore,
 } from './store';
 import { recordReputationEvent } from './reputation';
 import type { AgentIdentity, Attestation, ReputationEvent } from './types';
@@ -125,7 +126,7 @@ async function buildApp() {
       status:               'active',
     };
 
-    setAgent(agent);
+    await setAgent(agent);
     app.log.info({ agentId: id, did: agent.did }, '[agent-identity] Agent registered');
     return reply.status(201).send({ data: agent });
   });
@@ -133,7 +134,7 @@ async function buildApp() {
   // ── GET /v1/agents — List agents ──────────────────────────────────────────
   app.get<{ Querystring: Record<string, string> }>('/v1/agents', async (req, reply) => {
     const q = req.query;
-    const agents = listAgents({
+    const agents = await listAgents({
       framework:     q['framework'] as AgentIdentity['framework'] | undefined,
       trustLevel:    q['trustLevel'] as AgentIdentity['trustLevel'] | undefined,
       capability:    q['capability'],
@@ -146,7 +147,7 @@ async function buildApp() {
 
   // ── GET /v1/agents/:id — Get agent ────────────────────────────────────────
   app.get<{ Params: { id: string } }>('/v1/agents/:id', async (req, reply) => {
-    const agent = getAgent(req.params.id);
+    const agent = await getAgent(req.params.id);
     if (!agent) {
       return reply.status(404).send({ error: 'NotFound', message: `Agent ${req.params.id} not found` });
     }
@@ -155,7 +156,7 @@ async function buildApp() {
 
   // ── PUT /v1/agents/:id — Update agent ────────────────────────────────────
   app.put<{ Params: { id: string } }>('/v1/agents/:id', async (req, reply) => {
-    const agent = getAgent(req.params.id);
+    const agent = await getAgent(req.params.id);
     if (!agent) {
       return reply.status(404).send({ error: 'NotFound', message: `Agent ${req.params.id} not found` });
     }
@@ -173,17 +174,17 @@ async function buildApp() {
       tags:         Array.isArray(body['tags']) ? body['tags'] as string[] : agent.tags,
       lastActiveAt: new Date().toISOString(),
     };
-    setAgent(updated);
+    await setAgent(updated);
     return reply.send({ data: updated });
   });
 
   // ── DELETE /v1/agents/:id — Deregister agent ──────────────────────────────
   app.delete<{ Params: { id: string } }>('/v1/agents/:id', async (req, reply) => {
-    const agent = getAgent(req.params.id);
+    const agent = await getAgent(req.params.id);
     if (!agent) {
       return reply.status(404).send({ error: 'NotFound', message: `Agent ${req.params.id} not found` });
     }
-    setAgent({ ...agent, status: 'deregistered', lastActiveAt: new Date().toISOString() });
+    await setAgent({ ...agent, status: 'deregistered', lastActiveAt: new Date().toISOString() });
     app.log.info({ agentId: agent.id }, '[agent-identity] Agent deregistered');
     return reply.status(204).send();
   });
@@ -202,7 +203,7 @@ async function buildApp() {
       return reply.status(400).send({ error: 'ValidationError', message: 'description is required' });
     }
 
-    const result = recordReputationEvent(
+    const result = await recordReputationEvent(
       req.params.id,
       body['eventType'] as ReputationEvent['eventType'],
       body['description'] as string,
@@ -221,17 +222,17 @@ async function buildApp() {
 
   // ── GET /v1/agents/:id/reputation — List reputation history ───────────────
   app.get<{ Params: { id: string } }>('/v1/agents/:id/reputation', async (req, reply) => {
-    const agent = getAgent(req.params.id);
+    const agent = await getAgent(req.params.id);
     if (!agent) {
       return reply.status(404).send({ error: 'NotFound', message: `Agent ${req.params.id} not found` });
     }
-    const events = getReputationEventsByAgentId(req.params.id);
+    const events = await getReputationEventsByAgentId(req.params.id);
     return reply.send({ data: events, total: events.length });
   });
 
   // ── POST /v1/agents/:id/attestations — Add attestation ───────────────────
   app.post<{ Params: { id: string } }>('/v1/agents/:id/attestations', async (req, reply) => {
-    const agent = getAgent(req.params.id);
+    const agent = await getAgent(req.params.id);
     if (!agent) {
       return reply.status(404).send({ error: 'NotFound', message: `Agent ${req.params.id} not found` });
     }
@@ -255,18 +256,18 @@ async function buildApp() {
       createdAt:       new Date().toISOString(),
     };
 
-    setAttestation(attestation);
+    await setAttestation(attestation);
     app.log.info({ attestationId: attestation.id, subjectAgentId: req.params.id }, '[agent-identity] Attestation added');
     return reply.status(201).send({ data: attestation });
   });
 
   // ── GET /v1/agents/:id/attestations — List attestations ──────────────────
   app.get<{ Params: { id: string } }>('/v1/agents/:id/attestations', async (req, reply) => {
-    const agent = getAgent(req.params.id);
+    const agent = await getAgent(req.params.id);
     if (!agent) {
       return reply.status(404).send({ error: 'NotFound', message: `Agent ${req.params.id} not found` });
     }
-    const attestations = getAttestationsBySubjectAgentId(req.params.id);
+    const attestations = await getAttestationsBySubjectAgentId(req.params.id);
     return reply.send({ data: attestations, total: attestations.length });
   });
 
@@ -278,7 +279,7 @@ async function buildApp() {
       return reply.status(400).send({ error: 'ValidationError', message: 'capability query param is required' });
     }
 
-    const agents = listAgents({
+    const agents = await listAgents({
       capability,
       framework:     framework as AgentIdentity['framework'] | undefined,
       minReputation: minReputation ? Number(minReputation) : undefined,
@@ -312,7 +313,7 @@ async function buildApp() {
       });
     }
 
-    const agent = getAgent(body['agentId'] as string);
+    const agent = await getAgent(body['agentId'] as string);
     if (!agent) {
       return reply.status(404).send({ error: 'NotFound', message: `Agent ${body['agentId']} not found` });
     }
@@ -357,6 +358,8 @@ export { buildApp };
 // ── Startup ───────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
+  await initStore();
+
   const app = await buildApp();
 
   const shutdown = async () => {
