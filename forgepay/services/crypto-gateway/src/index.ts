@@ -33,6 +33,7 @@ import { config } from './config.js';
 import { getDb } from './lib/db.js';
 import { buildInvoiceRoutes } from './routes/invoices.js';
 import { startChainMonitors } from './lib/monitor.js';
+import apiKeyAuth from './plugins/api-key-auth.js';
 
 async function main() {
   const app = Fastify({ logger: true, trustProxy: true });
@@ -54,6 +55,8 @@ async function main() {
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     credentials: false,
   });
+
+  await app.register(apiKeyAuth);
 
   const db = getDb();
 

@@ -26,6 +26,7 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
+import apiKeyAuth from './plugins/api-key-auth';
 
 import { getSession, listSessions, getEscrow } from './store';
 import { createSession, addMessage, getAgreedTerms, isExpired } from './negotiation';
@@ -67,6 +68,8 @@ async function buildApp() {
       message:    `Rate limit exceeded. Retry in ${Math.ceil(context.ttl / 1000)}s`,
     }),
   });
+
+  await app.register(apiKeyAuth);
 
   // ── Health ─────────────────────────────────────────────────────────────────
   app.get('/health', async () => ({
@@ -347,6 +350,8 @@ async function buildApp() {
 
   return app;
 }
+
+export { buildApp };
 
 // ── Startup ───────────────────────────────────────────────────────────────────
 

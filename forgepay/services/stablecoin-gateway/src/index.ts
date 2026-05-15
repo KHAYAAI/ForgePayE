@@ -36,6 +36,7 @@ import { buildX402Routes } from './routes/x402.js';
 import { buildX402ShieldedRoutes } from './routes/x402-shielded.js';
 import { buildShieldedDepositRoutes } from './routes/shielded-deposits.js';
 import { startShieldedMonitor, startShieldedRecoveryPoller } from './lib/shielded-monitor.js';
+import apiKeyAuth from './plugins/api-key-auth.js';
 
 async function main() {
   const app = Fastify({ logger: true, trustProxy: true });
@@ -57,6 +58,8 @@ async function main() {
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     credentials: false,
   });
+
+  await app.register(apiKeyAuth);
 
   const db = getDb();
 

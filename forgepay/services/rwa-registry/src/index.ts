@@ -43,6 +43,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import { v4 as uuidv4 } from 'uuid';
+import apiKeyAuth from './plugins/api-key-auth';
 
 import {
   rwaAssets,
@@ -99,6 +100,8 @@ async function buildApp() {
       message: `Rate limit exceeded. Retry in ${Math.ceil(context.ttl / 1000)}s`,
     }),
   });
+
+  await app.register(apiKeyAuth);
 
   // ── Health ─────────────────────────────────────────────────────────────────
   app.get('/health', async () => ({
@@ -487,6 +490,8 @@ async function buildApp() {
 
   return app;
 }
+
+export { buildApp };
 
 // ── Background jobs ───────────────────────────────────────────────────────────
 
