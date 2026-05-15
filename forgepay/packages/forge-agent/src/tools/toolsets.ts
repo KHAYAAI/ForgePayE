@@ -16,3 +16,7 @@ import "./evolution/improve-skill";
 import "./evolution/list-skills";
 import "./evolution/submit-feedback";
 import "./evolution/platform-discovery";
+import "./treasury/get-cash-position";
+import "./treasury/sweep-to-yield";
+import "./treasury/list-rules";
+import "./treasury/netting-summary";

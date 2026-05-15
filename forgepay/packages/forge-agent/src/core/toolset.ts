@@ -3,7 +3,7 @@ import type { ToolsetName, AgentMode } from "./types";
 export const MODE_TOOLSETS: Record<AgentMode, ToolsetName[]> = {
   integrate: ["integration", "memory"],
   insight:   ["analytics", "payments", "customers", "subscriptions", "crypto", "webhooks", "memory"],
-  act:       ["analytics", "payments", "customers", "subscriptions", "crypto", "webhooks", "billing", "memory", "delegation"],
+  act:       ["analytics", "payments", "customers", "subscriptions", "crypto", "webhooks", "billing", "memory", "delegation", "treasury"],
 };
 
 export class ToolsetComposer {

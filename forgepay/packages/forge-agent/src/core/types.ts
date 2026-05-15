@@ -6,7 +6,7 @@ export type AgentRole = "orchestrator" | "leaf";
 export type ToolsetName =
   | "integration" | "analytics" | "payments" | "customers"
   | "subscriptions" | "crypto" | "webhooks" | "billing"
-  | "memory" | "delegation";
+  | "memory" | "delegation" | "treasury";
 
 // Superset of the existing SSEEvent — first 4 members are IDENTICAL to existing
 export type SSEEvent =
