@@ -45,6 +45,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.api import checkout, customers, webhooks
 from src.api.auditor import router as auditor_router
 from src.api.merchants import auth_router, router as merchants_router
+from src.api.tax_filing_routes import router as tax_filing_router
 from src.config import get_settings
 
 structlog.configure(
@@ -94,6 +95,9 @@ app.include_router(customers.router, prefix="/v1")
 
 # Internal routes (restricted to cluster network + X-Internal-Secret header)
 app.include_router(auditor_router)   # prefix already set in auditor.py (/v1/auditor)
+
+# Tax filing routes (JWT Bearer token required — dependency in each route handler)
+app.include_router(tax_filing_router)
 
 
 @app.get("/healthz", include_in_schema=False)
