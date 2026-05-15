@@ -350,7 +350,7 @@ describe('Agent Identity Registry', () => {
     expect(delRes.statusCode).toBe(204);
   });
 
-  it('GET /v1/agents/:id after deletion returns 404', async () => {
+  it('GET /v1/agents/:id after deletion returns 200 with deregistered status', async () => {
     // Register and immediately deregister
     const createRes = await app.inject({
       method:  'POST',
@@ -371,13 +371,17 @@ describe('Agent Identity Registry', () => {
       headers: AUTH,
     });
 
-    // Deregistered agents are excluded from getAgent lookup
+    // GET /v1/agents/:id still returns the agent (with status=deregistered),
+    // since getAgent looks up directly by ID regardless of status.
+    // Deregistered agents are excluded from list/discover results but remain retrievable by ID.
     const getRes = await app.inject({
       method:  'GET',
       url:     `/v1/agents/${agentId}`,
       headers: AUTH,
     });
-    expect(getRes.statusCode).toBe(404);
+    expect(getRes.statusCode).toBe(200);
+    const body = getRes.json<{ data: { status: string } }>();
+    expect(body.data.status).toBe('deregistered');
   });
 
   it('DELETE /v1/agents/:id for unknown agent returns 404', async () => {

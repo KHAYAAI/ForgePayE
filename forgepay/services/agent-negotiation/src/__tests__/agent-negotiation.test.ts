@@ -494,10 +494,12 @@ describe('Agent Negotiation Protocol', () => {
     const sessionId = await createSession(app);
     const escrowId  = await createEscrow(app, sessionId, { amountUsd: 300 });
 
+    // Include an empty payload so req.body is not null when the handler accesses it
     const res = await app.inject({
       method:  'POST',
       url:     `/v1/escrow/${escrowId}/release`,
       headers: AUTH,
+      payload: {},
     });
     expect(res.statusCode).toBe(422);
   });
