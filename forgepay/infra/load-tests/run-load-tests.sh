@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ForgePay Load Test Runner
-# Usage: ./run-load-tests.sh [checkout|stablecoin|crypto|stress|spike|all] [--base-url URL] [--capture-baseline] [--compare-baseline]
+# Usage: ./run-load-tests.sh [checkout|stablecoin|crypto|stress|spike|agent-identity|agent-negotiation|rwa-registry|agents|all] [--base-url URL] [--capture-baseline] [--compare-baseline]
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RESULTS_DIR="${SCRIPT_DIR}/results"
@@ -74,13 +74,30 @@ case "$TEST" in
   crypto)
     run_test "crypto" "crypto-load-test.js"
     ;;
+  agent-identity)
+    run_test "agent-identity" "agent-identity-load-test.js" "http://localhost:3010"
+    ;;
+  agent-negotiation)
+    run_test "agent-negotiation" "agent-negotiation-load-test.js" "http://localhost:3011"
+    ;;
+  rwa-registry)
+    run_test "rwa-registry" "rwa-registry-load-test.js" "http://localhost:3008"
+    ;;
+  agents)
+    run_test "agent-identity"    "agent-identity-load-test.js"    "http://localhost:3010"
+    run_test "agent-negotiation" "agent-negotiation-load-test.js" "http://localhost:3011"
+    run_test "rwa-registry"      "rwa-registry-load-test.js"      "http://localhost:3008"
+    ;;
   all)
-    run_test "checkout"   "checkout-load-test.js"
-    run_test "stablecoin" "stablecoin-load-test.js"
-    run_test "crypto"     "crypto-load-test.js"
+    run_test "checkout"          "checkout-load-test.js"
+    run_test "stablecoin"        "stablecoin-load-test.js"
+    run_test "crypto"            "crypto-load-test.js"
+    run_test "agent-identity"    "agent-identity-load-test.js"    "http://localhost:3010"
+    run_test "agent-negotiation" "agent-negotiation-load-test.js" "http://localhost:3011"
+    run_test "rwa-registry"      "rwa-registry-load-test.js"      "http://localhost:3008"
     ;;
   *)
-    echo "Usage: $0 [checkout|stablecoin|crypto|stress|spike|all] [--base-url URL] [--capture-baseline] [--compare-baseline]"
+    echo "Usage: $0 [checkout|stablecoin|crypto|stress|spike|agent-identity|agent-negotiation|rwa-registry|agents|all] [--base-url URL] [--capture-baseline] [--compare-baseline]"
     exit 1
     ;;
 esac

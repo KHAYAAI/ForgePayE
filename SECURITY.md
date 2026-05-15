@@ -1,74 +1,61 @@
-# Security Policy
-
-## Scope
-
-This policy covers the ForgePay platform codebase, including:
-
-**In scope:**
-- REST API endpoints (crypto-gateway, stablecoin-gateway, mor-layer, unified-router)
-- Solidity smart contracts (Groth16Verifier, CommitmentTree, NullifierRegistry, PoseidonHasher)
-- WASM proof generation (privacy-payment-wasm crate)
-- JavaScript/TypeScript SDK (@forgepay/sdk)
-- Dashboard and marketing site (Next.js apps)
-
-**Out of scope:**
-- Hyperswitch upstream (report to https://github.com/juspay/hyperswitch/security)
-- Kill Bill upstream (report to https://github.com/killbill/killbill/security)
-- Third-party payment processor APIs (Stripe, Adyen, etc.)
-- Kubernetes/cloud infrastructure (report to your cloud provider)
+# Security Policy — ForgePay
 
 ## Reporting a Vulnerability
 
-Please **do not** open a public GitHub issue for security vulnerabilities.
+ForgePay takes security seriously. If you discover a vulnerability, please report it responsibly.
 
-Report security issues privately via:
-- **Email:** security@forgepay.io
-- **Subject line:** `[SECURITY] <brief description>`
-- **PGP key:** Available at https://forgepay.io/.well-known/security.txt
+**DO NOT** open a public GitHub issue for security vulnerabilities.
 
-Include:
-1. Description of the vulnerability
-2. Steps to reproduce
-3. Affected component(s) and version(s)
-4. Potential impact assessment
-5. (Optional) Suggested fix
+**Contact:** security@forgepay.io  
+**Response SLA:** We acknowledge within 24 hours. Critical vulnerabilities get a fix within 72 hours.  
+**Disclosure timeline:** 90 days after we receive a report, or sooner if a fix is released.
 
-## Response Timeline
+## Scope
 
-| Milestone | Target |
-|---|---|
-| Acknowledgement | 48 hours |
-| Initial assessment | 5 business days |
-| Fix timeline communicated | 10 business days |
-| Fix released | 90 days (critical: 7 days) |
-| Public disclosure | 90 days after report |
+### In Scope
+- ForgePay REST APIs (`forgepay/services/`)
+- Authentication and authorization logic
+- Payment processing flows (card, stablecoin, crypto)
+- Webhook signature verification
+- Zero-knowledge proof verification (`crates/zk-proofs/`)
+- Smart contracts (`forgepay/infra/contracts/`)
+- SDK security (`forgepay/packages/sdk-js/`, `forgepay/packages/sdk-python/`)
+- Agent identity and negotiation (`forgepay/services/agent-identity/`, `forgepay/services/agent-negotiation/`)
+- RWA registry (`forgepay/services/rwa-registry/`)
+
+### Out of Scope
+- Hyperswitch upstream codebase (`crates/router/`)
+- Kill Bill upstream codebase
+- Third-party payment processors (Stripe, Adyen, etc.)
+- AWS/GCP/Azure cloud infrastructure (report to respective providers)
+- Denial of service attacks
+- Social engineering attacks targeting ForgePay employees
 
 ## Severity Classification
 
-| Severity | Description | Examples |
-|---|---|---|
-| **Critical** | Direct financial impact, key compromise | Smart contract fund drain, auditor key leak |
-| **High** | Authentication bypass, data leakage | JWT forgery, plaintext amount exposure |
-| **Medium** | Limited scope impact | Rate limit bypass, XSS in dashboard |
-| **Low** | Minimal impact | Info disclosure, minor misconfig |
+| Level | Examples | Response Time |
+|-------|---------|--------------|
+| **Critical** | Payment data exposure, authentication bypass, fund theft | 72 hours |
+| **High** | Privilege escalation, webhook spoofing, RLS bypass | 7 days |
+| **Medium** | Rate limit bypass, information disclosure | 30 days |
+| **Low** | Best-practice deviations, low-impact info leaks | 90 days |
+
+## Security Features
+
+- **PCI DSS:** Card data never stored in ForgePay services; all tokenization via Hyperswitch vault
+- **Webhook security:** HMAC-SHA256 signature verification on all incoming webhooks
+- **API key storage:** Argon2id hashed; never stored in plaintext
+- **Secrets management:** HashiCorp Vault or AWS Secrets Manager; never in Helm values or env files
+- **Multi-tenancy:** PostgreSQL Row-Level Security; merchant A cannot access merchant B data
+- **Rate limiting:** All public endpoints rate-limited (100-300 req/min by service)
+- **TLS:** TLS 1.3 on all external APIs; mTLS for service-to-service communication
 
 ## Bug Bounty
 
-ForgePay operates a private bug bounty program. Critical and High severity findings are eligible for rewards. Contact security@forgepay.io for details.
+ForgePay does not currently offer a public bug bounty program. Critical findings may be rewarded at ForgePay's discretion.
 
-## Known Security Properties
+## Known Security Assumptions
 
-### Zero-Knowledge Privacy
-- Groth16 proofs are generated client-side (browser WASM); plaintext amounts never reach servers
-- Auditor decryption uses X25519 ECDH + SHA-256 KDF + AES-256-GCM
-- Nullifier registry prevents double-spending on-chain
-
-### Payment Security
-- Cards never touch ForgePay application layer (PCI DSS Level 1 via Hyperswitch vault)
-- All webhook payloads are HMAC-SHA256 signed; always verified before processing
-- Internal service communication uses signed tokens (`INTERNAL_WEBHOOK_SECRET`)
-
-### Infrastructure
-- All secrets loaded from Vault or AWS Secrets Manager at runtime
-- Database credentials, JWT secrets, and API keys fail-fast if not set in non-development environments
-- Terraform state encrypted at rest in S3 with KMS, locked via DynamoDB
+- Zero-knowledge proof circuits (`crates/zk-proofs/`) are **development/test-only**. The current Groth16 trusted setup uses a seeded RNG and is **NOT production-safe**. A production multi-party computation ceremony is required before mainnet ZK features launch.
+- Smart contracts (`forgepay/infra/contracts/`) have not yet undergone external formal verification. Do not deploy to mainnet until a verified audit is complete.
+- Agent escrow contracts (`forgepay/services/agent-negotiation/`) are prototype implementations. Formal security review required before handling real funds.
