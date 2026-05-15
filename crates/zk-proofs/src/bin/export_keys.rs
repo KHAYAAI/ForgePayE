@@ -6,6 +6,9 @@
 //!
 //! Output:
 //!   crates/privacy-payment-wasm/keys/{deposit,transfer,withdraw}.{pk,vk}
+//!
+//! NOTE: Uses a seeded deterministic RNG — NOT for production. Production keys
+//! must use a trusted multi-party ceremony.
 
 use ark_bn254::Bn254;
 use ark_groth16::Groth16;
@@ -20,11 +23,9 @@ use zk_proofs::circuits::transfer::TransferCircuit;
 use zk_proofs::circuits::withdraw::WithdrawCircuit;
 
 fn keys_dir() -> PathBuf {
-    // CARGO_MANIFEST_DIR = <repo>/crates/zk-proofs at compile time.
-    // One level up reaches <repo>/crates/, then privacy-payment-wasm/keys.
     let manifest = env!("CARGO_MANIFEST_DIR");
     PathBuf::from(manifest)
-        .join("..") // <repo>/crates/
+        .join("..")
         .join("privacy-payment-wasm")
         .join("keys")
 }
@@ -38,11 +39,8 @@ fn write_key(dir: &PathBuf, name: &str, ext: &str, bytes: &[u8]) -> Result<(), B
     let hash = hex::encode(hasher.finalize());
 
     println!(
-        "Generated {}.{}: {} bytes (sha256: {})",
-        name,
-        ext,
-        bytes.len(),
-        hash
+        "  {}.{}: {} bytes  sha256={}",
+        name, ext, bytes.len(), &hash[..16]
     );
     Ok(())
 }
@@ -57,53 +55,60 @@ fn main() {
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let dir = keys_dir();
     fs::create_dir_all(&dir)?;
-    println!("Writing keys to: {}", dir.canonicalize().unwrap_or(dir.clone()).display());
+    println!("Writing dev keys to: {}", dir.canonicalize().unwrap_or(dir.clone()).display());
+    println!("(Seed=42 deterministic — NOT for production)");
 
-    // Deterministic RNG for reproducible dev keys (NOT for production).
+    // Deterministic RNG: seed=42 gives reproducible dev keys
     let mut rng = ark_std::rand::rngs::StdRng::seed_from_u64(42);
 
     // ── Deposit ──────────────────────────────────────────────────────────────
+    println!("\n[deposit]");
     {
         let circuit = DepositCircuit::default();
-        let (pk, vk) = Groth16::<Bn254>::circuit_specific_setup(circuit, &mut rng)?;
+        let pk = Groth16::<Bn254>::generate_random_parameters_with_reduction(circuit, &mut rng)?;
+        let vk = pk.vk.clone();
 
-        let mut pk_bytes = Vec::new();
+        let mut pk_bytes: Vec<u8> = Vec::new();
         pk.serialize_compressed(&mut pk_bytes)?;
         write_key(&dir, "deposit", "pk", &pk_bytes)?;
 
-        let mut vk_bytes = Vec::new();
+        let mut vk_bytes: Vec<u8> = Vec::new();
         vk.serialize_compressed(&mut vk_bytes)?;
         write_key(&dir, "deposit", "vk", &vk_bytes)?;
     }
 
     // ── Transfer ─────────────────────────────────────────────────────────────
+    println!("\n[transfer]");
     {
         let circuit = TransferCircuit::default();
-        let (pk, vk) = Groth16::<Bn254>::circuit_specific_setup(circuit, &mut rng)?;
+        let pk = Groth16::<Bn254>::generate_random_parameters_with_reduction(circuit, &mut rng)?;
+        let vk = pk.vk.clone();
 
-        let mut pk_bytes = Vec::new();
+        let mut pk_bytes: Vec<u8> = Vec::new();
         pk.serialize_compressed(&mut pk_bytes)?;
         write_key(&dir, "transfer", "pk", &pk_bytes)?;
 
-        let mut vk_bytes = Vec::new();
+        let mut vk_bytes: Vec<u8> = Vec::new();
         vk.serialize_compressed(&mut vk_bytes)?;
         write_key(&dir, "transfer", "vk", &vk_bytes)?;
     }
 
     // ── Withdraw ─────────────────────────────────────────────────────────────
+    println!("\n[withdraw]");
     {
         let circuit = WithdrawCircuit::default();
-        let (pk, vk) = Groth16::<Bn254>::circuit_specific_setup(circuit, &mut rng)?;
+        let pk = Groth16::<Bn254>::generate_random_parameters_with_reduction(circuit, &mut rng)?;
+        let vk = pk.vk.clone();
 
-        let mut pk_bytes = Vec::new();
+        let mut pk_bytes: Vec<u8> = Vec::new();
         pk.serialize_compressed(&mut pk_bytes)?;
         write_key(&dir, "withdraw", "pk", &pk_bytes)?;
 
-        let mut vk_bytes = Vec::new();
+        let mut vk_bytes: Vec<u8> = Vec::new();
         vk.serialize_compressed(&mut vk_bytes)?;
         write_key(&dir, "withdraw", "vk", &vk_bytes)?;
     }
 
-    println!("Done. Run `cargo build --features embed-keys` to embed keys.");
+    println!("\nDone. Run `cargo build --features embed-keys` to embed keys in the crate.");
     Ok(())
 }
