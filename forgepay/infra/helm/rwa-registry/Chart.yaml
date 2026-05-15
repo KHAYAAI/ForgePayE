@@ -1,0 +1,14 @@
+apiVersion: v2
+name: rwa-registry
+description: ForgePay RWA Registry — Real-World Asset investment positions, income tracking, and redemption for merchant yield
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - forgepay
+  - rwa
+  - real-world-assets
+  - yield
+  - tokenized-tbills
+maintainers:
+  - name: ForgePay Platform Team

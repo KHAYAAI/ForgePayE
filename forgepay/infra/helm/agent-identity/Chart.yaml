@@ -1,0 +1,13 @@
+apiVersion: v2
+name: agent-identity
+description: ForgePay Agent Identity Service — AI agent registration, discovery, and reputation tracking for agentic commerce
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - forgepay
+  - agent-identity
+  - agentic-commerce
+  - reputation
+maintainers:
+  - name: ForgePay Platform Team

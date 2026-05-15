@@ -1,0 +1,46 @@
+replicaCount: 1
+
+image:
+  repository: forgepay/rwa-registry
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 3008
+
+env:
+  NODE_ENV: production
+  LOG_LEVEL: info
+  PORT: "3008"
+
+yieldEngineUrl: "http://yield-engine:3007"
+stablecoinGatewayUrl: "http://stablecoin-gateway:3002"
+rateLimitPerMinute: 100
+
+# Kubernetes secret with sensitive values — never hardcode here.
+# Expected keys (if needed in future):
+#   INTERNAL_WEBHOOK_SECRET
+secretRef: "forgepay-rwa-registry-secrets"
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "128Mi"
+  limits:
+    cpu: "300m"
+    memory: "256Mi"
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 3008
+  initialDelaySeconds: 10
+  periodSeconds: 15
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: 3008
+  initialDelaySeconds: 5
+  periodSeconds: 10

@@ -1,0 +1,46 @@
+replicaCount: 1
+
+image:
+  repository: forgepay/agent-negotiation
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 3011
+
+env:
+  NODE_ENV: production
+  LOG_LEVEL: info
+  PORT: "3011"
+
+agentIdentityUrl: "http://agent-identity:3010"
+stablecoinGatewayUrl: "http://stablecoin-gateway:3002"
+rateLimitPerMinute: 200
+
+# Kubernetes secret with sensitive values — never hardcode here.
+# Expected keys:
+#   INTERNAL_WEBHOOK_SECRET
+secretRef: "forgepay-agent-negotiation-secrets"
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "128Mi"
+  limits:
+    cpu: "300m"
+    memory: "256Mi"
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 3011
+  initialDelaySeconds: 10
+  periodSeconds: 15
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: 3011
+  initialDelaySeconds: 5
+  periodSeconds: 10

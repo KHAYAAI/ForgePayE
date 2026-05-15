@@ -1,0 +1,13 @@
+apiVersion: v2
+name: agent-negotiation
+description: ForgePay Agent Negotiation Service — structured commerce negotiation and escrow for AI-to-AI transactions
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - forgepay
+  - agent-negotiation
+  - agentic-commerce
+  - escrow
+maintainers:
+  - name: ForgePay Platform Team
