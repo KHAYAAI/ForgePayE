@@ -99,6 +99,90 @@ components:
         total_count: { type: integer }
         next_cursor: { type: string }
 
+    Agent:
+      type: object
+      properties:
+        id:               { type: string, example: "agt_01HXYZ..." }
+        name:             { type: string, example: "logistics-bot-v1" }
+        capabilities:     { type: array, items: { type: string } }
+        reputation_score: { type: integer, minimum: 0, maximum: 100, example: 72 }
+        did:              { type: string, description: "Decentralized Identifier" }
+        status:           { type: string, enum: [active, suspended, deregistered] }
+        created_at:       { type: string, format: date-time }
+        metadata:         { type: object }
+      required: [id, name, capabilities, reputation_score, status]
+
+    NegotiationSession:
+      type: object
+      properties:
+        id:                     { type: string, example: "ngt_01HXYZ..." }
+        initiator_agent_id:     { type: string }
+        counterparty_agent_id:  { type: string }
+        subject:                { type: string }
+        status:                 { type: string, enum: [negotiating, agreed, escrow_funded, completed, disputed] }
+        final_terms:            { type: object }
+        created_at:             { type: string, format: date-time }
+        updated_at:             { type: string, format: date-time }
+        metadata:               { type: object }
+      required: [id, initiator_agent_id, counterparty_agent_id, subject, status]
+
+    Escrow:
+      type: object
+      properties:
+        id:                    { type: string, example: "esc_01HXYZ..." }
+        session_id:            { type: string }
+        amount_usdc:           { type: string, example: "1500.00" }
+        funder_agent_id:       { type: string }
+        beneficiary_agent_id:  { type: string }
+        status:                { type: string, enum: [pending, funded, released, disputed, refunded] }
+        dispute_window_days:   { type: integer }
+        dispute_deadline:      { type: string, format: date-time }
+        chain:                 { type: string, example: "base", description: "Blockchain network" }
+        contract_address:      { type: string, description: "On-chain escrow contract address" }
+        created_at:            { type: string, format: date-time }
+      required: [id, session_id, amount_usdc, funder_agent_id, beneficiary_agent_id, status]
+
+    RwaAsset:
+      type: object
+      properties:
+        id:              { type: string, example: "ondo_usdy" }
+        name:            { type: string, example: "Ondo USDY" }
+        issuer:          { type: string, example: "Ondo Finance" }
+        asset_type:      { type: string, enum: [t_bill, money_market, corporate_bond] }
+        apy_pct:         { type: number, example: 5.15, description: "Current APY as a percentage" }
+        apy_updated_at:  { type: string, format: date-time }
+        redemption_days: { type: integer, example: 2, description: "Settlement delay in business days" }
+        minimum_usd:     { type: number, example: 1000 }
+        nav_per_token:   { type: string, example: "1.0523", description: "Net Asset Value per token" }
+        nav_updated_at:  { type: string, format: date-time }
+      required: [id, name, issuer, asset_type, apy_pct, redemption_days, minimum_usd]
+
+    RwaPosition:
+      type: object
+      properties:
+        id:              { type: string, example: "pos_01HXYZ..." }
+        asset_id:        { type: string }
+        merchant_id:     { type: string }
+        principal_usd:   { type: string, example: "5000.00" }
+        current_value_usd: { type: string, example: "5021.75" }
+        accrued_yield_usd: { type: string, example: "21.75" }
+        status:          { type: string, enum: [open, closed, pending_redemption] }
+        opened_at:       { type: string, format: date-time }
+        closed_at:       { type: string, format: date-time, nullable: true }
+      required: [id, asset_id, merchant_id, principal_usd, status]
+
+    RwaRedemption:
+      type: object
+      properties:
+        id:              { type: string, example: "rdm_01HXYZ..." }
+        position_id:     { type: string }
+        amount_usd:      { type: string, example: "5021.75" }
+        status:          { type: string, enum: [pending, processing, settled, failed] }
+        estimated_settlement: { type: string, format: date-time }
+        settled_at:      { type: string, format: date-time, nullable: true }
+        created_at:      { type: string, format: date-time }
+      required: [id, position_id, amount_usd, status]
+
 paths:
   /v1/payments:
     post:
@@ -377,4 +461,377 @@ paths:
         - { name: webhook_id, in: path, required: true, schema: { type: string } }
       responses:
         "204": { description: Webhook deleted }
+        "404": { description: Not found }
+
+  # ── Agent Identity ──────────────────────────────────────────────────────────
+
+  /v1/agents:
+    post:
+      summary: Register AI agent
+      operationId: registerAgent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:         { type: string, example: "logistics-bot-v1" }
+                capabilities: { type: array, items: { type: string }, example: ["negotiation", "payment", "logistics"] }
+                did:          { type: string, description: "Decentralized Identifier (optional)" }
+                metadata:     { type: object }
+              required: [name, capabilities]
+      responses:
+        "200": { description: Agent registered, content: { application/json: { schema: { $ref: "#/components/schemas/Agent" } } } }
+        "400": { description: Bad request, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+    get:
+      summary: List agents
+      operationId: listAgents
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, default: 20, maximum: 100 } }
+        - { name: cursor, in: query, schema: { type: string } }
+        - { name: capability, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: List of agents
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ListMeta"
+                  - type: object
+                    properties:
+                      data: { type: array, items: { $ref: "#/components/schemas/Agent" } }
+
+  /v1/agents/{agentId}:
+    get:
+      summary: Get agent by ID
+      operationId: getAgent
+      parameters:
+        - { name: agentId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Agent, content: { application/json: { schema: { $ref: "#/components/schemas/Agent" } } } }
+        "404": { description: Not found }
+
+  /v1/agents/{agentId}/reputation:
+    post:
+      summary: Record reputation event
+      operationId: recordReputationEvent
+      parameters:
+        - { name: agentId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                event_type: { type: string, enum: [positive, negative, neutral], example: "positive" }
+                context:    { type: string, example: "Completed negotiation session ngt_01..." }
+                score_delta: { type: integer, example: 5, description: "Points to add (positive) or subtract (negative)" }
+              required: [event_type, score_delta]
+      responses:
+        "200":
+          description: Updated reputation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agent_id:        { type: string }
+                  reputation_score: { type: integer, minimum: 0, maximum: 100 }
+                  event_recorded:  { type: boolean }
+
+  /v1/discover:
+    get:
+      summary: Discover agents by capability
+      operationId: discoverAgents
+      parameters:
+        - { name: capability, in: query, required: true, schema: { type: string }, description: "Capability to filter by" }
+        - { name: min_reputation, in: query, schema: { type: integer, default: 50 }, description: "Minimum reputation score" }
+        - { name: limit, in: query, schema: { type: integer, default: 10, maximum: 50 } }
+      responses:
+        "200":
+          description: Matching agents
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/Agent" } }
+
+  # ── Agent Negotiation ───────────────────────────────────────────────────────
+
+  /v1/negotiations/sessions:
+    post:
+      summary: Create negotiation session
+      operationId: createNegotiationSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                initiator_agent_id: { type: string }
+                counterparty_agent_id: { type: string }
+                subject:    { type: string, example: "Bulk logistics contract Q3 2026" }
+                terms:      { type: object, description: "Initial proposed terms" }
+                metadata:   { type: object }
+              required: [initiator_agent_id, counterparty_agent_id, subject]
+      responses:
+        "200": { description: Session created, content: { application/json: { schema: { $ref: "#/components/schemas/NegotiationSession" } } } }
+        "400": { description: Bad request, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+
+  /v1/negotiations/sessions/{sessionId}:
+    get:
+      summary: Get negotiation session
+      operationId: getNegotiationSession
+      parameters:
+        - { name: sessionId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Session, content: { application/json: { schema: { $ref: "#/components/schemas/NegotiationSession" } } } }
+        "404": { description: Not found }
+
+  /v1/negotiations/sessions/{sessionId}/messages:
+    post:
+      summary: Add message to session
+      operationId: addNegotiationMessage
+      parameters:
+        - { name: sessionId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sender_agent_id: { type: string }
+                content:         { type: string }
+                proposed_terms:  { type: object, description: "Updated terms proposal (optional)" }
+              required: [sender_agent_id, content]
+      responses:
+        "200":
+          description: Message added
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message_id:  { type: string }
+                  session_id:  { type: string }
+                  sender_agent_id: { type: string }
+                  content:     { type: string }
+                  sent_at:     { type: string, format: date-time }
+
+  /v1/negotiations/sessions/{sessionId}/accept:
+    post:
+      summary: Accept negotiation terms
+      operationId: acceptNegotiationTerms
+      parameters:
+        - { name: sessionId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                agent_id:     { type: string }
+                final_terms:  { type: object }
+              required: [agent_id]
+      responses:
+        "200": { description: Terms accepted; session status updated to agreed, content: { application/json: { schema: { $ref: "#/components/schemas/NegotiationSession" } } } }
+        "409": { description: Session not in negotiating state }
+
+  /v1/negotiations/escrow:
+    post:
+      summary: Create escrow
+      operationId: createEscrow
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                session_id:         { type: string }
+                amount_usdc:        { type: string, example: "1500.00", description: "USDC amount to lock" }
+                funder_agent_id:    { type: string }
+                beneficiary_agent_id: { type: string }
+                dispute_window_days: { type: integer, default: 3 }
+              required: [session_id, amount_usdc, funder_agent_id, beneficiary_agent_id]
+      responses:
+        "200": { description: Escrow created, content: { application/json: { schema: { $ref: "#/components/schemas/Escrow" } } } }
+        "400": { description: Bad request, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+
+  /v1/negotiations/escrow/{escrowId}:
+    get:
+      summary: Get escrow status
+      operationId: getEscrow
+      parameters:
+        - { name: escrowId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Escrow, content: { application/json: { schema: { $ref: "#/components/schemas/Escrow" } } } }
+        "404": { description: Not found }
+
+  /v1/negotiations/escrow/{escrowId}/release:
+    post:
+      summary: Release escrow funds
+      operationId: releaseEscrow
+      parameters:
+        - { name: escrowId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                released_by_agent_id: { type: string }
+                reason: { type: string }
+              required: [released_by_agent_id]
+      responses:
+        "200":
+          description: Escrow released
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  escrow_id:    { type: string }
+                  status:       { type: string, enum: [released, disputed] }
+                  tx_hash:      { type: string, description: "On-chain transaction hash" }
+                  released_at:  { type: string, format: date-time }
+
+  # ── RWA Registry ────────────────────────────────────────────────────────────
+
+  /v1/rwa/assets:
+    get:
+      summary: List RWA assets
+      operationId: listRwaAssets
+      parameters:
+        - { name: asset_type, in: query, schema: { type: string, enum: [t_bill, money_market, corporate_bond] } }
+        - { name: min_apy, in: query, schema: { type: number }, description: "Minimum APY filter" }
+      responses:
+        "200":
+          description: Available RWA assets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/RwaAsset" } }
+
+  /v1/rwa/positions:
+    post:
+      summary: Open RWA position
+      operationId: openRwaPosition
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                asset_id:    { type: string, example: "ondo_usdy" }
+                amount_usd:  { type: string, example: "5000.00" }
+                idempotency_key: { type: string }
+              required: [asset_id, amount_usd]
+      responses:
+        "200": { description: Position opened, content: { application/json: { schema: { $ref: "#/components/schemas/RwaPosition" } } } }
+        "400": { description: Bad request, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+    get:
+      summary: List RWA positions
+      operationId: listRwaPositions
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [open, closed, pending_redemption] } }
+        - { name: limit, in: query, schema: { type: integer, default: 20 } }
+      responses:
+        "200":
+          description: List of positions
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ListMeta"
+                  - type: object
+                    properties:
+                      data: { type: array, items: { $ref: "#/components/schemas/RwaPosition" } }
+
+  /v1/rwa/income:
+    get:
+      summary: Get RWA income history
+      operationId: getRwaIncome
+      parameters:
+        - { name: from, in: query, schema: { type: string, format: date }, example: "2026-01-01" }
+        - { name: to,   in: query, schema: { type: string, format: date }, example: "2026-03-31" }
+        - { name: asset_id, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: Income history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_income_usd: { type: string }
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        date:       { type: string, format: date }
+                        asset_id:   { type: string }
+                        income_usd: { type: string }
+                        income_type: { type: string, enum: [interest, dividend, capital_gain] }
+
+  /v1/rwa/income/tax-summary:
+    get:
+      summary: RWA tax summary
+      operationId: getRwaTaxSummary
+      parameters:
+        - { name: year, in: query, required: true, schema: { type: integer, example: 2026 } }
+      responses:
+        "200":
+          description: Annual tax summary for RWA income
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  year:                    { type: integer }
+                  ordinary_income_usd:     { type: string }
+                  qualified_dividends_usd: { type: string }
+                  short_term_gains_usd:    { type: string }
+                  long_term_gains_usd:     { type: string }
+                  total_reportable_usd:    { type: string }
+
+  /v1/rwa/redemptions:
+    post:
+      summary: Create RWA redemption request
+      operationId: createRwaRedemption
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                position_id:     { type: string }
+                amount_usd:      { type: string, description: "Amount to redeem; omit for full position" }
+                idempotency_key: { type: string }
+              required: [position_id]
+      responses:
+        "200": { description: Redemption request created, content: { application/json: { schema: { $ref: "#/components/schemas/RwaRedemption" } } } }
+        "400": { description: Bad request, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+
+  /v1/rwa/redemptions/{redemptionId}:
+    get:
+      summary: Get RWA redemption status
+      operationId: getRwaRedemption
+      parameters:
+        - { name: redemptionId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Redemption, content: { application/json: { schema: { $ref: "#/components/schemas/RwaRedemption" } } } }
         "404": { description: Not found }
