@@ -14,6 +14,7 @@ import {
   Zap,
   Bot,
   Users,
+  TrendingUp,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -23,6 +24,7 @@ const NAV_ITEMS = [
   { label: 'Customers',     href: '/customers',     icon: Users,           badge: null },
   { label: 'Subscriptions', href: '/subscriptions', icon: RefreshCw,       badge: null },
   { label: 'Analytics',     href: '/analytics',     icon: BarChart3,       badge: null },
+  { label: 'RWA',           href: '/rwa',           icon: TrendingUp,      badge: 'New' },
   { label: 'Tax & MoR',     href: '/tax',           icon: Globe,           badge: null },
   { label: 'Webhooks',      href: '/webhooks',      icon: Webhook,         badge: null },
   { label: 'API Keys',      href: '/api-keys',      icon: Key,             badge: null },

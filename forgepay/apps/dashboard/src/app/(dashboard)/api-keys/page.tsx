@@ -1,17 +1,26 @@
 'use client';
 
-import type { Metadata } from 'next';
 import { useState } from 'react';
+import useSWR from 'swr';
 import { Copy, Eye, EyeOff, Plus, Trash2, ShieldCheck } from 'lucide-react';
+import { TableRowSkeleton } from '@/components/ui/Skeleton';
 
-// Stub data
-const KEYS = [
-  { id: 'key_01', name: 'Production', key: 'fpk_live_3xT4...k9mN', mode: 'live', created: 'Apr 1, 2026', last_used: '2 min ago' },
-  { id: 'key_02', name: 'Test',       key: 'fpk_test_7yU8...q2pX', mode: 'test', created: 'Mar 15, 2026', last_used: '1 hr ago' },
-];
+const fetcher = (url: string) => fetch(url).then((r) => r.json());
+
+interface ApiKey {
+  id: string;
+  name: string;
+  key: string;
+  mode: string;
+  created: string;
+  last_used: string;
+}
 
 export default function ApiKeysPage() {
   const [showKey, setShowKey] = useState<Record<string, boolean>>({});
+  const { data, isLoading } = useSWR<{ data: ApiKey[]; count: number }>('/api/api-keys', fetcher);
+
+  const keys: ApiKey[] = data?.data ?? [];
 
   return (
     <div className="space-y-6 max-w-3xl">
@@ -48,43 +57,50 @@ export default function ApiKeysPage() {
             </tr>
           </thead>
           <tbody>
-            {KEYS.map((k) => (
-              <tr key={k.id}>
-                <td className="font-medium text-white">{k.name}</td>
-                <td>
-                  <div className="flex items-center gap-2">
-                    <code className="text-xs font-mono text-gray-300 bg-white/5 px-2 py-0.5 rounded">
-                      {showKey[k.id] ? k.key : k.key.slice(0, 16) + '••••••••'}
-                    </code>
-                    <button
-                      className="text-gray-500 hover:text-gray-300"
-                      onClick={() => setShowKey((s) => ({ ...s, [k.id]: !s[k.id] }))}
-                    >
-                      {showKey[k.id] ? <EyeOff size={12} /> : <Eye size={12} />}
+            {isLoading ? (
+              <>
+                <TableRowSkeleton cols={6} />
+                <TableRowSkeleton cols={6} />
+              </>
+            ) : (
+              keys.map((k) => (
+                <tr key={k.id}>
+                  <td className="font-medium text-white">{k.name}</td>
+                  <td>
+                    <div className="flex items-center gap-2">
+                      <code className="text-xs font-mono text-gray-300 bg-white/5 px-2 py-0.5 rounded">
+                        {showKey[k.id] ? k.key : k.key.slice(0, 16) + '••••••••'}
+                      </code>
+                      <button
+                        className="text-gray-500 hover:text-gray-300"
+                        onClick={() => setShowKey((s) => ({ ...s, [k.id]: !s[k.id] }))}
+                      >
+                        {showKey[k.id] ? <EyeOff size={12} /> : <Eye size={12} />}
+                      </button>
+                      <button className="text-gray-500 hover:text-gray-300">
+                        <Copy size={12} />
+                      </button>
+                    </div>
+                  </td>
+                  <td>
+                    <span className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full border ${
+                      k.mode === 'live'
+                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                        : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                    }`}>
+                      {k.mode}
+                    </span>
+                  </td>
+                  <td className="text-gray-400 text-xs">{k.created}</td>
+                  <td className="text-gray-400 text-xs">{k.last_used}</td>
+                  <td>
+                    <button className="text-gray-600 hover:text-red-400 transition-colors">
+                      <Trash2 size={13} />
                     </button>
-                    <button className="text-gray-500 hover:text-gray-300">
-                      <Copy size={12} />
-                    </button>
-                  </div>
-                </td>
-                <td>
-                  <span className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full border ${
-                    k.mode === 'live'
-                      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                      : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
-                  }`}>
-                    {k.mode}
-                  </span>
-                </td>
-                <td className="text-gray-400 text-xs">{k.created}</td>
-                <td className="text-gray-400 text-xs">{k.last_used}</td>
-                <td>
-                  <button className="text-gray-600 hover:text-red-400 transition-colors">
-                    <Trash2 size={13} />
-                  </button>
-                </td>
-              </tr>
-            ))}
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>
