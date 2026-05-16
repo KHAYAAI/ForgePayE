@@ -1,0 +1,13 @@
+apiVersion: v2
+name: bank-connectivity
+description: ForgePay Bank Connectivity — Plaid, Open Banking, wire and stablecoin settlement routing
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+maintainers:
+  - name: ForgePay Platform
+keywords:
+  - banking
+  - plaid
+  - open-banking
+  - settlement

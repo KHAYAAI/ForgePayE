@@ -28,6 +28,7 @@ import jwt from '@fastify/jwt';
 import { buildAccountRoutes } from './routes/accounts';
 import { buildTransferRoutes } from './routes/transfers';
 import { buildWebhookRoutes } from './routes/webhooks';
+import { buildInternalRoutes } from './routes/internal';
 import { logger } from './lib/logger';
 
 async function main(): Promise<void> {
@@ -105,6 +106,9 @@ async function main(): Promise<void> {
   // ── API routes ────────────────────────────────────────────────────────────
   await app.register(buildAccountRoutes, { prefix: '/api/v1' });
   await app.register(buildTransferRoutes, { prefix: '/api/v1' });
+
+  // ── Internal settlement routes — service-to-service, x-source auth ────────
+  await app.register(buildInternalRoutes);
 
   // ── Webhook routes (no JWT auth — use HMAC signature verification instead) ─
   await app.register(buildWebhookRoutes, { prefix: '/webhooks' });

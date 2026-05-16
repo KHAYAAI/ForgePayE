@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: bank-connectivity
+  labels:
+    app: bank-connectivity
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    app: bank-connectivity
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: {{ .Values.service.targetPort }}
+      protocol: TCP
