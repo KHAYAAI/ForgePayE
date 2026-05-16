@@ -1,0 +1,56 @@
+replicaCount: 2
+
+image:
+  repository: forgepay/agent-credit-lines
+  pullPolicy: IfNotPresent
+  tag: "0.1.0"
+
+service:
+  type: ClusterIP
+  port: 3016
+  targetPort: 3016
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 8
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+env:
+  PORT: "3016"
+  LOG_LEVEL: "info"
+  NODE_ENV: "production"
+  RATE_LIMIT_PER_MIN: "100"
+  CORS_ORIGIN: "*"
+  # AGENT_IDENTITY_URL: "http://agent-identity:3010"
+  # AGENT_DECISION_URL: "http://agent-decision-framework:3013"
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 3016
+  initialDelaySeconds: 15
+  periodSeconds: 30
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: 3016
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  failureThreshold: 3
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "3016"
+  prometheus.io/path: "/health"

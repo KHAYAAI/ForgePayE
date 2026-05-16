@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-credit-lines
+  labels:
+    app: agent-credit-lines
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    app: agent-credit-lines
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: {{ .Values.service.targetPort }}
+      protocol: TCP

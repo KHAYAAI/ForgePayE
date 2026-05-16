@@ -1,0 +1,13 @@
+apiVersion: v2
+name: institutional-reporting
+description: ForgePay Institutional Reporting — CFO/auditor-ready financial reports, tax filings, SOX audit trails
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+maintainers:
+  - name: ForgePay Platform
+keywords:
+  - reporting
+  - finance
+  - audit
+  - compliance

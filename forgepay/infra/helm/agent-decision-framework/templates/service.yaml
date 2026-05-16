@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-decision-framework
+  labels:
+    app: agent-decision-framework
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    app: agent-decision-framework
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: {{ .Values.service.targetPort }}
+      protocol: TCP

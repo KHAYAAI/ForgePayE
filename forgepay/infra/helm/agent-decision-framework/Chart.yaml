@@ -1,0 +1,12 @@
+apiVersion: v2
+name: agent-decision-framework
+description: ForgePay Agent Decision Framework — risk scoring, policy gates, autonomous-action decisions
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+maintainers:
+  - name: ForgePay Platform
+keywords:
+  - agents
+  - decision
+  - risk-scoring

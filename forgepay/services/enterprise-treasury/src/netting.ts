@@ -138,3 +138,111 @@ export function getNettingSummary(): {
     flowsCount:  flows.length,
   };
 }
+
+// ── Settlement instruction generation ─────────────────────────────────────────
+
+export interface SettlementInstruction {
+  id:             string;
+  fromSubsidiary: string;
+  toSubsidiary:   string;
+  amountUsd:      number;
+  currency:       string;
+  method:         'wire' | 'stablecoin';
+  reference:      string;
+  invoiceRefs:    string[];
+  dueDate:        string;
+  status:         'pending' | 'dispatched' | 'confirmed' | 'failed';
+  dispatchedAt?:  string;
+  bankConnectivityRef?: string;
+}
+
+const settlementHistory: SettlementInstruction[] = [];
+
+/**
+ * Generates settlement instructions from the current netting results.
+ * Each non-zero net obligation becomes one instruction.
+ * Default method is 'wire'; instructions over $1M use 'stablecoin' for faster settlement.
+ */
+export function generateSettlementInstructions(): SettlementInstruction[] {
+  const results = calculateNetting();
+  const instructions: SettlementInstruction[] = [];
+
+  for (const r of results) {
+    if (r.netAmount < 0.01) continue; // Skip dust / zero balances
+
+    const pairFlows = r.pendingFlows;
+    const invoiceRefs = pairFlows
+      .map(f => f.invoiceRef)
+      .filter((ref): ref is string => typeof ref === 'string');
+
+    const earliestDueDate = pairFlows.reduce(
+      (earliest, f) => (f.dueDate < earliest ? f.dueDate : earliest),
+      pairFlows[0]?.dueDate ?? new Date().toISOString().slice(0, 10),
+    );
+
+    instructions.push({
+      id:             `set_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      fromSubsidiary: r.fromSubsidiary,
+      toSubsidiary:   r.toSubsidiary,
+      amountUsd:      Math.round(r.netAmount * 100) / 100,
+      currency:       pairFlows[0]?.currency ?? 'USD',
+      method:         r.netAmount >= 1_000_000 ? 'stablecoin' : 'wire',
+      reference:      `NET-${r.fromSubsidiary}-${r.toSubsidiary}-${new Date().toISOString().slice(0, 10)}`,
+      invoiceRefs,
+      dueDate:        earliestDueDate,
+      status:         'pending',
+    });
+  }
+
+  return instructions;
+}
+
+/**
+ * Dispatches settlement instructions to bank-connectivity for execution.
+ * Returns the instructions with updated status. Failures are recorded but don't throw.
+ */
+export async function dispatchSettlementInstructions(
+  instructions: SettlementInstruction[],
+  bankConnectivityUrl: string,
+): Promise<SettlementInstruction[]> {
+  for (const instr of instructions) {
+    try {
+      const endpoint = instr.method === 'wire'
+        ? `${bankConnectivityUrl}/v1/transfers/wire`
+        : `${bankConnectivityUrl}/v1/transfers/stablecoin`;
+
+      const resp = await fetch(endpoint, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', 'x-source': 'enterprise-treasury' },
+        body:    JSON.stringify({
+          from:        instr.fromSubsidiary,
+          to:          instr.toSubsidiary,
+          amountUsd:   instr.amountUsd,
+          currency:    instr.currency,
+          reference:   instr.reference,
+          invoiceRefs: instr.invoiceRefs,
+        }),
+        signal: AbortSignal.timeout(15_000),
+      });
+
+      if (resp.ok) {
+        const body = (await resp.json()) as { transferId?: string };
+        instr.status               = 'dispatched';
+        instr.dispatchedAt         = new Date().toISOString();
+        instr.bankConnectivityRef  = body.transferId;
+      } else {
+        instr.status = 'failed';
+      }
+    } catch {
+      instr.status = 'failed';
+    }
+
+    settlementHistory.push(instr);
+  }
+
+  return instructions;
+}
+
+export function getSettlementHistory(limit = 50): SettlementInstruction[] {
+  return settlementHistory.slice(-Math.min(limit, 500));
+}

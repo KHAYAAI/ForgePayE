@@ -59,6 +59,9 @@ import {
   calculateNetting,
   clearSettledFlows,
   getNettingSummary,
+  generateSettlementInstructions,
+  dispatchSettlementInstructions,
+  getSettlementHistory,
 } from './netting';
 import type { CashPosition, TreasuryRule, NettingFlow } from './types';
 
@@ -286,16 +289,48 @@ async function buildApp() {
     return reply.send({ data: results, summary, total: results.length });
   });
 
-  app.post('/v1/netting/settle', async (_req, reply) => {
+  /**
+   * GET /v1/netting/instructions
+   * Generates settlement instructions from current netting results without executing.
+   * Use this to preview before calling /v1/netting/settle?execute=true.
+   */
+  app.get('/v1/netting/instructions', async (_req, reply) => {
+    const instructions = generateSettlementInstructions();
+    return reply.send({ data: instructions, total: instructions.length });
+  });
+
+  /**
+   * POST /v1/netting/settle?execute=true
+   * Generates settlement instructions and (when execute=true) dispatches them
+   * to bank-connectivity. Always clears the netting queue afterward.
+   */
+  app.post<{ Querystring: { execute?: string } }>('/v1/netting/settle', async (req, reply) => {
+    const execute   = req.query.execute === 'true';
     const summary   = getNettingSummary();
     const flowCount = listFlows().length;
+    const instructions = generateSettlementInstructions();
+
+    let dispatchResult: typeof instructions = instructions;
+    if (execute && instructions.length > 0) {
+      dispatchResult = await dispatchSettlementInstructions(instructions, BANK_CONNECTIVITY_URL);
+    }
+
     clearSettledFlows();
+
     return reply.send({
-      message:   'All intercompany flows marked as settled',
-      settled:   flowCount,
+      message:      execute ? 'Settlement instructions dispatched' : 'Settlement instructions generated (dry-run)',
+      settled:      flowCount,
       summary,
-      settledAt: new Date().toISOString(),
+      instructions: dispatchResult,
+      dispatched:   dispatchResult.filter(i => i.status === 'dispatched').length,
+      failed:       dispatchResult.filter(i => i.status === 'failed').length,
+      settledAt:    new Date().toISOString(),
     });
+  });
+
+  app.get<{ Querystring: { limit?: string } }>('/v1/netting/history', async (req, reply) => {
+    const limit = parseInt(req.query.limit ?? '50', 10);
+    return reply.send({ data: getSettlementHistory(Math.min(limit, 500)) });
   });
 
   // ── Forge Agent tools ──────────────────────────────────────────────────────

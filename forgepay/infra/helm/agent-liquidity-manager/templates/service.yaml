@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-liquidity-manager
+  labels:
+    app: agent-liquidity-manager
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    app: agent-liquidity-manager
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: {{ .Values.service.targetPort }}
+      protocol: TCP
