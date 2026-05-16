@@ -1,0 +1,197 @@
+# ForgePay Compliance Monitor Helm Chart Values
+# ────────────────────────────────────────────────────────────────────────────
+# OFAC real-time feed integration, transaction screening, and AML monitoring.
+
+replicaCount: 2
+
+image:
+  repository: forgepay/compliance-monitor
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8003
+  targetPort: 8003
+  name: compliance-monitor
+
+# ---------------------------------------------------------------------------
+# Environment Configuration
+# ---------------------------------------------------------------------------
+
+env:
+  ENVIRONMENT: production
+  PORT: "8003"
+  LOG_LEVEL: INFO
+
+  # ── Upstream services ─────────────────────────────────────────────────────
+  PAYMENT_ENGINE_URL: "http://payment-engine:8080"
+  AUDIT_SERVICE_URL: "http://bank-whitelabel:8005"
+  REDIS_URL: "redis://compliance-monitor-redis:6379/2"
+
+  # ── OFAC Feeds Configuration ──────────────────────────────────────────────
+  # Treasury Department SSI CSV feeds
+  OFAC_FEED_URL: "https://www.treasury.gov/ofac/downloads/ssi/"
+  OFAC_CACHE_TTL: "86400"  # 24 hours (in seconds)
+
+  # Treasury Department SDN XML (fallback)
+  OFAC_SDN_URL: "https://www.treasury.gov/ofac/downloads/sdn.xml"
+
+  # EU Consolidated Sanctions List
+  EU_SANCTIONS_URL: "https://webgate.ec.europa.eu/fsd/fsf/public/files/xmlFullSanctionsList_1_1/content"
+
+  # ── Refresh Schedules (APScheduler cron format) ───────────────────────────
+  OFAC_REFRESH_CRON: "0 2 * * *"          # Daily at 02:00 UTC
+  EU_SANCTIONS_REFRESH_CRON: "0 3 * * *" # Daily at 03:00 UTC
+
+  # ── AML Thresholds ────────────────────────────────────────────────────────
+  HIGH_RISK_COUNTRIES: "IR,KP,SY,CU,RU,BY,MM,SD,YE"
+  STRUCTURING_THRESHOLD_USD: "10000.0"
+  LARGE_TRANSACTION_THRESHOLD_USD: "50000.0"
+  SAR_AUTO_THRESHOLD_SCORE: "50"
+
+  # ── Fuzzy Matching Sensitivity ───────────────────────────────────────────
+  # Threshold for name similarity (0.0–1.0). Lower = more matches (higher false positives)
+  FUZZY_MATCH_THRESHOLD: "0.85"
+
+  # ── CORS ──────────────────────────────────────────────────────────────────
+  CORS_ORIGINS: "https://dashboard.forgepay.io,https://console.forgepay.io"
+
+# Secrets managed via Vault or AWS Secrets Manager (not in Helm values)
+secrets:
+  # These should be injected from Vault/Secrets Manager at runtime
+  JWT_SECRET: "" # Use external-secrets operator
+  INTERNAL_SERVICE_SECRET: ""
+  CHAINALYSIS_API_KEY: ""
+  ELLIPTIC_API_KEY: ""
+
+# ---------------------------------------------------------------------------
+# Pod Configuration
+# ---------------------------------------------------------------------------
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8003"
+  prometheus.io/path: "/metrics"
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# ---------------------------------------------------------------------------
+# Resource Requests/Limits
+# ---------------------------------------------------------------------------
+
+resources:
+  requests:
+    memory: "512Mi"
+    cpu: "500m"
+  limits:
+    memory: "1Gi"
+    cpu: "1000m"
+
+# ---------------------------------------------------------------------------
+# Persistence (if needed for OFAC list cache fallback)
+# ---------------------------------------------------------------------------
+
+persistence:
+  enabled: false
+  # Uncomment to enable persistent cache fallback:
+  # storageClassName: gp2
+  # size: 1Gi
+  # mountPath: /var/cache/compliance-monitor
+
+# ---------------------------------------------------------------------------
+# Health Checks
+# ---------------------------------------------------------------------------
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 8003
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: 8003
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 2
+
+# ---------------------------------------------------------------------------
+# Autoscaling
+# ---------------------------------------------------------------------------
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# ---------------------------------------------------------------------------
+# Redis Cache (optional separate Redis for OFAC feeds)
+# ---------------------------------------------------------------------------
+
+redis:
+  enabled: true
+  architecture: standalone
+  auth:
+    enabled: true
+    password: "" # Use external-secrets
+  persistence:
+    enabled: true
+    size: 2Gi
+
+# ---------------------------------------------------------------------------
+# Ingress
+# ---------------------------------------------------------------------------
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+  hosts:
+    - host: compliance.api.forgepay.io
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: compliance-monitor-tls
+      hosts:
+        - compliance.api.forgepay.io
+
+# ---------------------------------------------------------------------------
+# RBAC
+# ---------------------------------------------------------------------------
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: compliance-monitor
+
+# ---------------------------------------------------------------------------
+# Monitoring & Observability
+# ---------------------------------------------------------------------------
+
+monitoring:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+    scrapeTimeout: 10s

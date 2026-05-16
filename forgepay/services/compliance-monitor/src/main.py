@@ -42,10 +42,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.config import get_settings
 from src.kyc.manager import KycManager
 from src.monitoring.engine import TransactionMonitoringEngine
+from src.ofac.feed import ListType, OfacFeedManager
 from src.reporting.sar import SarManager
-from src.routers import monitoring, reporting, sanctions, screening, webhooks
+from src.routers import monitoring, reporting, sanctions, screening, webhooks, ofac_screening
 from src.sanctions.eu_list import EuSanctionsManager
 from src.sanctions.ofac import OfacListManager
+from src.sanctions.screening import TransactionScreeningEngine
 from src.screening.engine import ScreeningEngine
 
 # ---------------------------------------------------------------------------
@@ -96,6 +98,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """
     logger.info("compliance_monitor.startup", port=settings.port)
 
+    # ── Redis client (for OFAC feed caching) ──────────────────────────────────
+    import redis.asyncio as redis
+    try:
+        redis_client = await redis.from_url(settings.redis_url, decode_responses=False)
+        await redis_client.ping()
+        logger.info("redis.connected", url=settings.redis_url)
+    except Exception as exc:
+        logger.warning("redis.connection_failed", error=str(exc))
+        redis_client = None
+
     # ── Singletons ────────────────────────────────────────────────────────────
     ofac_manager = OfacListManager(sdn_url=settings.ofac_sdn_url)
     eu_manager = EuSanctionsManager(list_url=settings.eu_sanctions_url)
@@ -108,6 +120,31 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     kyc_manager = KycManager()
     sar_manager = SarManager()
 
+    # ── OFAC real-time feed manager (for CSV-based screening) ──────────────────
+    ofac_feed_manager = None
+    if redis_client:
+        try:
+            ofac_feed_manager = OfacFeedManager(
+                redis_client=redis_client,
+                feed_base_url=settings.ofac_feed_url,
+                cache_ttl_seconds=settings.ofac_cache_ttl,
+            )
+            logger.info("ofac_feed_manager.initialized")
+        except Exception as exc:
+            logger.warning("ofac_feed_manager.init_failed", error=str(exc))
+    else:
+        logger.warning("ofac_feed_manager.skipped", reason="redis not available")
+
+    # ── Transaction screening engine (real-time OFAC checks) ───────────────────
+    transaction_screening_engine = None
+    if ofac_feed_manager:
+        transaction_screening_engine = TransactionScreeningEngine(
+            ofac_manager=ofac_feed_manager,
+            audit_service_url=settings.audit_service_url,
+            fuzzy_threshold=settings.fuzzy_match_threshold,
+        )
+        logger.info("transaction_screening_engine.initialized")
+
     # Attach to app state so routers can access via request.app.state
     app.state.ofac_manager = ofac_manager
     app.state.eu_manager = eu_manager
@@ -115,6 +152,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.monitoring_engine = monitoring_engine
     app.state.kyc_manager = kyc_manager
     app.state.sar_manager = sar_manager
+    app.state.ofac_feed_manager = ofac_feed_manager
+    app.state.screening_engine = transaction_screening_engine
+    app.state.redis_client = redis_client
 
     # ── Initial list load (best-effort) ───────────────────────────────────────
     try:
@@ -126,6 +166,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await eu_manager.refresh_list()
     except Exception as exc:
         logger.warning("startup.eu_initial_load_failed", error=str(exc))
+
+    # Refresh OFAC CSV feeds if available
+    if ofac_feed_manager:
+        try:
+            await ofac_feed_manager.refresh_all_feeds()
+        except Exception as exc:
+            logger.warning("startup.ofac_feed_initial_load_failed", error=str(exc))
 
     # ── Scheduler ─────────────────────────────────────────────────────────────
     scheduler = AsyncIOScheduler(timezone="UTC")
@@ -164,6 +211,19 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         max_instances=1,
         coalesce=True,
     )
+
+    # OFAC CSV feeds refresh — daily at 02:30 UTC (after XML refresh)
+    if ofac_feed_manager:
+        scheduler.add_job(
+            ofac_feed_manager.refresh_all_feeds,
+            trigger="cron",
+            hour=2,
+            minute=30,
+            id="ofac_csv_refresh",
+            name="OFAC CSV Feeds Refresh (SDN, DPL, EEL)",
+            max_instances=1,
+            coalesce=True,
+        )
 
     scheduler.start()
     app.state.scheduler = scheduler
@@ -211,6 +271,7 @@ app.add_middleware(
 # Routers
 # ---------------------------------------------------------------------------
 app.include_router(screening.router)
+app.include_router(ofac_screening.router)
 app.include_router(monitoring.router)
 app.include_router(sanctions.router)
 app.include_router(reporting.router)

@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ForgePay Kill Bill Payment Plugin Descriptor
+
+  This descriptor registers the ForgePay payment plugin with Kill Bill.
+  The plugin routes subscription payments through the Hyperswitch payment router,
+  enabling unified payment processing across all payment methods.
+
+  Installation:
+  1. Build: mvn clean package
+  2. Copy JAR to Kill Bill plugins directory: /var/lib/killbill/plugins/payments/
+  3. Restart Kill Bill
+  4. Verify: GET /1.0/kb/tenants/plugins?includeProperties=true
+-->
+<plugin>
+  <pluginName>forgepay-payment-plugin</pluginName>
+  <pluginType>PAYMENT</pluginType>
+  <pluginVersion>0.1.0</pluginVersion>
+
+  <!-- Main plugin class implementing PaymentPluginApi -->
+  <mainClass>io.forgepay.killbill.ForgepayPaymentPlugin</mainClass>
+
+  <!-- Configuration properties for the plugin -->
+  <!-- These can be overridden in Kill Bill configuration -->
+  <properties>
+    <!-- Hyperswitch payment router endpoint -->
+    <property>
+      <name>HYPERSWITCH_API_URL</name>
+      <description>URL of the Hyperswitch payment router API</description>
+      <value>http://payment-engine:8080</value>
+      <required>true</required>
+    </property>
+
+    <!-- API key for Hyperswitch authentication -->
+    <property>
+      <name>HYPERSWITCH_API_KEY</name>
+      <description>API key for authenticating requests to Hyperswitch</description>
+      <value></value>
+      <required>true</required>
+    </property>
+
+    <!-- Webhook secret for signature verification -->
+    <property>
+      <name>KILLBILL_HYPERSWITCH_WEBHOOK_SECRET</name>
+      <description>Secret key for verifying webhook signatures from unified-router</description>
+      <value></value>
+      <required>false</required>
+    </property>
+
+    <!-- HTTP client timeout settings -->
+    <property>
+      <name>HYPERSWITCH_CONNECTION_TIMEOUT</name>
+      <description>Connection timeout in milliseconds</description>
+      <value>10000</value>
+      <required>false</required>
+    </property>
+
+    <property>
+      <name>HYPERSWITCH_READ_TIMEOUT</name>
+      <description>Read timeout in milliseconds</description>
+      <value>30000</value>
+      <required>false</required>
+    </property>
+
+    <!-- Retry configuration -->
+    <property>
+      <name>HYPERSWITCH_MAX_RETRIES</name>
+      <description>Maximum number of retries for failed requests</description>
+      <value>2</value>
+      <required>false</required>
+    </property>
+
+    <!-- Amount conversion setting -->
+    <property>
+      <name>HYPERSWITCH_AMOUNT_IN_CENTS</name>
+      <description>Whether to convert amounts to cents (true) or base units (false)</description>
+      <value>true</value>
+      <required>false</required>
+    </property>
+  </properties>
+
+  <!-- Supported payment methods and currencies -->
+  <supportedPaymentMethods>
+    <paymentMethod>
+      <name>CREDIT_CARD</name>
+      <displayName>Credit Card</displayName>
+    </paymentMethod>
+    <paymentMethod>
+      <name>DEBIT_CARD</name>
+      <displayName>Debit Card</displayName>
+    </paymentMethod>
+    <paymentMethod>
+      <name>ACH</name>
+      <displayName>ACH Transfer</displayName>
+    </paymentMethod>
+    <paymentMethod>
+      <name>BANK_TRANSFER</name>
+      <displayName>Bank Transfer</displayName>
+    </paymentMethod>
+    <paymentMethod>
+      <name>CRYPTO</name>
+      <displayName>Cryptocurrency</displayName>
+    </paymentMethod>
+  </supportedPaymentMethods>
+
+  <!-- Supported currencies (ISO 4217) -->
+  <supportedCurrencies>
+    <currency>USD</currency>
+    <currency>EUR</currency>
+    <currency>GBP</currency>
+    <currency>CAD</currency>
+    <currency>AUD</currency>
+    <currency>JPY</currency>
+    <currency>CHF</currency>
+    <currency>INR</currency>
+    <currency>CNY</currency>
+    <currency>SGD</currency>
+    <currency>HKD</currency>
+    <currency>NZD</currency>
+  </supportedCurrencies>
+
+  <!-- Operations supported by the plugin -->
+  <operations>
+    <operation>
+      <name>AUTHORIZE</name>
+      <description>Authorize a payment (reserve funds)</description>
+    </operation>
+    <operation>
+      <name>CAPTURE</name>
+      <description>Capture a previously authorized payment</description>
+    </operation>
+    <operation>
+      <name>REFUND</name>
+      <description>Refund a captured payment (full or partial)</description>
+    </operation>
+    <operation>
+      <name>VOID</name>
+      <description>Void a previously authorized payment</description>
+    </operation>
+    <operation>
+      <name>GET_PAYMENT_INFO</name>
+      <description>Retrieve payment status and details</description>
+    </operation>
+  </operations>
+
+  <!-- Webhook configuration -->
+  <webhookConfiguration>
+    <endpoint>/webhooks/killbill</endpoint>
+    <signatureAlgorithm>HMAC-SHA256</signatureAlgorithm>
+    <signatureHeader>X-Signature</signatureHeader>
+    <events>
+      <event>payment_status_updated</event>
+      <event>refund_completed</event>
+    </events>
+  </webhookConfiguration>
+
+  <!-- Plugin metadata -->
+  <metadata>
+    <author>ForgePay</author>
+    <description>Kill Bill payment plugin for Hyperswitch payment router integration</description>
+    <license>Apache License 2.0</license>
+    <homepage>https://forgepay.io</homepage>
+    <documentation>https://docs.forgepay.io/plugins/killbill</documentation>
+    <sourceCode>https://github.com/forgepayio/forgepay-platform</sourceCode>
+  </metadata>
+</plugin>

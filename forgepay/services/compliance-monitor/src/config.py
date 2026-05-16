@@ -33,12 +33,19 @@ class Settings(BaseSettings):
     payment_engine_url: str = Field(
         default="http://localhost:8080", alias="PAYMENT_ENGINE_URL"
     )
+    audit_service_url: str = Field(
+        default="http://localhost:8005", alias="AUDIT_SERVICE_URL"
+    )
     redis_url: str = Field(default="redis://localhost:6379/2", alias="REDIS_URL")
 
     # ── Sanctions list URLs ───────────────────────────────────────────────────
     ofac_sdn_url: str = Field(
         default="https://www.treasury.gov/ofac/downloads/sdn.xml",
         alias="OFAC_SDN_URL",
+    )
+    ofac_feed_url: str = Field(
+        default="https://www.treasury.gov/ofac/downloads/ssi/",
+        alias="OFAC_FEED_URL",
     )
     eu_sanctions_url: str = Field(
         default="https://webgate.ec.europa.eu/fsd/fsf/public/files/xmlFullSanctionsList_1_1/content",
@@ -50,6 +57,9 @@ class Settings(BaseSettings):
     eu_sanctions_refresh_cron: str = Field(
         default="0 3 * * *", alias="EU_SANCTIONS_REFRESH_CRON"
     )
+    ofac_cache_ttl: int = Field(
+        default=86_400, alias="OFAC_CACHE_TTL"
+    )  # 24 hours in seconds
 
     # ── AML thresholds ────────────────────────────────────────────────────────
     high_risk_countries: str = Field(
