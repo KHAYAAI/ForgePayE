@@ -6,10 +6,12 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.killbill.billing.catalog.api.Currency;
+import org.killbill.billing.payment.api.PluginProperty;
 import org.killbill.billing.payment.plugin.api.PaymentPluginApiException;
 import org.killbill.billing.util.callcontext.CallContext;
 
 import java.math.BigDecimal;
+import java.util.Arrays;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -149,9 +151,12 @@ public class ForgepayPaymentPluginTest {
                 .addHeader("Content-Type", "application/json"));
 
         BigDecimal amount = new BigDecimal("5.00");
+        var properties = (Iterable<PluginProperty>) (Iterable<?>) Arrays.asList(
+                new TestPluginProperty("externalPaymentId", "pay_123456789")
+        );
         var response = plugin.capturePayment(
                 accountId, paymentId, transactionId, paymentMethodId,
-                amount, Currency.USD, null, context);
+                amount, Currency.USD, properties, context);
 
         assertThat(response).isNotNull();
         assertThat(response.isSuccess()).isTrue();
@@ -171,9 +176,12 @@ public class ForgepayPaymentPluginTest {
                 .addHeader("Content-Type", "application/json"));
 
         BigDecimal refundAmount = new BigDecimal("2.50");
+        var properties = (Iterable<PluginProperty>) (Iterable<?>) Arrays.asList(
+                new TestPluginProperty("externalPaymentId", "pay_123456789")
+        );
         var response = plugin.refundPayment(
                 accountId, paymentId, transactionId, paymentMethodId,
-                refundAmount, Currency.USD, null, context);
+                refundAmount, Currency.USD, properties, context);
 
         assertThat(response).isNotNull();
         assertThat(response.isSuccess()).isTrue();
@@ -194,9 +202,12 @@ public class ForgepayPaymentPluginTest {
                 .addHeader("Content-Type", "application/json"));
 
         BigDecimal refundAmount = new BigDecimal("5.00");
+        var properties = (Iterable<PluginProperty>) (Iterable<?>) Arrays.asList(
+                new TestPluginProperty("externalPaymentId", "pay_123456789")
+        );
         var response = plugin.refundPayment(
                 accountId, paymentId, transactionId, paymentMethodId,
-                refundAmount, Currency.USD, null, context);
+                refundAmount, Currency.USD, properties, context);
 
         assertThat(response).isNotNull();
         assertThat(response.isSuccess()).isFalse();
@@ -216,9 +227,12 @@ public class ForgepayPaymentPluginTest {
                 .setBody(mockResponse)
                 .addHeader("Content-Type", "application/json"));
 
+        var properties = (Iterable<PluginProperty>) (Iterable<?>) Arrays.asList(
+                new TestPluginProperty("externalPaymentId", "pay_123456789")
+        );
         var response = plugin.voidPayment(
                 accountId, paymentId, transactionId, paymentMethodId,
-                null, context);
+                properties, context);
 
         assertThat(response).isNotNull();
         assertThat(response.isSuccess()).isTrue();
@@ -237,8 +251,11 @@ public class ForgepayPaymentPluginTest {
                 .setBody(mockResponse)
                 .addHeader("Content-Type", "application/json"));
 
+        var properties = (Iterable<PluginProperty>) (Iterable<?>) Arrays.asList(
+                new TestPluginProperty("externalPaymentId", "pay_123456789")
+        );
         var response = plugin.getPaymentInfo(
-                accountId, paymentId, transactionId, null, context);
+                accountId, paymentId, transactionId, properties, context);
 
         assertThat(response).isNotNull();
         assertThat(response.getFirstPaymentReferenceId()).isEqualTo("pay_123456789");

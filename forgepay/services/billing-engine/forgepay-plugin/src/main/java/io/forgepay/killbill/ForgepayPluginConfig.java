@@ -68,10 +68,17 @@ public class ForgepayPluginConfig {
     }
 
     /**
-     * Retrieves environment variable with optional default.
+     * Retrieves configuration value from system property or environment variable.
+     * System properties (set via System.setProperty()) take precedence for testing.
      */
     private String getEnvironmentVariable(String key, String defaultValue) {
-        String value = System.getenv(key);
+        // Check system properties first (set by tests via System.setProperty)
+        String value = System.getProperty(key);
+        if (value != null) {
+            return value;
+        }
+        // Fall back to environment variables
+        value = System.getenv(key);
         return value != null ? value : defaultValue;
     }
 
