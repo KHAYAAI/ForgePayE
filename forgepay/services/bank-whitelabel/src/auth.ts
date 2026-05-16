@@ -7,7 +7,7 @@
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { Admins, Banks, hashPassword } from './store.js';
+import { Admins, Banks, hashPassword, verifyPassword } from './store.js';
 import { randomUUID } from 'node:crypto';
 
 export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
@@ -32,7 +32,8 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       const { email, password } = request.body;
 
       const admin = Admins.findByEmail(email);
-      if (!admin || admin.passwordHash !== hashPassword(password)) {
+      if (!admin || !verifyPassword(password, admin.passwordHash)) {
+        // Constant-time-ish rejection: verifyPassword uses timingSafeEqual internally
         return reply.status(401).send({ error: 'Invalid credentials' });
       }
 
@@ -41,14 +42,11 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
         return reply.status(403).send({ error: 'Bank account is suspended' });
       }
 
-      const token = (app as any).jwt.sign(
-        {
-          adminId: admin.id,
-          bankId:  admin.bankId,
-          role:    admin.role,
-        },
-        { expiresIn: '8h' },
-      );
+      const token = (app as unknown as { jwt: { sign: (payload: unknown, opts: unknown) => string } })
+        .jwt.sign(
+          { adminId: admin.id, bankId: admin.bankId, role: admin.role },
+          { expiresIn: '8h' },
+        );
 
       Admins.updateLastLogin(admin.id);
 
@@ -92,7 +90,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
         bankId,
         email,
         passwordHash: hashPassword(password),
-        role:         (role as any) ?? 'admin',
+        role:         (role as 'super_admin' | 'admin' | 'viewer') ?? 'admin',
         createdAt:    new Date().toISOString(),
       });
 
@@ -106,27 +104,32 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
   );
 }
 
-// ── Middleware helper ──────────────────────────────────────────────────────────
+// ── Middleware helpers ─────────────────────────────────────────────────────────
 
 export function extractBankId(request: FastifyRequest): string {
-  return (request.user as any)?.bankId as string;
+  return (request.user as { bankId: string }).bankId;
+}
+
+export function extractAdminId(request: FastifyRequest): string {
+  return (request.user as { adminId: string }).adminId;
 }
 
 export function extractRole(request: FastifyRequest): string {
-  return (request.user as any)?.role as string;
+  return (request.user as { role: string }).role;
 }
 
-/**
- * Prehandler that verifies the JWT and populates request.user.
- * Used as a preHandler on all protected routes.
- */
+export function extractIp(request: FastifyRequest): string {
+  return (request.headers['x-forwarded-for'] as string | undefined)
+    ?.split(',')[0]?.trim() ?? request.ip ?? 'unknown';
+}
+
 export async function authenticate(
   request: FastifyRequest,
   reply: FastifyReply,
 ): Promise<void> {
   try {
     await request.jwtVerify();
-  } catch (err) {
+  } catch {
     reply.status(401).send({ error: 'Unauthorized — valid JWT required' });
   }
 }

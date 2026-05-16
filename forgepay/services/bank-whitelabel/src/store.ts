@@ -7,38 +7,96 @@
  */
 
 import { Bank, BankAdmin, BankCustomer, BankTransaction } from './types.js';
-import { createHash, randomUUID } from 'node:crypto';
+import { scryptSync, randomBytes, timingSafeEqual, randomUUID } from 'node:crypto';
 
-// ── Password hashing ────────────────────────────────────────────────────────
+// ── Password hashing ──────────────────────────────────────────────────────────
+// scrypt with N=16384, r=8, p=1: memory-hard, resistant to GPU attacks.
+// Format stored: "scrypt:<saltHex>:<hashHex>"
+
+const SCRYPT_PARAMS = { N: 16384, r: 8, p: 1 };
+const HASH_LEN = 64;
 
 export function hashPassword(password: string): string {
-  return createHash('sha256').update(password + 'forgepay_salt').digest('hex');
+  const salt = randomBytes(16);
+  const hash = scryptSync(password, salt, HASH_LEN, SCRYPT_PARAMS);
+  return `scrypt:${salt.toString('hex')}:${hash.toString('hex')}`;
 }
 
-// ── In-memory stores ─────────────────────────────────────────────────────────
+export function verifyPassword(password: string, stored: string): boolean {
+  if (stored.startsWith('scrypt:')) {
+    const parts = stored.split(':');
+    if (parts.length !== 3) return false;
+    const salt = Buffer.from(parts[1]!, 'hex');
+    const expectedHash = Buffer.from(parts[2]!, 'hex');
+    const actualHash = scryptSync(password, salt, HASH_LEN, SCRYPT_PARAMS);
+    if (actualHash.length !== expectedHash.length) return false;
+    return timingSafeEqual(actualHash, expectedHash);
+  }
+  return false;
+}
+
+// ── Audit log ──────────────────────────────────────────────────────────────────
+
+export interface AuditEntry {
+  id:        string;
+  adminId:   string;
+  bankId:    string;
+  role:      string;
+  action:    string;       // e.g. "customer.suspend", "bank.update"
+  entityId?: string;       // affected resource ID
+  details?:  string;       // human-readable summary
+  ip:        string;
+  timestamp: string;
+}
+
+const auditLog: AuditEntry[] = [];
+const MAX_AUDIT_ENTRIES = 2000;
+
+export const AuditLog = {
+  record: (entry: Omit<AuditEntry, 'id' | 'timestamp'>): AuditEntry => {
+    const full: AuditEntry = {
+      ...entry,
+      id:        randomUUID(),
+      timestamp: new Date().toISOString(),
+    };
+    auditLog.push(full);
+    if (auditLog.length > MAX_AUDIT_ENTRIES) auditLog.shift();
+    return full;
+  },
+
+  findByBank: (bankId: string, limit = 100): AuditEntry[] =>
+    auditLog
+      .filter(e => e.bankId === bankId)
+      .slice(-Math.min(limit, 500)),
+
+  findAll: (limit = 200): AuditEntry[] =>
+    auditLog.slice(-Math.min(limit, 500)),
+};
+
+// ── In-memory stores ──────────────────────────────────────────────────────────
 
 const banks: Map<string, Bank> = new Map([
   [
     'investec',
     {
-      id: 'investec',
-      name: 'Investec Bank',
-      slug: 'investec',
-      primaryColor: '#003087',
-      webhookFormat: 'forgepay',
-      webhookSigningKey: randomUUID().replace(/-/g, ''),
-      kycInherited: true,
-      amlLevel: 'inherited',
-      settlementCurrency: 'USD',
-      settlementSchedule: 'daily',
-      createdAt: new Date().toISOString(),
-      status: 'active',
-      adminEmails: ['admin@investec.com'],
+      id:                  'investec',
+      name:                'Investec Bank',
+      slug:                'investec',
+      primaryColor:        '#003087',
+      webhookFormat:       'forgepay',
+      webhookSigningKey:   randomUUID().replace(/-/g, ''),
+      kycInherited:        true,
+      amlLevel:            'inherited',
+      settlementCurrency:  'USD',
+      settlementSchedule:  'daily',
+      createdAt:           new Date().toISOString(),
+      status:              'active',
+      adminEmails:         ['admin@investec.com'],
     },
   ],
 ]);
 
-const admins: Map<string, BankAdmin> = new Map();
+const admins: Map<string, BankAdmin>       = new Map();
 const customers: Map<string, BankCustomer> = new Map();
 const transactions: Map<string, BankTransaction> = new Map();
 
@@ -157,6 +215,24 @@ export const Transactions = {
       const createdAt = new Date(t.createdAt);
       return createdAt >= from && createdAt <= to;
     }),
+
+  /**
+   * Returns the total amountUsd for a customer's non-failed/non-refunded transactions
+   * created today (UTC midnight boundary). Used for daily limit enforcement.
+   */
+  getTodayVolumeForCustomer: (customerId: string, bankId: string): number => {
+    const todayStart = new Date();
+    todayStart.setUTCHours(0, 0, 0, 0);
+    return Array.from(transactions.values())
+      .filter(t =>
+        t.customerId === customerId &&
+        t.bankId === bankId &&
+        t.status !== 'failed' &&
+        t.status !== 'refunded' &&
+        new Date(t.createdAt) >= todayStart,
+      )
+      .reduce((sum, t) => sum + t.amountUsd, 0);
+  },
 
   create: (txn: BankTransaction): BankTransaction => {
     transactions.set(txn.id, txn);

@@ -4,22 +4,25 @@
  * All routes are scoped to the authenticated admin's bankId.
  * Bank A cannot read or modify Bank B's customers.
  *
+ * When KYC status changes, a webhook is fired to the bank's configured webhookUrl
+ * so the bank's own systems can update their customer record accordingly.
+ *
  * Routes:
- *   GET    /v1/customers           — list customers for this bank (paginated)
- *   GET    /v1/customers/:id       — get customer details + transaction history
- *   POST   /v1/customers           — onboard new customer
- *   PUT    /v1/customers/:id       — update customer status/limits
- *   POST   /v1/customers/:id/suspend — suspend customer
+ *   GET    /v1/customers               — list customers (paginated)
+ *   GET    /v1/customers/:id           — customer details + transaction history
+ *   POST   /v1/customers               — onboard new customer
+ *   PUT    /v1/customers/:id           — update customer status/limits
+ *   POST   /v1/customers/:id/suspend   — suspend customer
  */
 
 import type { FastifyInstance } from 'fastify';
-import { Customers, Transactions, Banks } from '../store.js';
-import { authenticate, extractBankId, extractRole } from '../auth.js';
-import { randomUUID } from 'node:crypto';
-import { BankCustomer } from '../types.js';
+import { Customers, Transactions, Banks, AuditLog } from '../store.js';
+import { authenticate, extractBankId, extractRole, extractAdminId, extractIp } from '../auth.js';
+import { randomUUID, createHmac } from 'node:crypto';
+import { BankCustomer, Bank } from '../types.js';
 
 export async function registerCustomerRoutes(app: FastifyInstance): Promise<void> {
-  // ── GET /v1/customers — list customers ────────────────────────────────────
+  // ── GET /v1/customers ─────────────────────────────────────────────────────
   app.get<{
     Querystring: { limit?: string; offset?: string };
   }>(
@@ -48,7 +51,7 @@ export async function registerCustomerRoutes(app: FastifyInstance): Promise<void
     },
   );
 
-  // ── GET /v1/customers/:id — get customer details ──────────────────────────
+  // ── GET /v1/customers/:id ─────────────────────────────────────────────────
   app.get<{ Params: { id: string } }>(
     '/v1/customers/:id',
     { preHandler: [authenticate] },
@@ -59,21 +62,26 @@ export async function registerCustomerRoutes(app: FastifyInstance): Promise<void
         return reply.status(404).send({ error: 'Customer not found' });
       }
 
-      // Attach transaction history
-      const txHistory = Transactions.findByCustomer(customer.id, bankId);
+      const txHistory     = Transactions.findByCustomer(customer.id, bankId);
+      const todayVolumeUsd = Transactions.getTodayVolumeForCustomer(customer.id, bankId);
 
-      return reply.send({ ...customer, transactions: txHistory });
+      return reply.send({
+        ...customer,
+        todayVolumeUsd,
+        remainingDailyUsd: Math.max(0, customer.dailyLimitUsd - todayVolumeUsd),
+        transactions:      txHistory,
+      });
     },
   );
 
-  // ── POST /v1/customers — onboard new customer ─────────────────────────────
+  // ── POST /v1/customers ────────────────────────────────────────────────────
   app.post<{
     Body: {
       bankCustomerRef: string;
-      email?: string;
-      phone?: string;
-      dailyLimitUsd?: number;
-      riskLevel?: BankCustomer['riskLevel'];
+      email?:          string;
+      phone?:          string;
+      dailyLimitUsd?:  number;
+      riskLevel?:      BankCustomer['riskLevel'];
     };
   }>(
     '/v1/customers',
@@ -94,7 +102,7 @@ export async function registerCustomerRoutes(app: FastifyInstance): Promise<void
       },
     },
     async (request, reply) => {
-      const role   = extractRole(request);
+      const role = extractRole(request);
       if (role === 'viewer') {
         return reply.status(403).send({ error: 'Viewers cannot onboard customers' });
       }
@@ -105,15 +113,13 @@ export async function registerCustomerRoutes(app: FastifyInstance): Promise<void
 
       const { bankCustomerRef, email, phone, dailyLimitUsd, riskLevel } = request.body;
 
-      // Prevent duplicate customer references per bank
       if (Customers.findByRef(bankId, bankCustomerRef)) {
         return reply.status(409).send({
           error: `Customer with bankCustomerRef '${bankCustomerRef}' already exists`,
         });
       }
 
-      // Determine KYC status based on bank's kycInherited flag
-      const kycStatus = bank.kycInherited ? 'inherited' : 'pending';
+      const kycStatus        = bank.kycInherited ? 'inherited' : 'pending';
       const kycInheritedFrom = bank.kycInherited ? 'bank_kyc_system' : undefined;
 
       const customer = Customers.create({
@@ -132,11 +138,21 @@ export async function registerCustomerRoutes(app: FastifyInstance): Promise<void
         status:           'active',
       });
 
+      AuditLog.record({
+        adminId:  extractAdminId(request),
+        bankId,
+        role,
+        action:   'customer.create',
+        entityId: customer.id,
+        details:  `Onboarded ${bankCustomerRef} (kycStatus: ${kycStatus})`,
+        ip:       extractIp(request),
+      });
+
       return reply.status(201).send(customer);
     },
   );
 
-  // ── PUT /v1/customers/:id — update customer ───────────────────────────────
+  // ── PUT /v1/customers/:id ─────────────────────────────────────────────────
   app.put<{
     Params: { id: string };
     Body: Partial<Pick<BankCustomer, 'email' | 'phone' | 'riskLevel' | 'dailyLimitUsd' | 'kycStatus'>>;
@@ -163,16 +179,40 @@ export async function registerCustomerRoutes(app: FastifyInstance): Promise<void
         return reply.status(403).send({ error: 'Viewers cannot update customers' });
       }
 
-      const bankId   = extractBankId(request);
-      const updated  = Customers.update(request.params.id, bankId, request.body);
+      const bankId          = extractBankId(request);
+      const previousCustomer = Customers.findById(request.params.id, bankId);
+      const updated         = Customers.update(request.params.id, bankId, request.body);
       if (!updated) {
         return reply.status(404).send({ error: 'Customer not found' });
       }
+
+      AuditLog.record({
+        adminId:  extractAdminId(request),
+        bankId,
+        role,
+        action:   'customer.update',
+        entityId: updated.id,
+        details:  `Updated fields: ${Object.keys(request.body).join(', ')}`,
+        ip:       extractIp(request),
+      });
+
+      // Fire KYC webhook if status changed
+      if (
+        request.body.kycStatus &&
+        previousCustomer &&
+        request.body.kycStatus !== previousCustomer.kycStatus
+      ) {
+        const bank = Banks.findById(bankId);
+        if (bank) {
+          fireKycWebhook(bank, updated, request.body.kycStatus).catch(() => {});
+        }
+      }
+
       return reply.send(updated);
     },
   );
 
-  // ── POST /v1/customers/:id/suspend — suspend customer ────────────────────
+  // ── POST /v1/customers/:id/suspend ────────────────────────────────────────
   app.post<{ Params: { id: string } }>(
     '/v1/customers/:id/suspend',
     { preHandler: [authenticate] },
@@ -182,12 +222,60 @@ export async function registerCustomerRoutes(app: FastifyInstance): Promise<void
         return reply.status(403).send({ error: 'Viewers cannot suspend customers' });
       }
 
-      const bankId = extractBankId(request);
+      const bankId  = extractBankId(request);
       const updated = Customers.update(request.params.id, bankId, { status: 'suspended' });
       if (!updated) {
         return reply.status(404).send({ error: 'Customer not found' });
       }
+
+      AuditLog.record({
+        adminId:  extractAdminId(request),
+        bankId,
+        role,
+        action:   'customer.suspend',
+        entityId: updated.id,
+        details:  `Customer ${updated.bankCustomerRef} suspended`,
+        ip:       extractIp(request),
+      });
+
       return reply.send({ message: 'Customer suspended', customer: updated });
     },
   );
+}
+
+// ── KYC status webhook ────────────────────────────────────────────────────────
+
+async function fireKycWebhook(
+  bank: Bank,
+  customer: BankCustomer,
+  newKycStatus: BankCustomer['kycStatus'],
+): Promise<void> {
+  if (!bank.webhookUrl) return;
+
+  const payload = {
+    event_type:        'customer.kyc_updated',
+    bank_id:           bank.id,
+    customer_ref:      customer.bankCustomerRef,
+    customer_id:       customer.id,
+    kyc_status:        newKycStatus,
+    previous_status:   customer.kycStatus,
+    timestamp:         new Date().toISOString(),
+  };
+
+  const sig = bank.webhookSigningKey
+    ? createHmac('sha256', bank.webhookSigningKey).update(JSON.stringify(payload)).digest('hex')
+    : undefined;
+
+  const headers: Record<string, string> = {
+    'Content-Type':  'application/json',
+    'User-Agent':    'ForgePay-Bank-Whitelabel/0.2.0',
+  };
+  if (sig) headers['x-forgepay-bank-signature'] = sig;
+
+  await fetch(bank.webhookUrl, {
+    method:  'POST',
+    headers,
+    body:    JSON.stringify(payload),
+    signal:  AbortSignal.timeout(10_000),
+  });
 }

@@ -4,16 +4,12 @@ metadata:
   name: {{ .Release.Name }}-enterprise-treasury
   labels:
     app: enterprise-treasury
-    app.kubernetes.io/name: enterprise-treasury
-    app.kubernetes.io/instance: {{ .Release.Name }}
-    app.kubernetes.io/managed-by: {{ .Release.Service }}
 spec:
   type: {{ .Values.service.type }}
   ports:
     - port: {{ .Values.service.port }}
-      targetPort: http
+      targetPort: {{ .Values.service.targetPort }}
       protocol: TCP
       name: http
   selector:
     app: enterprise-treasury
-    app.kubernetes.io/instance: {{ .Release.Name }}

@@ -5,25 +5,23 @@
  *
  * Banks (e.g. Investec, Discovery) get an isolated namespace:
  *   - Their own admin logins (JWT, separate from merchant auth)
- *   - Their own customer registry (end-users using the bank's crypto service)
+ *   - Their own customer registry with daily spending limits
  *   - Full transaction history scoped to their bankId
  *   - Daily settlement reports (JSON + CSV)
- *   - Webhook forwarding to the bank's endpoint in their expected format
- *
- * Multi-tenant isolation:
- *   Every protected route reads bankId from the JWT and scopes all DB queries
- *   to that bankId. Bank A cannot access Bank B's data.
+ *   - Webhook forwarding in forgepay / ISO 20022 / custom format
+ *   - KYC status change webhooks
+ *   - Admin action audit log
  *
  * Port: 3015
  *
- * Auth flow:
- *   POST /v1/auth/login  → JWT { adminId, bankId, role }
- *   Include JWT in Authorization: Bearer <token> header on all other requests.
+ * Auth: POST /v1/auth/login → JWT { adminId, bankId, role }
+ * Passwords hashed with scrypt (N=16384) — replaces insecure SHA-256.
  */
 
-import Fastify from 'fastify';
+import Fastify, { FastifyError } from 'fastify';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
+import helmet from '@fastify/helmet';
 import jwt from '@fastify/jwt';
 
 import { registerAuthRoutes } from './auth.js';
@@ -32,6 +30,7 @@ import { registerCustomerRoutes } from './routes/customers.js';
 import { registerTransactionRoutes } from './routes/transactions.js';
 import { registerSettlementRoutes } from './routes/settlement.js';
 import { registerWebhookRoutes } from './routes/webhooks.js';
+import { registerAuditRoutes } from './audit.js';
 import { Admins, Banks, hashPassword } from './store.js';
 import { randomUUID } from 'node:crypto';
 
@@ -53,6 +52,10 @@ async function main(): Promise<void> {
 
   // ── Plugins ───────────────────────────────────────────────────────────────
 
+  await app.register(helmet, {
+    contentSecurityPolicy: false, // API service — no HTML pages
+  });
+
   await app.register(cors, {
     origin:      CORS_ORIGINS,
     methods:     ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -63,7 +66,7 @@ async function main(): Promise<void> {
     max:        200,
     timeWindow: '1 minute',
     keyGenerator: (req) =>
-      (req.headers['x-forwarded-for'] as string) ?? req.ip,
+      (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim() ?? req.ip,
     errorResponseBuilder: (_req, context) => ({
       statusCode: 429,
       error:      'Too Many Requests',
@@ -71,17 +74,15 @@ async function main(): Promise<void> {
     }),
   });
 
-  await app.register(jwt, {
-    secret: JWT_SECRET,
-  });
+  await app.register(jwt, { secret: JWT_SECRET });
 
-  // ── Health check (unprotected) ────────────────────────────────────────────
+  // ── Health check ──────────────────────────────────────────────────────────
 
   app.get('/health', async () => ({
     status:    'ok',
     service:   'bank-whitelabel',
+    version:   '0.2.0',
     timestamp: new Date().toISOString(),
-    version:   '0.1.0',
   }));
 
   // ── Routes ────────────────────────────────────────────────────────────────
@@ -92,12 +93,29 @@ async function main(): Promise<void> {
   await registerTransactionRoutes(app);
   await registerSettlementRoutes(app);
   await registerWebhookRoutes(app);
+  await registerAuditRoutes(app);
+
+  // ── Error handlers ────────────────────────────────────────────────────────
+
+  app.setErrorHandler<FastifyError>((err, req, reply) => {
+    req.log.error({ err, url: req.url }, 'Unhandled request error');
+    const isDev = NODE_ENV !== 'production';
+    reply.status(err.statusCode ?? 500).send({
+      error:   err.name ?? 'InternalServerError',
+      message: err.message,
+      ...(isDev && err.stack ? { stack: err.stack } : {}),
+    });
+  });
+
+  app.setNotFoundHandler((req, reply) => {
+    reply.status(404).send({ error: 'NotFound', path: req.url });
+  });
 
   // ── Startup seed ──────────────────────────────────────────────────────────
   // Create the default Investec admin on first boot so the service is immediately usable.
-  // In production: remove this or gate behind a SEED_ON_STARTUP env flag.
+  // Gate behind SEED_ON_STARTUP=true in production.
 
-  if (Admins.count() === 0) {
+  if (Admins.count() === 0 && (process.env['SEED_ON_STARTUP'] !== 'false')) {
     const investecBank = Banks.findById('investec');
     if (investecBank) {
       Admins.create({
@@ -121,8 +139,6 @@ async function main(): Promise<void> {
   };
   process.on('SIGTERM', shutdown);
   process.on('SIGINT',  shutdown);
-
-  // ── Start listening ───────────────────────────────────────────────────────
 
   await app.listen({ port: PORT, host: '0.0.0.0' });
   app.log.info(`[bank-whitelabel] Listening on :${PORT} (${NODE_ENV})`);

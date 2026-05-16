@@ -8,36 +8,31 @@
  *   1. Multi-Account Cash Consolidation  — real-time position across all accounts
  *   2. Treasury Rules Engine             — auto-execute sweeps, escrow, alerts
  *   3. Intercompany Netting Engine       — minimize wire fees with net settlement
+ *   4. FX Rate Cache                     — hourly refresh, static fallback
+ *   5. Approval Workflow                 — queue rules requiring CFO sign-off
+ *   6. Forge Agent Tools                 — AI-accessible treasury operations
  *
  * Port: 3012
  *
  * Background jobs:
  *   Every 60 seconds  — rules evaluation cycle
  *   Every 15 minutes  — bank account balance refresh
+ *   Every 60 minutes  — FX rate refresh
  *
- * Upstream dependencies:
- *   bank-connectivity service (port 3006) — account balance polling
- *   yield-engine service (port 3007)      — sweep execution (future)
- *
- * Routes:
- *   GET  /health
- *   GET  /v1/cash-position
- *   POST /v1/refresh
- *   GET  /v1/rules
- *   POST /v1/rules
- *   PUT  /v1/rules/:id
- *   DELETE /v1/rules/:id
- *   POST /v1/rules/evaluate
- *   GET  /v1/rules/execution-log
- *   GET  /v1/netting/flows
- *   POST /v1/netting/flows
- *   GET  /v1/netting/calculate
- *   POST /v1/netting/settle
+ * Env vars:
+ *   BANK_CONNECTIVITY_URL  — default http://localhost:3006
+ *   YIELD_ENGINE_URL       — default http://localhost:3007
+ *   FX_RATES_URL           — optional; ECB or Open Exchange Rates endpoint
+ *   ALERT_WEBHOOK_URL      — optional; Slack/PagerDuty for CFO alerts
+ *   CORS_ORIGIN            — default *
+ *   RATE_LIMIT_PER_MIN     — default 100
+ *   LOG_LEVEL              — default info
  */
 
-import Fastify from 'fastify';
+import Fastify, { FastifyError } from 'fastify';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
+import helmet from '@fastify/helmet';
 import { z } from 'zod';
 
 import {
@@ -45,6 +40,8 @@ import {
   consolidateCashPosition,
   getAccounts,
   getLastRefreshAttempt,
+  refreshFxRates,
+  getFxRateSnapshot,
 } from './consolidator';
 import {
   listRules,
@@ -53,6 +50,8 @@ import {
   deleteRule,
   evaluateRules,
   getExecutionLog,
+  listPendingApprovals,
+  resolveApproval,
 } from './rules-engine';
 import {
   addFlow,
@@ -65,11 +64,12 @@ import type { CashPosition, TreasuryRule, NettingFlow } from './types';
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
-const PORT                  = parseInt(process.env['PORT'] ?? '3012', 10);
-const BANK_CONNECTIVITY_URL = process.env['BANK_CONNECTIVITY_URL'] ?? 'http://localhost:3006';
-const RATE_LIMIT_PER_MIN    = parseInt(process.env['RATE_LIMIT_PER_MIN'] ?? '100', 10);
-const RULES_EVAL_INTERVAL_MS  = 60_000;   // 60 seconds
-const BALANCE_REFRESH_INTERVAL_MS = 15 * 60_000; // 15 minutes
+const PORT                       = parseInt(process.env['PORT'] ?? '3012', 10);
+const BANK_CONNECTIVITY_URL      = process.env['BANK_CONNECTIVITY_URL'] ?? 'http://localhost:3006';
+const RATE_LIMIT_PER_MIN         = parseInt(process.env['RATE_LIMIT_PER_MIN'] ?? '100', 10);
+const RULES_EVAL_INTERVAL_MS     = 60_000;
+const BALANCE_REFRESH_INTERVAL_MS = 15 * 60_000;
+const FX_REFRESH_INTERVAL_MS     = 60 * 60_000;
 
 // ── Zod schemas ───────────────────────────────────────────────────────────────
 
@@ -116,7 +116,10 @@ async function buildApp() {
     trustProxy: true,
   });
 
-  // ── Plugins ────────────────────────────────────────────────────────────────
+  await app.register(helmet, {
+    contentSecurityPolicy: false, // API service — no HTML pages
+  });
+
   await app.register(cors, {
     origin:      process.env['CORS_ORIGIN'] ?? '*',
     methods:     ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -139,30 +142,21 @@ async function buildApp() {
   app.get('/health', async () => ({
     status:      'ok',
     service:     'enterprise-treasury',
-    version:     '0.1.0',
+    version:     '0.2.0',
     port:        PORT,
     lastRefresh: getLastRefreshAttempt(),
+    fxRates:     getFxRateSnapshot(),
     timestamp:   new Date().toISOString(),
   }));
 
-  // ── Cash position routes ───────────────────────────────────────────────────
+  // ── Cash position ──────────────────────────────────────────────────────────
 
-  /**
-   * GET /v1/cash-position
-   * Returns the current consolidated cash position from the in-memory cache.
-   * Use POST /v1/refresh to force a re-poll of bank-connectivity.
-   */
   app.get('/v1/cash-position', async (_req, reply) => {
-    const accounts = getAccounts();
+    const accounts  = getAccounts();
     const position: CashPosition = consolidateCashPosition(accounts);
     return reply.send({ data: position });
   });
 
-  /**
-   * POST /v1/refresh
-   * Forces an immediate re-poll of all bank accounts via bank-connectivity,
-   * then returns the updated consolidated cash position.
-   */
   app.post('/v1/refresh', async (_req, reply) => {
     try {
       const accounts = await refreshAccountBalances(BANK_CONNECTIVITY_URL);
@@ -181,20 +175,24 @@ async function buildApp() {
     }
   });
 
-  // ── Treasury rules routes ──────────────────────────────────────────────────
+  // ── FX rates ───────────────────────────────────────────────────────────────
 
-  /**
-   * GET /v1/rules
-   * Returns all treasury rules (enabled and disabled).
-   */
-  app.get('/v1/rules', async (_req, reply) => {
-    return reply.send({ data: listRules(), total: listRules().length });
+  app.get('/v1/fx-rates', async (_req, reply) => {
+    return reply.send(getFxRateSnapshot());
   });
 
-  /**
-   * POST /v1/rules
-   * Creates a new treasury rule.
-   */
+  app.post('/v1/fx-rates/refresh', async (_req, reply) => {
+    const rates = await refreshFxRates();
+    return reply.send({ rates, refreshedAt: new Date().toISOString() });
+  });
+
+  // ── Treasury rules ─────────────────────────────────────────────────────────
+
+  app.get('/v1/rules', async (_req, reply) => {
+    const all = listRules();
+    return reply.send({ data: all, total: all.length });
+  });
+
   app.post('/v1/rules', async (req, reply) => {
     const parse = TreasuryRuleCreateSchema.safeParse(req.body);
     if (!parse.success) {
@@ -204,10 +202,6 @@ async function buildApp() {
     return reply.status(201).send({ data: rule });
   });
 
-  /**
-   * PUT /v1/rules/:id
-   * Updates an existing treasury rule by ID.
-   */
   app.put<{ Params: { id: string } }>('/v1/rules/:id', async (req, reply) => {
     const parse = TreasuryRuleUpdateSchema.safeParse(req.body);
     if (!parse.success) {
@@ -220,10 +214,6 @@ async function buildApp() {
     return reply.send({ data: updated });
   });
 
-  /**
-   * DELETE /v1/rules/:id
-   * Removes a treasury rule by ID.
-   */
   app.delete<{ Params: { id: string } }>('/v1/rules/:id', async (req, reply) => {
     const deleted = deleteRule(req.params.id);
     if (!deleted) {
@@ -232,11 +222,6 @@ async function buildApp() {
     return reply.status(204).send();
   });
 
-  /**
-   * POST /v1/rules/evaluate
-   * Manually triggers a rule evaluation cycle against the current cash position.
-   * Useful for testing rules or forcing immediate execution.
-   */
   app.post('/v1/rules/evaluate', async (_req, reply) => {
     const accounts  = getAccounts();
     const position  = consolidateCashPosition(accounts);
@@ -246,34 +231,45 @@ async function buildApp() {
       evaluated: results.length,
       executed:  results.filter(r => r.result === 'executed').length,
       skipped:   results.filter(r => r.result === 'skipped').length,
+      pending:   results.filter(r => r.result === 'approval_required').length,
       timestamp: new Date().toISOString(),
     });
   });
 
-  /**
-   * GET /v1/rules/execution-log
-   * Returns recent rule execution history (last N entries).
-   */
   app.get<{ Querystring: { limit?: string } }>('/v1/rules/execution-log', async (req, reply) => {
     const limit = parseInt((req.query as { limit?: string }).limit ?? '50', 10);
     return reply.send({ data: getExecutionLog(Math.min(limit, 200)) });
   });
 
-  // ── Intercompany netting routes ────────────────────────────────────────────
+  // ── Approval workflow ──────────────────────────────────────────────────────
 
-  /**
-   * GET /v1/netting/flows
-   * Lists all pending intercompany payment flows.
-   */
+  app.get('/v1/rules/approvals', async (_req, reply) => {
+    const approvals = listPendingApprovals();
+    return reply.send({ data: approvals, total: approvals.length });
+  });
+
+  app.post<{ Params: { id: string }; Body: { approved: boolean; resolvedBy: string } }>(
+    '/v1/rules/approvals/:id/resolve',
+    async (req, reply) => {
+      const { approved, resolvedBy } = req.body ?? {};
+      if (typeof approved !== 'boolean' || !resolvedBy) {
+        return reply.status(400).send({ error: 'approved (boolean) and resolvedBy (string) required' });
+      }
+      const result = resolveApproval(req.params.id, approved, resolvedBy);
+      if (!result) {
+        return reply.status(404).send({ error: 'Approval not found or already resolved' });
+      }
+      return reply.send({ data: result });
+    },
+  );
+
+  // ── Intercompany netting ───────────────────────────────────────────────────
+
   app.get('/v1/netting/flows', async (_req, reply) => {
     const flows = listFlows();
     return reply.send({ data: flows, total: flows.length });
   });
 
-  /**
-   * POST /v1/netting/flows
-   * Registers a new intercompany payment flow for netting consideration.
-   */
   app.post('/v1/netting/flows', async (req, reply) => {
     const parse = NettingFlowSchema.safeParse(req.body);
     if (!parse.success) {
@@ -284,41 +280,93 @@ async function buildApp() {
     return reply.status(201).send({ data: flow });
   });
 
-  /**
-   * GET /v1/netting/calculate
-   * Runs the netting algorithm and returns net settlement obligations per pair,
-   * plus aggregate statistics (gross vs net, fees saved, reduction %).
-   */
   app.get('/v1/netting/calculate', async (_req, reply) => {
     const results = calculateNetting();
     const summary = getNettingSummary();
+    return reply.send({ data: results, summary, total: results.length });
+  });
+
+  app.post('/v1/netting/settle', async (_req, reply) => {
+    const summary   = getNettingSummary();
+    const flowCount = listFlows().length;
+    clearSettledFlows();
     return reply.send({
-      data:    results,
+      message:   'All intercompany flows marked as settled',
+      settled:   flowCount,
       summary,
-      total:   results.length,
+      settledAt: new Date().toISOString(),
     });
   });
 
-  /**
-   * POST /v1/netting/settle
-   * Marks all current flows as settled and clears the netting queue.
-   * In production: this would generate settlement instructions and route
-   * them via bank-connectivity before clearing.
-   */
-  app.post('/v1/netting/settle', async (_req, reply) => {
-    const summary    = getNettingSummary();
-    const flowCount  = listFlows().length;
-    clearSettledFlows();
+  // ── Forge Agent tools ──────────────────────────────────────────────────────
+  // Machine-readable endpoint for AI agents to query and act on treasury data.
+
+  app.get('/v1/agent/tools', async (_req, reply) => {
     return reply.send({
-      message:     'All intercompany flows marked as settled',
-      settled:     flowCount,
-      summary,
-      settledAt:   new Date().toISOString(),
+      tools: [
+        {
+          name:        'get_cash_position',
+          description: 'Returns consolidated cash position across all subsidiaries',
+          endpoint:    'GET /v1/cash-position',
+        },
+        {
+          name:        'list_rules',
+          description: 'Lists all active treasury rules and their last execution state',
+          endpoint:    'GET /v1/rules',
+        },
+        {
+          name:        'evaluate_rules',
+          description: 'Manually triggers a rule evaluation cycle',
+          endpoint:    'POST /v1/rules/evaluate',
+        },
+        {
+          name:        'netting_summary',
+          description: 'Returns intercompany netting statistics (gross vs net, fees saved)',
+          endpoint:    'GET /v1/netting/calculate',
+        },
+        {
+          name:        'pending_approvals',
+          description: 'Lists treasury rules awaiting CFO approval',
+          endpoint:    'GET /v1/rules/approvals',
+        },
+        {
+          name:        'fx_rates',
+          description: 'Returns current FX rate snapshot',
+          endpoint:    'GET /v1/fx-rates',
+        },
+      ],
+    });
+  });
+
+  app.get('/v1/agent/summary', async (_req, reply) => {
+    const accounts = getAccounts();
+    const position = consolidateCashPosition(accounts);
+    const netting  = getNettingSummary();
+    const rules    = listRules();
+    const pending  = listPendingApprovals();
+
+    return reply.send({
+      cashPosition: {
+        totalUsd:               position.totalUsd,
+        idleCashUsd:            position.idleCashUsd,
+        deployedInYieldUsd:     position.deployedInYieldUsd,
+        opportunityCostPerYear: position.opportunityCostUsdPerYear,
+        subsidiaryCount:        Object.keys(position.bySubsidiary).length,
+        currencyCount:          Object.keys(position.byCurrency).length,
+      },
+      rules: {
+        total:   rules.length,
+        enabled: rules.filter(r => r.enabled).length,
+        pendingApprovals: pending.length,
+      },
+      netting: netting,
+      fxRates: getFxRateSnapshot(),
+      timestamp: new Date().toISOString(),
     });
   });
 
   // ── Error handlers ─────────────────────────────────────────────────────────
-  app.setErrorHandler((err, req, reply) => {
+  app.setErrorHandler<FastifyError>((err, req, reply) => {
     req.log.error({ err, url: req.url }, 'Unhandled request error');
     const isDev = process.env['NODE_ENV'] !== 'production';
     reply.status(err.statusCode ?? 500).send({
@@ -338,12 +386,10 @@ async function buildApp() {
 // ── Background scheduler ──────────────────────────────────────────────────────
 
 function startScheduler(app: Awaited<ReturnType<typeof buildApp>>): void {
-  // Rules evaluation — every 60 seconds
   const rulesInterval = setInterval(async () => {
     try {
       const accounts = getAccounts();
-      if (accounts.length === 0) return; // No accounts loaded yet, skip
-
+      if (accounts.length === 0) return;
       const position = consolidateCashPosition(accounts);
       const results  = await evaluateRules(position);
       const executed = results.filter(r => r.result === 'executed').length;
@@ -355,7 +401,6 @@ function startScheduler(app: Awaited<ReturnType<typeof buildApp>>): void {
     }
   }, RULES_EVAL_INTERVAL_MS);
 
-  // Account balance refresh — every 15 minutes
   const refreshInterval = setInterval(async () => {
     try {
       const accounts = await refreshAccountBalances(BANK_CONNECTIVITY_URL);
@@ -365,11 +410,24 @@ function startScheduler(app: Awaited<ReturnType<typeof buildApp>>): void {
     }
   }, BALANCE_REFRESH_INTERVAL_MS);
 
-  // Clean up on shutdown
-  process.once('SIGTERM', () => { clearInterval(rulesInterval); clearInterval(refreshInterval); });
-  process.once('SIGINT',  () => { clearInterval(rulesInterval); clearInterval(refreshInterval); });
+  const fxInterval = setInterval(async () => {
+    try {
+      await refreshFxRates();
+      app.log.debug('[treasury] FX rates refreshed');
+    } catch (err) {
+      app.log.warn({ err }, '[treasury] FX rate refresh failed');
+    }
+  }, FX_REFRESH_INTERVAL_MS);
 
-  app.log.info('[treasury] Scheduler started — rules every 60s, balance refresh every 15m');
+  const cleanup = () => {
+    clearInterval(rulesInterval);
+    clearInterval(refreshInterval);
+    clearInterval(fxInterval);
+  };
+  process.once('SIGTERM', cleanup);
+  process.once('SIGINT',  cleanup);
+
+  app.log.info('[treasury] Scheduler started — rules every 60s, balance every 15m, FX every 60m');
 }
 
 // ── Startup ───────────────────────────────────────────────────────────────────
@@ -385,10 +443,13 @@ async function main(): Promise<void> {
   process.on('SIGTERM', shutdown);
   process.on('SIGINT',  shutdown);
 
-  // Pre-warm: attempt initial balance load (non-blocking — service may not be up yet)
-  refreshAccountBalances(BANK_CONNECTIVITY_URL)
-    .then(accounts => app.log.info({ count: accounts.length }, '[treasury] Initial account load complete'))
-    .catch(err => app.log.warn({ err }, '[treasury] Initial account load failed — will retry on next refresh cycle'));
+  // Pre-warm: initial FX rates + balance load (non-blocking)
+  Promise.all([
+    refreshFxRates(),
+    refreshAccountBalances(BANK_CONNECTIVITY_URL)
+      .then(a => app.log.info({ count: a.length }, '[treasury] Initial account load complete'))
+      .catch(err => app.log.warn({ err }, '[treasury] Initial account load failed')),
+  ]).catch(() => {});
 
   startScheduler(app);
 
@@ -396,14 +457,17 @@ async function main(): Promise<void> {
 
   console.log(`
 ╔══════════════════════════════════════════════════════════════╗
-║          ForgePay Enterprise Treasury Module                 ║
+║          ForgePay Enterprise Treasury v0.2.0                 ║
 ║          Listening on port ${PORT}                              ║
 ║                                                              ║
-║  Cash Consolidation  →  GET  /v1/cash-position               ║
-║  Force Refresh       →  POST /v1/refresh                     ║
-║  Treasury Rules      →  GET  /v1/rules                       ║
-║  Run Rules Cycle     →  POST /v1/rules/evaluate              ║
-║  Netting Calc        →  GET  /v1/netting/calculate           ║
+║  Cash Position   →  GET  /v1/cash-position                   ║
+║  Force Refresh   →  POST /v1/refresh                         ║
+║  Treasury Rules  →  GET  /v1/rules                           ║
+║  Run Cycle       →  POST /v1/rules/evaluate                  ║
+║  Approvals       →  GET  /v1/rules/approvals                 ║
+║  Netting Calc    →  GET  /v1/netting/calculate               ║
+║  FX Rates        →  GET  /v1/fx-rates                        ║
+║  Agent Summary   →  GET  /v1/agent/summary                   ║
 ╚══════════════════════════════════════════════════════════════╝
 `);
 }

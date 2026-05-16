@@ -5,17 +5,16 @@
  * and produces a unified cash position view. Handles FX conversion and groups
  * balances by subsidiary and currency.
  *
- * In production:
- *   - FX rates should be fetched from a live provider (e.g. Open Exchange Rates)
- *   - Account data should be persisted in PostgreSQL
- *   - Burn rate should be sourced from the liquidity-forecaster service
+ * FX rates are refreshed every hour from an optional external provider
+ * (configurable via FX_RATES_URL env var); static fallback rates are used
+ * when the provider is unavailable.
  */
 
-import axios from 'axios';
 import { AccountBalance, CashPosition, SubsidiaryPosition } from './types';
 
-// Static FX rates (USD as base). In production: fetch from live API every hour.
-const FX_RATES: Record<string, number> = {
+// ── FX Rate Cache ─────────────────────────────────────────────────────────────
+
+const STATIC_FX_RATES: Record<string, number> = {
   USD:  1.0,
   EUR:  1.08,
   GBP:  1.27,
@@ -26,15 +25,71 @@ const FX_RATES: Record<string, number> = {
   BRL:  0.20,
   CHF:  1.12,
   SEK:  0.096,
+  NOK:  0.093,
+  DKK:  0.145,
+  HKD:  0.128,
+  MXN:  0.059,
+  INR:  0.012,
   USDC: 1.0,
   USDT: 1.0,
+  WETH: 3200.0,
 };
 
-function toUsd(amount: number, currency: string): number {
-  return amount * (FX_RATES[currency.toUpperCase()] ?? 1.0);
+interface FxCache {
+  rates: Record<string, number>;
+  fetchedAt: number;
 }
 
-// In-memory account cache. In production: PostgreSQL with Redis cache.
+let fxCache: FxCache | null = null;
+const FX_CACHE_TTL_MS = 3_600_000; // 1 hour
+
+export async function refreshFxRates(): Promise<Record<string, number>> {
+  const url = process.env['FX_RATES_URL'];
+  if (!url) {
+    // No external provider configured — use static rates
+    fxCache = { rates: { ...STATIC_FX_RATES }, fetchedAt: Date.now() };
+    return fxCache.rates;
+  }
+
+  try {
+    const resp = await fetch(url, {
+      signal: AbortSignal.timeout(8_000),
+      headers: { 'Accept': 'application/json' },
+    });
+    if (!resp.ok) throw new Error(`FX provider returned ${resp.status}`);
+    const data = (await resp.json()) as { rates?: Record<string, number> };
+    const liveRates = data.rates ?? {};
+    // Merge: live rates override static, keeping crypto rates from static
+    fxCache = {
+      rates: { ...STATIC_FX_RATES, ...liveRates },
+      fetchedAt: Date.now(),
+    };
+    console.info('[enterprise-treasury] FX rates refreshed from', url);
+  } catch (err) {
+    console.warn('[enterprise-treasury] FX rate refresh failed, using cached/static:', (err as Error).message);
+    if (!fxCache) {
+      fxCache = { rates: { ...STATIC_FX_RATES }, fetchedAt: Date.now() };
+    }
+  }
+  return fxCache.rates;
+}
+
+function getCurrentFxRates(): Record<string, number> {
+  if (!fxCache) return STATIC_FX_RATES;
+  // Trigger async refresh if cache is stale, but return current synchronously
+  if (Date.now() - fxCache.fetchedAt > FX_CACHE_TTL_MS) {
+    refreshFxRates().catch(() => {});
+  }
+  return fxCache.rates;
+}
+
+function toUsd(amount: number, currency: string): number {
+  const rates = getCurrentFxRates();
+  return amount * (rates[currency.toUpperCase()] ?? 1.0);
+}
+
+// ── Account cache ─────────────────────────────────────────────────────────────
+
 let connectedAccounts: AccountBalance[] = [];
 let lastRefreshAttempt: string | null = null;
 
@@ -42,16 +97,19 @@ export async function refreshAccountBalances(bankConnectivityUrl: string): Promi
   lastRefreshAttempt = new Date().toISOString();
 
   try {
-    const resp = await axios.get(`${bankConnectivityUrl}/v1/accounts/balances`, {
-      timeout: 10_000,
+    const resp = await fetch(`${bankConnectivityUrl}/v1/accounts/balances`, {
+      signal: AbortSignal.timeout(10_000),
       headers: { 'x-source': 'enterprise-treasury' },
     });
 
-    const raw: unknown[] = (resp.data as { accounts?: unknown[] })?.accounts ?? [];
+    if (!resp.ok) throw new Error(`bank-connectivity returned ${resp.status}`);
+
+    const body = (await resp.json()) as { accounts?: unknown[] };
+    const raw: unknown[] = body?.accounts ?? [];
 
     connectedAccounts = raw.map((a) => {
       const account = a as Record<string, unknown>;
-      const balance = typeof account['balance'] === 'number' ? account['balance'] : 0;
+      const balance  = typeof account['balance']  === 'number' ? account['balance']  : 0;
       const currency = typeof account['currency'] === 'string' ? account['currency'] : 'USD';
       return {
         accountId:    typeof account['account_id'] === 'string' ? account['account_id'] : String(account['id'] ?? ''),
@@ -69,8 +127,7 @@ export async function refreshAccountBalances(bankConnectivityUrl: string): Promi
       };
     });
   } catch (err) {
-    // Bank-connectivity is down — serve stale cache with existing timestamps
-    // so callers can detect the data age via lastUpdated fields.
+    // Serve stale cache so callers can detect age via lastUpdated fields
     console.warn('[enterprise-treasury] bank-connectivity unavailable, serving cached data:', (err as Error).message);
   }
 
@@ -85,7 +142,6 @@ export function consolidateCashPosition(accounts: AccountBalance[]): CashPositio
   for (const account of accounts) {
     totalUsd += account.balanceUsd;
 
-    // --- Group by subsidiary ---
     if (!bySubsidiary[account.subsidiary]) {
       bySubsidiary[account.subsidiary] = {
         name:         account.subsidiary,
@@ -104,7 +160,6 @@ export function consolidateCashPosition(accounts: AccountBalance[]): CashPositio
       sub.currencies.push(account.currency);
     }
 
-    // --- Group by currency ---
     const cur = account.currency.toUpperCase();
     if (!byCurrencyRaw[cur]) byCurrencyRaw[cur] = { native: 0, usd: 0, count: 0 };
     byCurrencyRaw[cur].native += account.balanceNative;
@@ -112,9 +167,8 @@ export function consolidateCashPosition(accounts: AccountBalance[]): CashPositio
     byCurrencyRaw[cur].count += 1;
   }
 
-  // --- Runway calculation ---
-  // Simplified: assume daily burn = 0.3% of total portfolio.
-  // In production: query the liquidity-forecaster service for per-subsidiary burn rates.
+  // Runway: daily burn = 0.3% of total portfolio (per-subsidiary proportional).
+  // Production: query liquidity-forecaster service for per-subsidiary burn rates.
   const dailyBurnUsd = totalUsd * 0.003;
   for (const sub of Object.values(bySubsidiary)) {
     sub.runwayDays = dailyBurnUsd > 0
@@ -122,13 +176,12 @@ export function consolidateCashPosition(accounts: AccountBalance[]): CashPositio
       : 999;
   }
 
-  // --- Yield tracking ---
-  // Simplified: assume 40% idle, 10% deployed in yield protocols.
-  // In production: query yield-engine service for actual deployed positions.
-  const idleCashUsd          = totalUsd * 0.40;
-  const deployedInYieldUsd   = totalUsd * 0.10;
-  const opportunityCostUsdPerYear = idleCashUsd * 0.04; // 4% opportunity cost on idle cash
+  // Yield tracking: in production query yield-engine for actual deployed positions.
+  const idleCashUsd              = totalUsd * 0.40;
+  const deployedInYieldUsd       = totalUsd * 0.10;
+  const opportunityCostUsdPerYear = idleCashUsd * 0.04;
 
+  const rates = getCurrentFxRates();
   const byCurrency = Object.fromEntries(
     Object.entries(byCurrencyRaw).map(([cur, data]) => [
       cur,
@@ -136,7 +189,7 @@ export function consolidateCashPosition(accounts: AccountBalance[]): CashPositio
         currency:      cur,
         balanceNative: data.native,
         balanceUsd:    data.usd,
-        fxRate:        FX_RATES[cur] ?? 1.0,
+        fxRate:        rates[cur] ?? 1.0,
         accountCount:  data.count,
       },
     ])
@@ -159,4 +212,11 @@ export function getAccounts(): AccountBalance[] {
 
 export function getLastRefreshAttempt(): string | null {
   return lastRefreshAttempt;
+}
+
+export function getFxRateSnapshot(): { rates: Record<string, number>; fetchedAt: string | null } {
+  return {
+    rates:     fxCache?.rates ?? STATIC_FX_RATES,
+    fetchedAt: fxCache ? new Date(fxCache.fetchedAt).toISOString() : null,
+  };
 }

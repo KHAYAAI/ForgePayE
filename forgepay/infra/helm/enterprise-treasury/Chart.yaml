@@ -1,13 +1,12 @@
 apiVersion: v2
 name: enterprise-treasury
-description: ForgePay Enterprise Treasury Module — multi-account cash consolidation, rules engine, and intercompany netting
+description: ForgePay Enterprise Treasury Module — cash consolidation, rules engine, intercompany netting
 type: application
-version: 0.1.0
-appVersion: "0.1.0"
+version: 0.2.0
+appVersion: "0.2.0"
+maintainers:
+  - name: ForgePay Platform
 keywords:
-  - forgepay
   - treasury
   - cash-management
-  - netting
-maintainers:
-  - name: ForgePay Platform Team
+  - enterprise

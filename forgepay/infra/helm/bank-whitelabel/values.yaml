@@ -2,53 +2,46 @@ replicaCount: 2
 
 image:
   repository: forgepay/bank-whitelabel
-  tag: "latest"
   pullPolicy: IfNotPresent
+  tag: "0.2.0"
 
 service:
   type: ClusterIP
   port: 3015
-
-env:
-  NODE_ENV: production
-  LOG_LEVEL: info
-  PORT: "3015"
-
-# JWT secret — override via K8s secret in production
-jwtSecret: "changeme-in-production"
-
-# Internal webhook HMAC secret — shared with unified-router
-internalWebhookSecret: "changeme-in-production"
-
-rateLimitPerMinute: 200
-
-# Secrets injected via K8s secret refs — not hardcoded here
-secretRef: "forgepay-bank-whitelabel-secrets"
-# Expected keys in that secret:
-#   JWT_SECRET                  (min 32 chars — used to sign/verify admin JWTs)
-#   INTERNAL_WEBHOOK_SECRET     (HMAC-SHA256 key shared with unified-router)
-#   CORS_ORIGINS                (comma-separated list of allowed origins)
+  targetPort: 3015
 
 resources:
   requests:
-    cpu: "100m"
-    memory: "128Mi"
+    cpu: 100m
+    memory: 128Mi
   limits:
-    cpu: "500m"
-    memory: "512Mi"
+    cpu: 500m
+    memory: 512Mi
 
 autoscaling:
   enabled: true
   minReplicas: 2
-  maxReplicas: 6
+  maxReplicas: 8
   targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+env:
+  PORT: "3015"
+  LOG_LEVEL: "info"
+  NODE_ENV: "production"
+  SEED_ON_STARTUP: "false"
+  # Override in production:
+  # JWT_SECRET: "<from-k8s-secret>"
+  # INTERNAL_WEBHOOK_SECRET: "<from-k8s-secret>"
+  # CORS_ORIGINS: "https://admin.forgepay.com"
 
 livenessProbe:
   httpGet:
     path: /health
     port: 3015
-  initialDelaySeconds: 10
-  periodSeconds: 15
+  initialDelaySeconds: 15
+  periodSeconds: 30
+  failureThreshold: 3
 
 readinessProbe:
   httpGet:
@@ -56,3 +49,9 @@ readinessProbe:
     port: 3015
   initialDelaySeconds: 5
   periodSeconds: 10
+  failureThreshold: 3
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "3015"
+  prometheus.io/path: "/health"

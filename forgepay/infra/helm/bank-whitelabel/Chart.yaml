@@ -1,15 +1,12 @@
 apiVersion: v2
 name: bank-whitelabel
-description: ForgePay Bank White-Label Module — multi-tenant bank admin console, customer management, and settlement reporting
+description: ForgePay Bank White-Label Module — multi-tenant bank admin console and settlement reporting
 type: application
-version: 0.1.0
-appVersion: "0.1.0"
-keywords:
-  - forgepay
-  - bank
-  - whitelabel
-  - payments
-  - settlement
+version: 0.2.0
+appVersion: "0.2.0"
 maintainers:
-  - name: ForgePay Platform Team
-    email: platform@forgepay.io
+  - name: ForgePay Platform
+keywords:
+  - banking
+  - whitelabel
+  - multi-tenant
