@@ -1,0 +1,1106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ForgePay — Financial Operating System</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+  *{margin:0;padding:0;box-sizing:border-box}
+  :root{
+    --navy:#0A2540;--navy-light:#0d2f4f;--navy-lighter:#1a3a5c;
+    --cyan:#00F0FF;--cyan-dim:rgba(0,240,255,0.12);--cyan-glow:rgba(0,240,255,0.25);
+    --white:#ffffff;--gray-100:#f0f4f8;--gray-200:#d9e2ec;--gray-400:#829ab1;
+    --gray-600:#486581;--green:#00e676;--red:#ff5252;--yellow:#ffd740;--orange:#ff9100;
+    --surface:rgba(255,255,255,0.04);--border:rgba(255,255,255,0.08);
+    --text-primary:#e8f0fe;--text-secondary:#829ab1;
+  }
+  body{font-family:'Inter',sans-serif;background:var(--navy);color:var(--text-primary);display:flex;height:100vh;overflow:hidden}
+
+  /* SIDEBAR */
+  .sidebar{width:240px;background:rgba(0,0,0,0.25);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0}
+  .logo{padding:24px 20px;border-bottom:1px solid var(--border)}
+  .logo-mark{display:flex;align-items:center;gap:10px}
+  .logo-icon{width:32px;height:32px;background:var(--cyan);border-radius:8px;display:flex;align-items:center;justify-content:center}
+  .logo-icon svg{width:18px;height:18px;fill:var(--navy)}
+  .logo-text{font-size:18px;font-weight:800;color:var(--white);letter-spacing:-0.5px}
+  .logo-sub{font-size:10px;color:var(--cyan);font-weight:600;letter-spacing:1.5px;text-transform:uppercase;margin-top:2px}
+  nav{padding:16px 12px;flex:1}
+  .nav-section{margin-bottom:24px}
+  .nav-label{font-size:10px;font-weight:600;color:var(--gray-400);letter-spacing:1.5px;text-transform:uppercase;padding:0 8px;margin-bottom:6px}
+  .nav-item{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:500;color:var(--text-secondary);transition:all .15s;margin-bottom:2px;position:relative}
+  .nav-item:hover{background:var(--surface);color:var(--text-primary)}
+  .nav-item.active{background:var(--cyan-dim);color:var(--cyan)}
+  .nav-item.active::before{content:'';position:absolute;left:0;top:50%;transform:translateY(-50%);width:3px;height:18px;background:var(--cyan);border-radius:0 3px 3px 0}
+  .nav-item svg{width:16px;height:16px;opacity:.7;flex-shrink:0}
+  .nav-item.active svg{opacity:1}
+  .nav-badge{margin-left:auto;background:rgba(255,82,82,.2);color:var(--red);font-size:10px;font-weight:700;padding:2px 6px;border-radius:10px}
+  .nav-badge.green{background:rgba(0,230,118,.15);color:var(--green)}
+  .sidebar-footer{padding:16px 12px;border-top:1px solid var(--border)}
+  .env-badge{display:flex;align-items:center;gap:8px;padding:8px 12px;background:rgba(0,230,118,.08);border:1px solid rgba(0,230,118,.2);border-radius:8px;font-size:11px;font-weight:600;color:var(--green)}
+  .env-dot{width:6px;height:6px;background:var(--green);border-radius:50%;animation:pulse 2s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+  /* MAIN */
+  .main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+  .topbar{padding:0 28px;height:60px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);flex-shrink:0}
+  .page-title{font-size:16px;font-weight:700;color:var(--white)}
+  .page-subtitle{font-size:12px;color:var(--text-secondary);margin-top:1px}
+  .topbar-right{display:flex;align-items:center;gap:12px}
+  .btn{padding:7px 16px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;border:none;transition:all .15s}
+  .btn-primary{background:var(--cyan);color:var(--navy)}
+  .btn-primary:hover{background:#33f3ff;transform:translateY(-1px)}
+  .btn-ghost{background:var(--surface);color:var(--text-primary);border:1px solid var(--border)}
+  .btn-ghost:hover{border-color:var(--cyan);color:var(--cyan)}
+  .avatar{width:32px;height:32px;background:linear-gradient(135deg,var(--cyan),#0080ff);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:var(--navy)}
+
+  /* CONTENT */
+  .content{flex:1;overflow-y:auto;padding:24px 28px}
+  .content::-webkit-scrollbar{width:4px}
+  .content::-webkit-scrollbar-track{background:transparent}
+  .content::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+
+  /* PAGES */
+  .page{display:none}
+  .page.active{display:block}
+
+  /* METRICS GRID */
+  .metrics-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px}
+  .metric-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;position:relative;overflow:hidden;transition:all .2s;cursor:default}
+  .metric-card:hover{border-color:rgba(0,240,255,.3);transform:translateY(-1px)}
+  .metric-card::after{content:'';position:absolute;top:0;right:0;width:60px;height:60px;border-radius:0 12px 0 60px;opacity:.06}
+  .metric-card.cyan::after{background:var(--cyan)}
+  .metric-card.green::after{background:var(--green)}
+  .metric-card.orange::after{background:var(--orange)}
+  .metric-card.red::after{background:var(--red)}
+  .metric-label{font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.8px;margin-bottom:10px}
+  .metric-value{font-size:28px;font-weight:800;color:var(--white);letter-spacing:-1px}
+  .metric-sub{font-size:12px;color:var(--text-secondary);margin-top:4px}
+  .metric-change{display:inline-flex;align-items:center;gap:3px;font-size:11px;font-weight:600;padding:2px 7px;border-radius:10px;margin-top:8px}
+  .metric-change.up{background:rgba(0,230,118,.12);color:var(--green)}
+  .metric-change.down{background:rgba(255,82,82,.12);color:var(--red)}
+
+  /* CARDS */
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px}
+  .card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+  .card-title{font-size:14px;font-weight:700;color:var(--white)}
+  .card-actions{display:flex;gap:8px}
+
+  /* TABLE */
+  table{width:100%;border-collapse:collapse}
+  th{font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.8px;padding:10px 12px;text-align:left;border-bottom:1px solid var(--border)}
+  td{padding:12px 12px;font-size:13px;color:var(--text-primary);border-bottom:1px solid rgba(255,255,255,.04)}
+  tr:hover td{background:rgba(255,255,255,.02)}
+  tr:last-child td{border-bottom:none}
+
+  /* BADGES */
+  .badge{display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600}
+  .badge-green{background:rgba(0,230,118,.12);color:var(--green)}
+  .badge-red{background:rgba(255,82,82,.12);color:var(--red)}
+  .badge-yellow{background:rgba(255,215,64,.12);color:var(--yellow)}
+  .badge-cyan{background:var(--cyan-dim);color:var(--cyan)}
+  .badge-gray{background:rgba(130,154,177,.12);color:var(--gray-400)}
+  .badge-orange{background:rgba(255,145,0,.12);color:var(--orange)}
+  .badge::before{content:'';width:5px;height:5px;border-radius:50%;background:currentColor}
+
+  /* PROGRESS BAR */
+  .progress-bar{background:rgba(255,255,255,.08);border-radius:4px;height:6px;overflow:hidden}
+  .progress-fill{height:100%;border-radius:4px;transition:width .6s ease}
+  .progress-fill.cyan{background:var(--cyan)}
+  .progress-fill.green{background:var(--green)}
+  .progress-fill.orange{background:var(--orange)}
+  .progress-fill.red{background:var(--red)}
+
+  /* GRID LAYOUTS */
+  .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
+
+  /* EVENT FEED */
+  .event-feed{display:flex;flex-direction:column;gap:8px}
+  .event-item{display:flex;align-items:center;gap:12px;padding:10px 14px;background:rgba(255,255,255,.03);border-radius:8px;border:1px solid var(--border)}
+  .event-icon{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:14px}
+  .event-icon.payment{background:rgba(0,240,255,.12)}
+  .event-icon.agent{background:rgba(0,230,118,.12)}
+  .event-icon.alert{background:rgba(255,82,82,.12)}
+  .event-icon.netting{background:rgba(255,145,0,.12)}
+  .event-body{flex:1}
+  .event-title{font-size:13px;font-weight:500;color:var(--white)}
+  .event-meta{font-size:11px;color:var(--text-secondary);margin-top:1px}
+  .event-amount{font-size:13px;font-weight:700;color:var(--cyan)}
+  .event-time{font-size:11px;color:var(--text-secondary)}
+
+  /* AGENT CARDS */
+  .agent-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+  .agent-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px;cursor:pointer;transition:all .2s}
+  .agent-card:hover{border-color:rgba(0,240,255,.4);transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.3)}
+  .agent-card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+  .agent-avatar{width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
+  .agent-name{font-size:14px;font-weight:700;color:var(--white);margin-bottom:2px}
+  .agent-framework{font-size:11px;color:var(--text-secondary)}
+  .agent-stats{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
+  .agent-stat{text-align:center;padding:8px;background:rgba(255,255,255,.03);border-radius:8px}
+  .agent-stat-value{font-size:15px;font-weight:700;color:var(--white)}
+  .agent-stat-label{font-size:10px;color:var(--text-secondary);margin-top:1px}
+  .reputation-ring{width:48px;height:48px;position:relative;flex-shrink:0}
+  .reputation-ring svg{width:48px;height:48px;transform:rotate(-90deg)}
+  .reputation-ring .track{fill:none;stroke:rgba(255,255,255,.08);stroke-width:4}
+  .reputation-ring .fill{fill:none;stroke:var(--cyan);stroke-width:4;stroke-linecap:round;transition:stroke-dashoffset .6s ease}
+  .reputation-score{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:11px;font-weight:700;color:var(--cyan)}
+
+  /* MODAL */
+  .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);z-index:100;display:none;align-items:center;justify-content:center}
+  .modal-overlay.open{display:flex}
+  .modal{background:#0d1f35;border:1px solid var(--border);border-radius:16px;width:560px;max-height:80vh;overflow-y:auto}
+  .modal-header{padding:20px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+  .modal-title{font-size:16px;font-weight:700;color:var(--white)}
+  .modal-close{width:28px;height:28px;background:var(--surface);border:1px solid var(--border);border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text-secondary);font-size:16px;transition:all .15s}
+  .modal-close:hover{border-color:var(--red);color:var(--red)}
+  .modal-body{padding:20px 24px}
+  .detail-row{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:13px}
+  .detail-row:last-child{border-bottom:none}
+  .detail-label{color:var(--text-secondary)}
+  .detail-value{color:var(--white);font-weight:600}
+
+  /* MINI CHART (pure CSS sparkline) */
+  .sparkline{display:flex;align-items:flex-end;gap:2px;height:32px}
+  .sparkline-bar{flex:1;background:var(--cyan-dim);border-radius:2px 2px 0 0;transition:all .3s;min-height:4px}
+  .sparkline-bar:hover{background:var(--cyan)}
+
+  /* SEARCH & FILTERS */
+  .search-bar{display:flex;align-items:center;gap:12px;margin-bottom:20px}
+  .search-input{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:9px 14px;font-size:13px;color:var(--text-primary);font-family:'Inter',sans-serif}
+  .search-input:focus{outline:none;border-color:var(--cyan)}
+  .filter-btn{padding:8px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;font-size:12px;font-weight:600;color:var(--text-secondary);cursor:pointer;transition:all .15s}
+  .filter-btn.active{border-color:var(--cyan);color:var(--cyan);background:var(--cyan-dim)}
+  .filter-btn:hover{border-color:var(--cyan);color:var(--cyan)}
+
+  /* NETTING VISUALIZATION */
+  .netting-flow{display:flex;align-items:center;justify-content:space-between;padding:16px;background:rgba(255,145,0,.06);border:1px solid rgba(255,145,0,.2);border-radius:10px;margin-bottom:10px}
+  .netting-node{text-align:center}
+  .netting-node-name{font-size:13px;font-weight:700;color:var(--white)}
+  .netting-node-sub{font-size:11px;color:var(--text-secondary)}
+  .netting-arrow{flex:1;display:flex;flex-direction:column;align-items:center;padding:0 12px}
+  .netting-amount{font-size:12px;font-weight:700;color:var(--orange);margin-bottom:2px}
+  .netting-line{width:100%;height:2px;background:linear-gradient(90deg,var(--orange),rgba(255,145,0,.3));position:relative}
+  .netting-line::after{content:'▶';position:absolute;right:-4px;top:-6px;color:var(--orange);font-size:10px}
+
+  /* OFAC SCREENING */
+  .screening-form{display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end;margin-bottom:16px}
+  .form-group{display:flex;flex-direction:column;gap:6px}
+  .form-label{font-size:11px;font-weight:600;color:var(--text-secondary);letter-spacing:.5px}
+  .form-input{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:9px 12px;font-size:13px;color:var(--text-primary);font-family:'Inter',sans-serif}
+  .form-input:focus{outline:none;border-color:var(--cyan)}
+
+  /* SCORE METER */
+  .score-meter{display:flex;gap:2px;align-items:flex-end}
+  .score-bar{width:8px;border-radius:2px}
+
+  /* TOAST */
+  .toast{position:fixed;bottom:24px;right:24px;background:#1a3a5c;border:1px solid var(--cyan);border-radius:10px;padding:14px 18px;font-size:13px;font-weight:500;color:var(--white);z-index:200;transform:translateY(80px);opacity:0;transition:all .3s;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+  .toast.show{transform:translateY(0);opacity:1}
+  .toast-icon{color:var(--cyan);margin-right:8px}
+
+  /* REVENUE CHART */
+  .chart-container{height:120px;display:flex;align-items:flex-end;gap:4px;padding-top:10px}
+  .chart-bar{flex:1;border-radius:4px 4px 0 0;transition:all .3s;position:relative;cursor:pointer}
+  .chart-bar:hover{opacity:.85}
+  .chart-bar::after{content:attr(data-label);position:absolute;bottom:100%;left:50%;transform:translateX(-50%);font-size:9px;color:var(--text-secondary);white-space:nowrap;margin-bottom:2px;opacity:0;transition:.2s}
+  .chart-bar:hover::after{opacity:1}
+  .chart-labels{display:flex;gap:4px;margin-top:6px}
+  .chart-label{flex:1;text-align:center;font-size:9px;color:var(--text-secondary)}
+
+  /* RAIL STATUS */
+  .rail-status{display:flex;flex-direction:column;gap:10px}
+  .rail-item{display:flex;align-items:center;gap:12px;padding:10px 14px;background:rgba(255,255,255,.03);border-radius:8px}
+  .rail-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+  .rail-dot.online{background:var(--green);box-shadow:0 0 6px var(--green)}
+  .rail-dot.degraded{background:var(--yellow);box-shadow:0 0 6px var(--yellow)}
+  .rail-name{flex:1;font-size:13px;font-weight:600;color:var(--white)}
+  .rail-latency{font-size:11px;color:var(--text-secondary)}
+  .rail-tps{font-size:12px;font-weight:700;color:var(--cyan)}
+
+  /* TABS */
+  .tabs{display:flex;gap:4px;padding:4px;background:rgba(0,0,0,.2);border-radius:10px;margin-bottom:20px;width:fit-content}
+  .tab{padding:7px 16px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;color:var(--text-secondary);transition:all .15s}
+  .tab.active{background:var(--cyan-dim);color:var(--cyan)}
+  .tab:hover:not(.active){color:var(--text-primary)}
+
+  /* STATUS INDICATOR */
+  .status-row{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.05)}
+  .status-name{font-size:13px;color:var(--text-primary)}
+  .status-indicator{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--green)}
+  .status-indicator.warn{color:var(--yellow)}
+  .status-indicator.error{color:var(--red)}
+
+  /* FX TABLE */
+  .fx-row{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:rgba(255,255,255,.03);border-radius:8px;margin-bottom:6px}
+  .fx-pair{font-size:14px;font-weight:700;color:var(--white)}
+  .fx-rate{font-size:16px;font-weight:800;color:var(--cyan)}
+  .fx-change{font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px}
+  .fx-change.up{background:rgba(0,230,118,.12);color:var(--green)}
+  .fx-change.down{background:rgba(255,82,82,.12);color:var(--red)}
+</style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<aside class="sidebar">
+  <div class="logo">
+    <div class="logo-mark">
+      <div class="logo-icon">
+        <svg viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+      </div>
+      <div>
+        <div class="logo-text">ForgePay</div>
+        <div class="logo-sub">Financial OS</div>
+      </div>
+    </div>
+  </div>
+
+  <nav>
+    <div class="nav-section">
+      <div class="nav-label">Overview</div>
+      <div class="nav-item active" onclick="showPage('overview')">
+        <svg viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        Dashboard
+      </div>
+      <div class="nav-item" onclick="showPage('events')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22,12 18,12 15,21 9,3 6,12 2,12"/></svg>
+        Event Stream
+        <span class="nav-badge green">LIVE</span>
+      </div>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-label">Agent Stack</div>
+      <div class="nav-item" onclick="showPage('agents')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+        Agents
+      </div>
+      <div class="nav-item" onclick="showPage('decisions')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+        Decisions
+        <span class="nav-badge">3</span>
+      </div>
+      <div class="nav-item" onclick="showPage('credit')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+        Credit Lines
+      </div>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-label">Enterprise</div>
+      <div class="nav-item" onclick="showPage('treasury')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+        Treasury
+      </div>
+      <div class="nav-item" onclick="showPage('netting')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+        Netting
+      </div>
+      <div class="nav-item" onclick="showPage('reporting')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        Reporting
+      </div>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-label">Compliance</div>
+      <div class="nav-item" onclick="showPage('compliance')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        OFAC Screening
+      </div>
+      <div class="nav-item" onclick="showPage('rails')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+        Rail Status
+      </div>
+    </div>
+  </nav>
+
+  <div class="sidebar-footer">
+    <div class="env-badge">
+      <div class="env-dot"></div>
+      PRODUCTION · v1.0.0
+    </div>
+  </div>
+</aside>
+
+<!-- MAIN -->
+<div class="main">
+
+  <!-- TOPBAR -->
+  <div class="topbar">
+    <div>
+      <div class="page-title" id="topbar-title">Dashboard Overview</div>
+      <div class="page-subtitle" id="topbar-sub">June 15, 2026 · All systems operational</div>
+    </div>
+    <div class="topbar-right">
+      <button class="btn btn-ghost" onclick="showToast('📥 Report exported to CSV')">Export</button>
+      <button class="btn btn-primary" onclick="showPage('agents')">+ New Agent</button>
+      <div class="avatar">FP</div>
+    </div>
+  </div>
+
+  <!-- CONTENT -->
+  <div class="content">
+
+    <!-- ===== OVERVIEW PAGE ===== -->
+    <div class="page active" id="page-overview">
+      <div class="metrics-grid">
+        <div class="metric-card cyan">
+          <div class="metric-label">Total Volume (24h)</div>
+          <div class="metric-value">$4.2M</div>
+          <div class="metric-sub">across 6 rails</div>
+          <div class="metric-change up">↑ 23% vs yesterday</div>
+        </div>
+        <div class="metric-card green">
+          <div class="metric-label">Payments Settled</div>
+          <div class="metric-value">1,847</div>
+          <div class="metric-sub">0 failed · 3 pending</div>
+          <div class="metric-change up">↑ 11% this week</div>
+        </div>
+        <div class="metric-card orange">
+          <div class="metric-label">Active Agents</div>
+          <div class="metric-value">342</div>
+          <div class="metric-sub">18 new today</div>
+          <div class="metric-change up">↑ 5.6% this week</div>
+        </div>
+        <div class="metric-card red">
+          <div class="metric-label">OFAC Flags</div>
+          <div class="metric-value">2</div>
+          <div class="metric-sub">manual review required</div>
+          <div class="metric-change down">↑ 2 new today</div>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <!-- Revenue chart -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">Revenue — Last 7 Days</div>
+            <span class="badge badge-green">+23% WoW</span>
+          </div>
+          <div class="chart-container" id="revenue-chart"></div>
+          <div class="chart-labels" id="revenue-labels"></div>
+        </div>
+
+        <!-- Live events -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">Live Event Feed</div>
+            <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--green)">
+              <div class="env-dot" style="width:5px;height:5px"></div>LIVE
+            </div>
+          </div>
+          <div class="event-feed" id="live-feed">
+            <div class="event-item">
+              <div class="event-icon payment">💳</div>
+              <div class="event-body">
+                <div class="event-title">Payment settled — agent-7f2a → merchant-B</div>
+                <div class="event-meta">Hyperswitch · PCI vault · USD</div>
+              </div>
+              <div style="text-align:right">
+                <div class="event-amount">$12,500</div>
+                <div class="event-time">2s ago</div>
+              </div>
+            </div>
+            <div class="event-item">
+              <div class="event-icon agent">🤖</div>
+              <div class="event-body">
+                <div class="event-title">Agent credit draw approved — ElizaOS-001</div>
+                <div class="event-meta">net-30 · credit-lines service</div>
+              </div>
+              <div style="text-align:right">
+                <div class="event-amount">$50,000</div>
+                <div class="event-time">8s ago</div>
+              </div>
+            </div>
+            <div class="event-item">
+              <div class="event-icon netting">🔄</div>
+              <div class="event-body">
+                <div class="event-title">Netting batch executed — 4 subsidiaries</div>
+                <div class="event-meta">Saved $1,200 in wire fees</div>
+              </div>
+              <div style="text-align:right">
+                <div class="event-amount" style="color:var(--orange)">-$87K net</div>
+                <div class="event-time">24s ago</div>
+              </div>
+            </div>
+            <div class="event-item">
+              <div class="event-icon alert">🛡️</div>
+              <div class="event-body">
+                <div class="event-title">OFAC screen PASSED — counterparty cleared</div>
+                <div class="event-meta">Risk score: 4 · SDN/DPL/EEL checked</div>
+              </div>
+              <div style="text-align:right">
+                <div class="event-amount" style="color:var(--green)">CLEAR</div>
+                <div class="event-time">41s ago</div>
+              </div>
+            </div>
+            <div class="event-item">
+              <div class="event-icon payment">🪙</div>
+              <div class="event-body">
+                <div class="event-title">USDC transfer confirmed — Polygon chain</div>
+                <div class="event-meta">stablecoin-gateway · 2 confirmations</div>
+              </div>
+              <div style="text-align:right">
+                <div class="event-amount">$8,200</div>
+                <div class="event-time">1m ago</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- System status -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Platform Health — All Services</div>
+          <span class="badge badge-green">All Operational</span>
+        </div>
+        <div class="grid-3">
+          <div>
+            <div class="status-row"><span class="status-name">Unified Router</span><span class="status-indicator">● Healthy · 14ms</span></div>
+            <div class="status-row"><span class="status-name">Agent Identity</span><span class="status-indicator">● Healthy · 8ms</span></div>
+            <div class="status-row"><span class="status-name">Decision Framework</span><span class="status-indicator">● Healthy · 11ms</span></div>
+            <div class="status-row"><span class="status-name">Agent Negotiation</span><span class="status-indicator">● Healthy · 9ms</span></div>
+            <div class="status-row"><span class="status-name">Liquidity Manager</span><span class="status-indicator warn">● Degraded · 340ms</span></div>
+          </div>
+          <div>
+            <div class="status-row"><span class="status-name">Credit Lines</span><span class="status-indicator">● Healthy · 7ms</span></div>
+            <div class="status-row"><span class="status-name">Enterprise Treasury</span><span class="status-indicator">● Healthy · 18ms</span></div>
+            <div class="status-row"><span class="status-name">Institutional Reporting</span><span class="status-indicator">● Healthy · 22ms</span></div>
+            <div class="status-row"><span class="status-name">Bank Whitelabel</span><span class="status-indicator">● Healthy · 31ms</span></div>
+            <div class="status-row"><span class="status-name">Bank Connectivity</span><span class="status-indicator">● Healthy · 44ms</span></div>
+          </div>
+          <div>
+            <div class="status-row"><span class="status-name">Compliance Monitor</span><span class="status-indicator">● Healthy · 12ms</span></div>
+            <div class="status-row"><span class="status-name">Stablecoin Gateway</span><span class="status-indicator">● Healthy · 19ms</span></div>
+            <div class="status-row"><span class="status-name">Crypto Gateway</span><span class="status-indicator">● Healthy · 15ms</span></div>
+            <div class="status-row"><span class="status-name">Billing Engine</span><span class="status-indicator">● Healthy · 28ms</span></div>
+            <div class="status-row"><span class="status-name">Hyperswitch Core</span><span class="status-indicator">● Healthy · 6ms</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== AGENTS PAGE ===== -->
+    <div class="page" id="page-agents">
+      <div class="search-bar">
+        <input class="search-input" placeholder="Search agents by name, ID, or framework…" oninput="filterAgents(this.value)">
+        <button class="filter-btn active" onclick="setFilter(this,'ALL')">All (342)</button>
+        <button class="filter-btn" onclick="setFilter(this,'PREMIUM')">Premium</button>
+        <button class="filter-btn" onclick="setFilter(this,'ESTABLISHED')">Established</button>
+        <button class="filter-btn" onclick="setFilter(this,'NEW')">New</button>
+      </div>
+      <div class="agent-grid" id="agent-grid"></div>
+    </div>
+
+    <!-- ===== EVENTS PAGE ===== -->
+    <div class="page" id="page-events">
+      <div class="tabs">
+        <div class="tab active">All Events</div>
+        <div class="tab" onclick="this.parentElement.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));this.classList.add('active')">Payments</div>
+        <div class="tab" onclick="this.parentElement.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));this.classList.add('active')">Transfers</div>
+        <div class="tab" onclick="this.parentElement.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));this.classList.add('active')">Credit</div>
+        <div class="tab" onclick="this.parentElement.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));this.classList.add('active')">Yield</div>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Revenue Ontology — Event Log</div>
+          <span class="badge badge-cyan">226 events/min</span>
+        </div>
+        <table>
+          <thead>
+            <tr><th>Event ID</th><th>Type</th><th>Source</th><th>Destination</th><th>Amount</th><th>Currency</th><th>Rail</th><th>Status</th><th>Time</th></tr>
+          </thead>
+          <tbody id="event-table"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ===== DECISIONS PAGE ===== -->
+    <div class="page" id="page-decisions">
+      <div class="metrics-grid" style="grid-template-columns:repeat(3,1fr)">
+        <div class="metric-card green">
+          <div class="metric-label">Auto-Approved (24h)</div>
+          <div class="metric-value">1,821</div>
+          <div class="metric-sub">risk score ≥ 85</div>
+          <div class="metric-change up">↑ 98.6% approval rate</div>
+        </div>
+        <div class="metric-card yellow" style="--yellow:#ffd740">
+          <div class="metric-label">Manual Review</div>
+          <div class="metric-value">23</div>
+          <div class="metric-sub">awaiting treasury decision</div>
+          <div class="metric-change" style="background:rgba(255,215,64,.1);color:var(--yellow)">↑ 3 new</div>
+        </div>
+        <div class="metric-card red">
+          <div class="metric-label">Auto-Declined</div>
+          <div class="metric-value">3</div>
+          <div class="metric-sub">risk score &lt; 50</div>
+          <div class="metric-change down">velocity limit exceeded</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">Decision Queue — Pending Review</div><button class="btn btn-ghost" onclick="showToast('✅ All decisions exported')">Export</button></div>
+        <table>
+          <thead><tr><th>Agent</th><th>Amount</th><th>Risk Score</th><th>Reason</th><th>Velocity</th><th>Action</th></tr></thead>
+          <tbody>
+            <tr><td><strong>AutoGen-Supply-7</strong><br><span style="font-size:11px;color:var(--text-secondary)">GROWING trust</span></td><td style="color:var(--cyan);font-weight:700">$127,500</td><td><div style="display:flex;align-items:center;gap:8px"><div class="score-meter">${[1,2,3,4,5,6].map((_,i)=>`<div class="score-bar" style="height:${(i+1)*4}px;background:${i<5?'var(--yellow)':'rgba(255,255,255,.1)'}"></div>`).join('')}</div><span style="color:var(--yellow);font-weight:700">62</span></div></td><td>Exceeds $100K policy gate</td><td><span class="badge badge-yellow">$180K/24h (90%)</span></td><td><div style="display:flex;gap:6px"><button class="btn btn-primary" style="padding:5px 12px;font-size:11px" onclick="showToast('✅ Payment approved')">Approve</button><button class="btn btn-ghost" style="padding:5px 12px;font-size:11px;color:var(--red);border-color:var(--red)" onclick="showToast('❌ Payment declined')">Decline</button></div></td></tr>
+            <tr><td><strong>CrewAI-FinOps-3</strong><br><span style="font-size:11px;color:var(--text-secondary)">NEW trust</span></td><td style="color:var(--cyan);font-weight:700">$89,000</td><td><div style="display:flex;align-items:center;gap:8px"><div class="score-meter">${[1,2,3,4].map((_,i)=>`<div class="score-bar" style="height:${(i+1)*4}px;background:var(--orange)"></div>`).join('')}<div class="score-bar" style="height:24px;background:rgba(255,255,255,.1)"></div><div class="score-bar" style="height:28px;background:rgba(255,255,255,.1)"></div></div><span style="color:var(--orange);font-weight:700">54</span></div></td><td>New agent — no history</td><td><span class="badge badge-orange">$89K/1h (89%)</span></td><td><div style="display:flex;gap:6px"><button class="btn btn-primary" style="padding:5px 12px;font-size:11px" onclick="showToast('✅ Payment approved')">Approve</button><button class="btn btn-ghost" style="padding:5px 12px;font-size:11px;color:var(--red);border-color:var(--red)" onclick="showToast('❌ Payment declined')">Decline</button></div></td></tr>
+            <tr><td><strong>LangChain-Trade-11</strong><br><span style="font-size:11px;color:var(--text-secondary)">ESTABLISHED trust</span></td><td style="color:var(--cyan);font-weight:700">$210,000</td><td><div style="display:flex;align-items:center;gap:8px"><div class="score-meter">${[1,2,3,4,5].map((_,i)=>`<div class="score-bar" style="height:${(i+1)*4}px;background:var(--yellow)"></div>`).join('')}<div class="score-bar" style="height:24px;background:rgba(255,255,255,.1)"></div></div><span style="color:var(--yellow);font-weight:700">71</span></div></td><td>Exceeds 7-day $500K limit</td><td><span class="badge badge-yellow">$480K/7d (96%)</span></td><td><div style="display:flex;gap:6px"><button class="btn btn-primary" style="padding:5px 12px;font-size:11px" onclick="showToast('✅ Payment approved')">Approve</button><button class="btn btn-ghost" style="padding:5px 12px;font-size:11px;color:var(--red);border-color:var(--red)" onclick="showToast('❌ Payment declined')">Decline</button></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ===== CREDIT LINES PAGE ===== -->
+    <div class="page" id="page-credit">
+      <div class="metrics-grid">
+        <div class="metric-card cyan">
+          <div class="metric-label">Total Credit Extended</div>
+          <div class="metric-value">$8.4M</div>
+          <div class="metric-sub">across 342 agents</div>
+          <div class="metric-change up">↑ $420K this week</div>
+        </div>
+        <div class="metric-card green">
+          <div class="metric-label">Current Utilization</div>
+          <div class="metric-value">$3.1M</div>
+          <div class="metric-sub">37% of total limit</div>
+          <div class="metric-change up">↑ healthy range</div>
+        </div>
+        <div class="metric-card orange">
+          <div class="metric-label">Overdue (>30d)</div>
+          <div class="metric-value">$84K</div>
+          <div class="metric-sub">3 agents flagged</div>
+          <div class="metric-change down">↓ penalty applied</div>
+        </div>
+        <div class="metric-card green">
+          <div class="metric-label">Default Rate</div>
+          <div class="metric-value">0.8%</div>
+          <div class="metric-sub">industry avg: 2.4%</div>
+          <div class="metric-change up">↑ excellent</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">Credit Line Accounts</div></div>
+        <table>
+          <thead><tr><th>Agent</th><th>Limit</th><th>Drawn</th><th>Available</th><th>Utilization</th><th>Terms</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td><strong>ElizaOS-Trading-001</strong><br><span style="font-size:11px;color:var(--text-secondary)">PREMIUM · 847 txns</span></td><td style="font-weight:700">$500,000</td><td style="color:var(--cyan)">$180,000</td><td style="color:var(--green)">$320,000</td><td><div style="width:120px"><div class="progress-bar" style="margin-bottom:4px"><div class="progress-fill cyan" style="width:36%"></div></div><span style="font-size:11px;color:var(--text-secondary)">36%</span></div></td><td><span class="badge badge-cyan">net-90</span></td><td><span class="badge badge-green">Current</span></td></tr>
+            <tr><td><strong>AutoGen-Supply-7</strong><br><span style="font-size:11px;color:var(--text-secondary)">GROWING · 234 txns</span></td><td style="font-weight:700">$200,000</td><td style="color:var(--cyan)">$167,000</td><td style="color:var(--yellow)">$33,000</td><td><div style="width:120px"><div class="progress-bar" style="margin-bottom:4px"><div class="progress-fill orange" style="width:83%"></div></div><span style="font-size:11px;color:var(--orange)">83%</span></div></td><td><span class="badge badge-cyan">net-60</span></td><td><span class="badge badge-yellow">Near Limit</span></td></tr>
+            <tr><td><strong>CrewAI-FinOps-3</strong><br><span style="font-size:11px;color:var(--text-secondary)">NEW · 12 txns</span></td><td style="font-weight:700">$25,000</td><td style="color:var(--cyan)">$0</td><td style="color:var(--green)">$25,000</td><td><div style="width:120px"><div class="progress-bar" style="margin-bottom:4px"><div class="progress-fill green" style="width:0%"></div></div><span style="font-size:11px;color:var(--text-secondary)">0%</span></div></td><td><span class="badge badge-cyan">net-30</span></td><td><span class="badge badge-green">Clean</span></td></tr>
+            <tr><td><strong>Swarms-Arb-99</strong><br><span style="font-size:11px;color:var(--text-secondary)">ESTABLISHED · 512 txns</span></td><td style="font-weight:700">$150,000</td><td style="color:var(--red)">$143,000</td><td style="color:var(--red)">$7,000</td><td><div style="width:120px"><div class="progress-bar" style="margin-bottom:4px"><div class="progress-fill red" style="width:95%"></div></div><span style="font-size:11px;color:var(--red)">95%</span></div></td><td><span class="badge badge-cyan">net-30</span></td><td><span class="badge badge-red">Overdue 14d</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ===== TREASURY PAGE ===== -->
+    <div class="page" id="page-treasury">
+      <div class="metrics-grid">
+        <div class="metric-card cyan">
+          <div class="metric-label">Consolidated Cash</div>
+          <div class="metric-value">$48.2M</div>
+          <div class="metric-sub">across 14 accounts</div>
+          <div class="metric-change up">↑ 8.2% this month</div>
+        </div>
+        <div class="metric-card green">
+          <div class="metric-label">Yield Earning (APY)</div>
+          <div class="metric-value">4.8%</div>
+          <div class="metric-sub">$8.2M in Aave/Ondo</div>
+          <div class="metric-change up">↑ $32K accrued today</div>
+        </div>
+        <div class="metric-card orange">
+          <div class="metric-label">Idle Cash (0% APY)</div>
+          <div class="metric-value">$6.1M</div>
+          <div class="metric-sub">deploy to yield vault?</div>
+          <div class="metric-change down">↓ opportunity cost</div>
+        </div>
+        <div class="metric-card green">
+          <div class="metric-label">Netting Savings (MTD)</div>
+          <div class="metric-value">$18,400</div>
+          <div class="metric-sub">vs. gross wire cost</div>
+          <div class="metric-change up">↑ 31% fee reduction</div>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-header"><div class="card-title">Cash by Currency</div><button class="btn btn-ghost" style="font-size:11px" onclick="showToast('🔄 FX rates refreshed')">Refresh Rates</button></div>
+          <div class="fx-row"><div><div class="fx-pair">USD</div><div style="font-size:11px;color:var(--text-secondary)">$24.1M · 50.0%</div></div><div class="progress-bar" style="width:140px"><div class="progress-fill cyan" style="width:50%"></div></div><div class="fx-rate">$24.1M</div></div>
+          <div class="fx-row"><div><div class="fx-pair">EUR</div><div style="font-size:11px;color:var(--text-secondary)">€12.4M · 25.7%</div></div><div class="progress-bar" style="width:140px"><div class="progress-fill green" style="width:26%"></div></div><div class="fx-rate">$13.4M</div></div>
+          <div class="fx-row"><div><div class="fx-pair">USDC</div><div style="font-size:11px;color:var(--text-secondary)">8.2M · 17.0%</div></div><div class="progress-bar" style="width:140px"><div class="progress-fill orange" style="width:17%"></div></div><div class="fx-rate">$8.2M</div></div>
+          <div class="fx-row"><div><div class="fx-pair">GBP</div><div style="font-size:11px;color:var(--text-secondary)">£2.0M · 5.1%</div></div><div class="progress-bar" style="width:140px"><div class="progress-fill" style="width:5%;background:var(--yellow)"></div></div><div class="fx-rate">$2.5M</div></div>
+          <div class="fx-row"><div><div class="fx-pair">Other</div><div style="font-size:11px;color:var(--text-secondary)">2.3%</div></div><div class="progress-bar" style="width:140px"><div class="progress-fill" style="width:2%;background:var(--gray-400)"></div></div><div class="fx-rate">$1.1M</div></div>
+        </div>
+
+        <div class="card">
+          <div class="card-header"><div class="card-title">Live FX Rates</div><span style="font-size:11px;color:var(--text-secondary)">Updated 2m ago</span></div>
+          <div class="fx-row"><div class="fx-pair">EUR / USD</div><div class="fx-rate">1.0821</div><div class="fx-change up">+0.12%</div></div>
+          <div class="fx-row"><div class="fx-pair">GBP / USD</div><div class="fx-rate">1.2745</div><div class="fx-change down">-0.08%</div></div>
+          <div class="fx-row"><div class="fx-pair">USD / JPY</div><div class="fx-rate">157.34</div><div class="fx-change up">+0.31%</div></div>
+          <div class="fx-row"><div class="fx-pair">USD / SGD</div><div class="fx-rate">1.3412</div><div class="fx-change down">-0.04%</div></div>
+          <div class="fx-row"><div class="fx-pair">USDC / USD</div><div class="fx-rate">1.0000</div><div class="fx-change up">+0.00%</div></div>
+          <div style="margin-top:12px"><button class="btn btn-primary" style="width:100%;font-size:12px" onclick="showToast('🔒 FX rate locked for 30 seconds')">Lock Rate & Repatriate EUR → USD</button></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><div class="card-title">Sweep Rules</div><button class="btn btn-primary" style="font-size:12px" onclick="showToast('✅ Rule activated')">+ Add Rule</button></div>
+        <table>
+          <thead><tr><th>Rule</th><th>Trigger</th><th>Action</th><th>Last Executed</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td><strong>EUR Excess Sweep</strong></td><td>EUR balance &gt; €5M</td><td>Convert 50% to USD via Wise</td><td>2h ago · $420K</td><td><span class="badge badge-green">Active</span></td></tr>
+            <tr><td><strong>Idle Cash Deploy</strong></td><td>USD idle &gt; $2M for 24h</td><td>Deploy to Aave USDC vault (4.8%)</td><td>6h ago · $1.2M</td><td><span class="badge badge-green">Active</span></td></tr>
+            <tr><td><strong>HQ Repatriation</strong></td><td>Monthly profit sweep</td><td>Move 40% of net profit to HQ</td><td>June 1 · $800K</td><td><span class="badge badge-green">Active</span></td></tr>
+            <tr><td><strong>Emergency Reserve</strong></td><td>USD balance &lt; $500K</td><td>Liquidate Aave position immediately</td><td>Never triggered</td><td><span class="badge badge-cyan">Standby</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ===== NETTING PAGE ===== -->
+    <div class="page" id="page-netting">
+      <div class="metrics-grid" style="grid-template-columns:repeat(3,1fr)">
+        <div class="metric-card orange">
+          <div class="metric-label">Gross Settlement Due</div>
+          <div class="metric-value">$2.84M</div>
+          <div class="metric-sub">8 bilateral trades</div>
+        </div>
+        <div class="metric-card green">
+          <div class="metric-label">Net After Netting</div>
+          <div class="metric-value">$892K</div>
+          <div class="metric-sub">3 settlement instructions</div>
+          <div class="metric-change up">↑ 69% reduction</div>
+        </div>
+        <div class="metric-card cyan">
+          <div class="metric-label">Wire Fee Saved</div>
+          <div class="metric-value">$100</div>
+          <div class="metric-sub">5 wires avoided</div>
+          <div class="metric-change up">↑ $18.4K MTD savings</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Netting Graph — Current Batch (Due Today 3PM UTC)</div>
+          <button class="btn btn-primary" style="font-size:12px" onclick="showToast('🔄 Netting batch executed — 3 wires sent')">Execute Netting Now</button>
+        </div>
+
+        <div style="margin-bottom:16px;padding:12px 14px;background:rgba(0,240,255,.06);border:1px solid rgba(0,240,255,.2);border-radius:8px;font-size:13px;color:var(--cyan)">
+          ⚡ Algorithm detected 3-leg cycle: Sub-A → Sub-B → Sub-C → Sub-A · Savings: $60 in wire fees
+        </div>
+
+        <div class="netting-flow">
+          <div class="netting-node"><div class="netting-node-name">Sub-A (US)</div><div class="netting-node-sub">+$95K incoming</div></div>
+          <div class="netting-arrow"><div class="netting-amount">$108K</div><div class="netting-line"></div></div>
+          <div class="netting-node"><div class="netting-node-name">Sub-B (France)</div><div class="netting-node-sub">EUR entity</div></div>
+          <div class="netting-arrow"><div class="netting-amount">$85K</div><div class="netting-line"></div></div>
+          <div class="netting-node"><div class="netting-node-name">Sub-C (Japan)</div><div class="netting-node-sub">¥12M</div></div>
+          <div class="netting-arrow"><div class="netting-amount">$95K</div><div class="netting-line"></div></div>
+          <div class="netting-node"><div class="netting-node-name">Sub-A (US)</div><div class="netting-node-sub">cycle closes</div></div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+          <div style="padding:16px;background:rgba(255,82,82,.06);border:1px solid rgba(255,82,82,.2);border-radius:10px">
+            <div style="font-size:12px;font-weight:600;color:var(--red);margin-bottom:10px">WITHOUT NETTING</div>
+            <div style="font-size:13px;color:var(--text-secondary);margin-bottom:6px">3 wire transfers</div>
+            <div style="font-size:22px;font-weight:800;color:var(--white)">$288,000</div>
+            <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">Cost: $60 · Time: 1–2 days</div>
+          </div>
+          <div style="padding:16px;background:rgba(0,230,118,.06);border:1px solid rgba(0,230,118,.2);border-radius:10px">
+            <div style="font-size:12px;font-weight:600;color:var(--green);margin-bottom:10px">WITH NETTING</div>
+            <div style="font-size:13px;color:var(--text-secondary);margin-bottom:6px">1 stablecoin transfer</div>
+            <div style="font-size:22px;font-weight:800;color:var(--white)">$23,000</div>
+            <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">Cost: $0.50 · Time: 2 min</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== REPORTING PAGE ===== -->
+    <div class="page" id="page-reporting">
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-header"><div class="card-title">Available Reports</div></div>
+          <div class="event-feed">
+            <div class="event-item" style="cursor:pointer" onclick="showToast('📄 Cash Flow Report generating…')">
+              <div class="event-icon payment">📊</div>
+              <div class="event-body"><div class="event-title">Cash Flow Statement</div><div class="event-meta">Daily/weekly/monthly · Multi-currency · Excel ready</div></div>
+              <button class="btn btn-ghost" style="font-size:11px;padding:5px 10px">Generate</button>
+            </div>
+            <div class="event-item" style="cursor:pointer" onclick="showToast('📄 Settlement Report generating…')">
+              <div class="event-icon netting">🔄</div>
+              <div class="event-body"><div class="event-title">Settlement & Netting Report</div><div class="event-meta">Gross vs. net · Wire savings · Rail performance</div></div>
+              <button class="btn btn-ghost" style="font-size:11px;padding:5px 10px">Generate</button>
+            </div>
+            <div class="event-item" style="cursor:pointer" onclick="showToast('📄 Yield Income Report generating…')">
+              <div class="event-icon agent">💰</div>
+              <div class="event-body"><div class="event-title">Yield Income Report</div><div class="event-meta">Aave/Compound APY · Interest accrued · Tax classification</div></div>
+              <button class="btn btn-ghost" style="font-size:11px;padding:5px 10px">Generate</button>
+            </div>
+            <div class="event-item" style="cursor:pointer" onclick="showToast('📄 Audit Trail generating…')">
+              <div class="event-icon alert">🔒</div>
+              <div class="event-body"><div class="event-title">Audit Trail</div><div class="event-meta">Immutable · SOX compliant · Auditor-ready PDF</div></div>
+              <button class="btn btn-ghost" style="font-size:11px;padding:5px 10px">Generate</button>
+            </div>
+            <div class="event-item" style="cursor:pointer" onclick="showToast('📄 Tax Filing Report generating…')">
+              <div class="event-icon payment">🧾</div>
+              <div class="event-body"><div class="event-title">Tax Filing (5 Jurisdictions)</div><div class="event-meta">US 1099 · EU VAT · UK Self-Assessment · JP · SG</div></div>
+              <button class="btn btn-ghost" style="font-size:11px;padding:5px 10px">Generate</button>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><div class="card-title">Revenue by Stream (MTD)</div></div>
+          <div class="detail-row"><span class="detail-label">Transaction Fees (0.5–1.5%)</span><span class="detail-value" style="color:var(--cyan)">$486,000</span></div>
+          <div class="detail-row"><span class="detail-label">Enterprise Subscriptions</span><span class="detail-value" style="color:var(--cyan)">$208,000</span></div>
+          <div class="detail-row"><span class="detail-label">Yield Management (2–5%)</span><span class="detail-value" style="color:var(--cyan)">$39,200</span></div>
+          <div class="detail-row"><span class="detail-label">Credit Interest (8–24% APR)</span><span class="detail-value" style="color:var(--cyan)">$18,800</span></div>
+          <div style="padding:14px;background:rgba(0,240,255,.06);border-radius:8px;margin-top:8px">
+            <div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px">MTD TOTAL</div>
+            <div style="font-size:28px;font-weight:800;color:var(--white)">$752,000</div>
+            <div style="font-size:12px;color:var(--green);margin-top:4px">↑ On track for $8.6M Year 1</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== COMPLIANCE PAGE ===== -->
+    <div class="page" id="page-compliance">
+      <div class="metrics-grid">
+        <div class="metric-card green">
+          <div class="metric-label">Screened Today</div>
+          <div class="metric-value">1,847</div>
+          <div class="metric-sub">all transactions</div>
+          <div class="metric-change up">↑ 100% coverage</div>
+        </div>
+        <div class="metric-card green">
+          <div class="metric-label">OFAC Feed Status</div>
+          <div class="metric-value">LIVE</div>
+          <div class="metric-sub">Updated 4h ago · 4,284 SDN records</div>
+          <div class="metric-change up">↑ Next refresh: 02:30 UTC</div>
+        </div>
+        <div class="metric-card red">
+          <div class="metric-label">Manual Review</div>
+          <div class="metric-value">2</div>
+          <div class="metric-sub">risk score ≥ 75</div>
+          <div class="metric-change down">↑ action required</div>
+        </div>
+        <div class="metric-card cyan">
+          <div class="metric-label">Avg Screening Time</div>
+          <div class="metric-value">12ms</div>
+          <div class="metric-sub">Soundex + Metaphone</div>
+          <div class="metric-change up">↑ 3 algorithms</div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header"><div class="card-title">Screen a Transaction</div></div>
+        <div class="screening-form">
+          <div class="form-group">
+            <label class="form-label">Counterparty Name</label>
+            <input class="form-input" id="screen-name" placeholder="e.g. Mohammad Al-Rashid" value="Test Counterparty Inc">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Amount (USD)</label>
+            <input class="form-input" id="screen-amount" placeholder="e.g. 50000" value="25000">
+          </div>
+          <button class="btn btn-primary" style="height:38px" onclick="runScreening()">Screen Now</button>
+        </div>
+        <div id="screening-result" style="display:none;padding:16px;border-radius:10px;margin-top:8px"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><div class="card-title">Recent Screening Results</div></div>
+        <table>
+          <thead><tr><th>Counterparty</th><th>Amount</th><th>Risk Score</th><th>Lists Checked</th><th>Decision</th><th>Time</th></tr></thead>
+          <tbody>
+            <tr><td>Acme Corp International</td><td>$45,000</td><td><span style="color:var(--green);font-weight:700">4</span></td><td>SDN · DPL · EEL</td><td><span class="badge badge-green">Approved</span></td><td>12s ago</td></tr>
+            <tr><td>Global Trade Partners LLC</td><td>$120,000</td><td><span style="color:var(--green);font-weight:700">8</span></td><td>SDN · DPL · EEL</td><td><span class="badge badge-green">Approved</span></td><td>34s ago</td></tr>
+            <tr><td style="color:var(--yellow)">⚠ Kimberley Resources Ltd</td><td>$890,000</td><td><span style="color:var(--yellow);font-weight:700">78</span></td><td>SDN · DPL · EEL</td><td><span class="badge badge-yellow">Manual Review</span></td><td>2m ago</td></tr>
+            <tr><td>Pacific Rim Ventures</td><td>$12,500</td><td><span style="color:var(--green);font-weight:700">2</span></td><td>SDN · DPL · EEL</td><td><span class="badge badge-green">Approved</span></td><td>4m ago</td></tr>
+            <tr><td style="color:var(--red)">🚫 Rashid Al-Farouq Trading</td><td>$340,000</td><td><span style="color:var(--red);font-weight:700">95</span></td><td>SDN</td><td><span class="badge badge-red">Blocked</span></td><td>6m ago</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ===== RAIL STATUS PAGE ===== -->
+    <div class="page" id="page-rails">
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-header"><div class="card-title">Settlement Rails — Live Status</div></div>
+          <div class="rail-status">
+            <div class="rail-item"><div class="rail-dot online"></div><div class="rail-name">Hyperswitch (Rust Core)</div><div class="rail-latency">6ms</div><div class="rail-tps">2,847 tps</div></div>
+            <div class="rail-item"><div class="rail-dot online"></div><div class="rail-name">Stablecoin Gateway (Polygon)</div><div class="rail-latency">19ms</div><div class="rail-tps">834 tps</div></div>
+            <div class="rail-item"><div class="rail-dot online"></div><div class="rail-name">Stablecoin Gateway (Ethereum)</div><div class="rail-latency">2.1s</div><div class="rail-tps">31 tps</div></div>
+            <div class="rail-item"><div class="rail-dot online"></div><div class="rail-name">Crypto Gateway (BTC/ETH)</div><div class="rail-latency">480ms</div><div class="rail-tps">12 tps</div></div>
+            <div class="rail-item"><div class="rail-dot online"></div><div class="rail-name">Bank Connectivity (Plaid)</div><div class="rail-latency">44ms</div><div class="rail-tps">128 tps</div></div>
+            <div class="rail-item"><div class="rail-dot online"></div><div class="rail-name">Bank Connectivity (Open Banking)</div><div class="rail-latency">87ms</div><div class="rail-tps">64 tps</div></div>
+            <div class="rail-item"><div class="rail-dot online"></div><div class="rail-name">SWIFT Wire Settlement</div><div class="rail-latency">1-2d</div><div class="rail-tps">N/A</div></div>
+            <div class="rail-item"><div class="rail-dot degraded"></div><div class="rail-name">Kill Bill Billing Engine</div><div class="rail-latency">340ms</div><div class="rail-tps">42 tps</div></div>
+            <div class="rail-item"><div class="rail-dot online"></div><div class="rail-name">OFAC Compliance Monitor</div><div class="rail-latency">12ms</div><div class="rail-tps">1,847 checks/hr</div></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><div class="card-title">Volume by Rail (24h)</div></div>
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <div><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:5px"><span>Hyperswitch (cards/ACH)</span><span style="color:var(--cyan);font-weight:700">$2.1M</span></div><div class="progress-bar"><div class="progress-fill cyan" style="width:50%"></div></div></div>
+            <div><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:5px"><span>Stablecoin (USDC/USDT)</span><span style="color:var(--green);font-weight:700">$1.2M</span></div><div class="progress-bar"><div class="progress-fill green" style="width:29%"></div></div></div>
+            <div><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:5px"><span>Bank Wire (SWIFT)</span><span style="color:var(--orange);font-weight:700">$640K</span></div><div class="progress-bar"><div class="progress-fill orange" style="width:15%"></div></div></div>
+            <div><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:5px"><span>Plaid / ACH</span><span style="color:var(--yellow);font-weight:700">$180K</span></div><div class="progress-bar"><div class="progress-fill" style="width:4%;background:var(--yellow)"></div></div></div>
+            <div><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:5px"><span>Crypto Gateway</span><span style="color:var(--gray-400);font-weight:700">$80K</span></div><div class="progress-bar"><div class="progress-fill" style="width:2%;background:var(--gray-400)"></div></div></div>
+          </div>
+          <div style="margin-top:20px;padding:14px;background:rgba(0,240,255,.06);border-radius:8px">
+            <div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px">TOTAL VOLUME</div>
+            <div style="font-size:24px;font-weight:800;color:var(--white)">$4.2M / 24h</div>
+            <div style="font-size:12px;color:var(--green);margin-top:4px">↑ 5,000 tps peak capacity available</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- AGENT MODAL -->
+<div class="modal-overlay" id="agent-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="modal-agent-name">Agent Detail</div>
+      <div class="modal-close" onclick="closeModal()">✕</div>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"><span class="toast-icon">✓</span><span id="toast-msg"></span></div>
+
+<script>
+// ===== NAVIGATION =====
+const pageNames = {
+  overview: ['Dashboard Overview','June 15, 2026 · All systems operational'],
+  events: ['Event Stream','Revenue Ontology — Live append-only log'],
+  agents: ['Agent Management','342 registered agents across all frameworks'],
+  decisions: ['Decision Queue','3 pending manual reviews'],
+  credit: ['Credit Lines','$8.4M extended · 0.8% default rate'],
+  treasury: ['Enterprise Treasury','$48.2M consolidated · 4.8% APY yield'],
+  netting: ['Intercompany Netting','$18.4K saved MTD via netting algorithm'],
+  reporting: ['Institutional Reporting','5 report types · 5 tax jurisdictions'],
+  compliance: ['OFAC Compliance','1,847 screened · 2 manual reviews'],
+  rails: ['Rail Status','9 settlement rails · All operational']
+};
+
+function showPage(id) {
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  document.getElementById('page-'+id).classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(n=>{
+    if(n.getAttribute('onclick')?.includes("'"+id+"'")) n.classList.add('active');
+  });
+  const [title,sub] = pageNames[id]||['ForgePay',''];
+  document.getElementById('topbar-title').textContent=title;
+  document.getElementById('topbar-sub').textContent=sub;
+}
+
+// ===== TOAST =====
+function showToast(msg) {
+  const t=document.getElementById('toast');
+  document.getElementById('toast-msg').textContent=msg;
+  t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),3000);
+}
+
+// ===== REVENUE CHART =====
+const days=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+const vals=[320000,410000,380000,520000,490000,610000,580000];
+const max=Math.max(...vals);
+const rc=document.getElementById('revenue-chart');
+const rl=document.getElementById('revenue-labels');
+days.forEach((d,i)=>{
+  const h=Math.round((vals[i]/max)*100);
+  const b=document.createElement('div');
+  b.className='chart-bar';
+  b.style.cssText=`height:${h}%;background:${i===5?'var(--cyan)':'rgba(0,240,255,0.3)'};`;
+  b.setAttribute('data-label','$'+Math.round(vals[i]/1000)+'K');
+  rc.appendChild(b);
+  const l=document.createElement('div');
+  l.className='chart-label';
+  l.textContent=d;
+  rl.appendChild(l);
+});
+
+// ===== AGENTS =====
+const AGENTS=[
+  {name:'ElizaOS-Trading-001',framework:'ElizaOS',trust:'PREMIUM',rep:94,txns:847,vol:'$2.4M',credit:'$500K',emoji:'🤖',color:'#00F0FF'},
+  {name:'AutoGen-Supply-7',framework:'AutoGen',trust:'GROWING',rep:67,txns:234,vol:'$890K',credit:'$200K',emoji:'⚙️',color:'#00e676'},
+  {name:'CrewAI-FinOps-3',framework:'CrewAI',trust:'NEW',rep:42,txns:12,vol:'$24K',credit:'$25K',emoji:'👥',color:'#ffd740'},
+  {name:'LangChain-Trade-11',framework:'LangChain',trust:'ESTABLISHED',rep:78,txns:512,vol:'$1.8M',credit:'$150K',emoji:'🔗',color:'#ff9100'},
+  {name:'Swarms-Arb-99',framework:'Swarms',trust:'ESTABLISHED',rep:71,txns:389,vol:'$1.1M',credit:'$150K',emoji:'🐝',color:'#ff9100'},
+  {name:'ElizaOS-DeFi-02',framework:'ElizaOS',trust:'PREMIUM',rep:91,txns:1204,vol:'$4.2M',credit:'$750K',emoji:'🤖',color:'#00F0FF'},
+  {name:'AutoGen-Treasury-4',framework:'AutoGen',trust:'GROWING',rep:58,txns:88,vol:'$340K',credit:'$75K',emoji:'⚙️',color:'#00e676'},
+  {name:'CrewAI-Compliance-1',framework:'CrewAI',trust:'ESTABLISHED',rep:82,txns:421,vol:'$980K',credit:'$200K',emoji:'👥',color:'#ffd740'},
+  {name:'LangChain-FX-7',framework:'LangChain',trust:'NEW',rep:35,txns:7,vol:'$8K',credit:'$10K',emoji:'🔗',color:'#ff5252'},
+];
+
+function buildAgentCard(a) {
+  const circ=138;
+  const pct=(a.rep/100)*circ;
+  const trustColors={PREMIUM:'var(--cyan)',ESTABLISHED:'var(--green)',GROWING:'var(--yellow)',NEW:'var(--gray-400)'};
+  const trustBadge={PREMIUM:'badge-cyan',ESTABLISHED:'badge-green',GROWING:'badge-yellow',NEW:'badge-gray'};
+  return `
+  <div class="agent-card" onclick="openAgent('${a.name}','${a.framework}','${a.trust}',${a.rep},${a.txns},'${a.vol}','${a.credit}')">
+    <div class="agent-card-header">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div class="agent-avatar" style="background:rgba(0,0,0,.3);border:1px solid var(--border)">${a.emoji}</div>
+        <div>
+          <div class="agent-name">${a.name}</div>
+          <div class="agent-framework">${a.framework}</div>
+        </div>
+      </div>
+      <div class="reputation-ring">
+        <svg viewBox="0 0 48 48">
+          <circle class="track" cx="24" cy="24" r="22"/>
+          <circle class="fill" cx="24" cy="24" r="22" stroke="${trustColors[a.trust]}"
+            stroke-dasharray="${circ}" stroke-dashoffset="${circ-pct}"/>
+        </svg>
+        <div class="reputation-score" style="color:${trustColors[a.trust]}">${a.rep}</div>
+      </div>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <span class="badge ${trustBadge[a.trust]}">${a.trust}</span>
+      <span style="font-size:11px;color:var(--text-secondary)">${a.txns} txns</span>
+    </div>
+    <div class="agent-stats">
+      <div class="agent-stat"><div class="agent-stat-value" style="color:var(--cyan)">${a.vol}</div><div class="agent-stat-label">Volume</div></div>
+      <div class="agent-stat"><div class="agent-stat-value">${a.credit}</div><div class="agent-stat-label">Credit Limit</div></div>
+    </div>
+  </div>`;
+}
+
+function renderAgents(list) {
+  document.getElementById('agent-grid').innerHTML=list.map(buildAgentCard).join('');
+}
+
+renderAgents(AGENTS);
+
+function filterAgents(q) {
+  const f=AGENTS.filter(a=>a.name.toLowerCase().includes(q.toLowerCase())||a.framework.toLowerCase().includes(q.toLowerCase()));
+  renderAgents(f);
+}
+
+let activeFilter='ALL';
+function setFilter(btn,trust) {
+  activeFilter=trust;
+  document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  renderAgents(trust==='ALL'?AGENTS:AGENTS.filter(a=>a.trust===trust));
+}
+
+// ===== AGENT MODAL =====
+function openAgent(name,fw,trust,rep,txns,vol,credit) {
+  document.getElementById('modal-agent-name').textContent=name;
+  document.getElementById('modal-body').innerHTML=`
+    <div class="detail-row"><span class="detail-label">Framework</span><span class="detail-value">${fw}</span></div>
+    <div class="detail-row"><span class="detail-label">Trust Level</span><span class="detail-value"><span class="badge badge-cyan">${trust}</span></span></div>
+    <div class="detail-row"><span class="detail-label">Reputation Score</span><span class="detail-value" style="color:var(--cyan)">${rep}/100</span></div>
+    <div class="detail-row"><span class="detail-label">Total Transactions</span><span class="detail-value">${txns}</span></div>
+    <div class="detail-row"><span class="detail-label">Lifetime Volume</span><span class="detail-value">${vol}</span></div>
+    <div class="detail-row"><span class="detail-label">Credit Limit</span><span class="detail-value">${credit}</span></div>
+    <div class="detail-row"><span class="detail-label">Credit Terms</span><span class="detail-value">net-60</span></div>
+    <div class="detail-row"><span class="detail-label">Success Rate</span><span class="detail-value" style="color:var(--green)">99.2%</span></div>
+    <div class="detail-row"><span class="detail-label">Defaults</span><span class="detail-value" style="color:var(--green)">0</span></div>
+    <div style="margin-top:16px;font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:10px">RECENT DECISIONS</div>
+    <div class="event-item"><div class="event-icon agent">✅</div><div class="event-body"><div class="event-title">Auto-approved — $12,500 payment</div><div class="event-meta">Risk score: 91 · Hyperswitch rail</div></div><div class="event-time">2m ago</div></div>
+    <div class="event-item" style="margin-top:6px"><div class="event-icon agent">✅</div><div class="event-body"><div class="event-title">Auto-approved — $8,200 USDC transfer</div><div class="event-meta">Risk score: 88 · Stablecoin rail</div></div><div class="event-time">18m ago</div></div>
+    <div class="event-item" style="margin-top:6px"><div class="event-icon alert">⚠️</div><div class="event-body"><div class="event-title">Manual review — $95,000 wire</div><div class="event-meta">Risk score: 72 · velocity limit approached</div></div><div class="event-time">1h ago</div></div>
+    <div style="display:flex;gap:8px;margin-top:16px">
+      <button class="btn btn-primary" style="flex:1" onclick="showToast('✅ Credit limit increased to $200K');closeModal()">Increase Limit</button>
+      <button class="btn btn-ghost" style="flex:1" onclick="showToast('⚙️ Policy updated for ${name}');closeModal()">Set Policy</button>
+    </div>
+  `;
+  document.getElementById('agent-modal').classList.add('open');
+}
+
+function closeModal() {
+  document.getElementById('agent-modal').classList.remove('open');
+}
+document.getElementById('agent-modal').addEventListener('click',e=>{if(e.target===e.currentTarget)closeModal();});
+
+// ===== EVENT TABLE =====
+const EVENT_TYPES=['payment','transfer','yield','netting','credit','sweep'];
+const RAILS=['hyperswitch','stablecoin','wire','plaid','crypto'];
+const STATUSES=['settled','settled','settled','settled','pending','failed'];
+const STAT_BADGES={'settled':'badge-green','pending':'badge-yellow','failed':'badge-red'};
+function randId(){return Math.random().toString(36).substr(2,8).toUpperCase();}
+function randAmt(){return '$'+Number((Math.random()*100000+500).toFixed(0)).toLocaleString();}
+const rows=[];
+for(let i=0;i<20;i++){
+  const s=STATUSES[Math.floor(Math.random()*STATUSES.length)];
+  const t=EVENT_TYPES[Math.floor(Math.random()*EVENT_TYPES.length)];
+  const r=RAILS[Math.floor(Math.random()*RAILS.length)];
+  const min=Math.floor(Math.random()*59);
+  rows.push({id:randId(),type:t,src:'agent-'+randId(),dst:'agent-'+randId(),amt:randAmt(),cur:['USD','USDC','EUR','BTC'][Math.floor(Math.random()*4)],rail:r,status:s,time:min===0?'just now':min+'m ago'});
+}
+const tbody=document.getElementById('event-table');
+rows.forEach(r=>{
+  const tr=document.createElement('tr');
+  tr.innerHTML=`<td style="font-family:monospace;font-size:11px;color:var(--text-secondary)">${r.id}</td><td><span class="badge badge-cyan">${r.type}</span></td><td style="font-size:12px">${r.src}</td><td style="font-size:12px">${r.dst}</td><td style="color:var(--cyan);font-weight:700">${r.amt}</td><td>${r.cur}</td><td style="font-size:12px">${r.rail}</td><td><span class="badge ${STAT_BADGES[r.status]}">${r.status}</span></td><td style="font-size:11px;color:var(--text-secondary)">${r.time}</td>`;
+  tbody.appendChild(tr);
+});
+
+// ===== OFAC SCREENING =====
+function runScreening() {
+  const name=document.getElementById('screen-name').value.trim();
+  const amount=document.getElementById('screen-amount').value.trim();
+  if(!name||!amount){showToast('⚠️ Fill in all fields');return;}
+  const el=document.getElementById('screening-result');
+  el.style.display='block';
+  el.innerHTML='<div style="color:var(--text-secondary)">⏳ Screening against SDN · DPL · EEL lists…</div>';
+  setTimeout(()=>{
+    const risky=['rashid','kim','farouq','tehran','pyongyang','minsk'];
+    const risk=risky.some(r=>name.toLowerCase().includes(r));
+    const score=risk?92:Math.floor(Math.random()*15)+1;
+    const blocked=score>=95;
+    const review=score>=75&&!blocked;
+    if(blocked){
+      el.style.cssText='display:block;background:rgba(255,82,82,.1);border:1px solid rgba(255,82,82,.3);border-radius:10px;padding:16px';
+      el.innerHTML=`<div style="font-size:14px;font-weight:700;color:var(--red);margin-bottom:8px">🚫 BLOCKED — SDN Match</div><div style="font-size:13px;color:var(--text-secondary)">Risk Score: <span style="color:var(--red);font-weight:700">${score}/100</span> · Counterparty matched against OFAC SDN List via Soundex algorithm. Transaction automatically blocked. Manual review required before any further action.</div>`;
+    } else if(review){
+      el.style.cssText='display:block;background:rgba(255,215,64,.08);border:1px solid rgba(255,215,64,.3);border-radius:10px;padding:16px';
+      el.innerHTML=`<div style="font-size:14px;font-weight:700;color:var(--yellow);margin-bottom:8px">⚠️ MANUAL REVIEW REQUIRED</div><div style="font-size:13px;color:var(--text-secondary)">Risk Score: <span style="color:var(--yellow);font-weight:700">${score}/100</span> · Partial match detected. Counterparty requires human review before proceeding. Webhook sent to compliance officer.</div>`;
+    } else {
+      el.style.cssText='display:block;background:rgba(0,230,118,.08);border:1px solid rgba(0,230,118,.25);border-radius:10px;padding:16px';
+      el.innerHTML=`<div style="font-size:14px;font-weight:700;color:var(--green);margin-bottom:8px">✅ APPROVED — Clear</div><div style="font-size:13px;color:var(--text-secondary)">Risk Score: <span style="color:var(--green);font-weight:700">${score}/100</span> · Counterparty <strong style="color:var(--white)">${name}</strong> screened against SDN, DPL, and EEL lists using Fuzzy + Soundex + Metaphone algorithms. No matches found. Transaction approved to proceed.</div>`;
+    }
+  },1200);
+}
+
+// ===== LIVE FEED AUTO-UPDATE =====
+const LIVE_EVENTS=[
+  {icon:'💳',cls:'payment',title:'Payment settled — agent-3k9b → merchant-C',meta:'Hyperswitch · USD',amt:'$34,200',time:'now'},
+  {icon:'🤖',cls:'agent',title:'New agent registered — CrewAI framework',meta:'agent-identity · NEW trust level',amt:'agent-k2m1',time:'now',amtColor:'var(--green)'},
+  {icon:'🪙',cls:'payment',title:'USDC sweep to Aave vault',meta:'liquidity-manager · 4.8% APY',amt:'$150,000',time:'now'},
+  {icon:'🔄',cls:'netting',title:'Netting opportunity detected — 2 subsidiaries',meta:'enterprise-treasury · save $40',amt:'-$23K net',amtColor:'var(--orange)',time:'now'},
+  {icon:'🛡️',cls:'alert',title:'OFAC screen PASSED — 3 algorithms',meta:'Risk score: 6 · SDN/DPL/EEL clear',amt:'CLEAR',amtColor:'var(--green)',time:'now'},
+];
+let feedIdx=0;
+setInterval(()=>{
+  const feed=document.getElementById('live-feed');
+  if(!feed)return;
+  const e=LIVE_EVENTS[feedIdx%LIVE_EVENTS.length];
+  feedIdx++;
+  const items=feed.querySelectorAll('.event-item');
+  items[items.length-1].remove();
+  const div=document.createElement('div');
+  div.className='event-item';
+  div.style.cssText='animation:fadeIn .3s ease';
+  div.innerHTML=`<div class="event-icon ${e.cls}">${e.icon}</div><div class="event-body"><div class="event-title">${e.title}</div><div class="event-meta">${e.meta}</div></div><div style="text-align:right"><div class="event-amount" style="color:${e.amtColor||'var(--cyan)'}">${e.amt}</div><div class="event-time">${e.time}</div></div>`;
+  feed.insertBefore(div,feed.firstChild);
+},4000);
+</script>
+</body>
+</html>
