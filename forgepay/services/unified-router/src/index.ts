@@ -38,6 +38,7 @@ import Fastify from 'fastify';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import { buildWebhookRoutes } from './routes/webhooks.js';
+import { buildPaymentRoutes } from './routes/payments.js';
 import { buildEventRoutes } from './routes/events.js';
 import { buildHealthRoutes } from './routes/health.js';
 import { createRedisClient } from './lib/redis.js';
@@ -76,6 +77,7 @@ async function main() {
   // ── Routes ────────────────────────────────────────────────────────────────
   await app.register(buildHealthRoutes);
   await app.register(buildWebhookRoutes, { prefix: '/webhooks' });
+  await app.register(buildPaymentRoutes);
   await app.register(buildEventRoutes,   { prefix: '/events' });
 
   // ── Graceful shutdown ─────────────────────────────────────────────────────

@@ -38,6 +38,7 @@ import {
   setAttestation,
   initStore,
 } from './store';
+import { buildKYAPayRoutes } from './routes/kyapay';
 import { recordReputationEvent } from './reputation';
 import type { AgentIdentity, Attestation, ReputationEvent } from './types';
 
@@ -81,6 +82,9 @@ async function buildApp() {
   });
 
   await app.register(apiKeyAuth);
+
+  // ── KYAPay routes (JWKS is public; import/token endpoints use API key auth) ─
+  await app.register(buildKYAPayRoutes);
 
   // ── Health ─────────────────────────────────────────────────────────────────
   app.get('/health', async () => ({

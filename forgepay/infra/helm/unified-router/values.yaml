@@ -27,6 +27,12 @@ secretRef: "forgepay-unified-router-secrets"
 # Note: Kill Bill must post webhooks to http://forgepay-unified-router:8000/webhooks/killbill
 # with the KILLBILL_WEBHOOK_SECRET in the x-killbill-signature header (HMAC-SHA256)
 
+# KYAPay configuration (non-secret values)
+kyapay:
+  # Comma-separated list of trusted KYAPay token issuers
+  trustedIssuers: "https://skyfire.xyz,https://api.forgepay.com"
+  issuerUrl: "https://api.forgepay.com"
+
 resources:
   requests:
     cpu: "100m"

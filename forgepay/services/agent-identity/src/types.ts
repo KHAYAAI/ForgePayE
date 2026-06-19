@@ -20,6 +20,9 @@ export interface AgentIdentity {
   createdAt: string;
   lastActiveAt: string;
   status: 'active' | 'suspended' | 'deregistered';
+  // KYAPay external identity link (nullable — only set for imported agents)
+  kyapaySub?: string;            // JWT sub claim from external KYAPay issuer
+  kyapayIss?: string;            // JWT iss claim (e.g. "https://skyfire.xyz")
 }
 
 export interface ReputationEvent {

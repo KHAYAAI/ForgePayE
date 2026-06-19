@@ -52,6 +52,17 @@ export const config = {
     apiKey:    optional('KILLBILL_API_KEY', 'forgepay'),
     apiSecret: optional('KILLBILL_API_SECRET', ''),
   },
+
+  // KYAPay integration — trusted issuers and token settings
+  kyapay: {
+    // Comma-separated list of trusted JWT issuer URLs
+    trustedIssuers: optional(
+      'KYAPAY_TRUSTED_ISSUERS',
+      'https://skyfire.xyz,https://api.forgepay.com',
+    ).split(',').map(s => s.trim()).filter(Boolean),
+    // ForgePay's own issuer URL (used when we issue tokens)
+    issuerUrl: optional('FORGEPAY_ISSUER_URL', 'https://api.forgepay.com'),
+  },
 } as const;
 
 if (config.env === 'production') {

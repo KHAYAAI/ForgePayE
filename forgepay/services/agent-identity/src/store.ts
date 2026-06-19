@@ -67,15 +67,42 @@ export async function getAgent(id: string): Promise<AgentIdentity | undefined> {
   return res.rows[0] ? rowToAgent(res.rows[0]) : undefined;
 }
 
-export async function setAgent(agent: AgentIdentity): Promise<void> {
-  if (!useDb) { agentMap.set(agent.id, agent); return; }
+export async function getAgentByKyapaySub(
+  sub: string,
+  iss: string,
+): Promise<AgentIdentity | undefined> {
+  if (!useDb) {
+    return Array.from(agentMap.values()).find(
+      (a) => a.kyapaySub === sub && a.kyapayIss === iss,
+    );
+  }
+  const res = await pool.query(
+    `SELECT * FROM agent_identities WHERE kyapay_sub = $1 AND kyapay_iss = $2 LIMIT 1`,
+    [sub, iss],
+  );
+  return res.rows[0] ? rowToAgent(res.rows[0]) : undefined;
+}
+
+export interface KYAPayFields {
+  kyapaySub?: string;
+  kyapayIss?: string;
+}
+
+export async function setAgent(agent: AgentIdentity, kyapay?: KYAPayFields): Promise<void> {
+  // Merge kyapay fields into the agent object for in-memory store
+  const merged: AgentIdentity = {
+    ...agent,
+    kyapaySub: kyapay?.kyapaySub ?? agent.kyapaySub,
+    kyapayIss: kyapay?.kyapayIss ?? agent.kyapayIss,
+  };
+  if (!useDb) { agentMap.set(merged.id, merged); return; }
   await pool.query(`
     INSERT INTO agent_identities
       (id, did, name, framework, owner_merchant_id, capabilities, trust_level,
        reputation_score, total_transactions, total_volume_usd, success_rate,
        average_response_time_ms, tags, metadata, endpoint, public_key, webhook_url, status,
-       created_at, last_active_at)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+       created_at, last_active_at, kyapay_sub, kyapay_iss)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
     ON CONFLICT (id) DO UPDATE SET
       name=EXCLUDED.name, framework=EXCLUDED.framework,
       capabilities=EXCLUDED.capabilities, trust_level=EXCLUDED.trust_level,
@@ -85,17 +112,20 @@ export async function setAgent(agent: AgentIdentity): Promise<void> {
       average_response_time_ms=EXCLUDED.average_response_time_ms,
       tags=EXCLUDED.tags, metadata=EXCLUDED.metadata, endpoint=EXCLUDED.endpoint,
       public_key=EXCLUDED.public_key, webhook_url=EXCLUDED.webhook_url,
-      status=EXCLUDED.status, last_active_at=EXCLUDED.last_active_at
+      status=EXCLUDED.status, last_active_at=EXCLUDED.last_active_at,
+      kyapay_sub=EXCLUDED.kyapay_sub, kyapay_iss=EXCLUDED.kyapay_iss
   `, [
-    agent.id, agent.did, agent.name, agent.framework, agent.ownerMerchantId,
-    JSON.stringify(agent.capabilities), agent.trustLevel, agent.reputationScore,
-    agent.totalTransactions, agent.totalVolumeUsd, agent.successRate,
-    agent.averageResponseTimeMs, JSON.stringify(agent.tags),
+    merged.id, merged.did, merged.name, merged.framework, merged.ownerMerchantId,
+    JSON.stringify(merged.capabilities), merged.trustLevel, merged.reputationScore,
+    merged.totalTransactions, merged.totalVolumeUsd, merged.successRate,
+    merged.averageResponseTimeMs, JSON.stringify(merged.tags),
     JSON.stringify({}),
     null,
-    agent.publicKey ?? null,
-    agent.webhookUrl ?? null,
-    agent.status, agent.createdAt, agent.lastActiveAt,
+    merged.publicKey ?? null,
+    merged.webhookUrl ?? null,
+    merged.status, merged.createdAt, merged.lastActiveAt,
+    merged.kyapaySub ?? null,
+    merged.kyapayIss ?? null,
   ]);
 }
 
@@ -202,24 +232,26 @@ export async function getAttestationsBySubjectAgentId(subjectAgentId: string): P
 
 function rowToAgent(row: Record<string, unknown>): AgentIdentity {
   return {
-    id:                   row['id'] as string,
-    did:                  row['did'] as string,
-    name:                 row['name'] as string,
-    framework:            row['framework'] as AgentIdentity['framework'],
-    ownerMerchantId:      row['owner_merchant_id'] as string,
-    publicKey:            row['public_key'] as string | undefined,
-    webhookUrl:           row['webhook_url'] as string | undefined,
-    capabilities:         row['capabilities'] as string[],
-    trustLevel:           row['trust_level'] as AgentIdentity['trustLevel'],
-    reputationScore:      Number(row['reputation_score']),
-    totalTransactions:    Number(row['total_transactions']),
-    totalVolumeUsd:       Number(row['total_volume_usd']),
-    successRate:          Number(row['success_rate']),
+    id:                    row['id'] as string,
+    did:                   row['did'] as string,
+    name:                  row['name'] as string,
+    framework:             row['framework'] as AgentIdentity['framework'],
+    ownerMerchantId:       row['owner_merchant_id'] as string,
+    publicKey:             row['public_key'] as string | undefined,
+    webhookUrl:            row['webhook_url'] as string | undefined,
+    capabilities:          row['capabilities'] as string[],
+    trustLevel:            row['trust_level'] as AgentIdentity['trustLevel'],
+    reputationScore:       Number(row['reputation_score']),
+    totalTransactions:     Number(row['total_transactions']),
+    totalVolumeUsd:        Number(row['total_volume_usd']),
+    successRate:           Number(row['success_rate']),
     averageResponseTimeMs: Number(row['average_response_time_ms']),
-    tags:                 row['tags'] as string[],
-    status:               row['status'] as AgentIdentity['status'],
-    createdAt:            (row['created_at'] as Date).toISOString(),
-    lastActiveAt:         (row['last_active_at'] as Date).toISOString(),
+    tags:                  row['tags'] as string[],
+    status:                row['status'] as AgentIdentity['status'],
+    createdAt:             (row['created_at'] as Date).toISOString(),
+    lastActiveAt:          (row['last_active_at'] as Date).toISOString(),
+    kyapaySub:             row['kyapay_sub'] as string | undefined ?? undefined,
+    kyapayIss:             row['kyapay_iss'] as string | undefined ?? undefined,
   };
 }
 

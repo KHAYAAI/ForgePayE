@@ -19,9 +19,17 @@ agentNegotiationUrl: "http://agent-negotiation:3011"
 rateLimitPerMinute: 200
 
 # Kubernetes secret with sensitive values — never hardcode here.
-# Expected keys (if needed in future):
-#   INTERNAL_WEBHOOK_SECRET
+# Expected keys in that secret:
+#   KYAPAY_SIGNING_PRIVATE_KEY  — ES256 private key (PKCS#8 PEM, newlines as \n)
+#   KYAPAY_SIGNING_PUBLIC_KEY   — ES256 public key (SPKI PEM, newlines as \n)
 secretRef: "forgepay-agent-identity-secrets"
+
+# KYAPay configuration (non-secret values)
+kyapay:
+  keyId: "forgepay-agent-identity-1"
+  issuerUrl: "https://api.forgepay.com"
+  # Comma-separated list of trusted KYAPay token issuers
+  trustedIssuers: "https://skyfire.xyz,https://api.forgepay.com"
 
 resources:
   requests:

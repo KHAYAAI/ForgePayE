@@ -13,8 +13,9 @@ async function apiKeyAuthPlugin(app: FastifyInstance) {
   );
 
   app.addHook('onRequest', async (request: FastifyRequest, reply: FastifyReply) => {
-    // Skip auth for health endpoint
+    // Skip auth for public endpoints
     if (request.url === '/health' || request.url.startsWith('/health')) return;
+    if (request.url.startsWith('/.well-known/')) return;
 
     const apiKey =
       request.headers['x-api-key'] as string ??

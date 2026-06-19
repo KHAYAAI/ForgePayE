@@ -61,6 +61,13 @@ export async function runMigrations(): Promise<void> {
       );
 
       CREATE INDEX IF NOT EXISTS idx_att_subject ON agent_attestations(subject_agent_id);
+
+      -- KYAPay external identity columns (added after initial schema)
+      ALTER TABLE agent_identities ADD COLUMN IF NOT EXISTS kyapay_sub VARCHAR(255);
+      ALTER TABLE agent_identities ADD COLUMN IF NOT EXISTS kyapay_iss VARCHAR(512);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_kyapay_sub_iss
+        ON agent_identities(kyapay_sub, kyapay_iss)
+        WHERE kyapay_sub IS NOT NULL AND kyapay_iss IS NOT NULL;
     `);
   } finally {
     client.release();
