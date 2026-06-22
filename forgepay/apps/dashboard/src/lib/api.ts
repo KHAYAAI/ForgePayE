@@ -93,3 +93,95 @@ export interface AnalyticsSummary {
 export const analytics = {
   summary: (days = 30) => request<AnalyticsSummary>(`/analytics/summary?days=${days}`),
 };
+
+// ── Enterprise Treasury ───────────────────────────────────────────────────────
+
+export interface TreasuryCashPosition {
+  totalUsd:               number;
+  idleCashUsd:            number;
+  deployedInYieldUsd:     number;
+  opportunityCostUsdPerYear: number;
+  bySubsidiary:           Record<string, { name: string; totalUsd: number; accountCount: number; runwayDays: number }>;
+  byCurrency:             Record<string, { currency: string; balanceUsd: number; fxRate: number }>;
+  lastConsolidated:       string;
+}
+
+export interface TreasuryRule {
+  id:               string;
+  name:             string;
+  enabled:          boolean;
+  condition:        Record<string, unknown>;
+  action:           Record<string, unknown>;
+  approvalRequired: boolean;
+  executionCount:   number;
+  lastTriggered?:   string;
+}
+
+export interface TreasuryNettingSummary {
+  totalGrossUsd:    number;
+  totalNetUsd:      number;
+  totalFeesSavedUsd: number;
+  reductionPercent: number;
+  pairsCount:       number;
+  flowsCount:       number;
+}
+
+export interface TreasuryApproval {
+  id:          string;
+  rule_id:     string;
+  rule_name:   string;
+  action:      Record<string, unknown>;
+  requestedAt: string;
+}
+
+export const treasury = {
+  cashPosition:    () => request<{ data: TreasuryCashPosition }>('/treasury/cash-position'),
+  listRules:       () => request<{ data: TreasuryRule[]; total: number }>('/treasury/rules'),
+  nettingSummary:  () => request<{ data: unknown[]; summary: TreasuryNettingSummary }>('/treasury/netting'),
+  pendingApprovals: () => request<{ data: TreasuryApproval[]; total: number }>('/treasury/approvals'),
+  agentSummary:    () => request<Record<string, unknown>>('/treasury/summary'),
+};
+
+// ── Agent Credit Lines ────────────────────────────────────────────────────────
+
+export interface CreditLineSummary {
+  creditLines: { total: number; active: number; suspended: number; closed: number };
+  draws:       { total: number; outstanding: number; overdue: number; repaid: number; defaulted: number };
+  totals:      { totalIssuedUsd: number; totalOutstandingUsd: number; totalOverdueUsd: number; totalLossUsd: number; defaultRate: number };
+  timestamp:   string;
+}
+
+export interface CreditLine {
+  id:              string;
+  agentId:         string;
+  limitUsd:        number;
+  availableUsd:    number;
+  usedUsd:         number;
+  termsDays:       number;
+  interestRateBps: number;
+  status:          string;
+  createdAt:       string;
+}
+
+export interface CreditDraw {
+  id:                   string;
+  creditLineId:         string;
+  agentId:              string;
+  amountUsd:            number;
+  totalOwedUsd:         number;
+  repaidUsd:            number;
+  drawnAt:              string;
+  dueAt:                string;
+  repaidAt?:            string;
+  status:               string;
+  purpose:              string;
+  counterpartyAgentId?: string;
+}
+
+export const creditLines = {
+  summary:   () => request<CreditLineSummary>('/credit-lines/summary'),
+  listLines: (params?: Record<string, string>) =>
+    request<{ data: CreditLine[]; total: number }>(`/credit-lines?${new URLSearchParams(params)}`),
+  listDraws: (params?: Record<string, string>) =>
+    request<{ data: CreditDraw[]; total: number }>(`/credit-lines/draws?${new URLSearchParams(params)}`),
+};

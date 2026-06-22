@@ -12,8 +12,8 @@ service:
 
 resources:
   requests:
-    cpu: 100m
-    memory: 128Mi
+    cpu: 150m
+    memory: 256Mi
   limits:
     cpu: 500m
     memory: 512Mi
@@ -21,7 +21,7 @@ resources:
 autoscaling:
   enabled: true
   minReplicas: 2
-  maxReplicas: 8
+  maxReplicas: 6
   targetCPUUtilizationPercentage: 70
   targetMemoryUtilizationPercentage: 80
 
@@ -31,17 +31,17 @@ env:
   NODE_ENV: "production"
   RATE_LIMIT_PER_MIN: "100"
   CORS_ORIGIN: "*"
-  # Override in production:
-  # BANK_CONNECTIVITY_URL: "http://bank-connectivity:3006"
-  # YIELD_ENGINE_URL: "http://yield-engine:3007"
-  # FX_RATES_URL: "https://open.er-api.com/v6/latest/USD"
-  # ALERT_WEBHOOK_URL: "https://hooks.slack.com/services/..."
+  BANK_CONNECTIVITY_URL: "http://bank-connectivity:3006"
+  YIELD_ENGINE_URL: "http://yield-engine:3007"
+  # DATABASE_URL: set via Vault/Secrets Manager
+  # ALERT_WEBHOOK_URL: set via Vault/Secrets Manager
+  # VALID_API_KEYS: set via Vault/Secrets Manager
 
 livenessProbe:
   httpGet:
     path: /health
     port: 3012
-  initialDelaySeconds: 15
+  initialDelaySeconds: 20
   periodSeconds: 30
   failureThreshold: 3
 
@@ -49,7 +49,7 @@ readinessProbe:
   httpGet:
     path: /health
     port: 3012
-  initialDelaySeconds: 5
+  initialDelaySeconds: 10
   periodSeconds: 10
   failureThreshold: 3
 

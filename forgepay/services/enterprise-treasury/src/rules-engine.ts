@@ -8,29 +8,24 @@
  * Runs on a 60-second polling cycle from index.ts.
  * Supports an optional approval workflow: rules with approvalRequired=true
  * are queued in pendingApprovals and fire a notify_cfo alert instead of executing.
+ *
+ * Persistence: when DATABASE_URL is set, all CRUD mutations write through to
+ * PostgreSQL (treasury_rules, treasury_executions, treasury_approvals tables).
+ * On startup, call initRulesFromDb() to reload persisted rules.
  */
 
 import { TreasuryRule, CashPosition } from './types';
+import { pool } from './db';
 
 // ── In-memory stores ──────────────────────────────────────────────────────────
 
-const rules: TreasuryRule[] = [
+const DEFAULT_RULES: TreasuryRule[] = [
   {
     id:      'default_sweep_hq',
     name:    'HQ Operating Account Sweep',
     enabled: true,
-    condition: {
-      type:       'balance_above',
-      subsidiary: 'HQ',
-      threshold:  5_000_000,
-      currency:   'USDC',
-    },
-    action: {
-      type:          'sweep_to_yield',
-      targetVault:   'aave',
-      minApy:        4.5,
-      keepLiquidUsd: 2_000_000,
-    },
+    condition: { type: 'balance_above', subsidiary: 'HQ', threshold: 5_000_000, currency: 'USDC' },
+    action: { type: 'sweep_to_yield', targetVault: 'aave', minApy: 4.5, keepLiquidUsd: 2_000_000 },
     approvalRequired: false,
     executionCount:   0,
   },
@@ -38,14 +33,8 @@ const rules: TreasuryRule[] = [
     id:      'default_tax_escrow',
     name:    'Tax Escrow Allocation',
     enabled: true,
-    condition: {
-      type:      'yield_earned_above',
-      threshold: 100_000,
-    },
-    action: {
-      type:             'allocate_tax_escrow',
-      taxEscrowPercent: 0.28,
-    },
+    condition: { type: 'yield_earned_above', threshold: 100_000 },
+    action: { type: 'allocate_tax_escrow', taxEscrowPercent: 0.28 },
     approvalRequired: false,
     executionCount:   0,
   },
@@ -53,47 +42,133 @@ const rules: TreasuryRule[] = [
     id:      'default_low_runway_alert',
     name:    'Low Cash Runway Alert',
     enabled: true,
-    condition: {
-      type:      'runway_below_days',
-      daysAhead: 30,
-    },
-    action: {
-      type:         'notify_cfo',
-      notifyEmails: ['cfo@company.com'],
-    },
+    condition: { type: 'runway_below_days', daysAhead: 30 },
+    action: { type: 'notify_cfo', notifyEmails: ['cfo@company.com'] },
     approvalRequired: false,
     executionCount:   0,
   },
 ];
 
+const rulesMap = new Map<string, TreasuryRule>(
+  DEFAULT_RULES.map(r => [r.id, r]),
+);
+
+let useDb = false;
+
+export async function initRulesFromDb(): Promise<void> {
+  if (!process.env['DATABASE_URL']) return;
+  try {
+    const res = await pool.query<Record<string, unknown>>(`SELECT * FROM treasury_rules ORDER BY created_at`);
+    if (res.rows.length > 0) {
+      rulesMap.clear();
+      for (const row of res.rows) {
+        const rule: TreasuryRule = {
+          id:               row['id'] as string,
+          name:             row['name'] as string,
+          enabled:          row['enabled'] as boolean,
+          condition:        row['condition'] as TreasuryRule['condition'],
+          action:           row['action'] as TreasuryRule['action'],
+          approvalRequired: row['approval_required'] as boolean,
+          executionCount:   Number(row['execution_count']),
+          lastTriggered:    row['last_triggered'] ? (row['last_triggered'] as Date).toISOString() : undefined,
+        };
+        rulesMap.set(rule.id, rule);
+      }
+    } else {
+      // First run — seed DB with defaults
+      for (const rule of DEFAULT_RULES) {
+        await upsertRuleToDb(rule);
+      }
+    }
+    useDb = true;
+  } catch (err) {
+    console.warn('[rules-engine] DB unavailable, using in-memory store:', (err as Error).message);
+  }
+}
+
+async function upsertRuleToDb(rule: TreasuryRule): Promise<void> {
+  await pool.query(`
+    INSERT INTO treasury_rules
+      (id, name, enabled, condition, action, approval_required, execution_count, last_triggered, updated_at)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())
+    ON CONFLICT (id) DO UPDATE SET
+      name=EXCLUDED.name, enabled=EXCLUDED.enabled, condition=EXCLUDED.condition,
+      action=EXCLUDED.action, approval_required=EXCLUDED.approval_required,
+      execution_count=EXCLUDED.execution_count, last_triggered=EXCLUDED.last_triggered,
+      updated_at=NOW()
+  `, [
+    rule.id, rule.name, rule.enabled,
+    JSON.stringify(rule.condition), JSON.stringify(rule.action),
+    rule.approvalRequired, rule.executionCount,
+    rule.lastTriggered ?? null,
+  ]);
+}
+
+async function deleteRuleFromDb(id: string): Promise<void> {
+  await pool.query(`DELETE FROM treasury_rules WHERE id = $1`, [id]);
+}
+
+async function persistExecution(exec: RuleExecution): Promise<void> {
+  if (!useDb) return;
+  try {
+    await pool.query(`
+      INSERT INTO treasury_executions (id, rule_id, rule_name, result, action_type, detail, executed_at)
+      VALUES ($1,$2,$3,$4,$5,$6,$7)
+    `, [
+      `exec_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      exec.ruleId, exec.ruleName, exec.result, exec.actionTaken,
+      exec.details ? JSON.stringify({ details: exec.details }) : null,
+      exec.timestamp,
+    ]);
+  } catch { /* best-effort */ }
+}
+
+async function persistApproval(approval: PendingApproval): Promise<void> {
+  if (!useDb) return;
+  try {
+    await pool.query(`
+      INSERT INTO treasury_approvals (id, rule_id, rule_name, action, requested_at)
+      VALUES ($1,$2,$3,$4,$5)
+      ON CONFLICT (id) DO UPDATE SET resolved_at=$6, resolved_by=$7, approved=$8
+    `, [
+      approval.id, approval.ruleId, approval.ruleName,
+      JSON.stringify({ reason: approval.reason }),
+      approval.createdAt,
+      approval.resolvedAt ?? null, approval.resolvedBy ?? null, approval.approved,
+    ]);
+  } catch { /* best-effort */ }
+}
+
 // ── CRUD operations ───────────────────────────────────────────────────────────
 
 export function listRules(): TreasuryRule[] {
-  return rules;
+  return Array.from(rulesMap.values());
 }
 
 export function getRuleById(id: string): TreasuryRule | undefined {
-  return rules.find(r => r.id === id);
+  return rulesMap.get(id);
 }
 
 export function addRule(rule: Omit<TreasuryRule, 'executionCount'>): TreasuryRule {
   const newRule: TreasuryRule = { ...rule, executionCount: 0 };
-  rules.push(newRule);
+  rulesMap.set(newRule.id, newRule);
+  if (useDb) upsertRuleToDb(newRule).catch(() => {});
   return newRule;
 }
 
 export function updateRule(id: string, updates: Partial<TreasuryRule>): TreasuryRule | null {
-  const idx = rules.findIndex(r => r.id === id);
-  if (idx === -1) return null;
-  rules[idx] = { ...rules[idx]!, ...updates, id };
-  return rules[idx]!;
+  const existing = rulesMap.get(id);
+  if (!existing) return null;
+  const updated = { ...existing, ...updates, id };
+  rulesMap.set(id, updated);
+  if (useDb) upsertRuleToDb(updated).catch(() => {});
+  return updated;
 }
 
 export function deleteRule(id: string): boolean {
-  const idx = rules.findIndex(r => r.id === id);
-  if (idx === -1) return false;
-  rules.splice(idx, 1);
-  return true;
+  const existed = rulesMap.delete(id);
+  if (existed && useDb) deleteRuleFromDb(id).catch(() => {});
+  return existed;
 }
 
 // ── Pending approvals ─────────────────────────────────────────────────────────
@@ -104,7 +179,7 @@ export interface PendingApproval {
   ruleName:  string;
   reason:    string;
   createdAt: string;
-  approved:  boolean | null; // null = pending
+  approved:  boolean | null;
   resolvedAt?: string;
   resolvedBy?: string;
 }
@@ -121,6 +196,7 @@ export function resolveApproval(id: string, approved: boolean, resolvedBy: strin
   approval.approved   = approved;
   approval.resolvedAt = new Date().toISOString();
   approval.resolvedBy = resolvedBy;
+  persistApproval(approval).catch(() => {});
   return approval;
 }
 
@@ -148,51 +224,39 @@ export function getExecutionLog(limit = 50): RuleExecution[] {
 export async function evaluateRules(position: CashPosition): Promise<RuleExecution[]> {
   const cycleResults: RuleExecution[] = [];
 
-  for (const rule of rules) {
+  for (const rule of rulesMap.values()) {
     if (!rule.enabled) continue;
 
     const conditionMet = evaluateCondition(rule, position);
 
     if (!conditionMet) {
       cycleResults.push({
-        ruleId:       rule.id,
-        ruleName:     rule.name,
-        conditionMet: false,
-        actionTaken:  'none',
-        result:       'skipped',
-        timestamp:    new Date().toISOString(),
+        ruleId: rule.id, ruleName: rule.name, conditionMet: false,
+        actionTaken: 'none', result: 'skipped', timestamp: new Date().toISOString(),
       });
       continue;
     }
 
     if (rule.approvalRequired) {
       const approvalId = `${rule.id}_${Date.now()}`;
-      pendingApprovals.push({
-        id:        approvalId,
-        ruleId:    rule.id,
-        ruleName:  rule.name,
-        reason:    `Condition "${rule.condition.type}" met — action "${rule.action.type}" requires approval`,
-        createdAt: new Date().toISOString(),
-        approved:  null,
-      });
-
-      // Notify approvers
-      await fireAlertWebhook(
-        `[ForgePay Treasury] Rule "${rule.name}" requires approval`,
-        { ruleId: rule.id, approvalId, conditionType: rule.condition.type },
-      );
+      const approval: PendingApproval = {
+        id: approvalId, ruleId: rule.id, ruleName: rule.name,
+        reason: `Condition "${rule.condition.type}" met — action "${rule.action.type}" requires approval`,
+        createdAt: new Date().toISOString(), approved: null,
+      };
+      pendingApprovals.push(approval);
+      persistApproval(approval).catch(() => {});
+      await fireAlertWebhook(`[ForgePay Treasury] Rule "${rule.name}" requires approval`,
+        { ruleId: rule.id, approvalId, conditionType: rule.condition.type });
 
       const execution: RuleExecution = {
-        ruleId:       rule.id,
-        ruleName:     rule.name,
-        conditionMet: true,
-        actionTaken:  'approval_requested',
-        result:       'approval_required',
-        timestamp:    new Date().toISOString(),
-        details:      `Approval queued (id: ${approvalId})`,
+        ruleId: rule.id, ruleName: rule.name, conditionMet: true,
+        actionTaken: 'approval_requested', result: 'approval_required',
+        timestamp: new Date().toISOString(), details: `Approval queued (id: ${approvalId})`,
       };
       cycleResults.push(execution);
       executionLog.push(execution);
+      persistExecution(execution).catch(() => {});
       if (executionLog.length > MAX_LOG_ENTRIES) executionLog.shift();
       continue;
     }
@@ -200,18 +264,17 @@ export async function evaluateRules(position: CashPosition): Promise<RuleExecuti
     const actionResult = await executeAction(rule, position);
     rule.executionCount += 1;
     rule.lastTriggered   = new Date().toISOString();
+    if (useDb) upsertRuleToDb(rule).catch(() => {});
 
     const execution: RuleExecution = {
-      ruleId:       rule.id,
-      ruleName:     rule.name,
-      conditionMet: true,
-      actionTaken:  rule.action.type,
-      result:       actionResult.success ? 'executed' : 'failed',
-      timestamp:    new Date().toISOString(),
-      details:      actionResult.message,
+      ruleId: rule.id, ruleName: rule.name, conditionMet: true,
+      actionTaken: rule.action.type,
+      result: actionResult.success ? 'executed' : 'failed',
+      timestamp: new Date().toISOString(), details: actionResult.message,
     };
 
     executionLog.push(execution);
+    persistExecution(execution).catch(() => {});
     if (executionLog.length > MAX_LOG_ENTRIES) executionLog.shift();
     cycleResults.push(execution);
   }
@@ -231,14 +294,12 @@ export function evaluateCondition(rule: TreasuryRule, position: CashPosition): b
         : position.totalUsd;
       return targetUsd > (condition.threshold ?? 0);
     }
-
     case 'balance_below': {
       const targetUsd = condition.subsidiary
         ? (position.bySubsidiary[condition.subsidiary]?.totalUsd ?? 0)
         : position.totalUsd;
       return targetUsd < (condition.threshold ?? 0);
     }
-
     case 'runway_below_days': {
       const threshold = condition.daysAhead ?? 30;
       if (condition.subsidiary) {
@@ -247,18 +308,12 @@ export function evaluateCondition(rule: TreasuryRule, position: CashPosition): b
       }
       return Object.values(position.bySubsidiary).some(sub => sub.runwayDays < threshold);
     }
-
     case 'yield_earned_above':
       return position.deployedInYieldUsd > (condition.threshold ?? 0);
-
     case 'scheduled':
-      // In production: validate against cronSchedule via node-cron
       return true;
-
     case 'upcoming_payment':
-      // In production: query accounts-payable service for payments within daysAhead
       return false;
-
     default:
       return false;
   }
@@ -275,10 +330,8 @@ async function executeAction(
   switch (action.type) {
     case 'sweep_to_yield':
       return executeSweepToYield(rule, action, position);
-
     case 'repatriate_from_yield':
       return executeRepatriateFromYield(rule, action);
-
     case 'allocate_tax_escrow': {
       const pct    = action.taxEscrowPercent ?? 0.28;
       const escrow = position.deployedInYieldUsd * pct;
@@ -287,23 +340,16 @@ async function executeAction(
         message: `Allocated $${escrow.toLocaleString(undefined, { maximumFractionDigits: 0 })} to tax escrow (${(pct * 100).toFixed(0)}%)`,
       };
     }
-
     case 'send_intercompany':
-      // Production: POST to bank-connectivity /v1/transfers with wire instructions
       return { success: true, message: 'Intercompany transfer queued for execution' };
-
     case 'notify_cfo': {
       const emails = action.notifyEmails ?? [];
-      await fireAlertWebhook(
-        `[ForgePay Treasury] Alert: ${rule.name}`,
-        { ruleId: rule.id, conditionType: rule.condition.type, emails },
-      );
+      await fireAlertWebhook(`[ForgePay Treasury] Alert: ${rule.name}`,
+        { ruleId: rule.id, conditionType: rule.condition.type, emails });
       return { success: true, message: `CFO notification sent to ${emails.join(', ')}` };
     }
-
     case 'require_approval':
       return { success: true, message: 'Approval request logged' };
-
     default:
       return { success: false, message: `Unknown action type: ${(action as { type: string }).type}` };
   }
@@ -318,37 +364,22 @@ async function executeSweepToYield(
   const available  = position.totalUsd - keepLiquid;
 
   if (available <= 0) {
-    return {
-      success: false,
-      message: `Insufficient balance above keep_liquid threshold of $${keepLiquid.toLocaleString()}`,
-    };
+    return { success: false, message: `Insufficient balance above keep_liquid threshold of $${keepLiquid.toLocaleString()}` };
   }
 
   const YIELD_ENGINE_URL = process.env['YIELD_ENGINE_URL'] ?? 'http://localhost:3007';
   try {
     const resp = await fetch(`${YIELD_ENGINE_URL}/v1/sweep/trigger`, {
-      method:  'POST',
+      method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-source': 'enterprise-treasury' },
-      body:    JSON.stringify({
-        vault:         action.targetVault ?? 'aave',
-        amountUsd:     available,
-        minApy:        action.minApy ?? 0,
-        keepLiquidUsd: keepLiquid,
-        ruleId:        rule.id,
-      }),
+      body: JSON.stringify({ vault: action.targetVault ?? 'aave', amountUsd: available, minApy: action.minApy ?? 0, keepLiquidUsd: keepLiquid, ruleId: rule.id }),
       signal: AbortSignal.timeout(15_000),
     });
-
     if (resp.ok) {
-      const data = (await resp.json()) as { sweepId?: string; status?: string };
-      return {
-        success: true,
-        message: `Swept $${available.toLocaleString(undefined, { maximumFractionDigits: 0 })} to ${action.targetVault ?? 'best vault'} (sweepId: ${data.sweepId ?? 'n/a'})`,
-      };
+      const data = (await resp.json()) as { sweepId?: string };
+      return { success: true, message: `Swept $${available.toLocaleString(undefined, { maximumFractionDigits: 0 })} to ${action.targetVault ?? 'best vault'} (sweepId: ${data.sweepId ?? 'n/a'})` };
     }
-
-    const errBody = await resp.text();
-    return { success: false, message: `Yield-engine rejected sweep [${resp.status}]: ${errBody.slice(0, 200)}` };
+    return { success: false, message: `Yield-engine rejected sweep [${resp.status}]` };
   } catch (err) {
     return { success: false, message: `Yield-engine unreachable: ${(err as Error).message}` };
   }
@@ -361,35 +392,30 @@ async function executeRepatriateFromYield(
   const YIELD_ENGINE_URL = process.env['YIELD_ENGINE_URL'] ?? 'http://localhost:3007';
   try {
     const resp = await fetch(`${YIELD_ENGINE_URL}/v1/sweep/withdraw`, {
-      method:  'POST',
+      method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-source': 'enterprise-treasury' },
-      body:    JSON.stringify({ ruleId: rule.id, vault: action.targetVault }),
-      signal:  AbortSignal.timeout(15_000),
+      body: JSON.stringify({ ruleId: rule.id, vault: action.targetVault }),
+      signal: AbortSignal.timeout(15_000),
     });
-
-    if (resp.ok) {
-      return { success: true, message: 'Repatriation initiated — funds will arrive within 1 business day' };
-    }
+    if (resp.ok) return { success: true, message: 'Repatriation initiated — funds will arrive within 1 business day' };
     return { success: false, message: `Yield-engine repatriation failed [${resp.status}]` };
   } catch (err) {
     return { success: false, message: `Yield-engine unreachable: ${(err as Error).message}` };
   }
 }
 
-// ── Alert webhook ─────────────────────────────────────────────────────────────
-
 async function fireAlertWebhook(text: string, meta: Record<string, unknown>): Promise<void> {
   const url = process.env['ALERT_WEBHOOK_URL'];
   if (!url) return;
-
   try {
     await fetch(url, {
-      method:  'POST',
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ text, ...meta, timestamp: new Date().toISOString() }),
-      signal:  AbortSignal.timeout(5_000),
+      body: JSON.stringify({ text, ...meta, timestamp: new Date().toISOString() }),
+      signal: AbortSignal.timeout(5_000),
     });
   } catch (err) {
     console.warn('[rules-engine] Alert webhook failed:', (err as Error).message);
   }
 }
+

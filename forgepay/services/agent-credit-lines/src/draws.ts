@@ -12,6 +12,10 @@
  * Default policy:
  *   dueAt + 0d  → status='overdue'
  *   dueAt + 14d → status='defaulted', DefaultRecord written, penalty webhook fired
+ *
+ * Netting: when a draw has counterpartyAgentId, an intercompany netting flow
+ * is emitted to enterprise-treasury so the obligation can be netted against
+ * offsetting flows at settlement time.
  */
 
 import {
@@ -28,10 +32,12 @@ import {
   addDefault,
 } from './store';
 
-const AGENT_IDENTITY_URL  = process.env['AGENT_IDENTITY_URL'] ?? 'http://localhost:3010';
-const DEFAULT_GRACE_DAYS  = 14;
-const MS_PER_DAY          = 86_400_000;
-const PENALTY_TIMEOUT_MS  = 5_000;
+const AGENT_IDENTITY_URL       = process.env['AGENT_IDENTITY_URL']       ?? 'http://localhost:3010';
+const ENTERPRISE_TREASURY_URL  = process.env['ENTERPRISE_TREASURY_URL']  ?? 'http://localhost:3012';
+const DEFAULT_GRACE_DAYS       = 14;
+const MS_PER_DAY               = 86_400_000;
+const PENALTY_MAX_RETRIES      = 3;
+const PENALTY_BASE_DELAY_MS    = 1_000;
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
@@ -51,6 +57,37 @@ export class DrawError extends Error {
     this.name = 'DrawError';
   }
 }
+
+// ── Netting flow emit ─────────────────────────────────────────────────────────
+
+async function emitNettingFlow(draw: CreditDraw, line: CreditLine): Promise<void> {
+  if (!draw.counterpartyAgentId) return;
+  try {
+    await fetch(`${ENTERPRISE_TREASURY_URL}/v1/netting/flows`, {
+      method:  'POST',
+      signal:  AbortSignal.timeout(5_000),
+      headers: {
+        'Content-Type': 'application/json',
+        'x-source':     'agent-credit-lines',
+        ...(process.env['ENTERPRISE_TREASURY_API_KEY']
+          ? { 'x-api-key': process.env['ENTERPRISE_TREASURY_API_KEY'] }
+          : {}),
+      },
+      body: JSON.stringify({
+        fromSubsidiary: draw.agentId,
+        toSubsidiary:   draw.counterpartyAgentId,
+        amount:         draw.amountUsd,
+        currency:       'USD',
+        invoiceRef:     draw.id,
+        dueDate:        draw.dueAt.slice(0, 10),
+      }),
+    });
+  } catch {
+    // Best-effort: netting is advisory, never block the draw
+  }
+}
+
+// ── Draw creation ─────────────────────────────────────────────────────────────
 
 export function createDraw(input: CreateDrawInput): CreditDraw {
   const line = getCreditLine(input.creditLineId);
@@ -93,8 +130,13 @@ export function createDraw(input: CreateDrawInput): CreditDraw {
   putCreditLine(updatedLine);
   putDraw(draw);
 
+  // Emit netting flow if counterparty is present (fire-and-forget)
+  void emitNettingFlow(draw, updatedLine);
+
   return draw;
 }
+
+// ── Repayment ─────────────────────────────────────────────────────────────────
 
 export interface RepayResult {
   draw:              CreditDraw;
@@ -146,6 +188,8 @@ export function repayDraw(drawId: string, amountUsd: number): RepayResult {
   };
 }
 
+// ── Overdue / default sweep ───────────────────────────────────────────────────
+
 export interface OverdueSweepResult {
   overdue:   number;
   defaulted: number;
@@ -153,19 +197,30 @@ export interface OverdueSweepResult {
 }
 
 async function firePenaltyWebhook(agentId: string, lossUsd: number): Promise<void> {
-  try {
-    await fetch(`${AGENT_IDENTITY_URL}/v1/agents/${encodeURIComponent(agentId)}/penalty`, {
-      method:  'POST',
-      signal:  AbortSignal.timeout(PENALTY_TIMEOUT_MS),
-      headers: {
-        'Content-Type': 'application/json',
-        'x-source':     'agent-credit-lines',
-      },
-      body: JSON.stringify({ reasonCode: 'default', amount: lossUsd }),
-    });
-  } catch {
-    // Best-effort: never let a downstream failure block the sweep.
+  for (let attempt = 0; attempt < PENALTY_MAX_RETRIES; attempt++) {
+    try {
+      const resp = await fetch(
+        `${AGENT_IDENTITY_URL}/v1/agents/${encodeURIComponent(agentId)}/penalty`,
+        {
+          method:  'POST',
+          signal:  AbortSignal.timeout(5_000),
+          headers: {
+            'Content-Type': 'application/json',
+            'x-source':     'agent-credit-lines',
+          },
+          body: JSON.stringify({ reasonCode: 'default', amount: lossUsd }),
+        },
+      );
+      if (resp.ok || resp.status < 500) return; // success or non-retryable error
+    } catch {
+      // network error — retry after backoff
+    }
+    if (attempt < PENALTY_MAX_RETRIES - 1) {
+      await new Promise(r => setTimeout(r, PENALTY_BASE_DELAY_MS * Math.pow(2, attempt)));
+    }
   }
+  // All retries exhausted — log silently; never throw.
+  console.warn(`[credit-lines] Penalty webhook failed for agent ${agentId} after ${PENALTY_MAX_RETRIES} attempts`);
 }
 
 export async function checkOverdueAndDefault(now: Date = new Date()): Promise<OverdueSweepResult> {
@@ -196,7 +251,7 @@ export async function checkOverdueAndDefault(now: Date = new Date()): Promise<Ov
       result.defaulted += 1;
       result.defaultedDrawIds.push(draw.id);
 
-      // Fire-and-forget penalty notification
+      // Fire penalty notification with retry (fire-and-forget)
       void firePenaltyWebhook(draw.agentId, lossUsd);
     } else if (draw.status === 'outstanding') {
       putDraw({ ...draw, status: 'overdue' });

@@ -1,0 +1,69 @@
+replicaCount: 2
+
+image:
+  repository: forgepay/dashboard
+  pullPolicy: IfNotPresent
+  tag: "0.3.0"
+
+service:
+  type: ClusterIP
+  port: 3001
+  targetPort: 3001
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: dashboard.forgepay.dev
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: dashboard-tls
+      hosts:
+        - dashboard.forgepay.dev
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 256Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+env:
+  PORT: "3001"
+  NODE_ENV: "production"
+  NEXTAUTH_URL: "https://dashboard.forgepay.dev"
+  NEXT_PUBLIC_SHIELDED_ENABLED: "false"
+  ENTERPRISE_TREASURY_URL: "http://enterprise-treasury:3012"
+  AGENT_CREDIT_LINES_URL: "http://agent-credit-lines:3016"
+  # NEXTAUTH_SECRET: set via Vault/Secrets Manager
+  # HYPERSWITCH_API_KEY: set via Vault/Secrets Manager
+
+livenessProbe:
+  httpGet:
+    path: /api/auth/session
+    port: 3001
+  initialDelaySeconds: 30
+  periodSeconds: 30
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /api/auth/session
+    port: 3001
+  initialDelaySeconds: 15
+  periodSeconds: 10
+  failureThreshold: 3
+
+podAnnotations: {}

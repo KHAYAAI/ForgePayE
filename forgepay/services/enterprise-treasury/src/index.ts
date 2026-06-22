@@ -29,11 +29,14 @@
  *   LOG_LEVEL              — default info
  */
 
-import Fastify, { FastifyError } from 'fastify';
+import Fastify, { FastifyError, FastifyRequest, FastifyReply } from 'fastify';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import helmet from '@fastify/helmet';
 import { z } from 'zod';
+import { runMigrations } from './db';
+import { initRulesFromDb } from './rules-engine';
+import { initFlowsFromDb } from './netting';
 
 import {
   refreshAccountBalances,
@@ -121,6 +124,24 @@ async function buildApp() {
 
   await app.register(helmet, {
     contentSecurityPolicy: false, // API service — no HTML pages
+  });
+
+  // ── Internal API key auth ──────────────────────────────────────────────────
+  const isDev      = process.env['NODE_ENV'] !== 'production';
+  const validKeys  = new Set(
+    (process.env['VALID_API_KEYS'] ?? '').split(',').filter(Boolean),
+  );
+  app.addHook('onRequest', async (request: FastifyRequest, reply: FastifyReply) => {
+    if (request.url === '/health' || request.url.startsWith('/health')) return;
+    const apiKey =
+      (request.headers['x-api-key'] as string | undefined) ??
+      (request.headers['authorization'] as string | undefined)?.replace('Bearer ', '');
+    if (!apiKey) {
+      return reply.code(401).send({ error: 'Missing API key. Provide X-Api-Key header.' });
+    }
+    if (!isDev && validKeys.size > 0 && !validKeys.has(apiKey)) {
+      return reply.code(401).send({ error: 'Invalid API key.' });
+    }
   });
 
   await app.register(cors, {
@@ -477,6 +498,15 @@ async function main(): Promise<void> {
   };
   process.on('SIGTERM', shutdown);
   process.on('SIGINT',  shutdown);
+
+  // DB migrations + data load (best-effort, non-blocking)
+  try {
+    await runMigrations();
+    await Promise.all([initRulesFromDb(), initFlowsFromDb()]);
+    app.log.info('[treasury] DB migrations and data load complete');
+  } catch (err) {
+    app.log.warn({ err }, '[treasury] DB init failed — running in-memory only');
+  }
 
   // Pre-warm: initial FX rates + balance load (non-blocking)
   Promise.all([

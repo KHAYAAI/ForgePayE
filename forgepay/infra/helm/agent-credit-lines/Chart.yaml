@@ -1,12 +1,12 @@
 apiVersion: v2
 name: agent-credit-lines
-description: ForgePay Agent Credit Lines — net-30/60/90 credit issuance, draw and repay lifecycle for AI agents
+description: ForgePay Agent Credit Lines — reputation-tiered revolving credit for AI agents
 type: application
 version: 0.1.0
 appVersion: "0.1.0"
 maintainers:
   - name: ForgePay Platform
 keywords:
-  - agents
   - credit
+  - agents
   - lending

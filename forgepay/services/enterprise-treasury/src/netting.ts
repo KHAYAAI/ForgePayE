@@ -11,29 +11,103 @@
  *   3. Net party owes |A→B - B→A|; if zero, no settlement needed
  *   4. Calculate fee savings based on transactions avoided
  *
- * In production:
- *   - Flows persisted in PostgreSQL with ERP system integration
- *   - Multi-currency netting with FX hedging recommendations
- *   - Settlement instructions routed via bank-connectivity service
+ * Persistence: when DATABASE_URL is set, flows write through to netting_flows
+ * and completed settlement batches are recorded in netting_settlements.
  */
 
 import { NettingFlow, NettingResult } from './types';
+import { pool } from './db';
 
-// In-memory flow store. In production: PostgreSQL with settlement state machine.
-const flows: NettingFlow[] = [];
+// ── Internal type: NettingFlow with optional DB id ────────────────────────────
+
+interface TrackedFlow extends NettingFlow {
+  _id?: string;
+}
+
+// In-memory flow store — fast-path for calculations
+const flows: TrackedFlow[] = [];
+let useDb = false;
+
+// ── DB helpers ────────────────────────────────────────────────────────────────
+
+const nextFlowId = (): string =>
+  `nf_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+
+async function persistFlow(flow: TrackedFlow): Promise<void> {
+  if (!useDb || !flow._id) return;
+  await pool.query(
+    `INSERT INTO netting_flows (id, from_subsidiary, to_subsidiary, amount_usd, currency, invoice_ref, due_date)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT (id) DO NOTHING`,
+    [flow._id, flow.fromSubsidiary, flow.toSubsidiary, flow.amount, flow.currency, flow.invoiceRef ?? null, flow.dueDate],
+  ).catch((err: Error) => console.warn('[netting] DB persist flow failed:', err.message));
+}
+
+async function markFlowsSettled(ids: string[]): Promise<void> {
+  if (!useDb || ids.length === 0) return;
+  await pool.query(
+    `UPDATE netting_flows SET settled = true WHERE id = ANY($1::text[])`,
+    [ids],
+  ).catch((err: Error) => console.warn('[netting] DB mark settled failed:', err.message));
+}
+
+async function persistSettlement(
+  instructions: SettlementInstruction[],
+  summary: ReturnType<typeof getNettingSummary>,
+): Promise<void> {
+  if (!useDb) return;
+  const id = `set_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  await pool.query(
+    `INSERT INTO netting_settlements (id, total_gross_usd, total_net_usd, fees_saved_usd, flow_count, instructions)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [id, summary.totalGrossUsd, summary.totalNetUsd, summary.totalFeesSavedUsd, summary.flowsCount, JSON.stringify(instructions)],
+  ).catch((err: Error) => console.warn('[netting] DB persist settlement failed:', err.message));
+}
+
+// ── Startup initialiser ───────────────────────────────────────────────────────
+
+export async function initFlowsFromDb(): Promise<void> {
+  if (!process.env['DATABASE_URL']) return;
+  try {
+    const res = await pool.query<{
+      id: string; from_subsidiary: string; to_subsidiary: string;
+      amount_usd: string; currency: string; invoice_ref: string | null; due_date: string;
+    }>(`SELECT * FROM netting_flows WHERE settled = false ORDER BY created_at`);
+    flows.length = 0;
+    for (const row of res.rows) {
+      flows.push({
+        _id:            row.id,
+        fromSubsidiary: row.from_subsidiary,
+        toSubsidiary:   row.to_subsidiary,
+        amount:         Number(row.amount_usd),
+        currency:       row.currency,
+        invoiceRef:     row.invoice_ref ?? undefined,
+        dueDate:        row.due_date,
+      });
+    }
+    useDb = true;
+    console.info(`[netting] Loaded ${flows.length} pending flows from DB`);
+  } catch (err) {
+    console.warn('[netting] DB unavailable, using in-memory store:', (err as Error).message);
+  }
+}
 
 // ── Flow management ───────────────────────────────────────────────────────────
 
 export function addFlow(flow: NettingFlow): void {
-  flows.push(flow);
+  const tracked: TrackedFlow = { ...flow, _id: nextFlowId() };
+  flows.push(tracked);
+  void persistFlow(tracked);
 }
 
 export function listFlows(): NettingFlow[] {
-  return [...flows];
+  return flows.map(({ _id: _, ...f }) => f);
 }
 
 export function clearSettledFlows(): void {
+  const ids = flows.map(f => f._id).filter((id): id is string => !!id);
   flows.length = 0;
+  void markFlowsSettled(ids);
 }
 
 // ── Netting calculation ───────────────────────────────────────────────────────
@@ -78,7 +152,6 @@ export function calculateNetting(): NettingResult[] {
       const netTo   = forwardAmount >= reverseAmount ? to : from;
 
       // Count how many individual transactions can be avoided via netting.
-      // Each matching transaction on both sides eliminates one wire.
       const forwardTxCount = flows.filter(
         f => f.fromSubsidiary === from && f.toSubsidiary === to,
       ).length;
@@ -88,11 +161,13 @@ export function calculateNetting(): NettingResult[] {
       const transactionsAvoided = Math.min(forwardTxCount, reverseTxCount);
       const feesSavedUsd        = transactionsAvoided * 25; // $25 per wire avoided
 
-      const pendingFlows = flows.filter(
-        f =>
-          (f.fromSubsidiary === from && f.toSubsidiary === to) ||
-          (f.fromSubsidiary === to   && f.toSubsidiary === from),
-      );
+      const pendingFlows = flows
+        .filter(
+          f =>
+            (f.fromSubsidiary === from && f.toSubsidiary === to) ||
+            (f.fromSubsidiary === to   && f.toSubsidiary === from),
+        )
+        .map(({ _id: _, ...f }) => f);
 
       results.push({
         fromSubsidiary: netFrom,
@@ -199,6 +274,7 @@ export function generateSettlementInstructions(): SettlementInstruction[] {
 
 /**
  * Dispatches settlement instructions to bank-connectivity for execution.
+ * Persists the completed settlement batch to netting_settlements.
  * Returns the instructions with updated status. Failures are recorded but don't throw.
  */
 export async function dispatchSettlementInstructions(
@@ -239,6 +315,10 @@ export async function dispatchSettlementInstructions(
 
     settlementHistory.push(instr);
   }
+
+  // Persist this settlement batch to DB (best-effort)
+  const summary = getNettingSummary();
+  void persistSettlement(instructions, summary);
 
   return instructions;
 }

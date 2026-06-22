@@ -1,0 +1,12 @@
+apiVersion: v2
+name: dashboard
+description: ForgePay Merchant Dashboard — Next.js 14 App Router merchant portal
+type: application
+version: 0.3.0
+appVersion: "0.3.0"
+maintainers:
+  - name: ForgePay Platform
+keywords:
+  - dashboard
+  - frontend
+  - nextjs

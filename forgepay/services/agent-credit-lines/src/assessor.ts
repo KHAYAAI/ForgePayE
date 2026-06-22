@@ -11,12 +11,24 @@
  *   reputation ≥ 60 + >  50 txns → $25k  @ 30d @ 9.0% APR
  *   reputation ≥ 40 + >  10 txns → $5k   @ 30d @ 12.0% APR
  *   otherwise                    → declined
+ *
+ * Reputation cache: results are cached for CACHE_TTL_MS to avoid hammering
+ * agent-identity on high-frequency assessment calls.
  */
 
 import { CreditAssessment, CreditTerms } from './types';
 
 const AGENT_IDENTITY_URL = process.env['AGENT_IDENTITY_URL'] ?? 'http://localhost:3010';
 const FETCH_TIMEOUT_MS   = 5_000;
+const CACHE_TTL_MS       = 5 * 60_000; // 5-minute TTL
+
+interface CachedReputation {
+  reputation: number;
+  txCount:    number;
+  fetchedAt:  number;
+}
+
+const reputationCache = new Map<string, CachedReputation>();
 
 interface ReputationResponse {
   reputationScore?: number;
@@ -25,23 +37,38 @@ interface ReputationResponse {
   txCount?: number;
 }
 
+async function fetchReputation(agentId: string): Promise<{ reputation: number; txCount: number }> {
+  const cached = reputationCache.get(agentId);
+  if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
+    return { reputation: cached.reputation, txCount: cached.txCount };
+  }
+
+  const resp = await fetch(
+    `${AGENT_IDENTITY_URL}/v1/agents/${encodeURIComponent(agentId)}/reputation`,
+    {
+      signal:  AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      headers: { 'Accept': 'application/json', 'x-source': 'agent-credit-lines' },
+    },
+  );
+  if (!resp.ok) throw new Error(`agent-identity returned ${resp.status}`);
+  const body = (await resp.json()) as ReputationResponse;
+  const reputation = typeof body.reputationScore === 'number'
+    ? body.reputationScore
+    : (typeof body.score === 'number' ? body.score : 0);
+  const txCount = typeof body.transactionCount === 'number'
+    ? body.transactionCount
+    : (typeof body.txCount === 'number' ? body.txCount : 0);
+
+  reputationCache.set(agentId, { reputation, txCount, fetchedAt: Date.now() });
+  return { reputation, txCount };
+}
+
 export async function assessAgent(agentId: string): Promise<CreditAssessment> {
   let reputation: number;
   let txCount:    number;
 
   try {
-    const resp = await fetch(`${AGENT_IDENTITY_URL}/v1/agents/${encodeURIComponent(agentId)}/reputation`, {
-      signal:  AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      headers: { 'Accept': 'application/json', 'x-source': 'agent-credit-lines' },
-    });
-    if (!resp.ok) throw new Error(`agent-identity returned ${resp.status}`);
-    const body = (await resp.json()) as ReputationResponse;
-    reputation = typeof body.reputationScore === 'number'
-      ? body.reputationScore
-      : (typeof body.score === 'number' ? body.score : 0);
-    txCount = typeof body.transactionCount === 'number'
-      ? body.transactionCount
-      : (typeof body.txCount === 'number' ? body.txCount : 0);
+    ({ reputation, txCount } = await fetchReputation(agentId));
   } catch (err) {
     return {
       agentId,

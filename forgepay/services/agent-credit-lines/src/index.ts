@@ -42,7 +42,9 @@ import {
   getDraw,
   listDrawsByLine,
   listDefaults,
+  initStoreFromDb,
 } from './store';
+import { runMigrations } from './db';
 import type { CreditLine, CreditTerms } from './types';
 
 // ── Configuration ─────────────────────────────────────────────────────────────
@@ -365,6 +367,15 @@ async function main(): Promise<void> {
   };
   process.on('SIGTERM', shutdown);
   process.on('SIGINT',  shutdown);
+
+  // DB migrations + data load (best-effort)
+  try {
+    await runMigrations();
+    await initStoreFromDb();
+    app.log.info('[credit-lines] DB migrations and store load complete');
+  } catch (err) {
+    app.log.warn({ err }, '[credit-lines] DB init failed — running in-memory only');
+  }
 
   startScheduler(app);
 

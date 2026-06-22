@@ -15,7 +15,7 @@ resources:
     cpu: 100m
     memory: 128Mi
   limits:
-    cpu: 500m
+    cpu: 400m
     memory: 512Mi
 
 autoscaling:
@@ -31,8 +31,10 @@ env:
   NODE_ENV: "production"
   RATE_LIMIT_PER_MIN: "100"
   CORS_ORIGIN: "*"
-  # AGENT_IDENTITY_URL: "http://agent-identity:3010"
-  # AGENT_DECISION_URL: "http://agent-decision-framework:3013"
+  AGENT_IDENTITY_URL: "http://agent-identity:3010"
+  ENTERPRISE_TREASURY_URL: "http://enterprise-treasury:3012"
+  # DATABASE_URL: set via Vault/Secrets Manager
+  # ENTERPRISE_TREASURY_API_KEY: set via Vault/Secrets Manager
 
 livenessProbe:
   httpGet:

@@ -1,7 +1,8 @@
 'use client';
 
 import useSWR from 'swr';
-import { CreditCard, RefreshCw, Users, DollarSign, ShieldCheck } from 'lucide-react';
+import { CreditCard, RefreshCw, Users, DollarSign, ShieldCheck, Vault, ArrowRight } from 'lucide-react';
+import Link from 'next/link';
 import StatCard from '@/components/dashboard/StatCard';
 import { StatCardSkeleton } from '@/components/ui/Skeleton';
 import RevenueChart from '@/components/dashboard/RevenueChart';
@@ -14,9 +15,10 @@ function fmt(cents: number) {
 }
 
 export default function OverviewPage() {
-  const { data: summary } = useSWR('/api/analytics/summary?days=30', fetcher);
-  const { data: subs }    = useSWR('/api/subscriptions', fetcher);
-  const { data: custs }   = useSWR('/api/customers', fetcher);
+  const { data: summary }  = useSWR('/api/analytics/summary?days=30', fetcher);
+  const { data: subs }     = useSWR('/api/subscriptions', fetcher);
+  const { data: custs }    = useSWR('/api/customers', fetcher);
+  const { data: treasury } = useSWR('/api/treasury/summary', fetcher);
 
   const revenue     = summary ? fmt(summary.gross_revenue_cents ?? 0) : '—';
   const successCnt  = summary ? String(summary.successful_count ?? 0) : '—';
@@ -130,6 +132,50 @@ export default function OverviewPage() {
           </div>
         </div>
       </div>
+
+      {/* Treasury snapshot */}
+      {treasury?.cashPosition && (
+        <div className="card p-5 flex items-start gap-4">
+          <div className="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center shrink-0">
+            <Vault size={18} className="text-cyan-400" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1">
+              <h3 className="text-sm font-semibold text-white">Enterprise Treasury</h3>
+              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+                Live
+              </span>
+            </div>
+            <div className="grid grid-cols-3 gap-4 mt-2">
+              <div>
+                <div className="text-[11px] text-gray-500">Total Cash</div>
+                <div className="text-sm font-bold text-white">
+                  {treasury.cashPosition.totalUsd >= 1_000_000
+                    ? `$${(treasury.cashPosition.totalUsd / 1_000_000).toFixed(1)}M`
+                    : `$${(treasury.cashPosition.totalUsd / 1_000).toFixed(0)}K`}
+                </div>
+              </div>
+              <div>
+                <div className="text-[11px] text-gray-500">In Yield</div>
+                <div className="text-sm font-bold text-cyan-400">
+                  {treasury.cashPosition.deployedInYieldUsd >= 1_000_000
+                    ? `$${(treasury.cashPosition.deployedInYieldUsd / 1_000_000).toFixed(1)}M`
+                    : `$${(treasury.cashPosition.deployedInYieldUsd / 1_000).toFixed(0)}K`}
+                </div>
+              </div>
+              <div>
+                <div className="text-[11px] text-gray-500">Netting savings</div>
+                <div className="text-sm font-bold text-emerald-400">
+                  ${treasury.netting?.totalFeesSavedUsd?.toFixed(0) ?? '0'}
+                </div>
+              </div>
+            </div>
+          </div>
+          <Link href="/treasury" className="flex items-center gap-1 text-xs text-cyan-400 hover:text-cyan-300 transition-colors shrink-0 mt-1">
+            View <ArrowRight size={12} />
+          </Link>
+        </div>
+      )}
 
       <RecentPayments />
     </div>
