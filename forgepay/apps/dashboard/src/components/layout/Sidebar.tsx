@@ -17,6 +17,7 @@ import {
   TrendingUp,
   Vault,
   LineChart,
+  Building2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -34,6 +35,7 @@ const NAV_ITEMS = [
   { label: 'API Keys',      href: '/api-keys',      icon: Key,             badge: null },
   { label: 'Forge Agent',   href: '/agent',         icon: Bot,             badge: 'Beta' },
   { label: 'Settings',      href: '/settings',      icon: Settings,        badge: null },
+  { label: 'Bank Accounts', href: '/settings/bank-accounts', icon: Building2, badge: null },
 ];
 
 export default function Sidebar() {
