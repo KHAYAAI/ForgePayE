@@ -1,18 +1,15 @@
 /**
  * Transfer service — business logic for ACH, wire, and SEPA transfers.
  *
- * Storage strategy:
- *   In-memory Map for development (same pattern as accountService).
- *   In production, replace Map operations with Prisma calls to the
- *   `transfers` PostgreSQL table.  The public function signatures are stable.
+ * Storage: Prisma + PostgreSQL (Transfer / InternalTransfer tables).
  *
  * Idempotency:
  *   The caller may supply a unique `idempotencyKey` per TransferRequest.
- *   If a transfer with the same key already exists for the same merchant,
- *   the existing transfer is returned without creating a duplicate.
- *   The key is stored and checked in the `idempotencyIndex` Map.
+ *   If a transfer with the same key already exists the existing record is
+ *   returned without creating a duplicate (enforced by DB UNIQUE constraint).
  */
 
+import { PrismaClient } from '@prisma/client';
 import { v4 as uuidv4 } from 'uuid';
 import type { Transfer, TransferRequest } from '../types';
 import * as plaid from '../plaid/client';
@@ -20,22 +17,44 @@ import { getOpenBankingClient } from '../openbanking/client';
 import * as accountService from './accountService';
 import { logger } from '../lib/logger';
 
-// ── In-memory stores (replace with Prisma + PostgreSQL in production) ─────────
-
-const transfers        = new Map<string, Transfer>();
-const merchantTxIndex  = new Map<string, Set<string>>();  // merchantId → Set<transferId>
-const idempotencyIndex = new Map<string, string>();        // `${merchantId}:${key}` → transferId
+const prisma = new PrismaClient();
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function now(): string {
-  return new Date().toISOString();
-}
-
-function indexTransfer(merchantId: string, transferId: string): void {
-  const existing = merchantTxIndex.get(merchantId) ?? new Set<string>();
-  existing.add(transferId);
-  merchantTxIndex.set(merchantId, existing);
+/** Convert a Prisma Transfer row to the domain Transfer type. */
+function rowToTransfer(row: {
+  id: string;
+  merchantId: string;
+  accountId: string;
+  type: string;
+  direction: string;
+  amountCents: bigint;
+  currency: string;
+  description: string | null;
+  status: string;
+  idempotencyKey: string | null;
+  externalRef: string | null;
+  failureReason: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}, fromAccountId: string, toAccountId: string): Transfer {
+  return {
+    id:                row.id,
+    merchantId:        row.merchantId,
+    fromAccountId,
+    toAccountId,
+    // Convert cents (BigInt) back to decimal major units
+    amount:            Number(row.amountCents) / 100,
+    currency:          row.currency,
+    type:              row.type as Transfer['type'],
+    status:            row.status as Transfer['status'],
+    description:       row.description ?? '',
+    idempotencyKey:    row.idempotencyKey ?? undefined,
+    providerTransferId: row.externalRef ?? undefined,
+    failureReason:     row.failureReason ?? undefined,
+    createdAt:         row.createdAt.toISOString(),
+    updatedAt:         row.updatedAt.toISOString(),
+  };
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────────
@@ -65,23 +84,21 @@ export async function initiateTransfer(
 ): Promise<Transfer> {
   // ── 1. Idempotency check ──────────────────────────────────────────────────
   if (req.idempotencyKey) {
-    const idxKey     = `${merchantId}:${req.idempotencyKey}`;
-    const existingId = idempotencyIndex.get(idxKey);
-    if (existingId) {
-      const existing = transfers.get(existingId);
-      if (existing) {
-        logger.info(
-          { transferId: existingId, idempotencyKey: req.idempotencyKey },
-          'Idempotent transfer — returning existing record',
-        );
-        return existing;
-      }
+    const existing = await prisma.transfer.findUnique({
+      where: { idempotencyKey: req.idempotencyKey },
+    });
+    if (existing && existing.merchantId === merchantId) {
+      logger.info(
+        { transferId: existing.id, idempotencyKey: req.idempotencyKey },
+        'Idempotent transfer — returning existing record',
+      );
+      return rowToTransfer(existing, req.fromAccountId, req.toAccountId);
     }
   }
 
   // ── 2. Validate accounts ──────────────────────────────────────────────────
-  const fromAccount = accountService.getAccount(req.fromAccountId, merchantId);
-  const toAccount   = accountService.getAccount(req.toAccountId,   merchantId);
+  const fromAccount = await accountService.getAccount(req.fromAccountId, merchantId);
+  const toAccount   = await accountService.getAccount(req.toAccountId,   merchantId);
 
   if (fromAccount.status !== 'active') {
     throw Object.assign(
@@ -110,7 +127,7 @@ export async function initiateTransfer(
       throw new Error('ACH transfers require a Plaid-linked account');
     }
 
-    const accessToken = accountService.getAccessToken(req.fromAccountId);
+    const accessToken = await accountService.getAccessToken(req.fromAccountId);
     const result = await plaid.initiateAchTransfer({
       accessToken,
       accountId:      fromAccount.plaidAccountId!,
@@ -130,7 +147,7 @@ export async function initiateTransfer(
       throw new Error('SEPA transfers require an Open Banking account');
     }
 
-    const consentId = accountService.getConsentId(req.fromAccountId);
+    const consentId = await accountService.getConsentId(req.fromAccountId);
     const obClient  = getOpenBankingClient();
     const result    = await obClient.initiatePayment({
       fromAccountId: fromAccount.obAccountId!,
@@ -153,33 +170,27 @@ export async function initiateTransfer(
   }
 
   // ── 5. Persist ────────────────────────────────────────────────────────────
-  const transferId = uuidv4();
-  const ts         = now();
+  const transferId  = uuidv4();
+  // Store amount as cents (BigInt) — multiply by 100 and round to avoid float issues
+  const amountCents = BigInt(Math.round(req.amount * 100));
 
-  const transfer: Transfer = {
-    id:               transferId,
-    merchantId,
-    fromAccountId:    req.fromAccountId,
-    toAccountId:      req.toAccountId,
-    amount:           req.amount,
-    currency:         req.currency,
-    type:             req.type,
-    status:           'pending',
-    description:      req.description,
-    scheduledDate:    req.scheduledDate,
-    idempotencyKey:   req.idempotencyKey,
-    providerTransferId,
-    createdAt:        ts,
-    updatedAt:        ts,
-  };
+  const row = await prisma.transfer.create({
+    data: {
+      id:             transferId,
+      merchantId,
+      accountId:      req.fromAccountId,
+      type:           req.type,
+      direction:      'debit',
+      amountCents,
+      currency:       req.currency,
+      description:    req.description,
+      status:         'pending',
+      idempotencyKey: req.idempotencyKey ?? null,
+      externalRef:    providerTransferId ?? null,
+    },
+  });
 
-  transfers.set(transferId, transfer);
-  indexTransfer(merchantId, transferId);
-
-  if (req.idempotencyKey) {
-    idempotencyIndex.set(`${merchantId}:${req.idempotencyKey}`, transferId);
-  }
-
+  const transfer = rowToTransfer(row, req.fromAccountId, req.toAccountId);
   logger.info({ transferId, merchantId, type: req.type, amount: req.amount }, 'Transfer created');
   return transfer;
 }
@@ -188,87 +199,81 @@ export async function initiateTransfer(
  * Return a paginated list of transfers for a merchant.
  * Supports optional filters: status and date range.
  */
-export function listTransfers(opts: TransferListOptions): {
+export async function listTransfers(opts: TransferListOptions): Promise<{
   transfers: Transfer[];
   total:     number;
   page:      number;
   perPage:   number;
   hasMore:   boolean;
-} {
-  const ids = merchantTxIndex.get(opts.merchantId);
-  if (!ids || ids.size === 0) {
-    return { transfers: [], total: 0, page: 1, perPage: opts.perPage ?? 20, hasMore: false };
-  }
-
-  let results = Array.from(ids)
-    .map((id) => transfers.get(id))
-    .filter((t): t is Transfer => t !== undefined);
-
-  if (opts.status) {
-    results = results.filter((t) => t.status === opts.status);
-  }
-  if (opts.fromDate) {
-    results = results.filter((t) => t.createdAt >= opts.fromDate!);
-  }
-  if (opts.toDate) {
-    results = results.filter((t) => t.createdAt <= opts.toDate!);
-  }
-
-  results.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-
-  const total   = results.length;
+}> {
   const page    = Math.max(1, opts.page    ?? 1);
   const perPage = Math.min(100, Math.max(1, opts.perPage ?? 20));
-  const start   = (page - 1) * perPage;
-  const sliced  = results.slice(start, start + perPage);
+  const skip    = (page - 1) * perPage;
+
+  const where: Record<string, unknown> = { merchantId: opts.merchantId };
+  if (opts.status)   where['status']    = opts.status;
+  if (opts.fromDate) where['createdAt'] = { ...(where['createdAt'] as object ?? {}), gte: new Date(opts.fromDate) };
+  if (opts.toDate)   where['createdAt'] = { ...(where['createdAt'] as object ?? {}), lte: new Date(opts.toDate) };
+
+  const [rows, total] = await Promise.all([
+    prisma.transfer.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take:    perPage,
+    }),
+    prisma.transfer.count({ where }),
+  ]);
+
+  // accountId in the Transfer row is fromAccountId; toAccountId not stored separately
+  const transfers = rows.map((r) => rowToTransfer(r, r.accountId, r.accountId));
 
   return {
-    transfers: sliced,
+    transfers,
     total,
     page,
     perPage,
-    hasMore: start + perPage < total,
+    hasMore: skip + perPage < total,
   };
 }
 
 /**
  * Return a single transfer by ID, scoped to the merchant.
  */
-export function getTransfer(transferId: string, merchantId: string): Transfer {
-  const transfer = transfers.get(transferId);
-  if (!transfer || transfer.merchantId !== merchantId) {
+export async function getTransfer(transferId: string, merchantId: string): Promise<Transfer> {
+  const row = await prisma.transfer.findUnique({ where: { id: transferId } });
+  if (!row || row.merchantId !== merchantId) {
     const err = new Error(`Transfer not found: ${transferId}`);
     (err as NodeJS.ErrnoException).code = 'NOT_FOUND';
     throw err;
   }
-  return transfer;
+  return rowToTransfer(row, row.accountId, row.accountId);
 }
 
 /**
  * Update transfer status — called by webhook handlers when the provider
  * reports a status change.
  */
-export function pollTransferStatus(transferId: string, newStatus: Transfer['status'], failureReason?: string): Transfer {
-  const transfer = transfers.get(transferId);
-  if (!transfer) {
+export async function pollTransferStatus(
+  transferId:    string,
+  newStatus:     Transfer['status'],
+  failureReason?: string,
+): Promise<Transfer> {
+  const existing = await prisma.transfer.findUnique({ where: { id: transferId } });
+  if (!existing) {
     throw new Error(`Transfer not found: ${transferId}`);
   }
 
-  const ts      = now();
-  const updated: Transfer = {
-    ...transfer,
-    status:        newStatus,
-    failureReason: failureReason ?? transfer.failureReason,
-    settledAt:     newStatus === 'completed' ? ts : transfer.settledAt,
-    updatedAt:     ts,
-  };
-  transfers.set(transferId, updated);
+  const row = await prisma.transfer.update({
+    where: { id: transferId },
+    data: {
+      status:        newStatus,
+      failureReason: failureReason ?? existing.failureReason ?? null,
+    },
+  });
 
-  logger.info(
-    { transferId, newStatus, failureReason },
-    'Transfer status updated',
-  );
-  return updated;
+  logger.info({ transferId, newStatus, failureReason }, 'Transfer status updated');
+  return rowToTransfer(row, row.accountId, row.accountId);
 }
 
 /**
@@ -280,7 +285,7 @@ export async function cancelTransfer(
   transferId: string,
   merchantId: string,
 ): Promise<Transfer> {
-  const transfer = getTransfer(transferId, merchantId);
+  const transfer = await getTransfer(transferId, merchantId);
 
   if (transfer.status !== 'pending') {
     throw Object.assign(
@@ -303,14 +308,11 @@ export async function cancelTransfer(
     }
   }
 
-  const ts      = now();
-  const updated: Transfer = {
-    ...transfer,
-    status:    'cancelled',
-    updatedAt: ts,
-  };
-  transfers.set(transferId, updated);
+  const row = await prisma.transfer.update({
+    where: { id: transferId },
+    data:  { status: 'cancelled' },
+  });
 
   logger.info({ transferId, merchantId }, 'Transfer cancelled');
-  return updated;
+  return rowToTransfer(row, row.accountId, row.accountId);
 }

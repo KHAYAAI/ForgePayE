@@ -1,0 +1,74 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model LinkedAccount {
+  id              String   @id @default(uuid())
+  merchantId      String
+  provider        String   // 'plaid' | 'openbanking'
+  accountId       String
+  bankName        String
+  accountName     String
+  accountType     String
+  currency        String   @default("USD")
+  encryptedToken  String   // AES-256-GCM encrypted access token
+  balanceAvail    Float    @default(0)
+  balanceCurrent  Float    @default(0)
+  lastRefreshed   DateTime @default(now())
+  disconnected    Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  transfers       Transfer[]
+
+  @@index([merchantId])
+  @@index([merchantId, disconnected])
+}
+
+model Transfer {
+  id               String        @id @default(uuid())
+  merchantId       String
+  accountId        String
+  account          LinkedAccount @relation(fields: [accountId], references: [id])
+  type             String        // 'ach' | 'sepa' | 'wire' | 'stablecoin'
+  direction        String        // 'debit' | 'credit'
+  amountCents      BigInt
+  currency         String        @default("USD")
+  recipientName    String?
+  recipientIban    String?
+  recipientRouting String?
+  reference        String?
+  description      String?
+  status           String        @default("pending")
+  idempotencyKey   String?       @unique
+  externalRef      String?       // Plaid transfer ID, SWIFT UETR, etc.
+  failureReason    String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  @@index([merchantId])
+  @@index([status])
+  @@index([idempotencyKey])
+}
+
+model InternalTransfer {
+  id          String   @id @default(uuid())
+  source      String   // service name
+  fromAccount String
+  toAccount   String
+  amountCents BigInt
+  currency    String   @default("USD")
+  reference   String?
+  description String?
+  status      String   @default("pending")
+  externalRef String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([source])
+  @@index([status])
+}

@@ -25,11 +25,14 @@ import helmet from '@fastify/helmet';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import jwt from '@fastify/jwt';
+import { PrismaClient } from '@prisma/client';
 import { buildAccountRoutes } from './routes/accounts';
 import { buildTransferRoutes } from './routes/transfers';
 import { buildWebhookRoutes } from './routes/webhooks';
 import { buildInternalRoutes } from './routes/internal';
 import { logger } from './lib/logger';
+
+export const prisma = new PrismaClient();
 
 async function main(): Promise<void> {
   const port = parseInt(process.env.PORT ?? '3006', 10);
@@ -142,11 +145,16 @@ async function main(): Promise<void> {
   const shutdown = async (signal: string): Promise<void> => {
     logger.info({ signal }, 'Shutting down bank-connectivity service');
     await app.close();
+    await prisma.$disconnect();
     process.exit(0);
   };
 
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
   process.on('SIGINT',  () => void shutdown('SIGINT'));
+
+  // ── Connect Prisma ────────────────────────────────────────────────────────
+  await prisma.$connect();
+  app.log.info('[bank-connectivity] Prisma connected to PostgreSQL');
 
   // ── Start ─────────────────────────────────────────────────────────────────
   await app.listen({ port, host: '0.0.0.0' });
