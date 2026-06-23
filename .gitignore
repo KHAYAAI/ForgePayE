@@ -272,3 +272,4 @@ creds.json
 /data
 .pre-commit-config.yaml
 forgepay/infra/contracts/contracts/
+.claude/
