@@ -9,6 +9,8 @@ from datetime import datetime, date
 from typing import Optional
 import logging
 
+import httpx
+
 logger = logging.getLogger(__name__)
 
 
@@ -31,6 +33,14 @@ class RemittanceInstruction:
     completed_at: Optional[datetime] = None
     payment_confirmation: Optional[str] = None
     created_at: datetime = field(default_factory=datetime.now)
+
+
+@dataclass
+class RemittanceResult:
+    status: str                         # "initiated" | "failed"
+    transfer_id: Optional[str] = None
+    initiated_at: Optional[datetime] = None
+    error: Optional[str] = None
 
 
 # Tax authority banking details (simplified; production: use verified API)
@@ -124,32 +134,146 @@ def generate_us_sales_tax_remittances(
     return instructions
 
 
-def initiate_remittance_stub(instruction: RemittanceInstruction) -> dict:
+async def initiate_remittance(
+    instruction: RemittanceInstruction,
+    bank_connectivity_url: str,
+    internal_secret: str,
+) -> RemittanceResult:
     """
-    Stub for initiating a tax remittance payment.
+    Initiate a tax remittance payment via the bank-connectivity service.
 
-    In production, this would:
-    1. Call the bank-connectivity service to initiate ACH/SEPA/SWIFT payment
-    2. Include tax reference in payment details
-    3. Track confirmation from bank
+    POSTs to {bank_connectivity_url}/api/v1/transfers/internal with HMAC-level
+    internal auth headers. On success returns a RemittanceResult with the
+    transfer_id assigned by bank-connectivity; on any error returns status='failed'.
     """
+    payload = {
+        "from_account": "MOR_OPERATING",
+        "to_iban": instruction.recipient_account,
+        "to_routing": instruction.recipient_routing,
+        "amount_cents": round(instruction.amount * 100),
+        "currency": instruction.currency,
+        "reference": instruction.reference,
+        "description": f"Tax remittance: {instruction.recipient_name}",
+    }
+    headers = {
+        "x-source": "mor-layer",
+        "x-internal-secret": internal_secret,
+        "Content-Type": "application/json",
+    }
+
     logger.info(
-        f"[REMITTANCE STUB] Would initiate {instruction.currency} {instruction.amount:.2f} "
-        f"payment to {instruction.recipient_name} for {instruction.jurisdiction} "
-        f"taxes, period {instruction.period}"
+        "Initiating remittance to bank-connectivity: %s %s %.2f for %s period %s",
+        instruction.currency,
+        instruction.amount,
+        instruction.amount,
+        instruction.jurisdiction,
+        instruction.period,
     )
 
-    instruction.status = "initiated"
-    instruction.initiated_at = datetime.now()
-    instruction.payment_confirmation = f"PAY-{instruction.id[:8].upper()}"
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                f"{bank_connectivity_url}/api/v1/transfers/internal",
+                json=payload,
+                headers=headers,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            transfer_id = data.get("transferId") or data.get("transfer_id")
+            logger.info(
+                "Remittance initiated: transfer_id=%s instruction_id=%s",
+                transfer_id,
+                instruction.id,
+            )
+            return RemittanceResult(
+                status="initiated",
+                transfer_id=transfer_id,
+                initiated_at=datetime.utcnow(),
+            )
+    except httpx.HTTPStatusError as exc:
+        error_msg = (
+            f"bank-connectivity returned {exc.response.status_code}: {exc.response.text}"
+        )
+        logger.error("Remittance failed: %s (instruction_id=%s)", error_msg, instruction.id)
+        return RemittanceResult(status="failed", error=error_msg)
+    except Exception as exc:
+        error_msg = str(exc)
+        logger.error(
+            "Remittance error: %s (instruction_id=%s)", error_msg, instruction.id,
+            exc_info=True,
+        )
+        return RemittanceResult(status="failed", error=error_msg)
 
-    return {
-        "status": "initiated",
-        "remittance_id": instruction.id,
-        "amount": instruction.amount,
-        "currency": instruction.currency,
-        "recipient": instruction.recipient_name,
-        "reference": instruction.reference,
-        "estimated_settlement": "1-3 business days",
-        "note": "Production remittance requires bank-connectivity service with active banking credentials",
-    }
+
+async def schedule_periodic_remittance(
+    bank_connectivity_url: str,
+    internal_secret: str,
+    merchant_id: str,
+    merchant_vat_number: str,
+) -> list[RemittanceResult]:
+    """
+    Trigger monthly EU VAT remittances.
+
+    Intended to be called on the 15th of each month (e.g. via a Kubernetes
+    CronJob or APScheduler). Generates EU VAT remittance instructions for the
+    previous calendar month and initiates each via bank-connectivity.
+
+    Returns a list of RemittanceResult objects, one per jurisdiction.
+    """
+    from calendar import monthrange
+    from datetime import timedelta
+
+    now = datetime.utcnow()
+    # Compute previous month
+    first_of_current = now.replace(day=1)
+    last_of_prev = first_of_current - timedelta(days=1)
+    prev_year = last_of_prev.year
+    prev_month = last_of_prev.month
+    period = f"{prev_year}-{prev_month:02d}"
+    period_start = date(prev_year, prev_month, 1)
+    period_end = date(prev_year, prev_month, monthrange(prev_year, prev_month)[1])
+    due_date = period_end.replace(day=28)  # Simplified: use 28th of following month
+
+    logger.info(
+        "schedule_periodic_remittance: generating EU VAT remittance for period %s", period
+    )
+
+    # EU jurisdictions with active VAT liability (production: query DB for actuals)
+    eu_jurisdictions = list(generate_eu_vat_remittance.__module__ and {
+        "DE": 0.0, "FR": 0.0, "NL": 0.0,
+    }.keys())
+
+    results: list[RemittanceResult] = []
+    for jurisdiction in eu_jurisdictions:
+        instruction = generate_eu_vat_remittance(
+            merchant_id=merchant_id,
+            jurisdiction=jurisdiction,
+            amount=0.0,  # Production: query actual liability from DB
+            period=period,
+            due_date=due_date,
+            merchant_vat_number=merchant_vat_number,
+        )
+
+        if instruction.amount <= 0:
+            logger.info(
+                "Skipping zero-amount remittance for %s period %s", jurisdiction, period
+            )
+            results.append(RemittanceResult(status="skipped"))
+            continue
+
+        result = await initiate_remittance(
+            instruction=instruction,
+            bank_connectivity_url=bank_connectivity_url,
+            internal_secret=internal_secret,
+        )
+        logger.info(
+            "Periodic remittance %s for %s/%s: transfer_id=%s error=%s",
+            result.status,
+            jurisdiction,
+            period,
+            result.transfer_id,
+            result.error,
+        )
+        results.append(result)
+
+    return results

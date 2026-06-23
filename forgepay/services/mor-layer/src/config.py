@@ -63,6 +63,10 @@ class Settings(BaseSettings):
     killbill_api_key:    str = "forgepay"          # Kill Bill tenant API key
     killbill_api_secret: str = ""                  # injected from MOR_KILLBILL_API_SECRET
 
+    # ── Bank Connectivity ─────────────────────────────────────────────────────
+    bank_connectivity_url: str = "http://bank-connectivity:3006"  # env: MOR_BANK_CONNECTIVITY_URL
+    mor_internal_secret:   str = "dev-internal-secret"            # env: MOR_MOR_INTERNAL_SECRET
+
     # ── Feature flags ─────────────────────────────────────────────────────
     enable_crypto_checkout: bool = True
     enable_stablecoin_checkout: bool = True

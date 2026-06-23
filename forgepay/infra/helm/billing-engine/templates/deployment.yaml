@@ -31,14 +31,16 @@ spec:
               value: {{ .Values.env.CATALINA_OPTS | quote }}
             - name: KILLBILL_MODES
               value: {{ .Values.env.KILLBILL_MODES | quote }}
-            - name: MYSQL_HOST
-              value: {{ .Values.mysql.host | quote }}
-            - name: MYSQL_PORT
-              value: {{ .Values.mysql.port | quote }}
-            - name: MYSQL_DB
-              value: {{ .Values.mysql.database | quote }}
-            - name: MYSQL_USER
-              value: "killbill"
+            - name: POSTGRES_HOST
+              value: {{ .Values.postgres.host | quote }}
+            - name: POSTGRES_PORT
+              value: {{ .Values.postgres.port | quote }}
+            - name: POSTGRES_DB
+              value: {{ .Values.postgres.database | quote }}
+            - name: POSTGRES_USER
+              value: {{ .Values.postgres.user | quote }}
+            - name: DATABASE_URL
+              value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(POSTGRES_HOST):$(POSTGRES_PORT)/$(POSTGRES_DB)"
           envFrom:
             - secretRef:
                 name: {{ .Values.secretRef }}

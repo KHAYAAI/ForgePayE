@@ -11,6 +11,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
+from ..config import get_settings
 from ..tax_filing.audit_exporter import (
     generate_csv_report,
     generate_json_report,
@@ -23,9 +24,10 @@ from ..tax_filing.eu_vat_filer import (
     generate_vat_return,
 )
 from ..tax_filing.remittance_orchestrator import (
+    RemittanceResult,
     generate_eu_vat_remittance,
     generate_us_sales_tax_remittances,
-    initiate_remittance_stub,
+    initiate_remittance,
 )
 from ..tax_filing.us_sales_tax_filer import file_via_avalara_stub, generate_us_return
 
@@ -172,8 +174,10 @@ async def generate_us_sales_tax(request: USSalesTaxReturnRequest):
 
 
 @router.post("/remittance/initiate")
-async def initiate_remittance(request: RemittanceRequest):
-    """Initiate a tax remittance payment to the tax authority (stub)."""
+async def initiate_remittance_endpoint(request: RemittanceRequest):
+    """Initiate a tax remittance payment to the tax authority via bank-connectivity."""
+    settings = get_settings()
+
     if request.tax_type == "eu_vat":
         instruction = generate_eu_vat_remittance(
             merchant_id=request.merchant_id,
@@ -198,17 +202,39 @@ async def initiate_remittance(request: RemittanceRequest):
     if not instruction:
         raise HTTPException(status_code=400, detail="Could not generate remittance instruction")
 
-    result = initiate_remittance_stub(instruction)
+    result: RemittanceResult = await initiate_remittance(
+        instruction=instruction,
+        bank_connectivity_url=settings.bank_connectivity_url,
+        internal_secret=settings.mor_internal_secret,
+    )
+
+    if result.status == "failed":
+        logger.error(
+            "Remittance initiation failed for instruction %s: %s",
+            instruction.id,
+            result.error,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=f"bank-connectivity error: {result.error}",
+        )
+
     return {
-        "remittance_id": instruction.id,
-        "merchant_id": request.merchant_id,
-        "jurisdiction": request.jurisdiction,
-        "amount": instruction.amount,
-        "currency": instruction.currency,
-        "recipient": instruction.recipient_name,
-        "reference": instruction.reference,
-        "status": instruction.status,
-        "result": result,
+        "status": result.status,
+        "transfer_id": result.transfer_id,
+        "initiated_at": result.initiated_at.isoformat() if result.initiated_at else None,
+        "instruction": {
+            "id": instruction.id,
+            "merchant_id": instruction.merchant_id,
+            "jurisdiction": instruction.jurisdiction,
+            "tax_type": instruction.tax_type,
+            "amount": instruction.amount,
+            "currency": instruction.currency,
+            "recipient": instruction.recipient_name,
+            "reference": instruction.reference,
+            "period": instruction.period,
+            "due_date": instruction.due_date.isoformat(),
+        },
     }
 
 

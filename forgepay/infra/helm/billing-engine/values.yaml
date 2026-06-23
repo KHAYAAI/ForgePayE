@@ -13,17 +13,17 @@ env:
   CATALINA_OPTS: "-Dorg.killbill.server.properties=/etc/killbill/killbill.properties"
   KILLBILL_MODES: "STANDALONE"
 
-# Kill Bill requires MySQL (separate from PostgreSQL)
-# Either use RDS or in-cluster MySQL bitnami chart
-mysql:
-  enabled: false
-  host: "mysql"
-  port: 3306
+# Kill Bill is configured to use PostgreSQL (see killbill.properties).
+# Supply connection details here; the password is injected via secretRef.
+postgres:
+  host: "postgres"
+  port: 5432
   database: "killbill"
+  user: "killbill"
 
 secretRef: "forgepay-billing-engine-secrets"
 # Expected keys:
-#   MYSQL_PASSWORD
+#   POSTGRES_PASSWORD
 #   KILLBILL_ADMIN_PASSWORD
 #   KILLBILL_WEBHOOK_SECRET (must match KILLBILL_WEBHOOK_SECRET in unified-router)
 # Kill Bill will POST to: http://forgepay-unified-router:8000/webhooks/killbill
