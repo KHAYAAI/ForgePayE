@@ -1,249 +1,199 @@
 'use client';
 
-import { useState } from 'react';
-import useSWR, { mutate } from 'swr';
-import {
-  Building2,
-  Plus,
-  RefreshCw,
-  Trash2,
-  Loader2,
-  AlertCircle,
-  CheckCircle2,
-  Link as LinkIcon,
-} from 'lucide-react';
+import { useState, useCallback } from 'react';
+import useSWR from 'swr';
+import { usePlaidLink } from 'react-plaid-link';
+import { Building2, Plus, RefreshCw, Trash2, CheckCircle, AlertTriangle, Landmark } from 'lucide-react';
 
-const fetcher = (url: string) => fetch(url).then((r) => r.json());
+const fetcher = (url: string) => fetch(url).then(r => r.json());
 
-interface AccountBalance {
-  accountId: string;
-  bankName: string;
-  accountName: string;
-  accountType: 'checking' | 'savings' | 'investment';
-  balance: number;
-  currency: string;
-  lastRefreshed: string;
-}
-
-function SkeletonRow() {
+// PlaidLinkButton: inner component that holds usePlaidLink hook
+// (must receive token as prop so hook only runs when token is available)
+function PlaidLinkButton({ token, onSuccess, onExit }: {
+  token: string;
+  onSuccess: (publicToken: string, metadata: unknown) => void;
+  onExit: (err: unknown) => void;
+}) {
+  const { open, ready } = usePlaidLink({ token, onSuccess, onExit });
   return (
-    <tr>
-      {Array.from({ length: 5 }).map((_, i) => (
-        <td key={i}>
-          <div className="h-4 bg-white/5 rounded animate-pulse w-24" />
-        </td>
-      ))}
-    </tr>
+    <button
+      onClick={() => open()}
+      disabled={!ready}
+      className="flex items-center gap-2 px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-black text-sm font-semibold transition-colors disabled:opacity-50"
+    >
+      <Plus size={14} />
+      {ready ? 'Add Account' : 'Loading...'}
+    </button>
   );
 }
 
-function fmt(cents: number, currency: string) {
-  return (cents / 100).toLocaleString('en-US', { style: 'currency', currency: currency.toUpperCase() });
-}
-
 export default function BankAccountsPage() {
-  const { data, isLoading, error } =
-    useSWR<{ data: AccountBalance[] }>('/api/bank/accounts', fetcher);
+  const { data, isLoading, mutate } = useSWR('/api/bank/accounts', fetcher);
+  const [linkToken, setLinkToken] = useState<string | null>(null);
+  const [linking, setLinking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
 
-  const accounts: AccountBalance[] = data?.data ?? [];
-
-  const [linking, setLinking]           = useState(false);
-  const [linkState, setLinkState]       = useState<'idle' | 'pending' | 'success' | 'error'>('idle');
-  const [linkMessage, setLinkMessage]   = useState('');
-  const [refreshing, setRefreshing]     = useState<Record<string, boolean>>({});
-  const [removing, setRemoving]         = useState<Record<string, boolean>>({});
+  const accounts = data?.data ?? [];
 
   const handleAddAccount = async () => {
     setLinking(true);
-    setLinkState('idle');
+    setError(null);
     try {
       const res = await fetch('/api/bank/link-token', { method: 'POST' });
-      if (!res.ok) throw new Error('Could not create link token');
-      const body = (await res.json()) as { linkToken: string; expiration: string };
-
-      // In production: initialize Plaid Link with body.linkToken
-      // For now we simulate the flow with a status message
-      setLinkState('pending');
-      setLinkMessage(
-        `Plaid Link token obtained (expires ${new Date(body.expiration).toLocaleTimeString()}). ` +
-        `In production, Plaid Link would open here. To complete the flow, call POST /api/bank/exchange with the public_token.`,
-      );
-    } catch (err) {
-      setLinkState('error');
-      setLinkMessage(err instanceof Error ? err.message : 'Failed to start account linking');
-    } finally {
+      const { linkToken: token } = await res.json();
+      setLinkToken(token);
+    } catch (e) {
+      setError('Failed to start account linking. Try again.');
       setLinking(false);
     }
   };
 
-  const handleRefresh = async (accountId: string) => {
-    setRefreshing((r) => ({ ...r, [accountId]: true }));
+  const handleSuccess = useCallback(async (publicToken: string, metadata: unknown) => {
     try {
-      // Trigger a balance refresh — in production this calls the bank connectivity service
-      await new Promise((resolve) => setTimeout(resolve, 1200));
-      await mutate('/api/bank/accounts');
-    } finally {
-      setRefreshing((r) => ({ ...r, [accountId]: false }));
+      const res = await fetch('/api/bank/exchange', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ publicToken, metadata }),
+      });
+      if (res.ok) {
+        setSuccess('Account linked successfully');
+        setLinkToken(null);
+        setLinking(false);
+        await mutate();
+      }
+    } catch {
+      setError('Account linking failed.');
     }
-  };
+  }, [mutate]);
 
-  const handleRemove = async (accountId: string) => {
-    if (!confirm('Remove this bank account? This cannot be undone.')) return;
-    setRemoving((r) => ({ ...r, [accountId]: true }));
-    try {
-      await new Promise((resolve) => setTimeout(resolve, 800));
-      await mutate('/api/bank/accounts');
-    } finally {
-      setRemoving((r) => ({ ...r, [accountId]: false }));
-    }
+  const handleExit = useCallback((err: unknown) => {
+    if (err) setError('Account linking cancelled or failed.');
+    setLinkToken(null);
+    setLinking(false);
+  }, []);
+
+  const handleRefresh = async (accountId: string) => { /* PATCH /api/bank/accounts/{id}/refresh */ };
+  const handleRemove  = async (accountId: string) => {
+    await fetch(`/api/bank/accounts/${accountId}`, { method: 'DELETE' });
+    await mutate();
   };
 
   return (
-    <div className="space-y-6 max-w-4xl">
-      {/* Header */}
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-white flex items-center gap-2">
-            <Building2 size={20} className="text-cyan-400" />
-            Bank Accounts
-          </h1>
-          <p className="text-sm text-gray-400 mt-1">
-            Link accounts for treasury and payouts
-          </p>
+          <h1 className="text-xl font-bold text-white">Bank Accounts</h1>
+          <p className="text-sm text-gray-400">Link accounts for treasury and payouts</p>
         </div>
-        <button
-          onClick={handleAddAccount}
-          disabled={linking}
-          className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-cyan-500 hover:bg-cyan-400 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-sm transition-colors"
-        >
-          {linking ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
-          {linking ? 'Connecting...' : 'Add Account'}
-        </button>
-      </div>
-
-      {/* Link state messages */}
-      {linkState === 'pending' && (
-        <div className="flex items-start gap-3 bg-blue-500/5 border border-blue-500/20 rounded-xl p-4">
-          <LinkIcon size={15} className="text-blue-400 shrink-0 mt-0.5" />
-          <div>
-            <p className="text-sm font-semibold text-blue-300">Link in progress</p>
-            <p className="text-xs text-blue-200/70 mt-1 leading-relaxed">{linkMessage}</p>
-          </div>
+        {!linkToken && (
           <button
-            onClick={() => setLinkState('idle')}
-            className="ml-auto text-gray-500 hover:text-gray-300 text-xs"
+            onClick={handleAddAccount}
+            disabled={linking}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-black text-sm font-semibold transition-colors disabled:opacity-50"
           >
-            Dismiss
+            <Plus size={14} />
+            {linking ? 'Starting...' : 'Add Account'}
           </button>
-        </div>
-      )}
-
-      {linkState === 'success' && (
-        <div className="flex items-center gap-2 bg-green-500/5 border border-green-500/20 rounded-xl p-4 text-green-400 text-sm">
-          <CheckCircle2 size={15} />
-          Account linked successfully.
-          <button onClick={() => setLinkState('idle')} className="ml-auto text-xs underline">Dismiss</button>
-        </div>
-      )}
-
-      {linkState === 'error' && (
-        <div className="flex items-center gap-2 bg-red-500/5 border border-red-500/20 rounded-xl p-4 text-red-400 text-sm">
-          <AlertCircle size={15} />
-          {linkMessage}
-          <button onClick={() => setLinkState('idle')} className="ml-auto text-xs underline">Dismiss</button>
-        </div>
-      )}
-
-      {/* Accounts table */}
-      <div className="card overflow-hidden">
-        <table className="w-full fp-table">
-          <thead>
-            <tr>
-              <th>Bank</th>
-              <th>Account</th>
-              <th>Type</th>
-              <th>Balance</th>
-              <th>Last Refreshed</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading ? (
-              <>
-                <SkeletonRow />
-                <SkeletonRow />
-                <SkeletonRow />
-              </>
-            ) : error ? (
-              <tr>
-                <td colSpan={6} className="text-center py-8">
-                  <AlertCircle className="mx-auto mb-2 text-red-400" size={24} />
-                  <p className="text-sm text-red-400">Failed to load accounts</p>
-                </td>
-              </tr>
-            ) : accounts.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="text-center py-12">
-                  <Building2 className="mx-auto mb-3 text-gray-600" size={32} />
-                  <p className="text-white font-semibold text-sm">No bank accounts linked</p>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Click &ldquo;Add Account&rdquo; to link your first bank account via Plaid.
-                  </p>
-                </td>
-              </tr>
-            ) : (
-              accounts.map((acc) => (
-                <tr key={acc.accountId}>
-                  <td className="font-medium text-white">{acc.bankName}</td>
-                  <td className="text-gray-300">{acc.accountName}</td>
-                  <td>
-                    <span className="text-xs capitalize px-2 py-0.5 rounded-full border bg-white/5 border-white/10 text-gray-300">
-                      {acc.accountType}
-                    </span>
-                  </td>
-                  <td className="font-semibold text-white">
-                    {fmt(acc.balance, acc.currency)}
-                  </td>
-                  <td className="text-gray-400 text-xs">
-                    {new Date(acc.lastRefreshed).toLocaleString('en-US', {
-                      month: 'short', day: 'numeric',
-                      hour: '2-digit', minute: '2-digit',
-                    })}
-                  </td>
-                  <td>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => handleRefresh(acc.accountId)}
-                        disabled={refreshing[acc.accountId]}
-                        className="text-gray-500 hover:text-cyan-400 transition-colors disabled:opacity-50"
-                        title="Refresh balance"
-                      >
-                        {refreshing[acc.accountId]
-                          ? <Loader2 size={13} className="animate-spin" />
-                          : <RefreshCw size={13} />}
-                      </button>
-                      <button
-                        onClick={() => handleRemove(acc.accountId)}
-                        disabled={removing[acc.accountId]}
-                        className="text-gray-500 hover:text-red-400 transition-colors disabled:opacity-50"
-                        title="Remove account"
-                      >
-                        {removing[acc.accountId]
-                          ? <Loader2 size={13} className="animate-spin" />
-                          : <Trash2 size={13} />}
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+        )}
+        {linkToken && (
+          <PlaidLinkButton token={linkToken} onSuccess={handleSuccess} onExit={handleExit} />
+        )}
       </div>
 
-      <p className="text-xs text-gray-500 text-center">
-        Bank account data is provided by Plaid. ForgePay never stores your banking credentials.
-      </p>
+      {error && (
+        <div className="flex items-center gap-3 p-4 rounded-xl bg-red-500/10 border border-red-500/20">
+          <AlertTriangle size={16} className="text-red-400 shrink-0" />
+          <p className="text-sm text-red-300">{error}</p>
+        </div>
+      )}
+      {success && (
+        <div className="flex items-center gap-3 p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+          <CheckCircle size={16} className="text-emerald-400 shrink-0" />
+          <p className="text-sm text-emerald-300">{success}</p>
+        </div>
+      )}
+
+      <div className="card p-5">
+        <h3 className="text-sm font-semibold text-white mb-4">Linked Accounts</h3>
+        {isLoading ? (
+          <div className="space-y-3">
+            {[1,2].map(i => <div key={i} className="h-12 rounded-lg bg-white/[0.03] animate-pulse" />)}
+          </div>
+        ) : accounts.length === 0 ? (
+          <div className="flex flex-col items-center py-12 gap-3">
+            <Landmark size={32} className="text-gray-600" />
+            <p className="text-sm text-gray-400">No accounts linked yet</p>
+            <p className="text-xs text-gray-600">Add a bank account to enable treasury sweeps and payouts</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-[11px] text-gray-500 border-b border-white/[0.05]">
+                  <th className="text-left pb-2">Bank</th>
+                  <th className="text-left pb-2">Account</th>
+                  <th className="text-left pb-2">Type</th>
+                  <th className="text-right pb-2">Balance</th>
+                  <th className="text-right pb-2">Refreshed</th>
+                  <th className="text-right pb-2">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/[0.04]">
+                {accounts.map((acct: Record<string, unknown>) => (
+                  <tr key={acct.id as string} className="text-xs">
+                    <td className="py-3 text-white font-medium">{acct.bankName as string}</td>
+                    <td className="py-3 text-gray-300">{acct.accountName as string}</td>
+                    <td className="py-3">
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400">
+                        {acct.accountType as string}
+                      </span>
+                    </td>
+                    <td className="py-3 text-right text-white">
+                      ${Number(acct.balanceAvail ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                    </td>
+                    <td className="py-3 text-right text-gray-500 text-[11px]">
+                      {acct.lastRefreshed ? new Date(acct.lastRefreshed as string).toLocaleString() : '—'}
+                    </td>
+                    <td className="py-3 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => handleRefresh(acct.id as string)}
+                          className="p-1.5 rounded-lg hover:bg-white/[0.05] transition-colors"
+                          title="Refresh balance"
+                        >
+                          <RefreshCw size={12} className="text-gray-400" />
+                        </button>
+                        <button
+                          onClick={() => handleRemove(acct.id as string)}
+                          className="p-1.5 rounded-lg hover:bg-red-500/10 transition-colors"
+                          title="Remove account"
+                        >
+                          <Trash2 size={12} className="text-red-400" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <div className="card p-5 border border-cyan-500/10">
+        <div className="flex items-start gap-3">
+          <Building2 size={16} className="text-cyan-400 shrink-0 mt-0.5" />
+          <div>
+            <h4 className="text-sm font-semibold text-white mb-1">How bank linking works</h4>
+            <p className="text-xs text-gray-400 leading-relaxed">
+              ForgePay uses Plaid to securely link your bank accounts. Your credentials are never stored —
+              only an encrypted access token that allows balance reads and payment initiation.
+              Linked accounts are used for treasury sweeps, payouts, and intercompany netting.
+            </p>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

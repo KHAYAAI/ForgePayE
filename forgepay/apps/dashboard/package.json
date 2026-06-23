@@ -26,7 +26,8 @@
     "next-auth":            "^4.24.7",
     "zod":                  "^3.23.8",
     "react-hook-form":      "^7.52.1",
-    "@hookform/resolvers":  "^3.9.0"
+    "@hookform/resolvers":  "^3.9.0",
+    "react-plaid-link":    "^3.5.2"
   },
   "devDependencies": {
     "@types/node":       "^20.14.0",
