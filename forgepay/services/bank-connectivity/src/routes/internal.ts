@@ -35,6 +35,9 @@ interface SettlementRecord {
 
 const settlementStore = new Map<string, SettlementRecord>();
 
+// ── Virtual account store (in-memory; PostgreSQL in production) ───────────────
+const virtualAccounts = new Map<string, Record<string, unknown>>();
+
 // ── Schemas ───────────────────────────────────────────────────────────────────
 
 const SettlementBodySchema = z.object({
@@ -49,7 +52,7 @@ const SettlementBodySchema = z.object({
 // ── Internal auth middleware ───────────────────────────────────────────────────
 
 const INTERNAL_SECRET = process.env['INTERNAL_SECRET'] ?? '';
-const ALLOWED_SOURCES = new Set(['enterprise-treasury', 'institutional-reporting', 'agent-liquidity-manager']);
+const ALLOWED_SOURCES = new Set(['enterprise-treasury', 'institutional-reporting', 'agent-liquidity-manager', 'mor-layer']);
 
 function verifyInternalRequest(req: FastifyRequest, reply: FastifyReply): boolean {
   const source = req.headers['x-source'] as string | undefined;
@@ -200,6 +203,31 @@ export async function buildInternalRoutes(app: FastifyInstance): Promise<void> {
 
     return reply.send({ data: records, total: settlementStore.size });
   });
+
+  // ── GET /v1/transfers/internal/accounts/:id — check if virtual account exists
+  app.get<{ Params: { id: string } }>(
+    '/v1/transfers/internal/accounts/:id',
+    { config: { skipAuth: true } },
+    async (request, reply) => {
+      const { id } = request.params;
+      const exists = virtualAccounts.has(id);
+      if (!exists) return reply.status(404).send({ error: 'Account not found' });
+      return reply.send({ data: virtualAccounts.get(id) });
+    }
+  );
+
+  // ── POST /v1/transfers/internal/accounts — create virtual account
+  app.post(
+    '/v1/transfers/internal/accounts',
+    { config: { skipAuth: true } },
+    async (request, reply) => {
+      const body = request.body as {
+        id: string; accountName: string; accountType: string; currency: string; description?: string;
+      };
+      virtualAccounts.set(body.id, { ...body, createdAt: new Date().toISOString() });
+      return reply.status(201).send({ data: virtualAccounts.get(body.id) });
+    }
+  );
 }
 
-export { settlementStore };
+export { settlementStore, virtualAccounts };

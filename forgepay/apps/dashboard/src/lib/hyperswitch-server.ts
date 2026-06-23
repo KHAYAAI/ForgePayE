@@ -82,6 +82,46 @@ export async function retrieveCustomer(apiKey: string, customerId: string) {
   return hsRequest<unknown>('GET', `/customers/${customerId}`, { apiKey });
 }
 
+// ── Admin-level requests (use platform admin API key, not a merchant key) ────────
+
+/** Use the platform-level admin API key for operations that create merchant accounts. */
+async function adminHsRequest<T>(
+  path: string,
+  opts: { method: string; body?: unknown },
+): Promise<T> {
+  const adminKey = process.env['HYPERSWITCH_API_KEY'] ?? '';
+  return hsRequest<T>(opts.method, path, { apiKey: adminKey }, opts.body);
+}
+
+// ── Merchant account management ───────────────────────────────────────────────
+
+export async function createMerchant(params: {
+  merchantName: string;
+  email: string;
+}): Promise<{ merchantId: string; apiKey: string; publishableKey: string }> {
+  const data = await adminHsRequest<{
+    merchant_id: string;
+    api_key: string;
+    publishable_key: string;
+  }>('/merchant_accounts', {
+    method: 'POST',
+    body: {
+      merchant_name: params.merchantName,
+      merchant_details: {
+        primary_email: params.email,
+        primary_business_country: 'US',
+        primary_business_label: 'default',
+      },
+      metadata: { source: 'forgepay-dashboard-signup' },
+    },
+  });
+  return {
+    merchantId:     data.merchant_id,
+    apiKey:         data.api_key,
+    publishableKey: data.publishable_key,
+  };
+}
+
 // ── Analytics (via Hyperswitch analytics endpoint) ────────────────────────────
 
 export interface PaymentsSummary {

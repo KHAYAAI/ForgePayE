@@ -36,6 +36,7 @@ Ports:
 from __future__ import annotations
 
 import logging
+from contextlib import asynccontextmanager
 
 import httpx
 import structlog
@@ -46,6 +47,7 @@ from src.api import checkout, customers, webhooks
 from src.api.auditor import router as auditor_router
 from src.api.merchants import auth_router, router as merchants_router
 from src.api.tax_filing_routes import router as tax_filing_router
+from src.bootstrap.mor_account import ensure_mor_operating_account
 from src.config import get_settings
 
 structlog.configure(
@@ -67,10 +69,24 @@ structlog.configure(
 settings = get_settings()
 logging.basicConfig(level=settings.log_level)
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    _settings = get_settings()
+    await ensure_mor_operating_account(
+        _settings.bank_connectivity_url,
+        _settings.mor_internal_secret,
+    )
+    yield
+    # Shutdown — nothing to clean up
+
+
 app = FastAPI(
     title="ForgePay MoR Layer",
     description="Merchant of Record service. Handles checkout, tax, and fulfillment.",
     version="0.1.0",
+    lifespan=lifespan,
     docs_url="/docs"      if settings.environment != "production" else None,
     redoc_url=None,
     openapi_url="/openapi.json" if settings.environment != "production" else None,
