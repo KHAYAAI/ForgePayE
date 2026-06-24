@@ -51,7 +51,7 @@ async function fetchPriceFromCoinGecko(coinId: string): Promise<number | null> {
  * Get NAV price for an asset.
  * Try CoinGecko API first, fall back to cached price if API fails.
  */
-async function getNAVPrice(symbol: string): Promise<number | null> {
+export async function getNAVPrice(symbol: string): Promise<number | null> {
   const coinId = SYMBOL_TO_COINGECKO_ID[symbol];
   if (!coinId) {
     console.debug(`[nav] No CoinGecko mapping for ${symbol}`);

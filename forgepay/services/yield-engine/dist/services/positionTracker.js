@@ -1,0 +1,213 @@
+"use strict";
+/**
+ * Position Tracker.
+ *
+ * Keeps YieldPosition records up to date by:
+ *   1. Reading on-chain balances (via adapters) to compute currentValue.
+ *   2. Calculating unrealizedYield = currentValue - principal.
+ *   3. Building portfolio summaries for the dashboard.
+ *
+ * Called by the 15-minute cron job as well as on-demand by the positions API.
+ *
+ * PROD NOTE: On-chain reads are batched via multicall where possible.
+ *            Position records live in PostgreSQL; the in-memory store here
+ *            is for development only.
+ */
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.updateAllPositions = updateAllPositions;
+exports.getPortfolioSummary = getPortfolioSummary;
+exports.refreshPosition = refreshPosition;
+exports.initiateWithdrawal = initiateWithdrawal;
+exports.closePosition = closePosition;
+exports.initPositionsFromDb = initPositionsFromDb;
+const pino_1 = __importDefault(require("pino"));
+const adapters_1 = require("../adapters");
+const store_1 = require("../store");
+const db_1 = require("../db");
+const logger = (0, pino_1.default)({ name: 'position-tracker' });
+// ── On-chain balance fetch ────────────────────────────────────────────────────
+/**
+ * Fetch the current on-chain balance for a position's vault and update the
+ * position record in place.
+ *
+ * Returns the updated position, or the original if the on-chain call fails.
+ */
+async function refreshPositionFromChain(position) {
+    const vault = store_1.vaultsStore.get(position.vaultId);
+    if (!vault) {
+        logger.warn({ positionId: position.id }, 'Vault not found; skipping refresh');
+        return position;
+    }
+    // For the position we need the merchant's on-chain wallet address.
+    // PROD: look up the hot-wallet address from PostgreSQL / Vault.
+    // Here we use a placeholder; real deployments pass the actual address.
+    const walletAddress = position.walletAddress;
+    if (!walletAddress) {
+        // Cannot refresh without a wallet address; skip silently
+        return position;
+    }
+    try {
+        const adapter = (0, adapters_1.getAdapter)(vault.protocol, vault.chain);
+        const currentValue = await adapter.getBalance(walletAddress);
+        const unrealizedYield = Math.max(0, currentValue - position.principal);
+        const updated = {
+            ...position,
+            currentValue,
+            unrealizedYield,
+            lastUpdatedAt: new Date().toISOString(),
+        };
+        store_1.positionsStore.set(position.id, updated);
+        // Write-through: persist to DB (non-blocking, best-effort)
+        if (store_1.useDb) {
+            (0, db_1.upsertPosition)(updated).catch((err) => logger.warn({ positionId: position.id, err }, 'Failed to persist updated position to DB'));
+        }
+        return updated;
+    }
+    catch (err) {
+        logger.warn({ positionId: position.id, err }, 'On-chain balance fetch failed');
+        return position;
+    }
+}
+// ── Public API ────────────────────────────────────────────────────────────────
+/**
+ * Refresh every active position from chain.
+ * Called by the 15-minute cron job.
+ */
+async function updateAllPositions() {
+    const activePositions = [...store_1.positionsStore.values()].filter((p) => p.status === 'active');
+    if (activePositions.length === 0)
+        return;
+    logger.info({ count: activePositions.length }, 'Refreshing positions from chain');
+    const results = await Promise.allSettled(activePositions.map(refreshPositionFromChain));
+    const errors = results.filter((r) => r.status === 'rejected');
+    if (errors.length > 0) {
+        logger.warn({ errorCount: errors.length }, 'Some positions failed to refresh');
+    }
+    logger.info({ count: activePositions.length - errors.length }, 'Positions refreshed');
+}
+/**
+ * Build a portfolio summary for a single merchant.
+ *
+ * Aggregates across all their active positions:
+ *   - total principal, current value, unrealized yield, realized yield
+ *   - weighted-average APY (weighted by current value)
+ *   - per-vault breakdown
+ */
+function getPortfolioSummary(merchantId) {
+    const positions = [...store_1.positionsStore.values()].filter((p) => p.merchantId === merchantId && p.status !== 'closed');
+    let totalPrincipal = 0;
+    let totalCurrentValue = 0;
+    let totalUnrealizedYield = 0;
+    let totalRealizedYield = 0;
+    let weightedApyNum = 0; // numerator for weighted average
+    const allocations = [];
+    for (const pos of positions) {
+        const vault = store_1.vaultsStore.get(pos.vaultId);
+        const apy = vault?.apy ?? 0;
+        totalPrincipal += pos.principal;
+        totalCurrentValue += pos.currentValue;
+        totalUnrealizedYield += pos.unrealizedYield;
+        totalRealizedYield += pos.realizedYield;
+        weightedApyNum += pos.currentValue * apy;
+        allocations.push({
+            vaultId: pos.vaultId,
+            vaultName: vault?.name ?? pos.vaultId,
+            protocol: vault?.protocol ?? 'manual',
+            principal: pos.principal,
+            currentValue: pos.currentValue,
+            unrealizedYield: pos.unrealizedYield,
+            apy,
+        });
+    }
+    // Also sum realized yield from closed positions
+    const closedPositions = [...store_1.positionsStore.values()].filter((p) => p.merchantId === merchantId && p.status === 'closed');
+    for (const pos of closedPositions) {
+        totalRealizedYield += pos.realizedYield;
+    }
+    const weightedApy = totalCurrentValue > 0
+        ? weightedApyNum / totalCurrentValue
+        : 0;
+    return {
+        merchantId,
+        totalPrincipal,
+        totalCurrentValue,
+        totalUnrealizedYield,
+        totalRealizedYield,
+        weightedApy,
+        allocations,
+        updatedAt: new Date().toISOString(),
+    };
+}
+/**
+ * Refresh a single position and return the updated record.
+ * Used by the positions API for on-demand refresh.
+ */
+async function refreshPosition(positionId) {
+    const position = store_1.positionsStore.get(positionId);
+    if (!position)
+        return null;
+    return refreshPositionFromChain(position);
+}
+/**
+ * Mark a position as 'withdrawing' and record the realized yield.
+ * Called by the sweep service when initiating a withdrawal.
+ */
+function initiateWithdrawal(positionId) {
+    const position = store_1.positionsStore.get(positionId);
+    if (!position || position.status !== 'active')
+        return null;
+    const updated = {
+        ...position,
+        status: 'withdrawing',
+        realizedYield: position.realizedYield + position.unrealizedYield,
+        lastUpdatedAt: new Date().toISOString(),
+    };
+    store_1.positionsStore.set(positionId, updated);
+    // Write-through: persist to DB (non-blocking, best-effort)
+    if (store_1.useDb) {
+        (0, db_1.upsertPosition)(updated).catch((err) => logger.warn({ positionId, err }, 'Failed to persist withdrawal initiation to DB'));
+    }
+    return updated;
+}
+/**
+ * Close a position after a successful on-chain withdrawal.
+ */
+function closePosition(positionId) {
+    const position = store_1.positionsStore.get(positionId);
+    if (!position)
+        return null;
+    const updated = {
+        ...position,
+        status: 'closed',
+        currentValue: 0,
+        shares: 0,
+        lastUpdatedAt: new Date().toISOString(),
+    };
+    store_1.positionsStore.set(positionId, updated);
+    // Write-through: persist to DB (non-blocking, best-effort)
+    if (store_1.useDb) {
+        (0, db_1.upsertPosition)(updated).catch((err) => logger.warn({ positionId, err }, 'Failed to persist position closure to DB'));
+    }
+    return updated;
+}
+/**
+ * Initialize all positions from the database.
+ * Call this during app startup to restore persistent state.
+ */
+async function initPositionsFromDb() {
+    try {
+        const positions = await (0, db_1.loadAllPositions)();
+        for (const pos of positions) {
+            store_1.positionsStore.set(pos.id, pos);
+        }
+        logger.info({ count: positions.length }, 'Loaded positions from database');
+    }
+    catch (err) {
+        logger.error({ err }, 'Failed to load positions from database');
+        // Continue anyway — use empty in-memory store
+    }
+}
+//# sourceMappingURL=positionTracker.js.map
