@@ -30,6 +30,7 @@ import rateLimit from '@fastify/rate-limit';
 import cors from '@fastify/cors';
 import { config } from './config.js';
 import { getDb } from './lib/db.js';
+import { runMigrations } from './db/migrate.js';
 import { startChainMonitor } from './lib/monitor.js';
 import { buildDepositRoutes } from './routes/deposits.js';
 import { buildX402Routes } from './routes/x402.js';
@@ -62,6 +63,7 @@ async function main() {
   await app.register(apiKeyAuth);
 
   const db = getDb();
+  await runMigrations(db);
 
   // Register routes
   await app.register(buildDepositRoutes,         { prefix: '/deposits' });

@@ -20,6 +20,7 @@
  */
 
 import 'dotenv/config';
+import { execSync } from 'child_process';
 import Fastify from 'fastify';
 import helmet from '@fastify/helmet';
 import cors from '@fastify/cors';
@@ -155,6 +156,14 @@ async function main(): Promise<void> {
   // ── Connect Prisma ────────────────────────────────────────────────────────
   await prisma.$connect();
   app.log.info('[bank-connectivity] Prisma connected to PostgreSQL');
+
+  // ── Run migrations ────────────────────────────────────────────────────────
+  try {
+    execSync('prisma migrate deploy', { stdio: 'inherit', cwd: process.cwd() });
+    app.log.info('[bank-connectivity] Database migrations completed');
+  } catch (err) {
+    logger.warn('[bank-connectivity] Migrations error (may be already applied):', err instanceof Error ? err.message : String(err));
+  }
 
   // ── Start ─────────────────────────────────────────────────────────────────
   await app.listen({ port, host: '0.0.0.0' });

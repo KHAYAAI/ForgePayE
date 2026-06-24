@@ -31,6 +31,7 @@ import rateLimit from '@fastify/rate-limit';
 import cors from '@fastify/cors';
 import { config } from './config.js';
 import { getDb } from './lib/db.js';
+import { runMigrations } from './db/migrate.js';
 import { buildInvoiceRoutes } from './routes/invoices.js';
 import { startChainMonitors } from './lib/monitor.js';
 import apiKeyAuth from './plugins/api-key-auth.js';
@@ -59,6 +60,7 @@ async function main() {
   await app.register(apiKeyAuth);
 
   const db = getDb();
+  await runMigrations(db);
 
   await app.register(buildInvoiceRoutes, { prefix: '/invoices' });
 
