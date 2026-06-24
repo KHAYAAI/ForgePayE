@@ -1,45 +1,132 @@
 import { rwaAssets } from './store';
+import { getCachedNAV, cacheNAV } from './db';
+
+// ── CoinGecko API Integration ─────────────────────────────────────────────────
+
+const COINGECKO_API_URL = 'https://api.coingecko.com/api/v3/simple/price';
+
+/**
+ * Map RWA asset symbols to CoinGecko coin IDs.
+ * Uses free tier — no authentication required.
+ */
+const SYMBOL_TO_COINGECKO_ID: Record<string, string> = {
+  USDY: 'ondo-governance-token',      // Ondo Finance
+  FOBXX: 'franklin-templeton-onchain-fund', // Franklin OnChain
+  TBILL: 'openedentoken',              // OpenEden T-Bill Vault
+  BUIDL: 'blackrock-usd-institutional-digital-liquidity-fund', // BlackRock BUIDL
+  OUSG: 'ondo-us-government-short-term-bond',  // Ondo Short-Term US Government
+  USTB: 'superstate-ethereum-fund',   // Superstate USTB
+};
+
+/**
+ * Fetch price from CoinGecko API for a given coin ID.
+ */
+async function fetchPriceFromCoinGecko(coinId: string): Promise<number | null> {
+  try {
+    const params = new URLSearchParams({
+      ids: coinId,
+      vs_currencies: 'usd',
+    });
+    const url = `${COINGECKO_API_URL}?${params.toString()}`;
+    const response = await fetch(url, {
+      headers: { 'Accept': 'application/json' },
+      timeout: 5000,
+    } as any);
+
+    if (!response.ok) {
+      console.debug(`[nav] CoinGecko API error for ${coinId}: ${response.status}`);
+      return null;
+    }
+
+    const data = await response.json();
+    const price = data[coinId]?.usd ?? null;
+    return typeof price === 'number' ? price : null;
+  } catch (err) {
+    console.debug(`[nav] CoinGecko fetch failed for ${coinId}:`, err instanceof Error ? err.message : String(err));
+    return null;
+  }
+}
+
+/**
+ * Get NAV price for an asset.
+ * Try CoinGecko API first, fall back to cached price if API fails.
+ */
+async function getNAVPrice(symbol: string): Promise<number | null> {
+  const coinId = SYMBOL_TO_COINGECKO_ID[symbol];
+  if (!coinId) {
+    console.debug(`[nav] No CoinGecko mapping for ${symbol}`);
+    return null;
+  }
+
+  // Try CoinGecko API
+  const freshPrice = await fetchPriceFromCoinGecko(coinId);
+  if (freshPrice !== null) {
+    // Cache the fresh price (1-hour TTL)
+    await cacheNAV(symbol, freshPrice).catch(err => {
+      console.debug(`[nav] Failed to cache NAV for ${symbol}:`, err instanceof Error ? err.message : String(err));
+    });
+    return freshPrice;
+  }
+
+  // Fall back to cached price if API fails
+  const cachedPrice = await getCachedNAV(symbol).catch(err => {
+    console.debug(`[nav] Failed to read cached NAV for ${symbol}:`, err instanceof Error ? err.message : String(err));
+    return null;
+  });
+  if (cachedPrice !== null) {
+    console.debug(`[nav] Using cached price for ${symbol}: $${cachedPrice}`);
+    return cachedPrice;
+  }
+
+  return null;
+}
 
 // ── NAV management ────────────────────────────────────────────────────────────
 
 /**
- * Refresh NAVs for all assets.
+ * Refresh NAVs for all assets using CoinGecko real-time prices.
  *
- * Stub implementation — logs intent and updates timestamps.
- *
- * In production this would:
- *   - On-chain assets (ethereum, polygon): call Chainlink price oracle
- *     via ethers.js JsonRpcProvider to get the latest NAV from the token contract
- *   - Off-chain / Stellar assets: call issuer REST API
- *     (e.g. Franklin Templeton's FOBXX API, OpenEden's data API)
- *   - Ondo products: query Ondo's public API (https://api.ondo.finance/v1)
- *   - BlackRock BUIDL: query Securitize investor portal API
- *   - Superstate USTB: query fund administrator API
+ * Strategy:
+ *   1. Try CoinGecko API first (free tier, no auth)
+ *   2. Cache successful prices in PostgreSQL (1-hour TTL)
+ *   3. Fall back to cached price if API fails or rate-limited
+ *   4. Log failures but don't crash the background job
  */
-export function refreshAllNAVs(): void {
+export async function refreshAllNAVs(): Promise<void> {
   const now = new Date().toISOString();
+  const results: Array<{ symbol: string; success: boolean; price?: number; error?: string }> = [];
 
-  console.log(
-    '[rwa-registry] Would fetch NAVs from on-chain oracles / issuer APIs:',
-  );
+  console.log('[rwa-registry] Starting NAV refresh from CoinGecko...');
 
   for (const asset of rwaAssets.values()) {
-    if (asset.chain && asset.contractAddress) {
-      console.log(
-        `  → ${asset.symbol} (${asset.chain}): Chainlink oracle / ERC-20 totalAssets() on ${asset.contractAddress}`,
-      );
-    } else {
-      console.log(
-        `  → ${asset.symbol}: Issuer API (${asset.issuer})`,
-      );
-    }
+    try {
+      const price = await getNAVPrice(asset.symbol);
 
-    // Update timestamp to signal a refresh was attempted
-    asset.navUpdatedAt = now;
-    asset.updatedAt = now;
+      if (price !== null && price > 0) {
+        asset.nav = price;
+        asset.navUpdatedAt = now;
+        asset.updatedAt = now;
+        results.push({ symbol: asset.symbol, success: true, price });
+        console.debug(`[nav] ${asset.symbol}: $${price.toFixed(8)}`);
+      } else {
+        results.push({ symbol: asset.symbol, success: false, error: 'Price fetch returned null or invalid' });
+        console.debug(`[nav] ${asset.symbol}: Failed to fetch price`);
+        // Keep existing NAV on failure
+        asset.navUpdatedAt = now;
+        asset.updatedAt = now;
+      }
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      results.push({ symbol: asset.symbol, success: false, error: errorMsg });
+      console.debug(`[nav] ${asset.symbol}: Exception during fetch:`, errorMsg);
+      // Keep existing NAV on error
+      asset.navUpdatedAt = now;
+      asset.updatedAt = now;
+    }
   }
 
-  console.log(`[rwa-registry] NAV refresh complete for ${rwaAssets.size} assets`);
+  const successCount = results.filter(r => r.success).length;
+  console.log(`[rwa-registry] NAV refresh complete: ${successCount}/${rwaAssets.size} assets updated`);
 }
 
 /**

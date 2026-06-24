@@ -66,6 +66,7 @@ import {
   cancelRedemption,
 } from './redemption';
 import { refreshAllNAVs, getYieldComparison } from './nav';
+import { runMigrations, getAllCachedNAVs, pool } from './db';
 import type { MerchantRWAPosition, RedemptionSpeed } from './types';
 
 // ── Configuration ─────────────────────────────────────────────────────────────
@@ -467,7 +468,7 @@ async function buildApp() {
    * Manually trigger a NAV refresh for all assets.
    */
   app.post('/v1/nav/refresh', async (_req, reply) => {
-    refreshAllNAVs();
+    await refreshAllNAVs();
     return reply.send({
       success: true,
       message: 'NAV refresh triggered for all assets',
@@ -500,9 +501,9 @@ export { buildApp };
 
 function startBackgroundJobs(app: Awaited<ReturnType<typeof buildApp>>): void {
   // NAV refresh — every 6 hours
-  const navInterval = setInterval(() => {
+  const navInterval = setInterval(async () => {
     try {
-      refreshAllNAVs();
+      await refreshAllNAVs();
     } catch (err) {
       app.log.error({ err }, '[rwa-registry] NAV refresh cycle error');
     }
@@ -527,21 +528,48 @@ function startBackgroundJobs(app: Awaited<ReturnType<typeof buildApp>>): void {
 
 // ── Startup ───────────────────────────────────────────────────────────────────
 
+async function initNavCacheFromDb(): Promise<void> {
+  try {
+    await runMigrations();
+    console.log('[rwa-registry] Database migrations complete');
+
+    const cachedNAVs = await getAllCachedNAVs();
+    let loadedCount = 0;
+
+    for (const asset of rwaAssets.values()) {
+      if (cachedNAVs[asset.symbol] !== undefined) {
+        asset.nav = cachedNAVs[asset.symbol];
+        loadedCount++;
+      }
+    }
+
+    console.log(`[rwa-registry] Loaded ${loadedCount} cached NAVs from database`);
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    console.warn('[rwa-registry] Failed to initialize NAV cache from DB:', errorMsg);
+    // Continue startup even if DB init fails — assets will use seed NAVs
+  }
+}
+
 async function main(): Promise<void> {
   const app = await buildApp();
 
   const shutdown = async () => {
     app.log.info('[rwa-registry] Shutting down...');
     await app.close();
+    await pool.end();
     process.exit(0);
   };
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
 
+  // Initialize NAV cache from database on startup
+  await initNavCacheFromDb();
+
   startBackgroundJobs(app);
 
   // Initial NAV refresh on startup
-  refreshAllNAVs();
+  await refreshAllNAVs();
 
   await app.listen({ port: PORT, host: '0.0.0.0' });
 
