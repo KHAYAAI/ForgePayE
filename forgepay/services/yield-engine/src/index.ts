@@ -40,8 +40,10 @@ import { buildPositionRoutes }  from './routes/positions';
 import { buildSweepRoutes }     from './routes/sweep';
 import { buildYieldRoutes }     from './routes/yields';
 import { sweepIdleBalances }    from './services/sweepService';
-import { updateAllPositions }   from './services/positionTracker';
+import { updateAllPositions, initPositionsFromDb }   from './services/positionTracker';
 import { fetchAllApys }         from './services/apyAggregator';
+import { initDb, closeDb }      from './db';
+import { setUseDb }             from './store';
 
 // ── Build app ─────────────────────────────────────────────────────────────────
 
@@ -173,6 +175,25 @@ function startScheduler(): void {
 // ── Startup ───────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
+  // Initialize database connection and run migrations
+  // DB persistence is best-effort — if it fails, the app continues with in-memory storage
+  const useDbEnv = process.env['USE_DB']?.toLowerCase() === 'true';
+  if (useDbEnv) {
+    try {
+      await initDb();
+      setUseDb(true);
+      console.log('[yield-engine] PostgreSQL persistence enabled');
+
+      // Load all positions from the database to restore state
+      await initPositionsFromDb();
+    } catch (err) {
+      console.warn('[yield-engine] Database initialization failed; continuing with in-memory storage:', err);
+      setUseDb(false);
+    }
+  } else {
+    console.log('[yield-engine] PostgreSQL persistence disabled (set USE_DB=true to enable)');
+  }
+
   const app = await buildApp();
 
   // Pre-warm APY cache so first API responses are fast
@@ -186,6 +207,9 @@ async function main(): Promise<void> {
   const shutdown = async () => {
     console.log('[yield-engine] Shutting down...');
     await app.close();
+    if (useDbEnv) {
+      await closeDb();
+    }
     process.exit(0);
   };
   process.on('SIGTERM', shutdown);

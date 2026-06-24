@@ -6,19 +6,19 @@ import { v4 as uuidv4 } from 'uuid';
 import type { ReputationEvent, TrustLevel } from './types';
 import { getAgent, setAgent, pushReputationEvent } from './store';
 
-// ── Score delta table ─────────────────────────────────────────────────────────
+// ── Score delta table ─────────────────────────────────────────────────────
 
 const SCORE_DELTAS: Record<ReputationEvent['eventType'], number> = {
-  transaction_success:   +5,
-  transaction_failure:   -10,
-  dispute_raised:        -20,
-  dispute_resolved:      +15,
-  late_payment:          -8,
-  fraud_detected:        -100,
-  vouched_by_trusted:    +30,
+  transaction_success: +5,
+  transaction_failure: -10,
+  dispute_raised: -20,
+  dispute_resolved: +15,
+  late_payment: -8,
+  fraud_detected: -100,
+  vouched_by_trusted: +30,
 };
 
-// ── Trust level thresholds ────────────────────────────────────────────────────
+// ── Trust level thresholds ────────────────────────────────────────────────
 
 function computeTrustLevel(score: number): TrustLevel {
   if (score > 800) return 'premium';
@@ -27,18 +27,18 @@ function computeTrustLevel(score: number): TrustLevel {
   return 'unverified';
 }
 
-// ── Public API ────────────────────────────────────────────────────────────────
+// ── Public API ────────────────────────────────────────────────────────────
 
 export interface RecordEventOptions {
-  relatedAgentId?:  string;
-  transactionId?:   string;
+  relatedAgentId?: string;
+  transactionId?: string;
 }
 
 export async function recordReputationEvent(
-  agentId:     string,
-  eventType:   ReputationEvent['eventType'],
+  agentId: string,
+  eventType: ReputationEvent['eventType'],
   description: string,
-  options:     RecordEventOptions = {}
+  options: RecordEventOptions = {}
 ): Promise<ReputationEvent | { error: string }> {
   const agent = await getAgent(agentId);
   if (!agent) {
@@ -63,8 +63,8 @@ export async function recordReputationEvent(
   const updatedAgent = {
     ...agent,
     reputationScore: newScore,
-    trustLevel:      computeTrustLevel(newScore),
-    successRate:     newSuccessRate,
+    trustLevel: computeTrustLevel(newScore),
+    successRate: newSuccessRate,
     totalTransactions:
       eventType === 'transaction_success' || eventType === 'transaction_failure'
         ? agent.totalTransactions + 1
@@ -75,14 +75,14 @@ export async function recordReputationEvent(
   await setAgent(updatedAgent);
 
   const event: ReputationEvent = {
-    id:             uuidv4(),
+    id: uuidv4(),
     agentId,
     eventType,
-    scoreDelta:     delta,
+    scoreDelta: delta,
     description,
     relatedAgentId: options.relatedAgentId,
-    transactionId:  options.transactionId,
-    createdAt:      new Date().toISOString(),
+    transactionId: options.transactionId,
+    createdAt: new Date().toISOString(),
   };
 
   await pushReputationEvent(event);

@@ -15,7 +15,8 @@
 
 import pino from 'pino';
 import { getAdapter } from '../adapters';
-import { positionsStore, vaultsStore } from '../store';
+import { positionsStore, vaultsStore, useDb } from '../store';
+import { upsertPosition, loadAllPositions } from '../db';
 import type { YieldPosition, PortfolioSummary, VaultAllocation, ChainName } from '../types';
 
 const logger = pino({ name: 'position-tracker' });
@@ -56,6 +57,14 @@ async function refreshPositionFromChain(position: YieldPosition): Promise<YieldP
       lastUpdatedAt: new Date().toISOString(),
     };
     positionsStore.set(position.id, updated);
+
+    // Write-through: persist to DB (non-blocking, best-effort)
+    if (useDb) {
+      upsertPosition(updated).catch((err) =>
+        logger.warn({ positionId: position.id, err }, 'Failed to persist updated position to DB'),
+      );
+    }
+
     return updated;
   } catch (err) {
     logger.warn({ positionId: position.id, err }, 'On-chain balance fetch failed');
@@ -180,6 +189,14 @@ export function initiateWithdrawal(positionId: string): YieldPosition | null {
     lastUpdatedAt: new Date().toISOString(),
   };
   positionsStore.set(positionId, updated);
+
+  // Write-through: persist to DB (non-blocking, best-effort)
+  if (useDb) {
+    upsertPosition(updated).catch((err) =>
+      logger.warn({ positionId, err }, 'Failed to persist withdrawal initiation to DB'),
+    );
+  }
+
   return updated;
 }
 
@@ -198,5 +215,30 @@ export function closePosition(positionId: string): YieldPosition | null {
     lastUpdatedAt: new Date().toISOString(),
   };
   positionsStore.set(positionId, updated);
+
+  // Write-through: persist to DB (non-blocking, best-effort)
+  if (useDb) {
+    upsertPosition(updated).catch((err) =>
+      logger.warn({ positionId, err }, 'Failed to persist position closure to DB'),
+    );
+  }
+
   return updated;
+}
+
+/**
+ * Initialize all positions from the database.
+ * Call this during app startup to restore persistent state.
+ */
+export async function initPositionsFromDb(): Promise<void> {
+  try {
+    const positions = await loadAllPositions();
+    for (const pos of positions) {
+      positionsStore.set(pos.id, pos);
+    }
+    logger.info({ count: positions.length }, 'Loaded positions from database');
+  } catch (err) {
+    logger.error({ err }, 'Failed to load positions from database');
+    // Continue anyway — use empty in-memory store
+  }
 }

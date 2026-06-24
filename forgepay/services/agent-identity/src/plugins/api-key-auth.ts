@@ -1,35 +1,42 @@
-import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import fp from 'fastify-plugin';
-
 /**
- * Validates X-Api-Key or Authorization: Bearer header.
- * In development (NODE_ENV !== 'production'), any non-empty key passes.
- * In production, key is validated against VALID_API_KEYS env var (comma-separated).
+ * API Key Authentication Plugin
+ * ─────────────────────────────────────────────────────────────────────────
+ * Fastify plugin for request-scoped API key validation.
+ * Checks Authorization: Bearer <key> header.
  */
-async function apiKeyAuthPlugin(app: FastifyInstance) {
-  const isDev = process.env['NODE_ENV'] !== 'production';
-  const validKeys = new Set(
-    (process.env['VALID_API_KEYS'] ?? '').split(',').filter(Boolean)
-  );
 
-  app.addHook('onRequest', async (request: FastifyRequest, reply: FastifyReply) => {
-    // Skip auth for public endpoints
-    if (request.url === '/health' || request.url.startsWith('/health')) return;
-    if (request.url.startsWith('/.well-known/')) return;
+import type { FastifyInstance } from 'fastify';
+import fastifyPlugin from 'fastify-plugin';
 
-    const apiKey =
-      request.headers['x-api-key'] as string ??
-      (request.headers['authorization'] as string)?.replace('Bearer ', '');
+const VALID_API_KEYS = (process.env['API_KEYS'] ?? '').split(',').filter(Boolean);
 
-    if (!apiKey) {
-      return reply.code(401).send({ error: 'Missing API key. Provide X-Api-Key header.' });
+// Routes that don't require auth
+const PUBLIC_ROUTES = ['/health', '/v1/discover', '/v1/verify-signature', '/.well-known/jwks.json'];
+
+async function apiKeyAuthPlugin(fastify: FastifyInstance): Promise<void> {
+  fastify.addHook('preHandler', async (request) => {
+    const path = request.url.split('?')[0];
+
+    // Skip auth for public routes
+    if (PUBLIC_ROUTES.some((r) => path === r || path.startsWith(r))) {
+      return;
     }
 
-    // Dev: any key works; Prod: key must be in VALID_API_KEYS
-    if (!isDev && validKeys.size > 0 && !validKeys.has(apiKey)) {
-      return reply.code(401).send({ error: 'Invalid API key.' });
+    // Skip auth if no API_KEYS configured (dev mode)
+    if (!VALID_API_KEYS.length) {
+      return;
+    }
+
+    const authHeader = request.headers['authorization'];
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      throw fastify.httpErrors.unauthorized('Missing or invalid Authorization header');
+    }
+
+    const key = authHeader.slice(7); // Remove "Bearer "
+    if (!VALID_API_KEYS.includes(key)) {
+      throw fastify.httpErrors.forbidden('Invalid API key');
     }
   });
 }
 
-export default fp(apiKeyAuthPlugin, { name: 'api-key-auth' });
+export default fastifyPlugin(apiKeyAuthPlugin);

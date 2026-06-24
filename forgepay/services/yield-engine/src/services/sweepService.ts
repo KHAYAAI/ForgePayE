@@ -24,7 +24,8 @@ import axios from 'axios';
 import pino from 'pino';
 import { v4 as uuidv4 } from 'uuid';
 import { ethers } from 'ethers';
-import { sweepConfigStore, positionsStore, txStore, vaultsStore } from '../store';
+import { sweepConfigStore, positionsStore, txStore, vaultsStore, useDb } from '../store';
+import { upsertPosition, upsertTransaction, loadAllSweepConfigs } from '../db';
 import { config } from '../config';
 import type { YieldPosition, YieldTransaction, SweepConfig } from '../types';
 import { AaveAdapter } from '../adapters/aave';
@@ -167,6 +168,13 @@ async function sweepMerchant(sweepCfg: SweepConfig): Promise<boolean> {
   };
   positionsStore.set(positionId, position);
 
+  // Write-through: persist position to DB (non-blocking, best-effort)
+  if (useDb) {
+    upsertPosition(position).catch((err) =>
+      logger.warn({ positionId, err }, 'Failed to persist sweep position to DB'),
+    );
+  }
+
   // Create pending transaction record
   const txId = uuidv4();
   const tx: YieldTransaction = {
@@ -182,6 +190,13 @@ async function sweepMerchant(sweepCfg: SweepConfig): Promise<boolean> {
   };
   txStore.set(txId, tx);
 
+  // Write-through: persist transaction to DB (non-blocking, best-effort)
+  if (useDb) {
+    upsertTransaction(tx).catch((err) =>
+      logger.warn({ txId, err }, 'Failed to persist sweep transaction to DB'),
+    );
+  }
+
   // Submit on-chain
   const txHash = await executeOnChainDeposit(targetVaultId, sweepable);
 
@@ -194,9 +209,25 @@ async function sweepMerchant(sweepCfg: SweepConfig): Promise<boolean> {
   };
   txStore.set(txId, updatedTx);
 
+  // Write-through: persist updated transaction to DB (non-blocking, best-effort)
+  if (useDb) {
+    upsertTransaction(updatedTx).catch((err) =>
+      logger.warn({ txId, err }, 'Failed to persist updated sweep transaction to DB'),
+    );
+  }
+
   if (!txHash) {
     // Revert position back to closed on failure
-    positionsStore.set(positionId, { ...position, status: 'closed' });
+    const failedPosition = { ...position, status: 'closed' as const };
+    positionsStore.set(positionId, failedPosition);
+
+    // Write-through: persist failed position to DB (non-blocking, best-effort)
+    if (useDb) {
+      upsertPosition(failedPosition).catch((err) =>
+        logger.warn({ positionId, err }, 'Failed to persist failed sweep position to DB'),
+      );
+    }
+
     logger.error({ merchantId, positionId }, 'Sweep failed — position closed');
     return false;
   }
@@ -278,7 +309,15 @@ export async function scheduleWithdrawal(
   // Mark position as withdrawing (if full withdrawal)
   const isFullWithdrawal = withdrawAmount >= position.currentValue * 0.9999;
   if (isFullWithdrawal) {
-    positionsStore.set(positionId, { ...position, status: 'withdrawing', lastUpdatedAt: now });
+    const withdrawingPos = { ...position, status: 'withdrawing' as const, lastUpdatedAt: now };
+    positionsStore.set(positionId, withdrawingPos);
+
+    // Write-through: persist to DB (non-blocking, best-effort)
+    if (useDb) {
+      upsertPosition(withdrawingPos).catch((err) =>
+        logger.warn({ positionId, err }, 'Failed to persist withdrawing position to DB'),
+      );
+    }
   }
 
   const tx: YieldTransaction = {
@@ -294,6 +333,13 @@ export async function scheduleWithdrawal(
   };
   txStore.set(txId, tx);
 
+  // Write-through: persist transaction to DB (non-blocking, best-effort)
+  if (useDb) {
+    upsertTransaction(tx).catch((err) =>
+      logger.warn({ txId, err }, 'Failed to persist withdrawal transaction to DB'),
+    );
+  }
+
   logger.info({ merchantId, positionId, withdrawAmount }, 'Withdrawal scheduled');
 
   // In production: push to a job queue (BullMQ / SQS) so the withdrawal is
@@ -307,22 +353,45 @@ export async function scheduleWithdrawal(
   };
   txStore.set(txId, confirmed);
 
+  // Write-through: persist confirmed transaction to DB (non-blocking, best-effort)
+  if (useDb) {
+    upsertTransaction(confirmed).catch((err) =>
+      logger.warn({ txId, err }, 'Failed to persist confirmed withdrawal transaction to DB'),
+    );
+  }
+
   if (isFullWithdrawal) {
-    positionsStore.set(positionId, {
+    const closedPos = {
       ...position,
-      status:        'closed',
+      status:        'closed' as const,
       currentValue:  0,
       shares:        0,
       realizedYield: position.realizedYield + position.unrealizedYield,
       lastUpdatedAt: new Date().toISOString(),
-    });
+    };
+    positionsStore.set(positionId, closedPos);
+
+    // Write-through: persist closed position to DB (non-blocking, best-effort)
+    if (useDb) {
+      upsertPosition(closedPos).catch((err) =>
+        logger.warn({ positionId, err }, 'Failed to persist closed position to DB'),
+      );
+    }
   } else {
-    positionsStore.set(positionId, {
+    const partialPos = {
       ...position,
       principal:       position.principal - withdrawAmount,
       currentValue:    position.currentValue - withdrawAmount,
       lastUpdatedAt:   new Date().toISOString(),
-    });
+    };
+    positionsStore.set(positionId, partialPos);
+
+    // Write-through: persist partial position to DB (non-blocking, best-effort)
+    if (useDb) {
+      upsertPosition(partialPos).catch((err) =>
+        logger.warn({ positionId, err }, 'Failed to persist partial position to DB'),
+      );
+    }
   }
 
   return confirmed;

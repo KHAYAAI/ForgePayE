@@ -139,6 +139,16 @@ export const positionsStore  = new Map<string, YieldPosition>();
 export const sweepConfigStore = new Map<string, SweepConfig>();
 export const txStore          = new Map<string, YieldTransaction>();
 
+// ── Database persistence flag ────────────────────────────────────────────────
+
+// When true, all store mutations also persist to PostgreSQL (best-effort, non-blocking).
+// When false, only in-memory store is used (for development / testing).
+export let useDb = false;
+
+export function setUseDb(enabled: boolean): void {
+  useDb = enabled;
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 export function getVaultsByAsset(asset: AssetSymbol): YieldVault[] {
