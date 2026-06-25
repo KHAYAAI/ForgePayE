@@ -187,7 +187,11 @@ export function updateRule(id: string, updates: Partial<TreasuryRule>): Treasury
   if (!existing) return null;
   const updated = { ...existing, ...updates, id };
   rulesMap.set(id, updated);
-  if (useDb) upsertRuleToDb(updated).catch(() => {});
+  if (useDb) {
+    upsertRuleToDb(updated).catch(() => {});
+    // Force cache refresh on next evaluateRules call (don't wait for TTL)
+    lastCacheRefreshMs = 0;
+  }
   return updated;
 }
 
@@ -247,7 +251,52 @@ export function getExecutionLog(limit = 50): RuleExecution[] {
 
 // ── Rule evaluation cycle ─────────────────────────────────────────────────────
 
+/**
+ * Refresh rules from database only if cache expired or on-demand.
+ * Called by evaluateRules and update operations.
+ * Reduces query frequency from 1/60s to 1/3600s for stable rule sets.
+ */
+async function refreshRulesCacheIfNeeded(): Promise<void> {
+  // Only refresh if cache TTL expired
+  if (Date.now() - lastCacheRefreshMs < CACHE_TTL_MS) {
+    return;
+  }
+
+  if (!useDb) return;
+
+  try {
+    // Load only enabled rules to reduce row count
+    const res = await pool.query<Record<string, unknown>>(
+      `SELECT * FROM treasury_rules WHERE enabled = true ORDER BY updated_at DESC`
+    );
+
+    // Rebuild rules map with fresh data
+    rulesMap.clear();
+    for (const row of res.rows) {
+      const rule: TreasuryRule = {
+        id:               row['id'] as string,
+        name:             row['name'] as string,
+        enabled:          row['enabled'] as boolean,
+        condition:        row['condition'] as TreasuryRule['condition'],
+        action:           row['action'] as TreasuryRule['action'],
+        approvalRequired: row['approval_required'] as boolean,
+        executionCount:   Number(row['execution_count']),
+        lastTriggered:    row['last_triggered'] ? (row['last_triggered'] as Date).toISOString() : undefined,
+      };
+      rulesMap.set(rule.id, rule);
+    }
+
+    lastCacheRefreshMs = Date.now();
+  } catch (err) {
+    console.warn('[rules-engine] Failed to refresh rules cache:', (err as Error).message);
+    // Continue serving with stale cache rather than failing
+  }
+}
+
 export async function evaluateRules(position: CashPosition): Promise<RuleExecution[]> {
+  // Refresh cache if expired (N+1 fix #4: avoids 1/60s queries)
+  await refreshRulesCacheIfNeeded();
+
   const cycleResults: RuleExecution[] = [];
 
   for (const rule of rulesMap.values()) {
