@@ -4,7 +4,6 @@ import rateLimit from '@fastify/rate-limit';
 import cors from '@fastify/cors';
 import { config } from './config.js';
 import { getDb } from './lib/db.js';
-import { runMigrations } from './db/migrate.js';
 import { buildAccountRoutes } from './routes/accounts.js';
 import { buildTransactionRoutes } from './routes/transactions.js';
 import { buildWebhookRoutes } from './routes/webhooks.js';
@@ -40,10 +39,6 @@ app.get('/readyz', async (_req, reply) => {
     reply.code(503).send({ status: 'not_ready', error: 'Database unavailable' });
   }
 });
-
-// Run database migrations
-const db = getDb();
-await runMigrations(db);
 
 // API routes
 await app.register(buildAccountRoutes,     { prefix: '/v1/accounts' });

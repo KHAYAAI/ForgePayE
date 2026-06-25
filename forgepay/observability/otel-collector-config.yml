@@ -1,0 +1,116 @@
+# OpenTelemetry Collector Configuration
+# Receives traces, metrics, and logs from services
+# Exports to Jaeger (traces) and Prometheus (metrics)
+
+receivers:
+  # OTLP receiver for traces and metrics
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+  # Prometheus receiver (for scraping Prometheus targets)
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: "otel-collector"
+          scrape_interval: 30s
+          static_configs:
+            - targets: ["localhost:8888"]
+
+processors:
+  # Batch processor for better performance
+  batch:
+    send_batch_size: 1024
+    timeout: 10s
+
+  # Memory limiter to prevent OOM
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+    spike_limit_mib: 128
+
+  # Resource detection
+  resourcedetection:
+    detectors:
+      - docker
+      - system
+      - env
+
+  # Attributes processor for adding custom attributes
+  attributes:
+    actions:
+      - key: deployment.environment
+        value: local
+        action: insert
+      - key: service.namespace
+        value: forgepay
+        action: insert
+
+  # Sampling processor
+  probabilistic_sampler:
+    sampling_percentage: 100  # Sample 100% in development
+
+exporters:
+  # Jaeger exporter for traces
+  jaeger:
+    endpoint: jaeger:14250
+    tls:
+      insecure: true
+
+  # Prometheus exporter for metrics
+  prometheusremotewrite:
+    endpoint: "http://prometheus:9090/api/v1/write"
+    resource_to_telemetry_conversion:
+      enabled: true
+
+  # Optional: Logging exporter for debugging
+  logging:
+    loglevel: debug
+
+service:
+  pipelines:
+    # Traces pipeline
+    traces:
+      receivers:
+        - otlp
+      processors:
+        - memory_limiter
+        - attributes
+        - resourcedetection
+        - probabilistic_sampler
+        - batch
+      exporters:
+        - jaeger
+        - logging
+
+    # Metrics pipeline
+    metrics:
+      receivers:
+        - otlp
+        - prometheus
+      processors:
+        - memory_limiter
+        - attributes
+        - resourcedetection
+        - batch
+      exporters:
+        - prometheusremotewrite
+        - logging
+
+    # Logs pipeline (if enabled)
+    logs:
+      receivers:
+        - otlp
+      processors:
+        - memory_limiter
+        - attributes
+        - batch
+      exporters:
+        - logging
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133

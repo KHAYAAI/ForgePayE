@@ -57,3 +57,17 @@ podAnnotations:
   prometheus.io/scrape: "true"
   prometheus.io/port: "3006"
   prometheus.io/path: "/healthz"
+
+# Prometheus metrics configuration
+metrics:
+  enabled: true
+  port: 9095
+  path: /metrics
+
+# Service Monitor for Prometheus scraping
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  scrapeTimeout: 10s
+  labels:
+    release: prometheus

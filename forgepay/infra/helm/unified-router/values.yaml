@@ -60,3 +60,17 @@ readinessProbe:
     port: 8000
   initialDelaySeconds: 5
   periodSeconds: 10
+
+# Prometheus metrics configuration
+metrics:
+  enabled: true
+  port: 9090
+  path: /metrics
+
+# Service Monitor for Prometheus scraping
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  scrapeTimeout: 10s
+  labels:
+    release: prometheus

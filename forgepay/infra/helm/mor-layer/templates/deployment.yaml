@@ -26,6 +26,11 @@ spec:
             - name: http
               containerPort: 8010
               protocol: TCP
+            {{- if .Values.metrics.enabled }}
+            - name: metrics
+              containerPort: {{ .Values.metrics.port }}
+              protocol: TCP
+            {{- end }}
           env:
             - name: ENVIRONMENT
               value: {{ .Values.env.ENVIRONMENT | quote }}

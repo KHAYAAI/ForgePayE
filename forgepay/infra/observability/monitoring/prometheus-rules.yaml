@@ -1,0 +1,119 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: forgepay-service-alerts
+  namespace: forgepay
+  labels:
+    prometheus: kube-prometheus
+spec:
+  groups:
+    - name: forgepay.service_health
+      interval: 30s
+      rules:
+        # Alert if service metrics endpoint is unreachable
+        - alert: ServiceMetricsEndpointDown
+          expr: |
+            up{job=~"unified-router|mor-layer|billing-engine|stablecoin-gateway|crypto-gateway|bank-connectivity|enterprise-treasury|agent-credit-lines|agent-identity|yield-engine"} == 0
+          for: 5m
+          labels:
+            severity: critical
+            component: observability
+          annotations:
+            summary: "Service metrics endpoint unreachable for {{ $labels.job }}"
+            description: "Service {{ $labels.job }} in {{ $labels.pod }} has not reported metrics for 5 minutes"
+
+    - name: forgepay.service_latency
+      interval: 30s
+      rules:
+        # Alert if HTTP response latency p95 > 500ms
+        - alert: ServiceLatencyHigh
+          expr: |
+            histogram_quantile(0.95,
+              sum by (job, le) (
+                rate(http_request_duration_seconds_bucket{job=~"unified-router|mor-layer|billing-engine|stablecoin-gateway|crypto-gateway|bank-connectivity|enterprise-treasury|agent-credit-lines|agent-identity|yield-engine"}[5m])
+              )
+            ) > 0.5
+          for: 5m
+          labels:
+            severity: warning
+            component: performance
+          annotations:
+            summary: "Service {{ $labels.job }} p95 latency above 500ms"
+            description: "Service {{ $labels.job }} has p95 HTTP request latency of {{ $value | humanizeDuration }}"
+
+    - name: forgepay.service_errors
+      interval: 30s
+      rules:
+        # Alert if error rate > 5%
+        - alert: ServiceErrorRateHigh
+          expr: |
+            (
+              sum by (job) (
+                rate(http_requests_total{status=~"5.."}[5m])
+              )
+              /
+              sum by (job) (
+                rate(http_requests_total[5m])
+              )
+            ) > 0.05
+          for: 5m
+          labels:
+            severity: critical
+            component: reliability
+          annotations:
+            summary: "Service {{ $labels.job }} error rate above 5%"
+            description: "Service {{ $labels.job }} has error rate of {{ $value | humanizePercentage }}"
+
+    - name: forgepay.database
+      interval: 30s
+      rules:
+        # Alert if database connection pool exhausted
+        - alert: DatabaseConnectionPoolExhausted
+          expr: |
+            (
+              pg_stat_activity_count{job=~"unified-router|mor-layer|billing-engine|stablecoin-gateway|crypto-gateway|bank-connectivity|enterprise-treasury|agent-credit-lines|agent-identity|yield-engine"}
+              /
+              pg_settings_max_connections
+            ) > 0.9
+          for: 5m
+          labels:
+            severity: warning
+            component: database
+          annotations:
+            summary: "Database connections near limit for {{ $labels.job }}"
+            description: "Database connection pool at {{ $value | humanizePercentage }} capacity"
+
+    - name: forgepay.resource_constraints
+      interval: 30s
+      rules:
+        # Alert if container memory usage is high
+        - alert: ContainerMemoryHigh
+          expr: |
+            (
+              container_memory_usage_bytes{pod=~".*-unified-router.*|.*-mor-layer.*|.*-billing-engine.*|.*-stablecoin-gateway.*|.*-crypto-gateway.*|.*-bank-connectivity.*|.*-enterprise-treasury.*|.*-agent-credit-lines.*|.*-agent-identity.*|.*-yield-engine.*"}
+              /
+              container_spec_memory_limit_bytes
+            ) > 0.85
+          for: 5m
+          labels:
+            severity: warning
+            component: resource
+          annotations:
+            summary: "Container memory usage high for {{ $labels.pod }}"
+            description: "Container memory usage at {{ $value | humanizePercentage }} of limit"
+
+        # Alert if container CPU usage is consistently high
+        - alert: ContainerCPUHigh
+          expr: |
+            (
+              rate(container_cpu_usage_seconds_total{pod=~".*-unified-router.*|.*-mor-layer.*|.*-billing-engine.*|.*-stablecoin-gateway.*|.*-crypto-gateway.*|.*-bank-connectivity.*|.*-enterprise-treasury.*|.*-agent-credit-lines.*|.*-agent-identity.*|.*-yield-engine.*"}[5m])
+              /
+              container_spec_cpu_quota
+            ) > 0.80
+          for: 5m
+          labels:
+            severity: warning
+            component: resource
+          annotations:
+            summary: "Container CPU usage high for {{ $labels.pod }}"
+            description: "Container CPU usage at {{ $value | humanizePercentage }} of limit"

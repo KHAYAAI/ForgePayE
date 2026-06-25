@@ -43,7 +43,6 @@ import { buildEventRoutes } from './routes/events.js';
 import { buildHealthRoutes } from './routes/health.js';
 import { createRedisClient } from './lib/redis.js';
 import { createDbPool } from './lib/db.js';
-import { runMigrations } from './db/migrate.js';
 import { config } from './config.js';
 import { logger } from './lib/logger.js';
 
@@ -70,7 +69,6 @@ async function main() {
   // ── Shared resources ──────────────────────────────────────────────────────
   const redis = createRedisClient(config.redis.url);
   const db    = createDbPool(config.postgres);
-  await runMigrations(db);
 
   // Decorate so routes can access them
   app.decorate('redis', redis);

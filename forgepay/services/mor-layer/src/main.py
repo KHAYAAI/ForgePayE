@@ -35,19 +35,18 @@ Ports:
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
 
 import httpx
 import structlog
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import pool
-from sqlalchemy.ext.asyncio import async_engine_from_config
-from alembic import context as alembic_context
-from alembic.config import Config as AlembicConfig
+from fastapi.responses import JSONResponse
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from src.api import checkout, customers, webhooks
 from src.api.auditor import router as auditor_router
@@ -55,7 +54,6 @@ from src.api.merchants import auth_router, router as merchants_router
 from src.api.tax_filing_routes import router as tax_filing_router
 from src.bootstrap.mor_account import ensure_mor_operating_account
 from src.config import get_settings
-from src.db.models import Base
 
 structlog.configure(
     processors=[
@@ -77,53 +75,22 @@ settings = get_settings()
 logging.basicConfig(level=settings.log_level)
 logger = structlog.get_logger(__name__)
 
+# Rate limiter setup
+limiter = Limiter(key_func=get_remote_address)
 
-async def run_db_migrations() -> None:
-  """Run Alembic migrations on startup."""
-  try:
-    alembic_cfg = AlembicConfig("alembic.ini")
-    database_url = os.environ.get("MOR_DATABASE_URL", "postgresql+asyncpg://forgepay:devpassword@localhost:5432/forgepay_dev")
-    alembic_cfg.set_main_option("sqlalchemy.url", database_url)
-
-    async def async_upgrade():
-      from alembic.script import ScriptDirectory
-      from alembic.runtime.migration import MigrationContext
-      scriptdir = ScriptDirectory.from_config(alembic_cfg)
-      connectable = async_engine_from_config(
-        {"sqlalchemy.url": database_url},
-        poolclass=pool.NullPool,
-      )
-      async with connectable.connect() as connection:
-        await connection.run_sync(lambda conn: scriptdir.get_heads())
-        # Run upgrade
-        await connection.run_sync(
-          lambda conn: context.MigrationContext.configure(conn).get_current_revision()
-        )
-      await connectable.dispose()
-
-    # Use subprocess to run Alembic CLI (simpler approach)
-    import subprocess
-    result = subprocess.run(
-      ["alembic", "upgrade", "head"],
-      cwd=os.path.dirname(os.path.abspath(__file__)) + "/..",
-      capture_output=True,
-      text=True,
+# Rate limit handler
+async def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    logger.warning("rate_limit_exceeded", path=request.url.path, remote=get_remote_address(request))
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Rate limit exceeded. Please retry after a delay."},
     )
-    if result.returncode == 0:
-      logger.info("[mor-layer] Database migrations completed successfully")
-    else:
-      logger.warning("[mor-layer] Migration warning (may already be applied):", error=result.stderr)
-  except Exception as e:
-    logger.warning("[mor-layer] Failed to run migrations (falling back):", error=str(e))
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     _settings = get_settings()
-    # Run database migrations
-    await run_db_migrations()
-    # Ensure MoR operating account exists
     await ensure_mor_operating_account(
         _settings.bank_connectivity_url,
         _settings.mor_internal_secret,
@@ -141,6 +108,10 @@ app = FastAPI(
     redoc_url=None,
     openapi_url="/openapi.json" if settings.environment != "production" else None,
 )
+
+# Attach rate limiter to app state
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
 
 app.add_middleware(
     CORSMiddleware,
