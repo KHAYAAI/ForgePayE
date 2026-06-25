@@ -1,0 +1,243 @@
+---
+# ForgePay Production Alert Rules
+# Loaded by Prometheus via rule_files directive.
+# Runbook base: https://github.com/forgepay/ForgePayE/blob/main/forgepay/infra/PRODUCTION_DEPLOY.md#troubleshooting
+
+groups:
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # CRITICAL — Page immediately (PagerDuty → payments team)
+  # ──────────────────────────────────────────────────────────────────────────
+  - name: forgepay.critical
+    rules:
+
+      # Any ForgePay service stops reporting metrics entirely
+      - alert: ServiceDown
+        expr: |
+          absent_over_time(up{job=~"unified-router|mor-layer|billing-engine|stablecoin-gateway|crypto-gateway|bank-connectivity|enterprise-treasury|agent-credit-lines|agent-identity|yield-engine|chain-sync|compliance-monitor|liquidity-forecaster|rwa-registry|accounts-service|bank-whitelabel|institutional-reporting|agent-decision-framework|agent-negotiation|agent-liquidity-manager"}[1m]) == 1
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Service {{ $labels.job }} is down"
+          description: >
+            Prometheus has received no scrapes from {{ $labels.job }} for at least 1 minute.
+            The service may be crashed, OOMkilled, or unreachable.
+          runbook_url: "https://github.com/forgepay/ForgePayE/blob/main/forgepay/infra/PRODUCTION_DEPLOY.md#troubleshooting-servicedown"
+
+      # 5xx error rate exceeds 5% for any service over 2 minutes
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum by (service) (rate(http_requests_total{status_code=~"5.."}[2m]))
+            /
+            sum by (service) (rate(http_requests_total[2m]))
+          ) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "High error rate on {{ $labels.service }} ({{ $value | humanizePercentage }})"
+          description: >
+            Service {{ $labels.service }} has a 5xx error rate of {{ $value | humanizePercentage }},
+            exceeding the 5% critical threshold for the past 2 minutes.
+          runbook_url: "https://github.com/forgepay/ForgePayE/blob/main/forgepay/infra/PRODUCTION_DEPLOY.md#troubleshooting-higherrorrate"
+
+      # mor-layer checkout endpoint has had zero successful requests for 5 minutes
+      - alert: PaymentProcessingDown
+        expr: |
+          sum(rate(checkout_duration_seconds_count{status="success"}[5m])) == 0
+        for: 5m
+        labels:
+          severity: critical
+          team: payments
+        annotations:
+          summary: "Payment processing is down — no successful checkouts for 5 minutes"
+          description: >
+            The mor-layer checkout endpoint has recorded zero successful checkout_duration_seconds{status="success"}
+            events for the past 5 minutes. Card and checkout-based payment rails are likely failing.
+          runbook_url: "https://github.com/forgepay/ForgePayE/blob/main/forgepay/infra/PRODUCTION_DEPLOY.md#troubleshooting-paymentprocessingdown"
+
+      # PostgreSQL connection pool is at maximum capacity
+      - alert: DatabaseConnectionExhausted
+        expr: |
+          pg_stat_activity_count{state!="idle"} >= pg_settings_max_connections * 0.95
+        for: 30s
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Database connection pool near exhaustion ({{ $value }} / {{ pg_settings_max_connections }} connections)"
+          description: >
+            Active PostgreSQL connections have reached {{ $value }}, which is >= 95% of max_connections.
+            New connections will be rejected. Investigate connection leaks or scale the connection pool.
+          runbook_url: "https://github.com/forgepay/ForgePayE/blob/main/forgepay/infra/PRODUCTION_DEPLOY.md#troubleshooting-databaseconnectionexhausted"
+
+      # Webhook fanout queue depth exceeds 1000 for more than 1 minute
+      - alert: WebhookFanoutBacklog
+        expr: |
+          (
+            sum(webhook_dedup_misses_total) - sum(webhook_dedup_hits_total)
+          ) > 1000
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Webhook fanout backlog exceeds 1000 (current: {{ $value }})"
+          description: >
+            The unified-router webhook fanout queue has more than 1000 in-flight events.
+            Downstream consumers may be lagging or unavailable. Check unified-router logs
+            and downstream service health.
+          runbook_url: "https://github.com/forgepay/ForgePayE/blob/main/forgepay/infra/PRODUCTION_DEPLOY.md#troubleshooting-webhookfanoutbacklog"
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # WARNING — Slack #forgepay-alerts (not a page)
+  # ──────────────────────────────────────────────────────────────────────────
+  - name: forgepay.warning
+    rules:
+
+      # P99 latency exceeds 1 second on any endpoint for 5 minutes
+      - alert: HighLatencyP99
+        expr: |
+          histogram_quantile(0.99, sum by (service, le) (rate(http_request_duration_seconds_bucket[5m]))) > 1.0
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "P99 latency > 1s on {{ $labels.service }} ({{ $value | humanizeDuration }})"
+          description: >
+            Service {{ $labels.service }} has a P99 request latency of {{ $value | humanizeDuration }},
+            exceeding the 1-second warning threshold for 5 consecutive minutes.
+          runbook_url: "https://github.com/forgepay/ForgePayE/blob/main/forgepay/infra/PRODUCTION_DEPLOY.md#troubleshooting-highlatencyp99"
+
+      # More than 10 slow queries (> 500ms) per minute in PostgreSQL
+      - alert: SlowQueries
+        expr: |
+          count(pg_stat_statements_mean_time_seconds > 0.5) > 10
+        for: 2m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "More than 10 slow queries (>500ms) detected ({{ $value }} queries)"
+          description: >
+            PostgreSQL has {{ $value }} queries with mean execution time exceeding 500ms.
+            This may indicate missing indexes, N+1 query patterns, or table bloat.
+          runbook_url: "https://github.com/forgepay/ForgePayE/blob/main/forgepay/infra/PRODUCTION_DEPLOY.md#troubleshooting-slowqueries"
+
+      # Pod memory usage exceeds 80% for 5 minutes
+      - alert: HighMemoryUsage
+        expr: |
+          (
+            sum by (container) (container_memory_working_set_bytes{namespace="forgepay", container!=""})
+            /
+            sum by (container) (kube_pod_container_resource_limits{namespace="forgepay", resource="memory"})
+          ) > 0.80
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "High memory usage on {{ $labels.container }} ({{ $value | humanizePercentage }})"
+          description: >
+            Container {{ $labels.container }} in namespace forgepay is using {{ $value | humanizePercentage }}
+            of its memory limit for the past 5 minutes. Risk of OOMKill if usage continues to grow.
+          runbook_url: "https://github.com/forgepay/ForgePayE/blob/main/forgepay/infra/PRODUCTION_DEPLOY.md#troubleshooting-highmemoryusage"
+
+      # 429 rate limiting responses exceed 1% of total requests for 5 minutes
+      - alert: RateLimitingHigh
+        expr: |
+          (
+            sum by (service) (rate(http_requests_total{status_code="429"}[5m]))
+            /
+            sum by (service) (rate(http_requests_total[5m]))
+          ) > 0.01
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "High rate-limiting on {{ $labels.service }} ({{ $value | humanizePercentage }} of requests returning 429)"
+          description: >
+            Service {{ $labels.service }} is returning HTTP 429 Too Many Requests for
+            {{ $value | humanizePercentage }} of all requests, above the 1% warning threshold.
+            Clients may be hitting quota limits or the service is under excessive load.
+          runbook_url: "https://github.com/forgepay/ForgePayE/blob/main/forgepay/infra/PRODUCTION_DEPLOY.md#troubleshooting-ratelimitinghigh"
+
+      # No yield position updates from yield-engine for more than 15 minutes
+      - alert: YieldPositionStale
+        expr: |
+          (time() - max(last_over_time(sweep_job_duration_seconds_sum[15m]))) > 900
+        for: 0m
+        labels:
+          severity: warning
+          team: payments
+        annotations:
+          summary: "Yield positions have not been updated in > 15 minutes"
+          description: >
+            The yield-engine sweep job has not recorded any sweep_job_duration_seconds observations
+            in the last 15 minutes. Yield accrual may have stalled. Check the yield-engine scheduler
+            and database connectivity.
+          runbook_url: "https://github.com/forgepay/ForgePayE/blob/main/forgepay/infra/PRODUCTION_DEPLOY.md#troubleshooting-yieldpositionstale"
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # INFO — Slack #forgepay-info only
+  # ──────────────────────────────────────────────────────────────────────────
+  - name: forgepay.info
+    rules:
+
+      # Any pod has restarted in the last 15 minutes
+      - alert: PodRestart
+        expr: |
+          increase(kube_pod_container_status_restarts_total{namespace="forgepay"}[15m]) > 0
+        for: 0m
+        labels:
+          severity: info
+          team: platform
+        annotations:
+          summary: "Pod {{ $labels.pod }} ({{ $labels.container }}) restarted"
+          description: >
+            Container {{ $labels.container }} in pod {{ $labels.pod }} restarted
+            {{ $value }} time(s) in the last 15 minutes. This may be a transient OOM or
+            startup probe failure — investigate if restarts continue.
+          runbook_url: "https://github.com/forgepay/ForgePayE/blob/main/forgepay/infra/PRODUCTION_DEPLOY.md#troubleshooting-podrestart"
+
+      # TLS certificate expiring within 7 days
+      - alert: CertificateExpiringSoon
+        expr: |
+          (probe_ssl_earliest_cert_expiry - time()) / 86400 < 7
+        for: 1h
+        labels:
+          severity: info
+          team: platform
+        annotations:
+          summary: "TLS certificate for {{ $labels.instance }} expires in {{ $value | humanizeDuration }}"
+          description: >
+            The TLS certificate for {{ $labels.instance }} will expire in less than 7 days.
+            Renew via cert-manager or update the secret in Vault before expiry to avoid
+            service disruption.
+          runbook_url: "https://github.com/forgepay/ForgePayE/blob/main/forgepay/infra/PRODUCTION_DEPLOY.md#troubleshooting-certificateexpiringsoon"
+
+      # Agent reputation score drops more than 20 points within 1 hour
+      - alert: AgentReputationDrop
+        expr: |
+          (
+            sum by (event_type) (increase(reputation_events_duration_seconds_sum{status="failure"}[1h]))
+            /
+            sum by (event_type) (increase(reputation_events_duration_seconds_count[1h]))
+          ) > 20
+        for: 0m
+        labels:
+          severity: info
+          team: agents
+        annotations:
+          summary: "Agent reputation score dropped > 20 points in the last hour (event_type={{ $labels.event_type }})"
+          description: >
+            One or more agents have experienced a cumulative reputation score decrease
+            exceeding 20 points over the past hour for event_type={{ $labels.event_type }}.
+            Review recent agent transactions and compliance flags in agent-identity logs.
+          runbook_url: "https://github.com/forgepay/ForgePayE/blob/main/forgepay/infra/PRODUCTION_DEPLOY.md#troubleshooting-agentreputationdrop"

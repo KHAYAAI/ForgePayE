@@ -1,0 +1,156 @@
+# Alertmanager Configuration for ForgePay Production
+# Routing:
+#   critical  → PagerDuty (payments team)
+#   warning   → Slack #forgepay-alerts
+#   info      → Slack #forgepay-info
+#
+# Secrets (PagerDuty key, Slack webhooks) are injected at runtime
+# via Vault Agent / AWS Secrets Manager. Do NOT commit real values here.
+
+global:
+  # Default SMTP (unused — all routing via PagerDuty/Slack)
+  smtp_require_tls: true
+
+  # Slack API URL — injected from environment / Vault at runtime
+  slack_api_url: '${SLACK_API_URL}'
+
+  # Resolve timeout: how long to wait before declaring an alert resolved
+  resolve_timeout: 5m
+
+# ── Templates ─────────────────────────────────────────────────────────────────
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
+
+# ── Routing tree ──────────────────────────────────────────────────────────────
+route:
+  # Default grouping and timing applied to all routes unless overridden
+  group_by: ['service', 'alertname']
+  group_wait: 30s          # Wait 30s before sending the first alert in a new group
+  group_interval: 5m       # Wait 5m before sending a notification about new alerts in an existing group
+  repeat_interval: 4h      # Re-send unresolved alerts every 4h
+
+  # Default receiver for any alert that does not match a child route
+  receiver: 'slack-forgepay-alerts'
+
+  routes:
+
+    # ── Critical alerts → PagerDuty (payments team) ─────────────────────────
+    - match:
+        severity: critical
+      receiver: 'pagerduty-payments'
+      group_by: ['service', 'alertname']
+      group_wait: 30s
+      group_interval: 2m       # Tighter re-grouping for critical issues
+      repeat_interval: 1h      # Re-page every hour while still firing
+      continue: false          # Do NOT fall through to other receivers
+
+    # ── Warning alerts → Slack #forgepay-alerts ─────────────────────────────
+    - match:
+        severity: warning
+      receiver: 'slack-forgepay-alerts'
+      group_by: ['service', 'alertname']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      continue: false
+
+    # ── Info alerts → Slack #forgepay-info ──────────────────────────────────
+    - match:
+        severity: info
+      receiver: 'slack-forgepay-info'
+      group_by: ['service', 'alertname']
+      group_wait: 1m
+      group_interval: 10m
+      repeat_interval: 8h
+      continue: false
+
+# ── Inhibition rules ──────────────────────────────────────────────────────────
+# If a service is completely down (ServiceDown), suppress latency/rate alerts
+# for the same service — they are symptoms, not separate problems.
+inhibit_rules:
+
+  - source_match:
+      alertname: 'ServiceDown'
+      severity: 'critical'
+    target_match_re:
+      alertname: 'HighLatencyP99|HighErrorRate|RateLimitingHigh'
+    equal: ['service']
+
+  - source_match:
+      alertname: 'ServiceDown'
+      severity: 'critical'
+    target_match:
+      alertname: 'WebhookFanoutBacklog'
+    equal: ['service']
+
+  - source_match:
+      alertname: 'DatabaseConnectionExhausted'
+      severity: 'critical'
+    target_match:
+      alertname: 'SlowQueries'
+    equal: []           # DB exhaustion suppresses all slow-query warnings
+
+# ── Receivers ─────────────────────────────────────────────────────────────────
+receivers:
+
+  # PagerDuty — critical alerts, payments team
+  - name: 'pagerduty-payments'
+    pagerduty_configs:
+      - service_key: '${PAGERDUTY_SERVICE_KEY_PAYMENTS}'
+        send_resolved: true
+        client: 'ForgePay Alertmanager'
+        client_url: 'https://grafana.forgepay.io'
+        description: >-
+          [{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}]
+          {{ .GroupLabels.alertname }} — {{ .GroupLabels.service }}
+        details:
+          firing: '{{ template "pagerduty.forgepay.firing" . }}'
+          num_firing: '{{ .Alerts.Firing | len }}'
+          num_resolved: '{{ .Alerts.Resolved | len }}'
+          runbook_url: '{{ (index .Alerts 0).Annotations.runbook_url }}'
+        severity: 'critical'
+        # On-call escalation policy is managed in PagerDuty — not here.
+
+  # Slack — warning channel
+  - name: 'slack-forgepay-alerts'
+    slack_configs:
+      - api_url: '${SLACK_WEBHOOK_URL_FORGEPAY_ALERTS}'
+        channel: '#forgepay-alerts'
+        send_resolved: true
+        username: 'ForgePay Alertmanager'
+        icon_emoji: ':rotating_light:'
+        color: '{{ if eq .Status "firing" }}{{ if eq (index .Alerts 0).Labels.severity "critical" }}danger{{ else }}warning{{ end }}{{ else }}good{{ end }}'
+        title: >-
+          [{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}]
+          {{ .GroupLabels.alertname }}
+        title_link: 'https://grafana.forgepay.io/alerting'
+        text: >-
+          {{ range .Alerts }}
+          *Alert:* {{ .Annotations.summary }}
+          *Service:* {{ .Labels.service }}
+          *Severity:* {{ .Labels.severity }}
+          *Description:* {{ .Annotations.description }}
+          *Runbook:* {{ .Annotations.runbook_url }}
+          {{ end }}
+        footer: 'ForgePay Platform | {{ template "__alertmanager_link" . }}'
+
+  # Slack — info channel
+  - name: 'slack-forgepay-info'
+    slack_configs:
+      - api_url: '${SLACK_WEBHOOK_URL_FORGEPAY_INFO}'
+        channel: '#forgepay-info'
+        send_resolved: true
+        username: 'ForgePay Alertmanager'
+        icon_emoji: ':information_source:'
+        color: '{{ if eq .Status "firing" }}#439FE0{{ else }}good{{ end }}'
+        title: >-
+          [{{ .Status | toUpper }}] {{ .GroupLabels.alertname }}
+        title_link: 'https://grafana.forgepay.io/alerting'
+        text: >-
+          {{ range .Alerts }}
+          *Alert:* {{ .Annotations.summary }}
+          *Service:* {{ .Labels.service }}
+          *Description:* {{ .Annotations.description }}
+          *Runbook:* {{ .Annotations.runbook_url }}
+          {{ end }}
+        footer: 'ForgePay Platform | {{ template "__alertmanager_link" . }}'

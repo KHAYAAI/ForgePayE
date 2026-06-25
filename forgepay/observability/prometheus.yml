@@ -1,236 +1,459 @@
 # Prometheus Configuration for ForgePay Platform
-# Global scrape configuration with per-service metrics endpoints
+# Scrape interval: 15s for payment-critical services, 30s for supporting services.
+# All services expose metrics at GET /metrics (Prometheus text format).
 
 global:
-  scrape_interval: 30s        # Default scrape interval
-  evaluation_interval: 30s    # How often to evaluate alerting rules
+  scrape_interval: 30s
+  evaluation_interval: 15s
+  scrape_timeout: 10s
   external_labels:
-    cluster: 'forgepay-local'
-    environment: 'development'
+    cluster: 'forgepay-production'
+    environment: 'production'
 
-# Alertmanager configuration
+# ── Alertmanager ────────────────────────────────────────────────────────────
 alerting:
   alertmanagers:
     - static_configs:
-        - targets: []
+        - targets:
+            - alertmanager:9093
+      timeout: 10s
 
-# Load rules once and periodically evaluate them
+# ── Alert rules ─────────────────────────────────────────────────────────────
 rule_files:
-  # - "alert_rules.yml"  # Uncomment to enable alerting rules
+  - "monitoring/prometheus-alerts.yaml"
 
-# Scrape configurations
+# ── Scrape configurations ───────────────────────────────────────────────────
+# Relabeling convention:
+#   - service_name is extracted from the job label so every time-series carries
+#     a consistent `service` label used by dashboards and alert expressions.
+
 scrape_configs:
+
   # Prometheus self-monitoring
   - job_name: 'prometheus'
+    scrape_interval: 30s
     metrics_path: '/metrics'
     static_configs:
       - targets: ['localhost:9090']
         labels:
           service: 'prometheus'
+    relabel_configs:
+      - source_labels: [job]
+        target_label: service_name
 
-  # Unified Router (TypeScript/Fastify)
+  # ── Payment-critical services (15s) ───────────────────────────────────────
+
+  # Unified Router — webhook normalizer, Fastify/TypeScript, port 8000
   - job_name: 'unified-router'
-    metrics_path: '/metrics'
-    scrape_interval: 30s
+    scrape_interval: 15s
     scrape_timeout: 10s
+    metrics_path: '/metrics'
     static_configs:
-      - targets: ['localhost:8000']
+      - targets: ['unified-router:8000']
         labels:
           service: 'unified-router'
           type: 'webhook-normalizer'
           language: 'typescript'
+          team: 'platform'
     relabel_configs:
-      - source_labels: [__scheme__]
-        replacement: 'http'
-        target_label: __scheme__
+      - source_labels: [job]
+        target_label: service_name
 
-  # MoR Layer (Python/FastAPI)
+  # MoR Layer — merchant-of-record, tax, checkout; FastAPI/Python, port 8010
   - job_name: 'mor-layer'
-    metrics_path: '/metrics'
-    scrape_interval: 30s
+    scrape_interval: 15s
     scrape_timeout: 10s
+    metrics_path: '/metrics'
     static_configs:
-      - targets: ['localhost:8010']
+      - targets: ['mor-layer:8010']
         labels:
           service: 'mor-layer'
           type: 'checkout-engine'
           language: 'python'
+          team: 'payments'
+    relabel_configs:
+      - source_labels: [job]
+        target_label: service_name
 
-  # Billing Engine (Java/Kill Bill)
-  - job_name: 'billing-engine'
-    metrics_path: '/metrics'
-    scrape_interval: 30s
-    scrape_timeout: 10s
-    static_configs:
-      - targets: ['localhost:8020']
-        labels:
-          service: 'billing-engine'
-          type: 'subscriptions'
-          language: 'java'
-
-  # Stablecoin Gateway (TypeScript)
+  # Stablecoin Gateway — USDC/USDT + x402; TypeScript, port 8021
   - job_name: 'stablecoin-gateway'
-    metrics_path: '/metrics'
-    scrape_interval: 30s
+    scrape_interval: 15s
     scrape_timeout: 10s
+    metrics_path: '/metrics'
     static_configs:
-      - targets: ['localhost:8021']
+      - targets: ['stablecoin-gateway:8021']
         labels:
           service: 'stablecoin-gateway'
           type: 'payment-processor'
           language: 'typescript'
+          team: 'payments'
+    relabel_configs:
+      - source_labels: [job]
+        target_label: service_name
 
-  # Crypto Gateway (TypeScript)
+  # Crypto Gateway — crypto payments; TypeScript, port 8030
   - job_name: 'crypto-gateway'
-    metrics_path: '/metrics'
-    scrape_interval: 30s
+    scrape_interval: 15s
     scrape_timeout: 10s
+    metrics_path: '/metrics'
     static_configs:
-      - targets: ['localhost:8030']
+      - targets: ['crypto-gateway:8030']
         labels:
           service: 'crypto-gateway'
           type: 'payment-processor'
           language: 'typescript'
+          team: 'payments'
+    relabel_configs:
+      - source_labels: [job]
+        target_label: service_name
 
-  # Bank Connectivity (TypeScript)
+  # Bank Connectivity — Plaid, ACH, SEPA, wire; TypeScript, port 8040
   - job_name: 'bank-connectivity'
-    metrics_path: '/metrics'
-    scrape_interval: 30s
+    scrape_interval: 15s
     scrape_timeout: 10s
+    metrics_path: '/metrics'
     static_configs:
-      - targets: ['localhost:8040']
+      - targets: ['bank-connectivity:8040']
         labels:
           service: 'bank-connectivity'
           type: 'banking'
           language: 'typescript'
+          team: 'payments'
+    relabel_configs:
+      - source_labels: [job]
+        target_label: service_name
 
-  # Enterprise Treasury (TypeScript)
-  - job_name: 'enterprise-treasury'
-    metrics_path: '/metrics'
-    scrape_interval: 30s
-    scrape_timeout: 10s
-    static_configs:
-      - targets: ['localhost:8050']
-        labels:
-          service: 'enterprise-treasury'
-          type: 'treasury-management'
-          language: 'typescript'
-
-  # Agent Credit Lines (TypeScript)
+  # Agent Credit Lines — AI agent credit management; TypeScript, port 8060
   - job_name: 'agent-credit-lines'
-    metrics_path: '/metrics'
-    scrape_interval: 30s
+    scrape_interval: 15s
     scrape_timeout: 10s
+    metrics_path: '/metrics'
     static_configs:
-      - targets: ['localhost:8060']
+      - targets: ['agent-credit-lines:8060']
         labels:
           service: 'agent-credit-lines'
           type: 'credit-management'
           language: 'typescript'
+          team: 'agents'
+    relabel_configs:
+      - source_labels: [job]
+        target_label: service_name
 
-  # Agent Identity (TypeScript)
-  - job_name: 'agent-identity'
-    metrics_path: '/metrics'
+  # ── Supporting services (30s default) ─────────────────────────────────────
+
+  # Billing Engine — Kill Bill subscriptions & billing; Java, port 8020
+  - job_name: 'billing-engine'
     scrape_interval: 30s
     scrape_timeout: 10s
+    metrics_path: '/metrics'
     static_configs:
-      - targets: ['localhost:8070']
+      - targets: ['billing-engine:8020']
+        labels:
+          service: 'billing-engine'
+          type: 'subscriptions'
+          language: 'java'
+          team: 'payments'
+    relabel_configs:
+      - source_labels: [job]
+        target_label: service_name
+
+  # Enterprise Treasury — netting, cash flow; TypeScript, port 8050
+  - job_name: 'enterprise-treasury'
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['enterprise-treasury:8050']
+        labels:
+          service: 'enterprise-treasury'
+          type: 'treasury-management'
+          language: 'typescript'
+          team: 'platform'
+    relabel_configs:
+      - source_labels: [job]
+        target_label: service_name
+
+  # Agent Identity — DID/attestation/reputation; TypeScript, port 8070
+  - job_name: 'agent-identity'
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['agent-identity:8070']
         labels:
           service: 'agent-identity'
           type: 'identity-verification'
           language: 'typescript'
+          team: 'agents'
+    relabel_configs:
+      - source_labels: [job]
+        target_label: service_name
 
-  # Yield Engine (TypeScript)
+  # Yield Engine — sweep & yield optimization; TypeScript, port 8080
   - job_name: 'yield-engine'
-    metrics_path: '/metrics'
     scrape_interval: 30s
     scrape_timeout: 10s
+    metrics_path: '/metrics'
     static_configs:
-      - targets: ['localhost:8080']
+      - targets: ['yield-engine:8080']
         labels:
           service: 'yield-engine'
           type: 'yield-optimization'
           language: 'typescript'
+          team: 'payments'
+    relabel_configs:
+      - source_labels: [job]
+        target_label: service_name
 
-  # Chain Sync (TypeScript)
+  # Chain Sync — blockchain sync; TypeScript, port 8085
   - job_name: 'chain-sync'
-    metrics_path: '/metrics'
     scrape_interval: 30s
     scrape_timeout: 10s
+    metrics_path: '/metrics'
     static_configs:
-      - targets: ['localhost:8085']
+      - targets: ['chain-sync:8085']
         labels:
           service: 'chain-sync'
           type: 'blockchain-sync'
           language: 'typescript'
+          team: 'platform'
+    relabel_configs:
+      - source_labels: [job]
+        target_label: service_name
 
-  # Compliance Monitor (TypeScript)
+  # Compliance Monitor — AML/audit; Python/FastAPI, port 8090
   - job_name: 'compliance-monitor'
-    metrics_path: '/metrics'
     scrape_interval: 30s
     scrape_timeout: 10s
+    metrics_path: '/metrics'
     static_configs:
-      - targets: ['localhost:8090']
+      - targets: ['compliance-monitor:8090']
         labels:
           service: 'compliance-monitor'
           type: 'compliance'
-          language: 'typescript'
+          language: 'python'
+          team: 'platform'
+    relabel_configs:
+      - source_labels: [job]
+        target_label: service_name
 
-  # Liquidity Forecaster (TypeScript)
+  # Liquidity Forecaster — ML forecasting; Python/FastAPI, port 8095
   - job_name: 'liquidity-forecaster'
-    metrics_path: '/metrics'
     scrape_interval: 30s
     scrape_timeout: 10s
+    metrics_path: '/metrics'
     static_configs:
-      - targets: ['localhost:8095']
+      - targets: ['liquidity-forecaster:8095']
         labels:
           service: 'liquidity-forecaster'
           type: 'forecasting'
-          language: 'typescript'
+          language: 'python'
+          team: 'platform'
+    relabel_configs:
+      - source_labels: [job]
+        target_label: service_name
 
-  # RWA Registry (TypeScript)
+  # RWA Registry — real-world asset tokenization; TypeScript, port 8100
   - job_name: 'rwa-registry'
-    metrics_path: '/metrics'
     scrape_interval: 30s
     scrape_timeout: 10s
+    metrics_path: '/metrics'
     static_configs:
-      - targets: ['localhost:8100']
+      - targets: ['rwa-registry:8100']
         labels:
           service: 'rwa-registry'
           type: 'asset-registry'
           language: 'typescript'
+          team: 'platform'
+    relabel_configs:
+      - source_labels: [job]
+        target_label: service_name
 
-  # Accounts Service (TypeScript)
+  # Accounts Service — account management; TypeScript, port 8110
   - job_name: 'accounts-service'
-    metrics_path: '/metrics'
     scrape_interval: 30s
     scrape_timeout: 10s
+    metrics_path: '/metrics'
     static_configs:
-      - targets: ['localhost:8110']
+      - targets: ['accounts-service:8110']
         labels:
           service: 'accounts-service'
           type: 'account-management'
           language: 'typescript'
+          team: 'platform'
+    relabel_configs:
+      - source_labels: [job]
+        target_label: service_name
 
-  # Hyperswitch Router (Rust)
-  - job_name: 'hyperswitch-router'
-    metrics_path: '/metrics'
+  # Bank Whitelabel — white-label banking config; TypeScript, port 8120
+  - job_name: 'bank-whitelabel'
     scrape_interval: 30s
     scrape_timeout: 10s
+    metrics_path: '/metrics'
     static_configs:
-      - targets: ['localhost:8080']
+      - targets: ['bank-whitelabel:8120']
+        labels:
+          service: 'bank-whitelabel'
+          type: 'banking'
+          language: 'typescript'
+          team: 'platform'
+    relabel_configs:
+      - source_labels: [job]
+        target_label: service_name
+
+  # Institutional Reporting — report generation; TypeScript, port 8130
+  - job_name: 'institutional-reporting'
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['institutional-reporting:8130']
+        labels:
+          service: 'institutional-reporting'
+          type: 'reporting'
+          language: 'typescript'
+          team: 'platform'
+    relabel_configs:
+      - source_labels: [job]
+        target_label: service_name
+
+  # Agent Decision Framework — AI decision engine; TypeScript, port 8140
+  - job_name: 'agent-decision-framework'
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['agent-decision-framework:8140']
+        labels:
+          service: 'agent-decision-framework'
+          type: 'agent-ai'
+          language: 'typescript'
+          team: 'agents'
+    relabel_configs:
+      - source_labels: [job]
+        target_label: service_name
+
+  # Agent Negotiation — agent-to-agent negotiation; TypeScript, port 8150
+  - job_name: 'agent-negotiation'
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['agent-negotiation:8150']
+        labels:
+          service: 'agent-negotiation'
+          type: 'agent-ai'
+          language: 'typescript'
+          team: 'agents'
+    relabel_configs:
+      - source_labels: [job]
+        target_label: service_name
+
+  # Agent Liquidity Manager — agent liquidity; TypeScript, port 8160
+  - job_name: 'agent-liquidity-manager'
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['agent-liquidity-manager:8160']
+        labels:
+          service: 'agent-liquidity-manager'
+          type: 'agent-ai'
+          language: 'typescript'
+          team: 'agents'
+    relabel_configs:
+      - source_labels: [job]
+        target_label: service_name
+
+  # Hyperswitch Router — Rust payment router, port 8500
+  - job_name: 'hyperswitch-router'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['hyperswitch-router:8500']
         labels:
           service: 'hyperswitch-router'
           type: 'payment-router'
           language: 'rust'
+          team: 'payments'
+    relabel_configs:
+      - source_labels: [job]
+        target_label: service_name
+
+  # ── Infrastructure exporters ───────────────────────────────────────────────
+
+  # PostgreSQL exporter
+  - job_name: 'postgres-exporter'
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+        labels:
+          service: 'postgres'
+          type: 'database'
+
+  # Redis exporter
+  - job_name: 'redis-exporter'
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+        labels:
+          service: 'redis'
+          type: 'cache'
+
+  # kube-state-metrics (pod restarts, resource limits)
+  - job_name: 'kube-state-metrics'
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['kube-state-metrics:8080']
+        labels:
+          service: 'kube-state-metrics'
+          type: 'kubernetes'
+
+  # cAdvisor (container CPU, memory, network I/O)
+  - job_name: 'cadvisor'
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['cadvisor:8080']
+        labels:
+          service: 'cadvisor'
+          type: 'kubernetes'
+
+  # Blackbox exporter — TLS cert expiry probes
+  - job_name: 'blackbox-tls'
+    scrape_interval: 5m
+    scrape_timeout: 30s
+    metrics_path: '/probe'
+    params:
+      module: ['http_2xx']
+    static_configs:
+      - targets:
+          - https://api.forgepay.io
+          - https://dashboard.forgepay.io
+          - https://checkout.forgepay.io
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
 
   # Jaeger collector metrics
   - job_name: 'jaeger-collector'
-    metrics_path: '/metrics'
     scrape_interval: 30s
     scrape_timeout: 10s
+    metrics_path: '/metrics'
     static_configs:
-      - targets: ['localhost:14269']
+      - targets: ['jaeger:14269']
         labels:
           service: 'jaeger'
           component: 'collector'
