@@ -31,6 +31,10 @@ import { buildTransferRoutes } from './routes/transfers';
 import { buildWebhookRoutes } from './routes/webhooks';
 import { buildInternalRoutes } from './routes/internal';
 import { logger } from './lib/logger';
+import { initDatabaseUrl } from './lib/db-init';
+
+// Initialize DATABASE_URL from DB_* environment variables
+initDatabaseUrl();
 
 export const prisma = new PrismaClient();
 

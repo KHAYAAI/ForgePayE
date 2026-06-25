@@ -1,0 +1,241 @@
+version: "3.9"
+
+# ForgePay Load Testing Stack
+# Usage: docker-compose -f docker-compose.load-testing.yml up
+#
+# This brings up the ForgePay services + k6 load testing orchestrator
+# + Prometheus for metrics collection.
+#
+# Ports:
+#   8000  → unified-router
+#   8010  → mor-layer
+#   8020  → stablecoin-gateway
+#   8030  → crypto-gateway
+#   8050  → yield-engine
+#   3010  → agent-identity
+#   9090  → Prometheus (metrics UI)
+#
+# The k6 load test runs within this docker-compose and reports
+# results back to Prometheus for visualization.
+
+networks:
+  forgepay-load-test:
+    driver: bridge
+
+volumes:
+  postgres_data_load_test:
+  redis_data_load_test:
+  prometheus_data_load_test:
+
+services:
+  # ── Shared infrastructure ──────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: forgepay
+      POSTGRES_PASSWORD: loadtest-password
+      POSTGRES_DB: forgepay_load_test
+    volumes:
+      - postgres_data_load_test:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    networks: [forgepay-load-test]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U forgepay"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data_load_test:/data
+    ports:
+      - "6380:6379"
+    networks: [forgepay-load-test]
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+
+  # ── Unified Router ─────────────────────────────────────────────────────
+  unified-router:
+    build:
+      context: ../../services/unified-router
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: production
+      PORT: "8000"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: forgepay_load_test
+      POSTGRES_USER: forgepay
+      POSTGRES_PASSWORD: loadtest-password
+      REDIS_URL: redis://redis:6379
+      INTERNAL_WEBHOOK_SECRET: load-test-internal-secret
+      HYPERSWITCH_WEBHOOK_SECRET: load-test-hs-secret
+      KILLBILL_WEBHOOK_SECRET: load-test-kb-secret
+      STABLECOIN_GW_WEBHOOK_SECRET: load-test-sc-secret
+      CRYPTO_GW_WEBHOOK_SECRET: load-test-crypto-secret
+      LOG_LEVEL: warn
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    networks: [forgepay-load-test]
+
+  # ── Stablecoin Gateway ────────────────────────────────────────────────
+  stablecoin-gateway:
+    build:
+      context: ../../services/stablecoin-gateway
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: production
+      PORT: "8020"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: forgepay_load_test
+      POSTGRES_USER: forgepay
+      POSTGRES_PASSWORD: loadtest-password
+      REDIS_URL: redis://redis:6379
+      UNIFIED_ROUTER_URL: http://unified-router:8000
+      INTERNAL_WEBHOOK_SECRET: load-test-internal-secret
+      PRIVATE_KEY_ENCRYPTION_KEY: "dededededededededededededededededededededededededededededededede"
+      LOG_LEVEL: warn
+    ports:
+      - "8020:8020"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    networks: [forgepay-load-test]
+
+  # ── Crypto Gateway ─────────────────────────────────────────────────────
+  crypto-gateway:
+    build:
+      context: ../../services/crypto-gateway
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: production
+      PORT: "8030"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: forgepay_load_test
+      POSTGRES_USER: forgepay
+      POSTGRES_PASSWORD: loadtest-password
+      REDIS_URL: redis://redis:6379
+      UNIFIED_ROUTER_URL: http://unified-router:8000
+      INTERNAL_WEBHOOK_SECRET: load-test-internal-secret
+      HD_WALLET_SEED: "dfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdf"
+      LOG_LEVEL: warn
+    ports:
+      - "8030:8030"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    networks: [forgepay-load-test]
+
+  # ── MoR Layer (Checkout + MoR + Tax) ───────────────────────────────────
+  mor-layer:
+    build:
+      context: ../../services/mor-layer
+      dockerfile: Dockerfile
+    environment:
+      PYTHONUNBUFFERED: "1"
+      APP_ENV: production
+      PORT: "8010"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: forgepay_load_test
+      POSTGRES_USER: forgepay
+      POSTGRES_PASSWORD: loadtest-password
+      REDIS_URL: redis://redis:6379
+      UNIFIED_ROUTER_URL: http://unified-router:8000
+      LOG_LEVEL: warning
+    ports:
+      - "8010:8010"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    networks: [forgepay-load-test]
+
+  # ── Yield Engine ──────────────────────────────────────────────────────
+  yield-engine:
+    build:
+      context: ../../services/yield-engine
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: production
+      PORT: "8050"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: forgepay_load_test
+      POSTGRES_USER: forgepay
+      POSTGRES_PASSWORD: loadtest-password
+      REDIS_URL: redis://redis:6379
+      LOG_LEVEL: warn
+    ports:
+      - "8050:8050"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    networks: [forgepay-load-test]
+
+  # ── Agent Identity Service ───────────────────────────────────────────────
+  agent-identity:
+    build:
+      context: ../../services/agent-identity
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: production
+      PORT: "3010"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: forgepay_load_test
+      POSTGRES_USER: forgepay
+      POSTGRES_PASSWORD: loadtest-password
+      REDIS_URL: redis://redis:6379
+      LOG_LEVEL: warn
+    ports:
+      - "3010:3010"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    networks: [forgepay-load-test]
+
+  # ── Prometheus (metrics collector) ─────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data_load_test:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=7d"
+      - "--web.enable-lifecycle"
+    ports:
+      - "9090:9090"
+    networks: [forgepay-load-test]
+
+  # ── k6 Load Testing Orchestrator ───────────────────────────────────────
+  k6:
+    image: grafana/k6:latest
+    volumes:
+      - ./load-test.js:/scripts/load-test.js:ro
+    command: run --vus 0 --stage "5m:100" /scripts/load-test.js
+    environment:
+      BASE_URL: http
+      DURATION: 5m
+      K6_PROMETHEUS_REMOTE_URL: http://prometheus:9090/api/v1/write
+    networks: [forgepay-load-test]
+    depends_on:
+      - unified-router
+      - mor-layer
+      - crypto-gateway
+      - stablecoin-gateway
+      - yield-engine
+      - agent-identity
+      - prometheus

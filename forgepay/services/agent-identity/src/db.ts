@@ -6,12 +6,9 @@
  */
 
 import { Pool } from 'pg';
+import { createDbPool } from '../../lib/db.js';
 
-export const pool = new Pool({
-  connectionString:
-    process.env['DATABASE_URL'] ?? 'postgresql://forgepay:devpassword@localhost:5432/forgepay_dev',
-  max: 10,
-});
+export const pool = createDbPool();
 
 /**
  * Run all database migrations. Called during service startup if DATABASE_URL is set.
