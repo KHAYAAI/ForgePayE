@@ -1,0 +1,405 @@
+# =============================================================================
+# ForgePay Helm Override Values — eu-west-2 (London) Staging
+# =============================================================================
+# These values OVERLAY on top of forgepay/infra/helm/forgepay-stack/values.yaml
+#
+# Apply with:
+#   helm upgrade --install forgepay-stack ./forgepay/infra/helm/forgepay-stack \
+#     -f ./forgepay/infra/helm/forgepay-stack/values.yaml \
+#     -f ./forgepay/infra/staging/helm/eu-west-2-values.yaml \
+#     --namespace forgepay-staging
+#
+# GDPR NOTE: This cluster may handle EU/UK personal data.
+# Ensure PII logging is disabled and data residency is enforced.
+
+# ── Global overrides ─────────────────────────────────────────────────────────
+global:
+  imageRegistry: "ACCOUNT_ID.dkr.ecr.eu-west-2.amazonaws.com"
+
+  postgresql:
+    host: "__TF_OUTPUT_rds_endpoint"
+    port: 5432
+    database: "forgepay"
+    existingSecret: "forgepay-db-credentials"
+    secretKeys:
+      password: "postgres-password"
+
+  redis:
+    url: "redis://__TF_OUTPUT_redis_endpoint:6379"
+
+  otel:
+    endpoint: "http://otel-collector.forgepay-staging.svc.cluster.local:4317"
+    enabled: true
+
+  zk:
+    enabled: false
+
+featureFlags:
+  environment: "staging"
+  region: "eu-west-2"
+  zkProofs: false
+  onChainVerification: false
+  rwaMinting: false
+  agentCreditLines: false
+  # GDPR: disable any analytics that touches PII
+  analyticsEnabled: false
+  piiLogging: false
+
+# ── Payment Engine (Hyperswitch) ──────────────────────────────────────────────
+paymentEngine:
+  enabled: true
+  replicaCount: 1
+  image:
+    tag: "staging"
+  resources:
+    requests: { cpu: "250m", memory: "256Mi" }
+    limits:   { cpu: "1000m", memory: "1Gi" }
+  autoscaling:
+    enabled: false
+  env:
+    - name: ENVIRONMENT
+      value: "staging"
+    - name: LOG_LEVEL
+      value: "debug"
+    - name: DISABLE_PCI_VAULT
+      value: "false"
+    - name: DATA_RESIDENCY_REGION
+      value: "eu-west-2"
+
+# ── Unified Router ────────────────────────────────────────────────────────────
+unifiedRouter:
+  enabled: true
+  replicaCount: 1
+  image:
+    tag: "staging"
+  service:
+    port: 3000
+  resources:
+    requests: { cpu: "50m",  memory: "64Mi" }
+    limits:   { cpu: "250m", memory: "256Mi" }
+  autoscaling:
+    enabled: false
+  env:
+    - name: NODE_ENV
+      value: "staging"
+    - name: LOG_LEVEL
+      value: "debug"
+    - name: PORT
+      value: "3000"
+
+# ── MoR Layer ─────────────────────────────────────────────────────────────────
+morLayer:
+  enabled: true
+  replicaCount: 1
+  image:
+    tag: "staging"
+  service:
+    port: 8000
+  resources:
+    requests: { cpu: "100m", memory: "128Mi" }
+    limits:   { cpu: "500m", memory: "512Mi" }
+  env:
+    - name: ENVIRONMENT
+      value: "staging"
+    - name: LOG_LEVEL
+      value: "DEBUG"
+    - name: TAX_JURISDICTION
+      value: "GB"
+
+# ── Billing Engine (Kill Bill) ────────────────────────────────────────────────
+billingEngine:
+  enabled: true
+  replicaCount: 1
+  image:
+    tag: "staging"
+  service:
+    port: 8080
+  resources:
+    requests: { cpu: "250m", memory: "512Mi" }
+    limits:   { cpu: "1000m", memory: "2Gi" }
+  env:
+    - name: KILLBILL_SERVER_TEST_MODE
+      value: "true"
+    - name: LOG_LEVEL
+      value: "DEBUG"
+
+# ── Stablecoin Gateway ────────────────────────────────────────────────────────
+stablecoinGateway:
+  enabled: true
+  replicaCount: 1
+  image:
+    tag: "staging"
+  service:
+    port: 3001
+  resources:
+    requests: { cpu: "50m",  memory: "64Mi" }
+    limits:   { cpu: "250m", memory: "256Mi" }
+  env:
+    - name: NODE_ENV
+      value: "staging"
+    - name: USE_TESTNET
+      value: "true"
+
+# ── Crypto Gateway ────────────────────────────────────────────────────────────
+cryptoGateway:
+  enabled: true
+  replicaCount: 1
+  image:
+    tag: "staging"
+  service:
+    port: 3002
+  resources:
+    requests: { cpu: "50m",  memory: "64Mi" }
+    limits:   { cpu: "250m", memory: "256Mi" }
+  env:
+    - name: NODE_ENV
+      value: "staging"
+    - name: USE_TESTNET
+      value: "true"
+
+# ── Yield Engine ──────────────────────────────────────────────────────────────
+yieldEngine:
+  enabled: true
+  replicaCount: 1
+  image:
+    tag: "staging"
+  service:
+    port: 3007
+  resources:
+    requests: { cpu: "50m",  memory: "64Mi" }
+    limits:   { cpu: "250m", memory: "256Mi" }
+  env:
+    - name: NODE_ENV
+      value: "staging"
+    - name: USE_SIMULATED_YIELDS
+      value: "true"
+
+# ── RWA Registry ──────────────────────────────────────────────────────────────
+rwaRegistry:
+  enabled: true
+  replicaCount: 1
+  image:
+    tag: "staging"
+  service:
+    port: 3008
+  resources:
+    requests: { cpu: "50m",  memory: "64Mi" }
+    limits:   { cpu: "250m", memory: "256Mi" }
+  env:
+    - name: NODE_ENV
+      value: "staging"
+    - name: USE_TESTNET_ASSETS
+      value: "true"
+
+# ── Enterprise Treasury ───────────────────────────────────────────────────────
+enterpriseTreasury:
+  enabled: true
+  replicaCount: 1
+  image:
+    tag: "staging"
+  service:
+    port: 3012
+  resources:
+    requests: { cpu: "50m",  memory: "64Mi" }
+    limits:   { cpu: "250m", memory: "256Mi" }
+  env:
+    - name: NODE_ENV
+      value: "staging"
+
+# ── Agent Identity ────────────────────────────────────────────────────────────
+agentIdentity:
+  enabled: true
+  replicaCount: 1
+  image:
+    tag: "staging"
+  service:
+    port: 3010
+  resources:
+    requests: { cpu: "50m",  memory: "64Mi" }
+    limits:   { cpu: "250m", memory: "256Mi" }
+  env:
+    - name: NODE_ENV
+      value: "staging"
+
+# ── Agent Negotiation ─────────────────────────────────────────────────────────
+agentNegotiation:
+  enabled: true
+  replicaCount: 1
+  image:
+    tag: "staging"
+  service:
+    port: 3011
+  resources:
+    requests: { cpu: "50m",  memory: "64Mi" }
+    limits:   { cpu: "250m", memory: "256Mi" }
+  env:
+    - name: NODE_ENV
+      value: "staging"
+
+# ── Agent Decision Framework ──────────────────────────────────────────────────
+agentDecisionFramework:
+  enabled: true
+  replicaCount: 1
+  image:
+    tag: "staging"
+  service:
+    port: 3013
+  resources:
+    requests: { cpu: "50m",  memory: "64Mi" }
+    limits:   { cpu: "250m", memory: "256Mi" }
+  env:
+    - name: NODE_ENV
+      value: "staging"
+
+# ── Agent Credit Lines ────────────────────────────────────────────────────────
+agentCreditLines:
+  enabled: true
+  replicaCount: 1
+  image:
+    tag: "staging"
+  service:
+    port: 3016
+  resources:
+    requests: { cpu: "50m",  memory: "64Mi" }
+    limits:   { cpu: "250m", memory: "256Mi" }
+  env:
+    - name: NODE_ENV
+      value: "staging"
+    - name: CREDIT_LINE_MAX_LIMIT_USD
+      value: "1000"
+
+# ── Compliance Monitor ────────────────────────────────────────────────────────
+complianceMonitor:
+  enabled: true
+  replicaCount: 1
+  image:
+    tag: "staging"
+  service:
+    port: 8001
+  resources:
+    requests: { cpu: "100m", memory: "128Mi" }
+    limits:   { cpu: "500m", memory: "512Mi" }
+  env:
+    - name: ENVIRONMENT
+      value: "staging"
+    - name: OFAC_SCREENING_ENABLED
+      value: "false"
+    - name: FCA_COMPLIANCE_MODE
+      value: "true"    # UK FCA mode for eu-west-2
+
+# ── Liquidity Forecaster ──────────────────────────────────────────────────────
+liquidityForecaster:
+  enabled: true
+  replicaCount: 1
+  image:
+    tag: "staging"
+  service:
+    port: 8002
+  resources:
+    requests: { cpu: "100m", memory: "128Mi" }
+    limits:   { cpu: "500m", memory: "512Mi" }
+  env:
+    - name: ENVIRONMENT
+      value: "staging"
+
+# ── Bank Connectivity ─────────────────────────────────────────────────────────
+bankConnectivity:
+  enabled: true
+  replicaCount: 1
+  image:
+    tag: "staging"
+  service:
+    port: 3003
+  resources:
+    requests: { cpu: "50m",  memory: "64Mi" }
+    limits:   { cpu: "250m", memory: "256Mi" }
+  env:
+    - name: NODE_ENV
+      value: "staging"
+    - name: USE_SANDBOX_BANKING
+      value: "true"
+    - name: OPEN_BANKING_REGION
+      value: "UK"
+
+# ── Chain Sync ────────────────────────────────────────────────────────────────
+chainSync:
+  enabled: false
+
+# ── Bank Whitelabel ───────────────────────────────────────────────────────────
+bankWhitelabel:
+  enabled: true
+  replicaCount: 1
+  image:
+    tag: "staging"
+  service:
+    port: 3015
+  resources:
+    requests: { cpu: "50m",  memory: "64Mi" }
+    limits:   { cpu: "250m", memory: "256Mi" }
+  env:
+    - name: NODE_ENV
+      value: "staging"
+
+# ── Accounts Service ──────────────────────────────────────────────────────────
+accountsService:
+  enabled: true
+  replicaCount: 1
+  image:
+    tag: "staging"
+  service:
+    port: 3020
+  resources:
+    requests: { cpu: "50m",  memory: "128Mi" }
+    limits:   { cpu: "250m", memory: "256Mi" }
+  env:
+    - name: NODE_ENV
+      value: "staging"
+    - name: DATA_RESIDENCY_REGION
+      value: "eu-west-2"
+  kyc:
+    ofacScreeningEnabled: false
+  accounts:
+    defaultChain: "polygon"
+    minDepositUsd: "1"
+    maxDepositUsd: "1000"
+
+# ── Shared Infrastructure ──────────────────────────────────────────────────────
+postgresql:
+  enabled: false
+
+redis:
+  enabled: false
+
+# ── Ingress ───────────────────────────────────────────────────────────────────
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-staging"
+    nginx.ingress.kubernetes.io/proxy-body-size: "16k"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+  hosts:
+    - host: api.staging.eu.forgepay.io
+      paths:
+        - path: /
+          pathType: Prefix
+          service: payment-engine
+          port: 80
+    - host: hooks.staging.eu.forgepay.io
+      paths:
+        - path: /
+          pathType: Prefix
+          service: unified-router
+          port: 3000
+    - host: checkout.staging.eu.forgepay.io
+      paths:
+        - path: /
+          pathType: Prefix
+          service: mor-layer
+          port: 8000
+  tls:
+    - secretName: forgepay-staging-tls
+      hosts:
+        - api.staging.eu.forgepay.io
+        - hooks.staging.eu.forgepay.io
+        - checkout.staging.eu.forgepay.io
