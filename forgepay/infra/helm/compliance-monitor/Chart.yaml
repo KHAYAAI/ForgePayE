@@ -1,0 +1,13 @@
+apiVersion: v2
+name: compliance-monitor
+description: ForgePay Compliance Monitor — OFAC real-time screening, AML monitoring, and transaction risk assessment
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - forgepay
+  - compliance
+  - ofac
+  - aml
+maintainers:
+  - name: ForgePay Platform Team

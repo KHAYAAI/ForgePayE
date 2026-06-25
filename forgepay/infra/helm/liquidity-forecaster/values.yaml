@@ -1,0 +1,89 @@
+replicaCount: 2
+
+image:
+  repository: forgepay/liquidity-forecaster
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8002
+  targetPort: 8002
+  name: liquidity-forecaster
+
+env:
+  ENVIRONMENT: production
+  PORT: "8002"
+  LOG_LEVEL: INFO
+  PAYMENT_ENGINE_URL: "http://payment-engine:8080"
+  REDIS_URL: "redis://liquidity-forecaster-redis:6379/3"
+  FORECAST_HORIZON_HOURS: "24"
+  MODEL_UPDATE_INTERVAL_SECS: "3600"
+  MIN_DATA_POINTS: "100"
+  CORS_ORIGINS: "https://dashboard.forgepay.io,https://console.forgepay.io"
+
+secrets:
+  JWT_SECRET: ""
+  INTERNAL_SERVICE_SECRET: ""
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8002"
+  prometheus.io/path: "/metrics"
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+resources:
+  requests:
+    memory: "512Mi"
+    cpu: "500m"
+  limits:
+    memory: "1Gi"
+    cpu: "1000m"
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 8002
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: 8002
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 2
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: liquidity-forecaster
+
+monitoring:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+    scrapeTimeout: 10s

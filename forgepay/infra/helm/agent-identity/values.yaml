@@ -1,4 +1,10 @@
-replicaCount: 1
+replicaCount: 2
+minReadySeconds: 30
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 0
+    maxSurge: 1
 
 image:
   repository: forgepay/agent-identity

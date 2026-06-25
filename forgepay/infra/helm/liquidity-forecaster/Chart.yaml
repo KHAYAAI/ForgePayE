@@ -1,0 +1,13 @@
+apiVersion: v2
+name: liquidity-forecaster
+description: ForgePay Liquidity Forecaster — ML-driven liquidity prediction and treasury optimization
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - forgepay
+  - liquidity
+  - forecasting
+  - treasury
+maintainers:
+  - name: ForgePay Platform Team
