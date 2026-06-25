@@ -1,39 +1,31 @@
 replicaCount: 2
-
 image:
   repository: forgepay/agent-liquidity-manager
   pullPolicy: IfNotPresent
-  tag: "0.1.0"
-
+  tag: 0.1.0
 service:
   type: ClusterIP
   port: 3014
   targetPort: 3014
-
 resources:
   requests:
-    cpu: 100m
-    memory: 128Mi
+    cpu: 200m
+    memory: 256Mi
   limits:
-    cpu: 500m
+    cpu: 400m
     memory: 512Mi
-
 autoscaling:
   enabled: true
   minReplicas: 2
   maxReplicas: 8
   targetCPUUtilizationPercentage: 70
   targetMemoryUtilizationPercentage: 80
-
 env:
-  PORT: "3014"
-  LOG_LEVEL: "info"
-  NODE_ENV: "production"
-  RATE_LIMIT_PER_MIN: "100"
-  CORS_ORIGIN: "*"
-  # YIELD_ENGINE_URL: "http://yield-engine:3007"
-  # AGENT_IDENTITY_URL: "http://agent-identity:3010"
-
+  PORT: '3014'
+  LOG_LEVEL: info
+  NODE_ENV: production
+  RATE_LIMIT_PER_MIN: '100'
+  CORS_ORIGIN: '*'
 livenessProbe:
   httpGet:
     path: /health
@@ -41,7 +33,6 @@ livenessProbe:
   initialDelaySeconds: 15
   periodSeconds: 30
   failureThreshold: 3
-
 readinessProbe:
   httpGet:
     path: /health
@@ -49,8 +40,7 @@ readinessProbe:
   initialDelaySeconds: 5
   periodSeconds: 10
   failureThreshold: 3
-
 podAnnotations:
-  prometheus.io/scrape: "true"
-  prometheus.io/port: "3014"
-  prometheus.io/path: "/health"
+  prometheus.io/scrape: 'true'
+  prometheus.io/port: '3014'
+  prometheus.io/path: /health

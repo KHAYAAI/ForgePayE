@@ -1,63 +1,44 @@
 replicaCount: 2
-
 image:
   repository: forgepay/crypto-gateway
-  tag: "latest"
+  tag: latest
   pullPolicy: IfNotPresent
-
 service:
   type: ClusterIP
   port: 8030
-
 env:
   NODE_ENV: production
   LOG_LEVEL: info
-  PORT: "8030"
-
-# Secrets injected via K8s secret refs — not hardcoded here
-secretRef: "forgepay-crypto-gateway-secrets"
-# Expected keys in that secret:
-#   POSTGRES_PASSWORD
-#   INTERNAL_WEBHOOK_SECRET
-#   HD_WALLET_SEED  (64-char hex / 32 bytes — BIP32 master seed; protect like a private key)
-#   ETH_RPC_URL     (Alchemy/Infura/QuickNode — required for ETH monitoring)
-#   XMR_RPC_URL     (Monero daemon wallet RPC — required for XMR; optional for BTC/LTC/ETH-only)
-
+  PORT: '8030'
+secretRef: forgepay-crypto-gateway-secrets
 resources:
   requests:
-    cpu: "100m"
-    memory: "256Mi"
+    cpu: 300m
+    memory: 512Mi
   limits:
-    cpu: "500m"
-    memory: "512Mi"
-
+    cpu: 500m
+    memory: 1Gi
 autoscaling:
   enabled: true
   minReplicas: 2
   maxReplicas: 8
   targetCPUUtilizationPercentage: 70
-
 livenessProbe:
   httpGet:
     path: /healthz
     port: 8030
   initialDelaySeconds: 10
   periodSeconds: 15
-
 readinessProbe:
   httpGet:
     path: /readyz
     port: 8030
   initialDelaySeconds: 5
   periodSeconds: 10
-
-# Prometheus metrics configuration
 metrics:
   enabled: true
   port: 9094
   path: /metrics
-
-# Service Monitor for Prometheus scraping
 serviceMonitor:
   enabled: true
   interval: 30s

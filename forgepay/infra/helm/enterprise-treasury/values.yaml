@@ -1,42 +1,33 @@
 replicaCount: 2
-
 image:
   repository: forgepay/enterprise-treasury
   pullPolicy: IfNotPresent
-  tag: "0.2.0"
-
+  tag: 0.2.0
 service:
   type: ClusterIP
   port: 3012
   targetPort: 3012
-
 resources:
   requests:
-    cpu: 150m
+    cpu: 200m
     memory: 256Mi
   limits:
-    cpu: 500m
+    cpu: 400m
     memory: 512Mi
-
 autoscaling:
   enabled: true
   minReplicas: 2
   maxReplicas: 6
   targetCPUUtilizationPercentage: 70
   targetMemoryUtilizationPercentage: 80
-
 env:
-  PORT: "3012"
-  LOG_LEVEL: "info"
-  NODE_ENV: "production"
-  RATE_LIMIT_PER_MIN: "100"
-  CORS_ORIGIN: "*"
-  BANK_CONNECTIVITY_URL: "http://bank-connectivity:3006"
-  YIELD_ENGINE_URL: "http://yield-engine:3007"
-  # DATABASE_URL: set via Vault/Secrets Manager
-  # ALERT_WEBHOOK_URL: set via Vault/Secrets Manager
-  # VALID_API_KEYS: set via Vault/Secrets Manager
-
+  PORT: '3012'
+  LOG_LEVEL: info
+  NODE_ENV: production
+  RATE_LIMIT_PER_MIN: '100'
+  CORS_ORIGIN: '*'
+  BANK_CONNECTIVITY_URL: http://bank-connectivity:3006
+  YIELD_ENGINE_URL: http://yield-engine:3007
 livenessProbe:
   httpGet:
     path: /health
@@ -44,7 +35,6 @@ livenessProbe:
   initialDelaySeconds: 20
   periodSeconds: 30
   failureThreshold: 3
-
 readinessProbe:
   httpGet:
     path: /health
@@ -52,19 +42,14 @@ readinessProbe:
   initialDelaySeconds: 10
   periodSeconds: 10
   failureThreshold: 3
-
 podAnnotations:
-  prometheus.io/scrape: "true"
-  prometheus.io/port: "3012"
-  prometheus.io/path: "/health"
-
-# Prometheus metrics configuration
+  prometheus.io/scrape: 'true'
+  prometheus.io/port: '3012'
+  prometheus.io/path: /health
 metrics:
   enabled: true
   port: 9096
   path: /metrics
-
-# Service Monitor for Prometheus scraping
 serviceMonitor:
   enabled: true
   interval: 30s

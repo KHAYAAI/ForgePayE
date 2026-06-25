@@ -1,40 +1,31 @@
 replicaCount: 2
-
 image:
   repository: forgepay/institutional-reporting
   pullPolicy: IfNotPresent
-  tag: "0.1.0"
-
+  tag: 0.1.0
 service:
   type: ClusterIP
   port: 3017
   targetPort: 3017
-
 resources:
   requests:
-    cpu: 100m
-    memory: 128Mi
+    cpu: 200m
+    memory: 384Mi
   limits:
-    cpu: 500m
-    memory: 512Mi
-
+    cpu: 400m
+    memory: 768Mi
 autoscaling:
   enabled: true
   minReplicas: 2
   maxReplicas: 8
   targetCPUUtilizationPercentage: 70
   targetMemoryUtilizationPercentage: 80
-
 env:
-  PORT: "3017"
-  LOG_LEVEL: "info"
-  NODE_ENV: "production"
-  RATE_LIMIT_PER_MIN: "60"
-  CORS_ORIGIN: "*"
-  # TREASURY_URL: "http://enterprise-treasury:3012"
-  # AGENT_CREDIT_URL: "http://agent-credit-lines:3016"
-  # AGENT_IDENTITY_URL: "http://agent-identity:3010"
-
+  PORT: '3017'
+  LOG_LEVEL: info
+  NODE_ENV: production
+  RATE_LIMIT_PER_MIN: '60'
+  CORS_ORIGIN: '*'
 livenessProbe:
   httpGet:
     path: /health
@@ -42,7 +33,6 @@ livenessProbe:
   initialDelaySeconds: 15
   periodSeconds: 30
   failureThreshold: 3
-
 readinessProbe:
   httpGet:
     path: /health
@@ -50,8 +40,7 @@ readinessProbe:
   initialDelaySeconds: 5
   periodSeconds: 10
   failureThreshold: 3
-
 podAnnotations:
-  prometheus.io/scrape: "true"
-  prometheus.io/port: "3017"
-  prometheus.io/path: "/health"
+  prometheus.io/scrape: 'true'
+  prometheus.io/port: '3017'
+  prometheus.io/path: /health

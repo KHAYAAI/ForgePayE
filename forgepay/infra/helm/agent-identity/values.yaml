@@ -5,67 +5,48 @@ strategy:
   rollingUpdate:
     maxUnavailable: 0
     maxSurge: 1
-
 image:
   repository: forgepay/agent-identity
   tag: latest
   pullPolicy: IfNotPresent
-
 service:
   type: ClusterIP
   port: 3010
-
 env:
   NODE_ENV: production
   LOG_LEVEL: info
-  PORT: "3010"
-  DATABASE_URL: ""  # Set via external secret; falls back to in-memory if empty
-
-agentNegotiationUrl: "http://agent-negotiation:3011"
+  PORT: '3010'
+  DATABASE_URL: ''
+agentNegotiationUrl: http://agent-negotiation:3011
 rateLimitPerMinute: 200
-
-# Kubernetes secret with sensitive values — never hardcode here.
-# Expected keys in that secret:
-#   KYAPAY_SIGNING_PRIVATE_KEY  — ES256 private key (PKCS#8 PEM, newlines as \n)
-#   KYAPAY_SIGNING_PUBLIC_KEY   — ES256 public key (SPKI PEM, newlines as \n)
-secretRef: "forgepay-agent-identity-secrets"
-
-# KYAPay configuration (non-secret values)
+secretRef: forgepay-agent-identity-secrets
 kyapay:
-  keyId: "forgepay-agent-identity-1"
-  issuerUrl: "https://api.forgepay.com"
-  # Comma-separated list of trusted KYAPay token issuers
-  trustedIssuers: "https://skyfire.xyz,https://api.forgepay.com"
-
+  keyId: forgepay-agent-identity-1
+  issuerUrl: https://api.forgepay.com
+  trustedIssuers: https://skyfire.xyz,https://api.forgepay.com
 resources:
   requests:
-    cpu: "100m"
-    memory: "128Mi"
+    cpu: 200m
+    memory: 256Mi
   limits:
-    cpu: "300m"
-    memory: "256Mi"
-
+    cpu: 400m
+    memory: 512Mi
 livenessProbe:
   httpGet:
     path: /health
     port: 3010
   initialDelaySeconds: 10
   periodSeconds: 15
-
 readinessProbe:
   httpGet:
     path: /health
     port: 3010
   initialDelaySeconds: 5
   periodSeconds: 10
-
-# Prometheus metrics configuration
 metrics:
   enabled: true
   port: 9098
   path: /metrics
-
-# Service Monitor for Prometheus scraping
 serviceMonitor:
   enabled: true
   interval: 30s

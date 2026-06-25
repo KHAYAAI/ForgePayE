@@ -1,42 +1,29 @@
 replicaCount: 2
-
 image:
   repository: forgepay/bank-connectivity
   pullPolicy: IfNotPresent
-  tag: "0.1.0"
-
+  tag: 0.1.0
 service:
   type: ClusterIP
   port: 3006
   targetPort: 3006
-
 resources:
   requests:
-    cpu: 100m
-    memory: 128Mi
+    cpu: 300m
+    memory: 512Mi
   limits:
     cpu: 500m
-    memory: 512Mi
-
+    memory: 1Gi
 autoscaling:
   enabled: true
   minReplicas: 2
   maxReplicas: 8
   targetCPUUtilizationPercentage: 70
   targetMemoryUtilizationPercentage: 80
-
 env:
-  PORT: "3006"
-  NODE_ENV: "production"
-  CORS_ORIGINS: "http://localhost:3000,http://localhost:3001"
-  # JWT_SECRET — from secret
-  # PLAID_CLIENT_ID — from secret
-  # PLAID_SECRET — from secret
-  # PLAID_ENV: "sandbox"
-  # OPEN_BANKING_BASE_URL — from secret
-  # INTERNAL_SECRET — from secret (shared with enterprise-treasury)
-  # ENCRYPTION_KEY — from secret (AES-256-GCM for access tokens)
-
+  PORT: '3006'
+  NODE_ENV: production
+  CORS_ORIGINS: http://localhost:3000,http://localhost:3001
 livenessProbe:
   httpGet:
     path: /healthz
@@ -44,7 +31,6 @@ livenessProbe:
   initialDelaySeconds: 15
   periodSeconds: 30
   failureThreshold: 3
-
 readinessProbe:
   httpGet:
     path: /readyz
@@ -52,19 +38,14 @@ readinessProbe:
   initialDelaySeconds: 5
   periodSeconds: 10
   failureThreshold: 3
-
 podAnnotations:
-  prometheus.io/scrape: "true"
-  prometheus.io/port: "3006"
-  prometheus.io/path: "/healthz"
-
-# Prometheus metrics configuration
+  prometheus.io/scrape: 'true'
+  prometheus.io/port: '3006'
+  prometheus.io/path: /healthz
 metrics:
   enabled: true
   port: 9095
   path: /metrics
-
-# Service Monitor for Prometheus scraping
 serviceMonitor:
   enabled: true
   interval: 30s

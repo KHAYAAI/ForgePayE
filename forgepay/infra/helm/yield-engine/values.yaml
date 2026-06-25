@@ -1,62 +1,44 @@
 replicaCount: 2
-
 image:
   repository: forgepay/yield-engine
-  tag: "latest"
+  tag: latest
   pullPolicy: IfNotPresent
-
 service:
   type: ClusterIP
   port: 8100
-
 env:
   NODE_ENV: production
   LOG_LEVEL: info
-  PORT: "8100"
-
-# Secrets injected via K8s secret refs — not hardcoded here
-secretRef: "forgepay-yield-engine-secrets"
-# Expected keys:
-#   POSTGRES_PASSWORD
-#   INTERNAL_WEBHOOK_SECRET
-#   RPC_ENDPOINTS_JSON  (JSON object with chain RPC URLs)
-#   DEFI_PROTOCOL_KEYS  (API keys for Aave, Curve, etc.)
-
+  PORT: '8100'
+secretRef: forgepay-yield-engine-secrets
 resources:
   requests:
-    cpu: "200m"
-    memory: "256Mi"
+    cpu: 200m
+    memory: 256Mi
   limits:
-    cpu: "1000m"
-    memory: "1024Mi"
-
+    cpu: 400m
+    memory: 512Mi
 autoscaling:
   enabled: true
   minReplicas: 2
   maxReplicas: 6
   targetCPUUtilizationPercentage: 70
-
 livenessProbe:
   httpGet:
     path: /healthz
     port: 8100
   initialDelaySeconds: 10
   periodSeconds: 15
-
 readinessProbe:
   httpGet:
     path: /readyz
     port: 8100
   initialDelaySeconds: 5
   periodSeconds: 10
-
-# Prometheus metrics configuration
 metrics:
   enabled: true
   port: 9099
   path: /metrics
-
-# Service Monitor for Prometheus scraping
 serviceMonitor:
   enabled: true
   interval: 30s

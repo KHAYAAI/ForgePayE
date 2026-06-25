@@ -1,40 +1,30 @@
 replicaCount: 2
-
 image:
   repository: forgepay/bank-whitelabel
   pullPolicy: IfNotPresent
-  tag: "0.2.0"
-
+  tag: 0.2.0
 service:
   type: ClusterIP
   port: 3015
   targetPort: 3015
-
 resources:
   requests:
-    cpu: 100m
-    memory: 128Mi
+    cpu: 150m
+    memory: 256Mi
   limits:
-    cpu: 500m
+    cpu: 300m
     memory: 512Mi
-
 autoscaling:
   enabled: true
   minReplicas: 2
   maxReplicas: 8
   targetCPUUtilizationPercentage: 70
   targetMemoryUtilizationPercentage: 80
-
 env:
-  PORT: "3015"
-  LOG_LEVEL: "info"
-  NODE_ENV: "production"
-  SEED_ON_STARTUP: "false"
-  # Override in production:
-  # JWT_SECRET: "<from-k8s-secret>"
-  # INTERNAL_WEBHOOK_SECRET: "<from-k8s-secret>"
-  # CORS_ORIGINS: "https://admin.forgepay.com"
-
+  PORT: '3015'
+  LOG_LEVEL: info
+  NODE_ENV: production
+  SEED_ON_STARTUP: 'false'
 livenessProbe:
   httpGet:
     path: /health
@@ -42,7 +32,6 @@ livenessProbe:
   initialDelaySeconds: 15
   periodSeconds: 30
   failureThreshold: 3
-
 readinessProbe:
   httpGet:
     path: /health
@@ -50,8 +39,7 @@ readinessProbe:
   initialDelaySeconds: 5
   periodSeconds: 10
   failureThreshold: 3
-
 podAnnotations:
-  prometheus.io/scrape: "true"
-  prometheus.io/port: "3015"
-  prometheus.io/path: "/health"
+  prometheus.io/scrape: 'true'
+  prometheus.io/port: '3015'
+  prometheus.io/path: /health

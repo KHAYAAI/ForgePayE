@@ -1,70 +1,51 @@
 replicaCount: 1
-
 image:
   repository: forgepay/billing-engine-killbill
-  tag: "latest"
+  tag: latest
   pullPolicy: IfNotPresent
-
 service:
   type: ClusterIP
   port: 8080
-
 env:
-  CATALINA_OPTS: "-Dorg.killbill.server.properties=/etc/killbill/killbill.properties"
-  KILLBILL_MODES: "STANDALONE"
-
-# Kill Bill is configured to use PostgreSQL (see killbill.properties).
-# Supply connection details here; the password is injected via secretRef.
+  CATALINA_OPTS: -Dorg.killbill.server.properties=/etc/killbill/killbill.properties
+  KILLBILL_MODES: STANDALONE
 postgres:
-  host: "postgres"
+  host: postgres
   port: 5432
-  database: "killbill"
-  user: "killbill"
-
-secretRef: "forgepay-billing-engine-secrets"
-# Expected keys:
-#   POSTGRES_PASSWORD
-#   KILLBILL_ADMIN_PASSWORD
-#   KILLBILL_WEBHOOK_SECRET (must match KILLBILL_WEBHOOK_SECRET in unified-router)
-# Kill Bill will POST to: http://forgepay-unified-router:8000/webhooks/killbill
-
-# Kill Bill plugin config
+  database: killbill
+  user: killbill
+secretRef: forgepay-billing-engine-secrets
 plugins:
-  - name: "Kill Bill ForgePay Plugin"
-    version: "0.1.0"
-    config: |
-      forgepay.webhook_secret=***
-      forgepay.hyperswitch_url=http://forgepay-payment-engine:8080
+- name: Kill Bill ForgePay Plugin
+  version: 0.1.0
+  config: 'forgepay.webhook_secret=***
 
+    forgepay.hyperswitch_url=http://forgepay-payment-engine:8080
+
+    '
 resources:
   requests:
-    cpu: "500m"
-    memory: "1024Mi"
+    cpu: 250m
+    memory: 384Mi
   limits:
-    cpu: "2000m"
-    memory: "2048Mi"
-
+    cpu: 400m
+    memory: 768Mi
 livenessProbe:
   httpGet:
     path: /1.0/kb/health
     port: 8080
   initialDelaySeconds: 60
   periodSeconds: 30
-
 readinessProbe:
   httpGet:
     path: /1.0/kb/health
     port: 8080
   initialDelaySeconds: 30
   periodSeconds: 15
-
-# Prometheus metrics configuration
 metrics:
   enabled: true
   port: 9092
   path: /metrics
-
-# Service Monitor for Prometheus scraping
 serviceMonitor:
   enabled: true
   interval: 30s

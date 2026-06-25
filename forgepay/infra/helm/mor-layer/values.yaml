@@ -1,63 +1,44 @@
 replicaCount: 2
-
 image:
   repository: forgepay/mor-layer
-  tag: "latest"
+  tag: latest
   pullPolicy: IfNotPresent
-
 service:
   type: ClusterIP
   port: 8010
-
 env:
   ENVIRONMENT: production
   LOG_LEVEL: info
-  PORT: "8010"
-
-secretRef: "forgepay-mor-layer-secrets"
-# Expected keys:
-#   POSTGRES_PASSWORD
-#   INTERNAL_WEBHOOK_SECRET
-#   AUDITOR_SERVICE_SECRET  (if auth required)
-#   AVALARA_API_KEY  (optional, for real tax integration)
-#   TAXJAR_API_KEY  (optional)
-#   STRIPE_SECRET_KEY  (will replace with Hyperswitch when bridge complete)
-
+  PORT: '8010'
+secretRef: forgepay-mor-layer-secrets
 resources:
   requests:
-    cpu: "200m"
-    memory: "512Mi"
+    cpu: 300m
+    memory: 512Mi
   limits:
-    cpu: "1000m"
-    memory: "1024Mi"
-
+    cpu: 500m
+    memory: 1Gi
 autoscaling:
   enabled: true
   minReplicas: 2
   maxReplicas: 6
   targetCPUUtilizationPercentage: 70
-
 livenessProbe:
   httpGet:
     path: /health
     port: 8010
   initialDelaySeconds: 15
   periodSeconds: 15
-
 readinessProbe:
   httpGet:
     path: /ready
     port: 8010
   initialDelaySeconds: 10
   periodSeconds: 10
-
-# Prometheus metrics configuration
 metrics:
   enabled: true
   port: 9091
   path: /metrics
-
-# Service Monitor for Prometheus scraping
 serviceMonitor:
   enabled: true
   interval: 30s

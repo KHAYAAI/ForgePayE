@@ -1,73 +1,47 @@
 replicaCount: 2
-
 image:
   repository: forgepay/unified-router
-  tag: "latest"
+  tag: latest
   pullPolicy: IfNotPresent
-
 service:
   type: ClusterIP
   port: 8000
-
 env:
   NODE_ENV: production
   LOG_LEVEL: info
-  PORT: "8000"
-
-# Secrets are injected via K8s secret refs — not hardcoded here
-secretRef: "forgepay-unified-router-secrets"
-# Expected keys in that secret:
-#   POSTGRES_PASSWORD
-#   INTERNAL_WEBHOOK_SECRET
-#   HYPERSWITCH_WEBHOOK_SECRET
-#   KILLBILL_WEBHOOK_SECRET
-#   MOR_LAYER_WEBHOOK_SECRET
-#   STABLECOIN_GW_WEBHOOK_SECRET
-#   CRYPTO_GW_WEBHOOK_SECRET
-# Note: Kill Bill must post webhooks to http://forgepay-unified-router:8000/webhooks/killbill
-# with the KILLBILL_WEBHOOK_SECRET in the x-killbill-signature header (HMAC-SHA256)
-
-# KYAPay configuration (non-secret values)
+  PORT: '8000'
+secretRef: forgepay-unified-router-secrets
 kyapay:
-  # Comma-separated list of trusted KYAPay token issuers
-  trustedIssuers: "https://skyfire.xyz,https://api.forgepay.com"
-  issuerUrl: "https://api.forgepay.com"
-
+  trustedIssuers: https://skyfire.xyz,https://api.forgepay.com
+  issuerUrl: https://api.forgepay.com
 resources:
   requests:
-    cpu: "100m"
-    memory: "128Mi"
+    cpu: 300m
+    memory: 512Mi
   limits:
-    cpu: "500m"
-    memory: "512Mi"
-
+    cpu: 500m
+    memory: 1Gi
 autoscaling:
   enabled: true
   minReplicas: 2
   maxReplicas: 10
   targetCPUUtilizationPercentage: 70
-
 livenessProbe:
   httpGet:
     path: /healthz
     port: 8000
   initialDelaySeconds: 10
   periodSeconds: 15
-
 readinessProbe:
   httpGet:
     path: /readyz
     port: 8000
   initialDelaySeconds: 5
   periodSeconds: 10
-
-# Prometheus metrics configuration
 metrics:
   enabled: true
   port: 9090
   path: /metrics
-
-# Service Monitor for Prometheus scraping
 serviceMonitor:
   enabled: true
   interval: 30s
