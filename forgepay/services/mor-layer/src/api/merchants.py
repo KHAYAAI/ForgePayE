@@ -8,7 +8,7 @@ import secrets
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from passlib.context import CryptContext
 from pydantic import BaseModel, EmailStr
@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.auth.jwt import create_access_token
 from src.db.models import Merchant
 from src.db.session import get_db
+from src.rate_limiting import check_rate_limit
 
 router = APIRouter(prefix="/merchants", tags=["merchants"])
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -48,7 +49,11 @@ class TokenResponse(BaseModel):
 async def register_merchant(
     body: MerchantCreate,
     db:   Annotated[AsyncSession, Depends(get_db)],
+    request: Request,
 ) -> MerchantResponse:
+    # Rate limit: 5 registrations per minute per IP (strict on registration)
+    check_rate_limit(request, "5/minute")
+
     if len(body.password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
 
@@ -80,7 +85,11 @@ async def register_merchant(
 async def login(
     form: Annotated[OAuth2PasswordRequestForm, Depends()],
     db:   Annotated[AsyncSession, Depends(get_db)],
+    request: Request,
 ) -> TokenResponse:
+    # Rate limit: 10 login attempts per minute per IP (strict on auth)
+    check_rate_limit(request, "10/minute")
+
     result = await db.execute(select(Merchant).where(Merchant.email == form.username))
     merchant = result.scalar_one_or_none()
 

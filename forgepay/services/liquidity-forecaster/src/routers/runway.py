@@ -17,11 +17,12 @@ from __future__ import annotations
 from typing import Any
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from src.auth import get_current_merchant, verify_merchant_access
 from src.forecasting.runway import calculate_runway
 from src.models import RunwayResult
+from src.rate_limiting import check_rate_limit
 
 log = structlog.get_logger(__name__)
 
@@ -43,6 +44,7 @@ async def get_runway(
         le=365,
     ),
     authenticated_merchant: str = Depends(get_current_merchant),
+    request: Request = Depends(),
 ) -> RunwayResult:
     """
     Calculate how many days the merchant can operate at their current burn rate.
@@ -53,6 +55,9 @@ async def get_runway(
       - base:         current burn rate unchanged
       - optimistic:   -20 % burn (e.g. revenue grows 20 %)
     """
+    # Rate limit: 60 runway calculations per minute
+    check_rate_limit(request, "60/minute")
+
     verify_merchant_access(authenticated_merchant, merchant_id)
     try:
         return await calculate_runway(
@@ -78,6 +83,7 @@ async def get_scenarios(
     ),
     lookback_days: int = Query(default=90, ge=7, le=365),
     authenticated_merchant: str = Depends(get_current_merchant),
+    request: Request = Depends(),
 ) -> dict[str, Any]:
     """
     Return the three runway scenarios in a table-friendly format with
@@ -102,6 +108,9 @@ async def get_scenarios(
       ]
     }
     """
+    # Rate limit: 60 scenario retrievals per minute (read-only)
+    check_rate_limit(request, "60/minute")
+
     verify_merchant_access(authenticated_merchant, merchant_id)
     try:
         result = await calculate_runway(

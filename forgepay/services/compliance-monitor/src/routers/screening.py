@@ -21,6 +21,7 @@ from src.models import (
     ScreenEntityRequest,
     ScreeningResult,
 )
+from src.rate_limiting import check_rate_limit
 
 router = APIRouter(prefix="/api/v1/screening", tags=["Screening"])
 
@@ -39,6 +40,9 @@ async def screen_entity(
     request: Request,
     caller: Annotated[dict, Depends(require_auth)],
 ) -> ScreeningResult:
+    # Rate limit: 60 entity screenings per minute
+    check_rate_limit(request, "60/minute")
+
     engine = _engine(request)
     return await engine.screen_entity(
         entity_id=body.entity_id,
@@ -59,6 +63,9 @@ async def screen_address(
     request: Request,
     caller: Annotated[dict, Depends(require_auth)],
 ) -> ScreeningResult:
+    # Rate limit: 120 address screenings per minute
+    check_rate_limit(request, "120/minute")
+
     engine = _engine(request)
     return await engine.screen_crypto_address(address=body.address)
 
@@ -73,6 +80,9 @@ async def batch_screen(
     request: Request,
     caller: Annotated[dict, Depends(require_auth)],
 ) -> list[ScreeningResult]:
+    # Rate limit: 10 batch screenings per minute (stricter due to bulk nature)
+    check_rate_limit(request, "10/minute")
+
     if len(body.entities) > 200:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -93,5 +103,8 @@ async def screening_history(
     request: Request,
     caller: Annotated[dict, Depends(require_auth)],
 ) -> list[ScreeningResult]:
+    # Rate limit: 120 history retrievals per minute (read-only, higher limit)
+    check_rate_limit(request, "120/minute")
+
     engine = _engine(request)
     return engine.get_history(entity_id)

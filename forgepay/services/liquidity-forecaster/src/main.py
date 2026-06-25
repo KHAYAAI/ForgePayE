@@ -41,6 +41,9 @@ from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from src.config import get_settings
 from src.data.ingestor import _ingest_status, get_ingestor
@@ -67,6 +70,18 @@ structlog.configure(
 settings = get_settings()
 logging.basicConfig(level=settings.log_level.upper())
 log = structlog.get_logger(__name__)
+
+# Rate limiter setup
+limiter = Limiter(key_func=get_remote_address)
+
+# Rate limit handler
+async def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    log.warning("rate_limit_exceeded", path=request.url.path, remote=get_remote_address(request))
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Rate limit exceeded. Please retry after a delay."},
+    )
+
 
 # ── Background poll task ───────────────────────────────────────────────────────
 
@@ -141,6 +156,10 @@ app = FastAPI(
     redoc_url="/redoc"       if settings.environment != "production" else None,
     openapi_url="/openapi.json" if settings.environment != "production" else None,
 )
+
+# Attach rate limiter to app state
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
 
 # ── CORS ──────────────────────────────────────────────────────────────────────
 

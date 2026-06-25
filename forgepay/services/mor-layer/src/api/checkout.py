@@ -19,7 +19,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 import redis.asyncio as aioredis
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -40,6 +40,7 @@ from src.models.checkout import (
     TaxBreakdown,
 )
 from src.tax.calculator import TaxCalculator
+from src.rate_limiting import check_rate_limit
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/checkout", tags=["checkout"])
@@ -66,6 +67,7 @@ async def create_checkout_session(
     hs:   Annotated[HyperswitchClient, Depends(get_hyperswitch_client)],
     cfg:  Annotated[Settings, Depends(get_settings)],
     db:   Annotated[AsyncSession, Depends(get_db)],
+    request: Request,
 ) -> CheckoutSessionResponse:
     """
     Create a checkout session.
@@ -77,6 +79,9 @@ async def create_checkout_session(
       4. Store session in Redis (1h TTL) + Postgres
       5. Return client_secret so frontend can mount Hyperswitch.js
     """
+    # Rate limit: 30 checkout creations per minute
+    check_rate_limit(request, "30/minute")
+
     subtotal_cents = _sum_line_items(body.line_items)
 
     tax_cents  = 0
@@ -386,6 +391,7 @@ async def retrieve_checkout_session(
     hs:  Annotated[HyperswitchClient, Depends(get_hyperswitch_client)],
     cfg: Annotated[Settings, Depends(get_settings)],
     db:  Annotated[AsyncSession, Depends(get_db)],
+    request: Request,
 ) -> CheckoutSessionResponse:
     """
     Retrieve a checkout session by ID.
@@ -396,6 +402,9 @@ async def retrieve_checkout_session(
       2. Postgres (source of truth)
       3. Hyperswitch payment status (to verify latest state)
     """
+    # Rate limit: 100 retrievals per minute (read-heavy, higher limit)
+    check_rate_limit(request, "100/minute")
+
     # 1. Try Redis cache for payment_id
     redis = get_redis()
     cached_raw = await redis.get(f"session:{session_id}")

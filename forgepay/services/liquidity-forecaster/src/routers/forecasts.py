@@ -26,11 +26,12 @@ from __future__ import annotations
 from typing import Any
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from src.auth import get_current_merchant, verify_merchant_access
 from src.forecasting.engine import get_engine
 from src.models import ForecastHorizon, ForecastResult
+from src.rate_limiting import check_rate_limit
 
 log = structlog.get_logger(__name__)
 
@@ -53,6 +54,7 @@ async def get_forecast(
     horizon: str = Query(default="30d", description="Forecast horizon: 7d | 30d | 90d"),
     currency: str = Query(default="USD", max_length=3),
     authenticated_merchant: str = Depends(get_current_merchant),
+    request: Request = Depends(),
 ) -> ForecastResult:
     """
     Return a liquidity forecast for the given merchant and horizon.
@@ -60,6 +62,9 @@ async def get_forecast(
     Uses the in-process cache (TTL configured by FORECAST_CACHE_TTL_HOURS).
     To bypass the cache use POST /refresh.
     """
+    # Rate limit: 60 forecast retrievals per minute (read-heavy)
+    check_rate_limit(request, "60/minute")
+
     verify_merchant_access(authenticated_merchant, merchant_id)
     h = _parse_horizon(horizon)
     engine = get_engine()
@@ -77,11 +82,15 @@ async def get_forecast(
 async def get_forecast_history(
     merchant_id: str,
     authenticated_merchant: str = Depends(get_current_merchant),
+    request: Request = Depends(),
 ) -> list[dict[str, Any]]:
     """
     Return a list of previously generated forecasts for accuracy tracking.
     Each entry includes the MAPE on the validation set at generation time.
     """
+    # Rate limit: 60 history retrievals per minute (read-only)
+    check_rate_limit(request, "60/minute")
+
     verify_merchant_access(authenticated_merchant, merchant_id)
     engine = get_engine()
     return await engine.get_forecast_history(merchant_id)
@@ -92,11 +101,15 @@ async def refresh_forecasts(
     merchant_id: str,
     currency: str = Query(default="USD", max_length=3),
     authenticated_merchant: str = Depends(get_current_merchant),
+    request: Request = Depends(),
 ) -> dict[str, ForecastResult]:
     """
     Force-refresh forecasts for all three horizons, bypassing the cache.
     Triggers a new data fetch from the payment engine for each horizon.
     """
+    # Rate limit: 5 forecast refreshes per minute (write operation, stricter)
+    check_rate_limit(request, "5/minute")
+
     verify_merchant_access(authenticated_merchant, merchant_id)
     engine = get_engine()
     results: dict[str, ForecastResult] = {}

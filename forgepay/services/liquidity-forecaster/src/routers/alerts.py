@@ -17,12 +17,13 @@ POST /api/v1/alerts/{merchant_id}/{alert_id}/resolve
 from __future__ import annotations
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from src.alerts.engine import get_alert_engine
 from src.auth import get_current_merchant, verify_merchant_access
 from src.forecasting.engine import get_engine
 from src.models import AlertThresholds, ForecastHorizon, LiquidityAlert
+from src.rate_limiting import check_rate_limit
 
 log = structlog.get_logger(__name__)
 
@@ -44,6 +45,7 @@ async def get_alerts(
         description="Re-evaluate alert conditions before returning results.",
     ),
     authenticated_merchant: str = Depends(get_current_merchant),
+    request: Request = Depends(),
 ) -> list[LiquidityAlert]:
     """
     Return all active liquidity alerts for the merchant.
@@ -52,6 +54,9 @@ async def get_alerts(
     conditions against the latest 30-day forecast and the supplied
     ``current_balance``.  Set to ``false`` to return cached alert state only.
     """
+    # Rate limit: 60 alert retrievals per minute (read-heavy)
+    check_rate_limit(request, "60/minute")
+
     verify_merchant_access(authenticated_merchant, merchant_id)
     alert_engine = get_alert_engine()
 

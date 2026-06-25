@@ -36,8 +36,12 @@ from typing import AsyncGenerator
 
 import structlog
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from src.config import get_settings
 from src.kyc.manager import KycManager
@@ -72,6 +76,17 @@ structlog.configure(
 settings = get_settings()
 logging.basicConfig(level=settings.log_level)
 logger = structlog.get_logger(__name__)
+
+# Rate limiter setup
+limiter = Limiter(key_func=get_remote_address)
+
+# Rate limit handler
+async def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    logger.warning("rate_limit_exceeded", path=request.url.path, remote=get_remote_address(request))
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Rate limit exceeded. Please retry after a delay."},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -253,6 +268,10 @@ app = FastAPI(
     redoc_url=None,
     openapi_url="/openapi.json" if settings.environment != "production" else None,
 )
+
+# Attach rate limiter to app state
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
 
 # ---------------------------------------------------------------------------
 # CORS
