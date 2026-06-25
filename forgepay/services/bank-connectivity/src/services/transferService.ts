@@ -109,13 +109,15 @@ export interface TransferListOptions {
  * Load all accounts for a merchant in a single query.
  * Returns Map<accountId, account> for fast O(1) lookups.
  * Used internally by batch transfer operations.
+ *
+ * N+1 FIX #5: Reduces N queries to 1 query for batch operations.
  */
-async function loadAccountsForMerchantBatch(merchantId: string): Promise<Map<string, any>> {
+async function loadAccountsForMerchantBatch(merchantId: string): Promise<Map<string, LinkedAccountRow>> {
   const rows = await prisma.linkedAccount.findMany({
     where: { merchantId, disconnected: false },
   });
 
-  const accountMap = new Map();
+  const accountMap = new Map<string, LinkedAccountRow>();
   for (const row of rows) {
     accountMap.set(row.id, row);
   }
