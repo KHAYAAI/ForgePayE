@@ -104,6 +104,13 @@ app.get('/health', async (_req, reply) => {
   });
 });
 
+// ── Metrics ───────────────────────────────────────────────────────────────────
+
+app.get('/metrics', async (_req, reply) => {
+  const { register } = await import('./lib/metrics.js');
+  reply.type('text/plain; version=0.0.4; charset=utf-8').send(await register.metrics());
+});
+
 // ── Report generation (POST /v1/reports) ──────────────────────────────────────
 
 app.post('/v1/reports', async (req, reply) => {
@@ -342,6 +349,16 @@ app.get('/v1/agent/tools', async (_req, reply) => {
 └─────────────────────────────────────────────────────────┘
 `);
 }
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[institutional-reporting] Unhandled rejection:', reason);
+  process.exit(1);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[institutional-reporting] Uncaught exception:', err);
+  process.exit(1);
+});
 
 start().catch((err) => {
   console.error(err);

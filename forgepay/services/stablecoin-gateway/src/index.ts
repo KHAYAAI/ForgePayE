@@ -71,6 +71,12 @@ async function main() {
 
   // Health / readiness
   app.get('/healthz', async () => ({ status: 'ok', service: 'stablecoin-gateway' }));
+
+  app.get('/metrics', async (_req, reply) => {
+    const { register } = await import('./lib/metrics.js');
+    reply.type('text/plain; version=0.0.4; charset=utf-8').send(await register.metrics());
+  });
+
   app.get('/readyz',  async () => {
     try {
       await db.query('SELECT 1', []);

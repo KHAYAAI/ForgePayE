@@ -83,6 +83,12 @@ async function buildApp() {
     timestamp: new Date().toISOString(),
   }));
 
+  // ── Metrics ────────────────────────────────────────────────────────────────
+  app.get('/metrics', async (_req, reply) => {
+    const { Metrics } = await import('./lib/metrics.js');
+    reply.type('text/plain; version=0.0.4; charset=utf-8').send(await Metrics.register());
+  });
+
   // ── POST /v1/sessions — Create session ────────────────────────────────────
   app.post('/v1/sessions', async (req, reply) => {
     const body = req.body as Record<string, unknown>;

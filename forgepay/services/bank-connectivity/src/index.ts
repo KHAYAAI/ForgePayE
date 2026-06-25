@@ -110,6 +110,11 @@ async function main(): Promise<void> {
     return reply.code(200).send({ status: 'ready' });
   });
 
+  app.get('/metrics', async (_req, reply) => {
+    const { register } = await import('./lib/metrics.js');
+    reply.type('text/plain; version=0.0.4; charset=utf-8').send(await register.metrics());
+  });
+
   // ── API routes ────────────────────────────────────────────────────────────
   await app.register(buildAccountRoutes, { prefix: '/api/v1' });
   await app.register(buildTransferRoutes, { prefix: '/api/v1' });

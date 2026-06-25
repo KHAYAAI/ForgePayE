@@ -31,6 +31,11 @@ await app.register(rateLimit, {
 // Health + readiness
 app.get('/healthz', async () => ({ status: 'ok', service: 'accounts-service', version: '0.1.0' }));
 
+app.get('/metrics', async (_req, reply) => {
+  const { Metrics } = await import('./lib/metrics.js');
+  reply.type('text/plain; version=0.0.4; charset=utf-8').send(await Metrics.register());
+});
+
 app.get('/readyz', async (_req, reply) => {
   try {
     await getDb().query('SELECT 1');

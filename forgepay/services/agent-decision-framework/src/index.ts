@@ -133,6 +133,12 @@ async function buildApp() {
     timestamp:        new Date().toISOString(),
   }));
 
+  // ── Metrics ────────────────────────────────────────────────────────────────
+  app.get('/metrics', async (_req, reply) => {
+    const { Metrics } = await import('./lib/metrics.js');
+    reply.type('text/plain; version=0.0.4; charset=utf-8').send(await Metrics.register());
+  });
+
   // ── Decision evaluation ────────────────────────────────────────────────────
 
   app.post('/v1/decisions/evaluate', async (req, reply) => {

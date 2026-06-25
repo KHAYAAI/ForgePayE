@@ -69,6 +69,11 @@ async function main() {
     chains: Object.keys(config.chains),
   }));
 
+  app.get('/metrics', async (_req, reply) => {
+    const { Metrics } = await import('./lib/metrics.js');
+    reply.type('text/plain; version=0.0.4; charset=utf-8').send(await Metrics.register());
+  });
+
   app.get('/readyz', async (req, reply) => {
     try {
       await db.query('SELECT 1');
