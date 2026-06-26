@@ -1,0 +1,639 @@
+/**
+ * ForgePay Agent Credit Bureau
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Role: World's first credit bureau for autonomous AI agents — FICO-style scoring
+ *       (0-1000), identity binding, dispute management, and lender APIs.
+ *
+ * Features:
+ *   1. Deterministic Credit Scoring     — 5-component FICO-style model
+ *   2. Agent Identity Binding           — DID → legal entity (EIN/VAT)
+ *   3. Dispute Management               — 30-day FCRA-compliant resolution
+ *   4. Credit Report API                — Lender-facing, consent-gated
+ *   5. ZK Proof Generation              — Privacy-preserving claims
+ *   6. Data Contributor Onboarding      — External protocol data ingestion
+ *
+ * Port: 3018
+ *
+ * Env vars:
+ *   AGENT_IDENTITY_URL   — default http://localhost:3010
+ *   AGENT_DECISION_URL   — default http://localhost:3013
+ *   CORS_ORIGIN          — default *
+ *   RATE_LIMIT_PER_MIN   — default 100
+ *   LOG_LEVEL            — default info
+ */
+
+import Fastify, { FastifyError } from 'fastify';
+import cors from '@fastify/cors';
+import rateLimit from '@fastify/rate-limit';
+import helmet from '@fastify/helmet';
+import { z } from 'zod';
+import { randomUUID } from 'crypto';
+
+import {
+  getProfile, setProfile, getDispute, setDispute,
+  getReport, setReport, getContributor, listDisputes,
+  listProfiles, bureauStats, profiles, contributors,
+} from './store';
+import {
+  computeScore, scoreTier, generateZKProof,
+  maxRecommendedLimit, scoreRecommendation, simulateScore,
+} from './scorer';
+import type {
+  AgentCreditProfile, CreditReport, Dispute, CreditEvent,
+} from './types';
+
+// ── Configuration ─────────────────────────────────────────────────────────────
+
+const PORT               = parseInt(process.env['PORT'] ?? '3018', 10);
+const AGENT_IDENTITY_URL = process.env['AGENT_IDENTITY_URL'] ?? 'http://localhost:3010';
+const RATE_LIMIT_PER_MIN = parseInt(process.env['RATE_LIMIT_PER_MIN'] ?? '100', 10);
+
+// ── Zod schemas ───────────────────────────────────────────────────────────────
+
+const CreateProfileSchema = z.object({
+  agentId:             z.string().min(1),
+  did:                 z.string().min(1),
+  operatorEntityId:    z.string().min(1),
+  operatorEntityType:  z.enum(['individual', 'llc', 'corp', 'dao']),
+});
+
+const RecordEventSchema = z.object({
+  eventType:     z.enum([
+    'payment_on_time', 'payment_late_30', 'payment_late_60', 'payment_late_90',
+    'default', 'credit_opened', 'credit_closed', 'hard_inquiry',
+    'dispute_filed', 'dispute_resolved', 'score_updated', 'sanctions_hit', 'identity_verified',
+  ]),
+  amount:        z.number().nonnegative().optional(),
+  creditorId:    z.string().optional(),
+  description:   z.string().min(1),
+  onChainTxHash: z.string().optional(),
+  proofId:       z.string().optional(),
+});
+
+const PullReportSchema = z.object({
+  requestorId:   z.string().min(1),
+  requestorName: z.string().min(1),
+  agentId:       z.string().min(1),
+  purpose:       z.enum(['credit_application', 'account_review', 'employment', 'insurance']),
+  consentToken:  z.string().min(1),
+  zkProofMode:   z.boolean().default(false),
+});
+
+const FileDisputeSchema = z.object({
+  eventId:     z.string().min(1),
+  description: z.string().min(10),
+  evidence:    z.string().optional(),
+  furnisherId: z.string().optional(),
+});
+
+const UpdateDisputeSchema = z.object({
+  status:     z.enum(['investigating', 'resolved_upheld', 'resolved_corrected', 'resolved_deleted']),
+  resolution: z.string().optional(),
+});
+
+const IngestEventsSchema = z.object({
+  agentId: z.string().min(1),
+  events:  z.array(RecordEventSchema).min(1).max(500),
+});
+
+const RegisterContributorSchema = z.object({
+  name:        z.string().min(1),
+  type:        z.enum(['defi_protocol', 'cefi_lender', 'saas_platform', 'bank', 'forgepay_internal']),
+  permissions: z.array(z.string()).default(['ingest_events']),
+});
+
+const ZKProofRequestSchema = z.object({
+  circuit: z.enum(['score_above', 'no_default_last_n_months', 'debt_under', 'utilization_below']),
+  params:  z.record(z.number()),
+});
+
+const SimulateSchema = z.object({
+  action: z.enum(['pay_down_debt', 'increase_limit', 'on_time_payments', 'resolve_delinquency']),
+  params: z.record(z.number()).default({}),
+});
+
+// ── App builder ───────────────────────────────────────────────────────────────
+
+async function buildApp() {
+  const app = Fastify({
+    logger:     { level: process.env['LOG_LEVEL'] ?? 'info' },
+    trustProxy: true,
+  });
+
+  await app.register(helmet, { contentSecurityPolicy: false });
+  await app.register(cors, {
+    origin:  process.env['CORS_ORIGIN'] ?? '*',
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  });
+  await app.register(rateLimit, {
+    max:        RATE_LIMIT_PER_MIN,
+    timeWindow: '1 minute',
+    keyGenerator: (req) =>
+      (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim() ?? req.ip,
+    errorResponseBuilder: (_req, ctx) => ({
+      statusCode: 429,
+      error:      'Too Many Requests',
+      message:    `Rate limit exceeded. Retry in ${Math.ceil(ctx.ttl / 1000)}s`,
+    }),
+  });
+
+  // ── Health probe ───────────────────────────────────────────────────────────
+  app.get('/health', async () => ({
+    status:          'ok',
+    service:         'agent-credit-bureau',
+    version:         '0.1.0',
+    port:            PORT,
+    agentIdentityUrl: AGENT_IDENTITY_URL,
+    registeredAgents: profiles.size,
+    timestamp:       new Date().toISOString(),
+  }));
+
+  // ── Prometheus metrics ─────────────────────────────────────────────────────
+  app.get('/metrics', async (_req, reply) => {
+    const stats = bureauStats();
+    const lines = [
+      '# HELP bureau_agents_total Total registered agent profiles',
+      '# TYPE bureau_agents_total gauge',
+      `bureau_agents_total ${stats.totalAgents}`,
+      '# HELP bureau_avg_score Average credit score across all agents',
+      '# TYPE bureau_avg_score gauge',
+      `bureau_avg_score ${stats.avgScore}`,
+      '# HELP bureau_total_debt_usd Total outstanding debt in USD',
+      '# TYPE bureau_total_debt_usd gauge',
+      `bureau_total_debt_usd ${stats.totalDebt}`,
+      '# HELP bureau_open_disputes Open dispute count',
+      '# TYPE bureau_open_disputes gauge',
+      `bureau_open_disputes ${stats.openDisputes}`,
+    ];
+    reply.type('text/plain; version=0.0.4; charset=utf-8').send(lines.join('\n') + '\n');
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Credit Profile — Agent-facing
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // GET /v1/agents/:agentId/profile
+  app.get<{ Params: { agentId: string } }>('/v1/agents/:agentId/profile', async (req, reply) => {
+    const profile = getProfile(req.params.agentId);
+    if (!profile) return reply.status(404).send({ error: 'NotFound', message: `Agent ${req.params.agentId} not registered` });
+    return reply.send({ data: profile });
+  });
+
+  // POST /v1/agents/:agentId/profile — create profile
+  app.post<{ Params: { agentId: string } }>('/v1/agents/:agentId/profile', async (req, reply) => {
+    const parse = CreateProfileSchema.safeParse(req.body);
+    if (!parse.success) return reply.status(400).send({ error: 'ValidationError', details: parse.error.flatten() });
+
+    if (getProfile(req.params.agentId)) {
+      return reply.status(409).send({ error: 'Conflict', message: `Agent ${req.params.agentId} already has a profile` });
+    }
+
+    const now = new Date().toISOString();
+    const profile: AgentCreditProfile = {
+      agentId:             req.params.agentId,
+      did:                 parse.data.did,
+      operatorEntityId:    parse.data.operatorEntityId,
+      operatorEntityType:  parse.data.operatorEntityType,
+      currentScore:        650, // initial neutral score
+      tier:                'PRIME',
+      scoreFactors:        [],
+      creditHistory:       [],
+      totalDebt:           0,
+      totalCreditLimit:    0,
+      utilizationRate:     0,
+      paymentHistoryRate:  1.0,
+      delinquencies:       [],
+      hardInquiries:       [],
+      createdAt:           now,
+      lastUpdatedAt:       now,
+    };
+
+    const { score, factors } = computeScore(profile);
+    profile.currentScore  = score;
+    profile.tier          = scoreTier(score);
+    profile.scoreFactors  = factors;
+
+    setProfile(profile);
+    return reply.status(201).send({ data: profile });
+  });
+
+  // GET /v1/agents/:agentId/score
+  app.get<{ Params: { agentId: string } }>('/v1/agents/:agentId/score', async (req, reply) => {
+    const profile = getProfile(req.params.agentId);
+    if (!profile) return reply.status(404).send({ error: 'NotFound', message: `Agent ${req.params.agentId} not found` });
+    return reply.send({
+      data: {
+        agentId:      profile.agentId,
+        score:        profile.currentScore,
+        tier:         profile.tier,
+        factors:      profile.scoreFactors,
+        utilization:  profile.utilizationRate,
+        paymentRate:  profile.paymentHistoryRate,
+        lastUpdated:  profile.lastUpdatedAt,
+        frozen:       !!profile.frozenAt,
+      },
+    });
+  });
+
+  // GET /v1/agents/:agentId/history
+  app.get<{ Params: { agentId: string }; Querystring: { limit?: string; offset?: string } }>(
+    '/v1/agents/:agentId/history', async (req, reply) => {
+      const profile = getProfile(req.params.agentId);
+      if (!profile) return reply.status(404).send({ error: 'NotFound', message: 'Agent not found' });
+
+      const limit  = Math.min(parseInt((req.query as { limit?: string }).limit ?? '20', 10), 200);
+      const offset = parseInt((req.query as { offset?: string }).offset ?? '0', 10);
+      const history = [...profile.creditHistory]
+        .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+        .slice(offset, offset + limit);
+
+      return reply.send({ data: history, total: profile.creditHistory.length });
+    },
+  );
+
+  // POST /v1/agents/:agentId/simulate
+  app.post<{ Params: { agentId: string } }>('/v1/agents/:agentId/simulate', async (req, reply) => {
+    const profile = getProfile(req.params.agentId);
+    if (!profile) return reply.status(404).send({ error: 'NotFound', message: 'Agent not found' });
+
+    const parse = SimulateSchema.safeParse(req.body);
+    if (!parse.success) return reply.status(400).send({ error: 'ValidationError', details: parse.error.flatten() });
+
+    const { action, params } = parse.data;
+    const newScore = simulateScore(profile, action, params);
+
+    return reply.send({
+      data: {
+        agentId:      profile.agentId,
+        currentScore: profile.currentScore,
+        simulatedScore: newScore,
+        scoreDelta:   newScore - profile.currentScore,
+        action,
+        params,
+        timeToEffect: '30 days',
+      },
+    });
+  });
+
+  // POST /v1/agents/:agentId/events — record a credit event
+  app.post<{ Params: { agentId: string } }>('/v1/agents/:agentId/events', async (req, reply) => {
+    const profile = getProfile(req.params.agentId);
+    if (!profile) return reply.status(404).send({ error: 'NotFound', message: 'Agent not found' });
+
+    const parse = RecordEventSchema.safeParse(req.body);
+    if (!parse.success) return reply.status(400).send({ error: 'ValidationError', details: parse.error.flatten() });
+
+    const event: CreditEvent = {
+      id:            randomUUID(),
+      agentId:       profile.agentId,
+      timestamp:     new Date().toISOString(),
+      ...parse.data,
+    };
+
+    profile.creditHistory.push(event);
+
+    // Update utilization if it's a debt event
+    if (event.eventType === 'payment_on_time' && event.amount) {
+      profile.totalDebt = Math.max(0, profile.totalDebt - event.amount);
+    } else if (event.eventType === 'credit_opened' && event.amount) {
+      profile.totalCreditLimit += event.amount;
+    } else if (['payment_late_30', 'payment_late_60', 'payment_late_90'].includes(event.eventType)) {
+      profile.delinquencies.push({
+        id:          randomUUID(),
+        creditorId:  event.creditorId ?? 'unknown',
+        amount:      event.amount ?? 0,
+        daysLate:    event.eventType === 'payment_late_30' ? 30 : event.eventType === 'payment_late_60' ? 60 : 90,
+        openedAt:    event.timestamp,
+        status:      'open',
+      });
+    }
+
+    // Recalculate utilization + payment rate
+    if (profile.totalCreditLimit > 0) {
+      profile.utilizationRate = profile.totalDebt / profile.totalCreditLimit;
+    }
+    const onTime = profile.creditHistory.filter(e => e.eventType === 'payment_on_time').length;
+    const allPayments = profile.creditHistory.filter(e => e.eventType.startsWith('payment')).length;
+    profile.paymentHistoryRate = allPayments > 0 ? onTime / allPayments : 1;
+
+    // Recompute score
+    const { score, factors } = computeScore(profile);
+    profile.currentScore  = score;
+    profile.tier          = scoreTier(score);
+    profile.scoreFactors  = factors;
+    profile.lastUpdatedAt = new Date().toISOString();
+
+    setProfile(profile);
+    return reply.status(201).send({ data: { event, newScore: score, tier: profile.tier } });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Credit Reports — Lender-facing
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // POST /v1/reports — pull a credit report
+  app.post('/v1/reports', async (req, reply) => {
+    const parse = PullReportSchema.safeParse(req.body);
+    if (!parse.success) return reply.status(400).send({ error: 'ValidationError', details: parse.error.flatten() });
+
+    const { agentId, requestorId, requestorName, purpose, consentToken, zkProofMode } = parse.data;
+    const profile = getProfile(agentId);
+    if (!profile) return reply.status(404).send({ error: 'NotFound', message: `Agent ${agentId} not found` });
+    if (profile.frozenAt) return reply.status(403).send({ error: 'Frozen', message: 'Agent credit profile is frozen due to sanctions or legal hold' });
+
+    // Record hard inquiry
+    profile.hardInquiries.push({
+      id:            randomUUID(),
+      requestorId,
+      requestorName,
+      purpose,
+      timestamp:     new Date().toISOString(),
+      consentToken,
+    });
+
+    // Recompute score after inquiry (may slightly reduce it)
+    const { score, factors } = computeScore(profile);
+    profile.currentScore  = score;
+    profile.tier          = scoreTier(score);
+    profile.scoreFactors  = factors;
+    profile.lastUpdatedAt = new Date().toISOString();
+    setProfile(profile);
+
+    const now    = new Date();
+    const expiry = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
+
+    const report: CreditReport = {
+      reportId:    randomUUID(),
+      agentId,
+      requestorId,
+      generatedAt: now.toISOString(),
+      expiresAt:   expiry.toISOString(),
+      profile,
+      summary: {
+        score,
+        tier:               profile.tier,
+        recommendation:     scoreRecommendation(score),
+        maxRecommendedLimit: maxRecommendedLimit(score),
+        riskGrade:          score >= 800 ? 'A' : score >= 670 ? 'B' : score >= 580 ? 'C' : score >= 500 ? 'D' : 'F',
+      },
+      zkProofMode,
+    };
+
+    if (zkProofMode) {
+      report.zkProofs = [
+        { circuit: 'score_above',              params: { threshold: 700 }, ...generateZKProof(profile, 'score_above', { threshold: 700 }), generatedAt: now.toISOString() },
+        { circuit: 'no_default_last_n_months', params: { months: 12 },    ...generateZKProof(profile, 'no_default_last_n_months', { months: 12 }), generatedAt: now.toISOString() },
+        { circuit: 'utilization_below',        params: { threshold: 0.8 },...generateZKProof(profile, 'utilization_below', { threshold: 0.8 }), generatedAt: now.toISOString() },
+      ];
+      // In ZK mode, redact raw history for privacy
+      report.profile = { ...profile, creditHistory: [], hardInquiries: [], delinquencies: [] };
+    }
+
+    setReport(report);
+    return reply.status(201).send({ data: report });
+  });
+
+  // GET /v1/reports/:reportId
+  app.get<{ Params: { reportId: string } }>('/v1/reports/:reportId', async (req, reply) => {
+    const report = getReport(req.params.reportId);
+    if (!report) return reply.status(404).send({ error: 'NotFound', message: 'Report not found or expired' });
+    if (new Date(report.expiresAt) < new Date()) {
+      return reply.status(410).send({ error: 'Gone', message: 'Report has expired (90 days)' });
+    }
+    return reply.send({ data: report });
+  });
+
+  // POST /v1/reports/:reportId/zk — generate ZK proofs
+  app.post<{ Params: { reportId: string } }>('/v1/reports/:reportId/zk', async (req, reply) => {
+    const report = getReport(req.params.reportId);
+    if (!report) return reply.status(404).send({ error: 'NotFound', message: 'Report not found' });
+
+    const parse = ZKProofRequestSchema.safeParse(req.body);
+    if (!parse.success) return reply.status(400).send({ error: 'ValidationError', details: parse.error.flatten() });
+
+    const profile = getProfile(report.agentId);
+    if (!profile) return reply.status(404).send({ error: 'NotFound', message: 'Agent profile not found' });
+
+    const { circuit, params } = parse.data;
+    const proof = generateZKProof(profile, circuit, params);
+
+    return reply.send({
+      data: {
+        ...proof,
+        circuit,
+        params,
+        generatedAt: new Date().toISOString(),
+        agentId:     report.agentId,
+        reportId:    report.reportId,
+      },
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Disputes — FCRA-compliant 30-day resolution
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // GET /v1/agents/:agentId/disputes
+  app.get<{ Params: { agentId: string } }>('/v1/agents/:agentId/disputes', async (req, reply) => {
+    const data = listDisputes({ agentId: req.params.agentId });
+    return reply.send({ data, total: data.length });
+  });
+
+  // POST /v1/agents/:agentId/disputes — file a dispute
+  app.post<{ Params: { agentId: string } }>('/v1/agents/:agentId/disputes', async (req, reply) => {
+    const profile = getProfile(req.params.agentId);
+    if (!profile) return reply.status(404).send({ error: 'NotFound', message: 'Agent not found' });
+
+    const parse = FileDisputeSchema.safeParse(req.body);
+    if (!parse.success) return reply.status(400).send({ error: 'ValidationError', details: parse.error.flatten() });
+
+    const dispute: Dispute = {
+      id:          randomUUID(),
+      agentId:     req.params.agentId,
+      status:      'open',
+      filedAt:     new Date().toISOString(),
+      ...parse.data,
+    };
+
+    setDispute(dispute);
+    return reply.status(201).send({ data: dispute });
+  });
+
+  // PUT /v1/disputes/:disputeId — update status
+  app.put<{ Params: { disputeId: string } }>('/v1/disputes/:disputeId', async (req, reply) => {
+    const dispute = getDispute(req.params.disputeId);
+    if (!dispute) return reply.status(404).send({ error: 'NotFound', message: 'Dispute not found' });
+
+    const parse = UpdateDisputeSchema.safeParse(req.body);
+    if (!parse.success) return reply.status(400).send({ error: 'ValidationError', details: parse.error.flatten() });
+
+    const updated: Dispute = {
+      ...dispute,
+      status:     parse.data.status,
+      resolution: parse.data.resolution,
+      resolvedAt: parse.data.status.startsWith('resolved') ? new Date().toISOString() : undefined,
+    };
+
+    setDispute(updated);
+    return reply.send({ data: updated });
+  });
+
+  // GET /v1/disputes — list all disputes (for compliance officers)
+  app.get<{ Querystring: { status?: string; limit?: string } }>('/v1/disputes', async (req, reply) => {
+    const q = req.query as { status?: string; limit?: string };
+    const limit  = Math.min(parseInt(q.limit ?? '50', 10), 500);
+    const data   = listDisputes(q.status ? { status: q.status } : undefined).slice(0, limit);
+    return reply.send({ data, total: data.length });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Data Contributors
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // POST /v1/contributors — register
+  app.post('/v1/contributors', async (req, reply) => {
+    const parse = RegisterContributorSchema.safeParse(req.body);
+    if (!parse.success) return reply.status(400).send({ error: 'ValidationError', details: parse.error.flatten() });
+
+    const id: string = randomUUID();
+    const contributor = {
+      id,
+      name:                    parse.data.name,
+      type:                    parse.data.type,
+      apiKey:                  `ck_${Buffer.from(randomUUID()).toString('base64').slice(0, 24)}`,
+      permissions:             parse.data.permissions,
+      queriesUsed:             0,
+      queriesAllowed:          5000, // default; grows as they contribute data
+      dataRecordsContributed:  0,
+      createdAt:               new Date().toISOString(),
+      status:                  'pending' as const,
+    };
+
+    contributors.set(id, contributor);
+    return reply.status(201).send({ data: contributor });
+  });
+
+  // POST /v1/contributors/:id/ingest — bulk event ingestion
+  app.post<{ Params: { id: string } }>('/v1/contributors/:id/ingest', async (req, reply) => {
+    const contributor = getContributor(req.params.id);
+    if (!contributor) return reply.status(404).send({ error: 'NotFound', message: 'Contributor not found' });
+    if (contributor.status !== 'active') return reply.status(403).send({ error: 'Forbidden', message: 'Contributor not yet active' });
+
+    const parse = IngestEventsSchema.safeParse(req.body);
+    if (!parse.success) return reply.status(400).send({ error: 'ValidationError', details: parse.error.flatten() });
+
+    const { agentId, events } = parse.data;
+    let profile = getProfile(agentId);
+    if (!profile) {
+      return reply.status(404).send({ error: 'NotFound', message: `Agent ${agentId} not registered — register the agent first` });
+    }
+
+    const ingested: CreditEvent[] = events.map(e => ({
+      id:        randomUUID(),
+      agentId,
+      timestamp: new Date().toISOString(),
+      proofId:   randomUUID(),
+      ...e,
+    }));
+
+    profile.creditHistory.push(...ingested);
+
+    // Update contributor stats
+    contributor.dataRecordsContributed += events.length;
+    contributor.queriesAllowed = Math.min(1_000_000, 5000 + contributor.dataRecordsContributed * 0.5);
+    contributors.set(contributor.id, contributor);
+
+    // Recompute score
+    const { score, factors } = computeScore(profile);
+    profile.currentScore  = score;
+    profile.tier          = scoreTier(score);
+    profile.scoreFactors  = factors;
+    profile.lastUpdatedAt = new Date().toISOString();
+    setProfile(profile);
+
+    return reply.status(201).send({
+      data: { ingestedCount: ingested.length, newScore: score, events: ingested },
+    });
+  });
+
+  // GET /v1/contributors/:id/stats
+  app.get<{ Params: { id: string } }>('/v1/contributors/:id/stats', async (req, reply) => {
+    const contributor = getContributor(req.params.id);
+    if (!contributor) return reply.status(404).send({ error: 'NotFound', message: 'Contributor not found' });
+    contributor.queriesUsed += 1; // count this query
+    contributors.set(contributor.id, contributor);
+    return reply.send({ data: contributor });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Bureau Analytics
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // GET /v1/bureau/stats
+  app.get('/v1/bureau/stats', async (_req, reply) => {
+    return reply.send({ data: bureauStats() });
+  });
+
+  // GET /v1/agents — list all profiles
+  app.get<{ Querystring: { limit?: string; offset?: string } }>('/v1/agents', async (req, reply) => {
+    const q      = req.query as { limit?: string; offset?: string };
+    const limit  = Math.min(parseInt(q.limit ?? '50', 10), 200);
+    const offset = parseInt(q.offset ?? '0', 10);
+    const data   = listProfiles(limit, offset);
+    return reply.send({ data, total: profiles.size });
+  });
+
+  // ── Error handlers ─────────────────────────────────────────────────────────
+  app.setErrorHandler<FastifyError>((err, req, reply) => {
+    req.log.error({ err, url: req.url }, 'Unhandled error');
+    reply.status(err.statusCode ?? 500).send({
+      error:   err.name ?? 'InternalServerError',
+      message: err.message,
+    });
+  });
+
+  app.setNotFoundHandler((req, reply) => {
+    reply.status(404).send({ error: 'NotFound', path: req.url });
+  });
+
+  return app;
+}
+
+// ── Startup ───────────────────────────────────────────────────────────────────
+
+async function main(): Promise<void> {
+  const app = await buildApp();
+
+  const shutdown = async () => {
+    app.log.info('[credit-bureau] Shutting down...');
+    await app.close();
+    process.exit(0);
+  };
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT',  shutdown);
+
+  await app.listen({ port: PORT, host: '0.0.0.0' });
+
+  console.log(`
+╔══════════════════════════════════════════════════════════════════╗
+║      ForgePay Agent Credit Bureau v0.1.0                         ║
+║      Listening on port ${PORT}                                      ║
+║                                                                  ║
+║  Score        →  GET  /v1/agents/:id/score                       ║
+║  Profile      →  GET  /v1/agents/:id/profile                     ║
+║  Report       →  POST /v1/reports                                ║
+║  Disputes     →  GET  /v1/disputes                               ║
+║  Bureau Stats →  GET  /v1/bureau/stats                           ║
+║  ZK Proofs    →  POST /v1/reports/:id/zk                         ║
+╚══════════════════════════════════════════════════════════════════╝
+`);
+}
+
+if (require.main === module) {
+  main().catch((err) => {
+    console.error('[credit-bureau] Fatal startup error:', err);
+    process.exit(1);
+  });
+}
+
+export { buildApp };

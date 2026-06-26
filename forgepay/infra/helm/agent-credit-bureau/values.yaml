@@ -1,0 +1,58 @@
+replicaCount: 1
+image:
+  repository: forgepay/agent-credit-bureau
+  pullPolicy: IfNotPresent
+  tag: 0.1.0
+service:
+  type: ClusterIP
+  port: 3018
+  targetPort: 3018
+resources:
+  requests:
+    cpu: 200m
+    memory: 256Mi
+  limits:
+    cpu: 400m
+    memory: 512Mi
+autoscaling:
+  enabled: true
+  minReplicas: 1
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+env:
+  PORT: '3018'
+  LOG_LEVEL: info
+  NODE_ENV: production
+  RATE_LIMIT_PER_MIN: '200'
+  CORS_ORIGIN: '*'
+  AGENT_IDENTITY_URL: http://agent-identity:3010
+  AGENT_DECISION_URL: http://agent-decision-framework:3013
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 3018
+  initialDelaySeconds: 15
+  periodSeconds: 30
+  failureThreshold: 3
+readinessProbe:
+  httpGet:
+    path: /health
+    port: 3018
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  failureThreshold: 3
+podAnnotations:
+  prometheus.io/scrape: 'true'
+  prometheus.io/port: '3018'
+  prometheus.io/path: /metrics
+metrics:
+  enabled: true
+  port: 9099
+  path: /metrics
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  scrapeTimeout: 10s
+  labels:
+    release: prometheus
