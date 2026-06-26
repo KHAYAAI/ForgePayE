@@ -79,47 +79,51 @@ const FEATURES = [
 
 export default function Features() {
   return (
-    <section id="features" className="py-24 px-4 sm:px-6 lg:px-8">
+    <section id="features" className="py-24 px-8">
       <div className="max-w-7xl mx-auto">
         {/* Section header */}
-        <div className="text-center mb-16">
-          <div className="inline-block bg-cyan-500/10 border border-cyan-500/20 rounded-full px-4 py-1 text-xs font-semibold text-cyan-400 uppercase tracking-wide mb-4">
-            Everything included
-          </div>
-          <h2 className="text-4xl sm:text-5xl font-black mb-4 tracking-tight">
-            One platform.{' '}
-            <span className="text-cyan-500">Every payment type.</span>
+        <div className="mb-12">
+          <p className="text-xs font-mono text-[#39D353] tracking-widest mb-3">
+            // PLATFORM CAPABILITIES
+          </p>
+          <h2 className="text-2xl sm:text-3xl font-mono font-bold text-white mb-3 tracking-tight">
+            One platform. Every payment type.
           </h2>
-          <p className="text-lg text-gray-400 max-w-2xl mx-auto">
+          <p className="text-sm font-mono text-[#6B7280] max-w-2xl">
             Stop juggling Stripe, Paddle, and a crypto processor. ForgePay handles everything in a
             single integration — with built-in tax, billing, and AI-native features.
           </p>
         </div>
 
         {/* Feature grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-[#1E1E1E]">
           {FEATURES.map((feature) => {
             const Icon = feature.icon;
             return (
               <div
                 key={feature.title}
-                className="group relative border-gradient rounded-2xl p-6 hover:bg-white/[0.03] transition-all duration-300 hover:scale-[1.01]"
+                className="group bg-[#111111] p-6 border border-[#1E1E1E] hover:border-[#39D35330] transition-colors duration-200 cursor-default"
               >
-                {/* Icon */}
-                <div className="w-10 h-10 bg-cyan-500/10 rounded-lg flex items-center justify-center mb-4 group-hover:bg-cyan-500/20 transition-colors">
-                  <Icon size={20} className="text-cyan-400" />
-                </div>
-
-                {/* Title + Tag */}
-                <div className="flex items-start justify-between mb-2 gap-2">
-                  <h3 className="text-base font-bold text-white">{feature.title}</h3>
-                  <span className="shrink-0 text-[10px] font-semibold bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 rounded-full px-2 py-0.5 mt-0.5">
+                {/* Icon row */}
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[#39D353] text-xs font-mono">&gt;</span>
+                    <Icon size={14} className="text-[#39D353]" />
+                  </div>
+                  <span className="text-[10px] font-mono text-[#6B7280] border border-[#1E1E1E] px-2 py-0.5 tracking-wider">
                     {feature.tag}
                   </span>
                 </div>
 
+                {/* Title */}
+                <h3 className="text-sm font-mono font-bold text-white mb-2 tracking-tight">
+                  {feature.title}
+                </h3>
+
                 {/* Description */}
-                <p className="text-sm text-gray-400 leading-relaxed">{feature.description}</p>
+                <p className="text-xs font-mono text-[#6B7280] leading-relaxed">
+                  {feature.description}
+                </p>
               </div>
             );
           })}

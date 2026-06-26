@@ -53,8 +53,8 @@ export default function PaymentsTable() {
   return (
     <div className="card overflow-hidden">
       {isLoading ? (
-        <div className="flex items-center justify-center py-16 text-gray-500">
-          <Loader2 size={16} className="animate-spin mr-2" /> Loading payments…
+        <div className="flex items-center justify-center py-16 text-[#444] font-mono text-xs">
+          <Loader2 size={14} className="animate-spin mr-2 text-[#39D353]" /> LOADING PAYMENTS…
         </div>
       ) : (
         <table className="w-full fp-table">
@@ -71,21 +71,33 @@ export default function PaymentsTable() {
           </thead>
           <tbody>
             {payments.length === 0 ? (
-              <tr><td colSpan={7} className="text-center py-8 text-gray-500">No payments found.</td></tr>
+              <tr>
+                <td colSpan={7} className="text-center py-8 text-[#444] font-mono text-xs">
+                  NO PAYMENTS FOUND
+                </td>
+              </tr>
             ) : payments.map((p) => (
               <tr key={p.payment_id}>
                 <td>
-                  <Link href={`/payments/${p.payment_id}`} className="font-mono text-xs text-cyan-400 hover:text-cyan-300">
+                  <Link
+                    href={`/payments/${p.payment_id}`}
+                    className="font-mono text-xs text-[#39D353] hover:text-white transition-colors"
+                  >
                     {p.payment_id}
                   </Link>
                 </td>
-                <td className="font-medium tabular-nums">{fmt(p.amount, p.currency)}</td>
+                <td className="font-mono tabular-nums text-white">{fmt(p.amount, p.currency)}</td>
                 <td><PaymentStatusBadge status={p.status} /></td>
-                <td className="capitalize text-gray-400 text-xs">{p.payment_method ?? '—'}</td>
-                <td className="text-gray-400 text-xs truncate max-w-[160px]">{p.customer_id ?? '—'}</td>
-                <td className="text-gray-500 text-xs">{p.billing_details?.address?.country ?? '—'}</td>
-                <td className="text-gray-500 text-xs whitespace-nowrap">
-                  {p.created ? new Date(p.created).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
+                <td className="font-mono text-xs text-[#6B7280]">{p.payment_method ?? '—'}</td>
+                <td className="font-mono text-xs text-[#6B7280] truncate max-w-[160px]">{p.customer_id ?? '—'}</td>
+                <td className="font-mono text-xs text-[#444]">{p.billing_details?.address?.country ?? '—'}</td>
+                <td className="font-mono text-xs text-[#444] whitespace-nowrap">
+                  {p.created
+                    ? new Date(p.created).toLocaleString('en-US', {
+                        month: 'short', day: 'numeric',
+                        hour: '2-digit', minute: '2-digit',
+                      })
+                    : '—'}
                 </td>
               </tr>
             ))}
@@ -93,22 +105,22 @@ export default function PaymentsTable() {
         </table>
       )}
 
-      <div className="flex items-center justify-between px-4 py-3 border-t border-white/[0.07]">
-        <span className="text-xs text-gray-500">Page {page}</span>
+      <div className="flex items-center justify-between px-4 py-3 border-t border-[#1E1E1E]">
+        <span className="text-[10px] text-[#444] font-mono uppercase tracking-widest">PAGE {page}</span>
         <div className="flex gap-1">
           <button
             onClick={prevPage}
             disabled={page === 1}
-            className="text-xs px-2.5 py-1 rounded text-gray-400 hover:text-white hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            className="text-[10px] font-mono px-2.5 py-1 rounded text-[#6B7280] hover:text-white hover:bg-[#1A1A1A] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
           >
-            ← Prev
+            ← PREV
           </button>
           <button
             onClick={nextPage}
             disabled={!hasMore}
-            className="text-xs px-2.5 py-1 rounded text-gray-400 hover:text-white hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            className="text-[10px] font-mono px-2.5 py-1 rounded text-[#6B7280] hover:text-white hover:bg-[#1A1A1A] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
           >
-            Next →
+            NEXT →
           </button>
         </div>
       </div>

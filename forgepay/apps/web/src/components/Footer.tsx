@@ -20,41 +20,42 @@ const FOOTER_LINKS = {
     { label: 'Contact',  href: '/contact' },
   ],
   Legal: [
-    { label: 'Privacy Policy', href: '/privacy' },
+    { label: 'Privacy Policy',   href: '/privacy' },
     { label: 'Terms of Service', href: '/terms' },
-    { label: 'Security',       href: '/security' },
-    { label: 'Compliance',     href: '/compliance' },
+    { label: 'Security',         href: '/security' },
+    { label: 'Compliance',       href: '/compliance' },
   ],
 };
 
 export default function Footer() {
   return (
-    <footer className="border-t border-white/10 bg-navy-900/50 py-16 px-4 sm:px-6 lg:px-8">
+    <footer className="border-t border-[#1A1A1A] bg-[#0A0A0A] py-12 px-8">
       <div className="max-w-7xl mx-auto">
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-8 mb-12">
+        {/* Top row: brand + links */}
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-8 mb-10">
           {/* Brand column */}
           <div className="col-span-2 md:col-span-1">
-            <div className="flex items-center gap-2 mb-4">
-              <span className="text-cyan-500 text-lg font-black">⚡</span>
-              <span className="text-white font-bold text-lg">ForgePay</span>
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-white text-base font-mono font-bold">✳</span>
+              <span className="text-white text-xs font-mono font-semibold tracking-widest">FORGEPAY</span>
             </div>
-            <p className="text-xs text-gray-500 leading-relaxed">
-              Payments, forged better. The unified payments + billing + compliance platform for developers.
+            <p className="text-[11px] font-mono text-[#6B7280] leading-relaxed">
+              Payment infrastructure for autonomous economies.
             </p>
           </div>
 
           {/* Link columns */}
           {Object.entries(FOOTER_LINKS).map(([group, links]) => (
             <div key={group}>
-              <h4 className="text-xs font-semibold text-white uppercase tracking-wider mb-4">
+              <h4 className="text-[10px] font-mono font-semibold text-[#6B7280] uppercase tracking-widest mb-4">
                 {group}
               </h4>
-              <ul className="space-y-2.5">
+              <ul className="space-y-2">
                 {links.map((link) => (
                   <li key={link.label}>
                     <Link
                       href={link.href}
-                      className="text-sm text-gray-400 hover:text-cyan-400 transition-colors"
+                      className="text-xs font-mono text-[#6B7280] hover:text-white transition-colors"
                     >
                       {link.label}
                     </Link>
@@ -66,13 +67,13 @@ export default function Footer() {
         </div>
 
         {/* Bottom bar */}
-        <div className="flex flex-col sm:flex-row items-center justify-between pt-8 border-t border-white/10 gap-4">
-          <p className="text-xs text-gray-600">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between pt-6 border-t border-[#1A1A1A] gap-3">
+          <p className="text-[11px] font-mono text-[#6B7280]">
             © 2026 ForgePay, Inc. All rights reserved.
           </p>
-          <p className="text-xs text-gray-600">
+          <p className="text-[11px] font-mono text-[#6B7280]">
             Built on Apache 2.0 open-source software.{' '}
-            <Link href="/attribution" className="text-gray-500 hover:text-gray-400">
+            <Link href="/attribution" className="text-[#6B7280] hover:text-white transition-colors">
               Attribution
             </Link>
           </p>

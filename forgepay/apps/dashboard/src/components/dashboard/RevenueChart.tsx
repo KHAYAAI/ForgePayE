@@ -18,21 +18,21 @@ interface TooltipProps {
 function CustomTooltip({ active, payload, label }: TooltipProps) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="bg-surface-800 border border-white/10 rounded-lg px-3 py-2 text-xs">
-      <div className="text-gray-400 mb-0.5">{label}</div>
-      <div className="font-bold text-white">${(payload[0].value / 100).toFixed(2)}</div>
+    <div className="bg-[#111111] border border-[#1E1E1E] rounded px-3 py-2 text-xs font-mono">
+      <div className="text-[#6B7280] mb-0.5">{label}</div>
+      <div className="font-bold text-[#39D353]">${(payload[0].value / 100).toFixed(2)}</div>
     </div>
   );
 }
 
 const PERIOD_OPTIONS = [
-  { label: '7d',  days: 7  },
-  { label: '30d', days: 30 },
-  { label: '90d', days: 90 },
+  { label: '7D',  days: 7  },
+  { label: '30D', days: 30 },
+  { label: '90D', days: 90 },
 ];
 
 export default function RevenueChart() {
-  const [days, setDays] = useState(15);
+  const [days, setDays] = useState(30);
   const { data } = useSWR(`/api/analytics/revenue?days=${days}`, fetcher);
   const chartData = data?.daily ?? [];
 
@@ -40,19 +40,15 @@ export default function RevenueChart() {
     <div className="card p-5">
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h3 className="text-sm font-semibold text-white">Revenue</h3>
-          <p className="text-xs text-gray-400">Last {days} days</p>
+          <h3 className="text-xs font-mono font-medium uppercase tracking-widest text-[#6B7280]">Revenue</h3>
+          <p className="text-[10px] text-[#444] font-mono mt-0.5">Last {days} days</p>
         </div>
-        <div className="flex gap-1.5">
+        <div className="flex gap-1">
           {PERIOD_OPTIONS.map((p) => (
             <button
               key={p.label}
               onClick={() => setDays(p.days)}
-              className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${
-                days === p.days
-                  ? 'bg-white/[0.05] text-white border-white/20'
-                  : 'border-white/10 text-gray-400 hover:text-white hover:border-white/20'
-              }`}
+              className={`tab-pill ${days === p.days ? 'active' : ''}`}
             >
               {p.label}
             </button>
@@ -61,30 +57,35 @@ export default function RevenueChart() {
       </div>
 
       <ResponsiveContainer width="100%" height={200}>
-        <AreaChart data={chartData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+        <AreaChart data={chartData} margin={{ top: 4, right: 0, left: -20, bottom: 0 }}>
           <defs>
-            <linearGradient id="cyanGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%"  stopColor="#00F0FF" stopOpacity={0.15} />
-              <stop offset="95%" stopColor="#00F0FF" stopOpacity={0} />
+            <linearGradient id="greenGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%"  stopColor="#39D353" stopOpacity={0.08} />
+              <stop offset="95%" stopColor="#39D353" stopOpacity={0} />
             </linearGradient>
           </defs>
-          <CartesianGrid strokeDasharray="3 3" stroke="#ffffff08" />
-          <XAxis dataKey="date" tick={{ fill: '#8898AA', fontSize: 10 }} axisLine={false} tickLine={false} />
-          <YAxis
-            tickFormatter={(v) => `$${(v / 100).toFixed(0)}`}
-            tick={{ fill: '#8898AA', fontSize: 10 }}
+          <CartesianGrid strokeDasharray="3 3" stroke="#1A1A1A" vertical={false} />
+          <XAxis
+            dataKey="date"
+            tick={{ fill: '#444', fontSize: 9, fontFamily: 'JetBrains Mono, monospace' }}
             axisLine={false}
             tickLine={false}
           />
-          <Tooltip content={<CustomTooltip />} />
+          <YAxis
+            tickFormatter={(v) => `$${(v / 100).toFixed(0)}`}
+            tick={{ fill: '#444', fontSize: 9, fontFamily: 'JetBrains Mono, monospace' }}
+            axisLine={false}
+            tickLine={false}
+          />
+          <Tooltip content={<CustomTooltip />} cursor={{ stroke: '#1E1E1E', strokeWidth: 1 }} />
           <Area
             type="monotone"
             dataKey="revenue"
-            stroke="#00F0FF"
-            strokeWidth={2}
-            fill="url(#cyanGrad)"
+            stroke="#39D353"
+            strokeWidth={1.5}
+            fill="url(#greenGrad)"
             dot={false}
-            activeDot={{ r: 4, fill: '#00F0FF' }}
+            activeDot={{ r: 3, fill: '#39D353', stroke: '#0A0A0A', strokeWidth: 2 }}
           />
         </AreaChart>
       </ResponsiveContainer>

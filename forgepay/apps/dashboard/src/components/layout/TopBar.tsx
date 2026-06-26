@@ -1,36 +1,33 @@
 'use client';
-
-import { Bell, Search } from 'lucide-react';
+import { usePathname } from 'next/navigation';
+import { useEffect, useState } from 'react';
 
 export default function TopBar() {
+  const pathname = usePathname();
+  const [time, setTime] = useState('');
+
+  useEffect(() => {
+    const update = () => setTime(new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC');
+    update();
+    const t = setInterval(update, 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  const crumb = pathname === '/' ? 'OVERVIEW' : pathname.slice(1).replace(/-/g, '_').toUpperCase();
+
   return (
-    <header className="h-14 flex items-center gap-4 px-6 border-b border-white/[0.07] bg-surface-900/50 backdrop-blur-sm shrink-0">
-      {/* Search */}
-      <div className="flex-1 max-w-xs relative">
-        <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
-        <input
-          type="text"
-          placeholder="Search payments, customers…"
-          className="w-full bg-white/[0.04] border border-white/[0.07] rounded-lg pl-8 pr-3 py-1.5 text-xs text-gray-300 placeholder-gray-600 focus:outline-none focus:border-cyan-500/30 transition-colors"
-        />
+    <header className="h-12 flex items-center justify-between px-6 border-b border-[#1A1A1A] bg-transparent shrink-0">
+      <div className="flex items-center gap-2">
+        <span className="text-[#444] text-xs font-mono">FORGEPAY</span>
+        <span className="text-[#333] text-xs">/</span>
+        <span className="text-white text-xs font-mono font-medium">{crumb}</span>
       </div>
-
-      <div className="ml-auto flex items-center gap-3">
-        {/* Test mode badge */}
-        <span className="bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide">
-          Test mode
-        </span>
-
-        {/* Notifications */}
-        <button className="relative p-1.5 text-gray-400 hover:text-white transition-colors">
-          <Bell size={15} />
-          <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 bg-cyan-500 rounded-full" />
-        </button>
-
-        {/* Avatar */}
-        <div className="w-7 h-7 rounded-full bg-cyan-500/20 border border-cyan-500/30 flex items-center justify-center cursor-pointer">
-          <span className="text-[10px] font-bold text-cyan-400">AC</span>
+      <div className="flex items-center gap-4">
+        <div className="flex items-center gap-1.5">
+          <div className="w-1.5 h-1.5 rounded-full bg-[#39D353] animate-pulse" />
+          <span className="text-[#39D353] text-xs font-mono">LIVE</span>
         </div>
+        <span className="text-[#444] text-xs font-mono">{time}</span>
       </div>
     </header>
   );

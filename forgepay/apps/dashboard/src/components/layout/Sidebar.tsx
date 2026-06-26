@@ -1,91 +1,101 @@
 'use client';
-
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  LayoutDashboard,
-  CreditCard,
-  BarChart3,
-  Key,
-  Settings,
-  RefreshCw,
-  Globe,
-  Webhook,
-  Zap,
-  Bot,
-  Users,
-  TrendingUp,
-  Vault,
-  LineChart,
-  Building2,
+  LayoutDashboard, CreditCard, BarChart3, Key, Settings,
+  RefreshCw, Globe, Webhook, Bot, Users, TrendingUp,
+  Vault, LineChart, Building2, Activity
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-const NAV_ITEMS = [
-  { label: 'Overview',      href: '/',              icon: LayoutDashboard, badge: null },
-  { label: 'Payments',      href: '/payments',      icon: CreditCard,      badge: null },
-  { label: 'Customers',     href: '/customers',     icon: Users,           badge: null },
-  { label: 'Subscriptions', href: '/subscriptions', icon: RefreshCw,       badge: null },
-  { label: 'Analytics',     href: '/analytics',     icon: BarChart3,       badge: null },
-  { label: 'RWA',           href: '/rwa',           icon: TrendingUp,      badge: 'New' },
-  { label: 'Treasury',      href: '/treasury',      icon: Vault,           badge: null },
-  { label: 'Credit Bureau', href: '/credit-bureau', icon: LineChart,       badge: null },
-  { label: 'Tax & MoR',     href: '/tax',           icon: Globe,           badge: null },
-  { label: 'Webhooks',      href: '/webhooks',      icon: Webhook,         badge: null },
-  { label: 'API Keys',      href: '/api-keys',      icon: Key,             badge: null },
-  { label: 'Forge Agent',   href: '/agent',         icon: Bot,             badge: 'Beta' },
-  { label: 'Settings',      href: '/settings',      icon: Settings,        badge: null },
-  { label: 'Bank Accounts', href: '/settings/bank-accounts', icon: Building2, badge: null },
+const NAV = [
+  { href: '/',              icon: LayoutDashboard, label: 'Overview' },
+  { href: '/payments',      icon: CreditCard,      label: 'Payments' },
+  { href: '/customers',     icon: Users,           label: 'Customers' },
+  { href: '/analytics',     icon: BarChart3,       label: 'Analytics' },
+  { href: '/credit-bureau', icon: LineChart,       label: 'Credit Bureau' },
+  { href: '/treasury',      icon: Vault,           label: 'Treasury' },
+  { href: '/rwa',           icon: TrendingUp,      label: 'RWA Assets' },
+  { href: '/subscriptions', icon: RefreshCw,       label: 'Subscriptions' },
+  { href: '/tax',           icon: Globe,           label: 'Tax & MoR' },
+  { href: '/webhooks',      icon: Webhook,         label: 'Webhooks' },
+  { href: '/api-keys',      icon: Key,             label: 'API Keys' },
+  { href: '/agent',         icon: Bot,             label: 'Forge Agent' },
+  { href: '/settings',      icon: Settings,        label: 'Settings' },
 ];
 
 export default function Sidebar() {
   const pathname = usePathname();
-
   return (
-    <aside className="w-[var(--sidebar-width)] flex flex-col bg-surface-900 border-r border-white/[0.07] shrink-0">
-      {/* Logo */}
-      <div className="flex items-center gap-2.5 px-5 py-5 border-b border-white/[0.07]">
-        <Zap size={18} className="text-cyan-500" />
-        <span className="font-bold text-white text-sm">ForgePay</span>
+    <aside className="w-16 flex flex-col items-center py-4 bg-[#0D0D0D] border-r border-[#1A1A1A] shrink-0 relative">
+      {/* Logo — asterisk in mono */}
+      <div className="mb-6 flex items-center justify-center w-10 h-10">
+        <span className="text-white font-mono text-2xl font-bold select-none">✳</span>
       </div>
 
-      {/* Nav */}
-      <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
-        {NAV_ITEMS.map(({ label, href, icon: Icon, badge }) => {
+      {/* Nav pill container */}
+      <div className="relative flex flex-col items-center gap-1 bg-[#111111] border border-[#1E1E1E] rounded-2xl px-2 py-3">
+        {/* Connector line — top */}
+        <div className="absolute -top-4 left-1/2 -translate-x-1/2 w-px h-4 bg-[#39D353]/30" />
+
+        {NAV.slice(0, 5).map(({ href, icon: Icon, label }) => {
           const active = href === '/' ? pathname === '/' : pathname.startsWith(href);
           return (
-            <Link
-              key={href}
-              href={href}
-              className={cn(
-                'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
-                active
-                  ? 'bg-cyan-500/10 text-cyan-400'
-                  : 'text-gray-400 hover:text-white hover:bg-white/[0.04]',
+            <div key={href} className="relative flex items-center">
+              {/* Active indicator dot to the left */}
+              {active && (
+                <div className="absolute -left-4 w-1.5 h-1.5 rounded-full bg-[#39D353] shadow-[0_0_6px_#39D353]" />
               )}
-            >
-              <Icon size={15} className={active ? 'text-cyan-400' : ''} />
-              <span className="flex-1">{label}</span>
-              {badge && (
-                <span className="rounded-full bg-cyan-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-cyan-400">
-                  {badge}
-                </span>
-              )}
-            </Link>
+              <Link
+                href={href}
+                title={label}
+                className={cn(
+                  'flex items-center justify-center w-9 h-9 rounded-lg transition-all duration-150',
+                  active
+                    ? 'bg-[#39D353]/10 text-[#39D353]'
+                    : 'text-[#444] hover:text-[#888] hover:bg-[#1A1A1A]'
+                )}
+              >
+                <Icon size={16} strokeWidth={active ? 2 : 1.5} />
+              </Link>
+            </div>
           );
         })}
-      </nav>
 
-      {/* Bottom — merchant switcher placeholder */}
-      <div className="px-3 py-4 border-t border-white/[0.07]">
-        <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-white/[0.04] cursor-pointer">
-          <div className="w-6 h-6 rounded bg-cyan-500/20 flex items-center justify-center">
-            <span className="text-[10px] font-bold text-cyan-400">AC</span>
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-xs font-medium text-white truncate">Acme Corp</div>
-            <div className="text-[10px] text-gray-500">Growth Plan</div>
-          </div>
+        {/* Divider */}
+        <div className="w-6 h-px bg-[#1E1E1E] my-1" />
+
+        {NAV.slice(5).map(({ href, icon: Icon, label }) => {
+          const active = href === '/' ? pathname === '/' : pathname.startsWith(href);
+          return (
+            <div key={href} className="relative flex items-center">
+              {active && (
+                <div className="absolute -left-4 w-1.5 h-1.5 rounded-full bg-[#39D353] shadow-[0_0_6px_#39D353]" />
+              )}
+              <Link
+                href={href}
+                title={label}
+                className={cn(
+                  'flex items-center justify-center w-9 h-9 rounded-lg transition-all duration-150',
+                  active
+                    ? 'bg-[#39D353]/10 text-[#39D353]'
+                    : 'text-[#444] hover:text-[#888] hover:bg-[#1A1A1A]'
+                )}
+              >
+                <Icon size={16} strokeWidth={active ? 2 : 1.5} />
+              </Link>
+            </div>
+          );
+        })}
+
+        {/* Connector line — bottom */}
+        <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 w-px h-4 bg-[#39D353]/30" />
+      </div>
+
+      {/* Status dot at bottom */}
+      <div className="mt-auto mb-2">
+        <div className="w-9 h-9 rounded-full bg-[#111] border border-[#1E1E1E] flex items-center justify-center">
+          <Activity size={14} className="text-[#39D353]" />
         </div>
       </div>
     </aside>
