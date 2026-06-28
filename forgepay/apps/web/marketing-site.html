@@ -1,0 +1,909 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ForgePay — Payment & Credit Infrastructure for Emerging Markets</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --navy: #0A2540;
+            --cyan: #00F0FF;
+            --dark-blue: #0F3D5C;
+            --light-gray: #f5f5f5;
+            --text-dark: #1a1a1a;
+            --text-light: #666;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            color: var(--text-dark);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        /* Navigation */
+        nav {
+            position: fixed;
+            top: 0;
+            width: 100%;
+            background: rgba(255, 255, 255, 0.98);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid #eee;
+            z-index: 1000;
+            padding: 16px 40px;
+        }
+
+        .nav-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .nav-brand {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--navy);
+        }
+
+        .nav-brand span {
+            color: var(--cyan);
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 32px;
+            list-style: none;
+        }
+
+        .nav-links a {
+            text-decoration: none;
+            color: var(--text-dark);
+            font-weight: 500;
+            font-size: 14px;
+            transition: color 0.3s;
+        }
+
+        .nav-links a:hover {
+            color: var(--cyan);
+        }
+
+        .nav-cta {
+            display: flex;
+            gap: 12px;
+        }
+
+        .btn-primary, .btn-secondary {
+            padding: 10px 20px;
+            border-radius: 6px;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 14px;
+            transition: all 0.3s;
+            border: none;
+            cursor: pointer;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--navy) 0%, var(--dark-blue) 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(10, 37, 64, 0.3);
+        }
+
+        .btn-secondary {
+            background: transparent;
+            color: var(--navy);
+            border: 2px solid var(--navy);
+        }
+
+        .btn-secondary:hover {
+            background: var(--navy);
+            color: white;
+        }
+
+        /* Hero Section */
+        .hero {
+            background: linear-gradient(135deg, var(--navy) 0%, var(--dark-blue) 100%);
+            color: white;
+            padding: 120px 40px 80px;
+            text-align: center;
+            margin-top: 60px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 600px;
+            height: 600px;
+            background: radial-gradient(circle, rgba(0, 240, 255, 0.1) 0%, transparent 70%);
+            border-radius: 50%;
+            pointer-events: none;
+        }
+
+        .hero-content {
+            max-width: 900px;
+            margin: 0 auto;
+            position: relative;
+            z-index: 2;
+        }
+
+        .hero h1 {
+            font-size: 56px;
+            font-weight: 700;
+            margin-bottom: 20px;
+            line-height: 1.2;
+        }
+
+        .hero h1 span {
+            background: linear-gradient(90deg, var(--cyan) 0%, #00D4FF 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .hero p {
+            font-size: 20px;
+            opacity: 0.95;
+            margin-bottom: 40px;
+            line-height: 1.6;
+        }
+
+        .hero-buttons {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .btn-hero-primary, .btn-hero-secondary {
+            padding: 14px 32px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 16px;
+            transition: all 0.3s;
+            border: none;
+            cursor: pointer;
+        }
+
+        .btn-hero-primary {
+            background: var(--cyan);
+            color: var(--navy);
+        }
+
+        .btn-hero-primary:hover {
+            background: #00D4FF;
+            transform: translateY(-2px);
+            box-shadow: 0 12px 30px rgba(0, 240, 255, 0.3);
+        }
+
+        .btn-hero-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            border: 2px solid var(--cyan);
+        }
+
+        .btn-hero-secondary:hover {
+            background: rgba(0, 240, 255, 0.1);
+        }
+
+        /* Container */
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 0 40px;
+        }
+
+        /* Section Styles */
+        section {
+            padding: 100px 40px;
+        }
+
+        section h2 {
+            font-size: 42px;
+            font-weight: 700;
+            text-align: center;
+            margin-bottom: 60px;
+            color: var(--navy);
+        }
+
+        section h3 {
+            font-size: 24px;
+            font-weight: 600;
+            color: var(--navy);
+            margin-bottom: 16px;
+        }
+
+        /* Product Grid */
+        .product-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 32px;
+            margin-bottom: 60px;
+        }
+
+        .product-card {
+            background: white;
+            border-radius: 12px;
+            padding: 40px;
+            border: 2px solid #eee;
+            transition: all 0.3s;
+        }
+
+        .product-card:hover {
+            border-color: var(--cyan);
+            box-shadow: 0 12px 40px rgba(0, 240, 255, 0.15);
+            transform: translateY(-4px);
+        }
+
+        .product-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+
+        .product-card h3 {
+            margin-bottom: 12px;
+            font-size: 22px;
+        }
+
+        .product-price {
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--cyan);
+            margin: 20px 0;
+        }
+
+        .product-card p {
+            color: var(--text-light);
+            font-size: 15px;
+            line-height: 1.7;
+            margin-bottom: 24px;
+        }
+
+        .feature-list {
+            list-style: none;
+            margin-bottom: 24px;
+        }
+
+        .feature-list li {
+            padding: 8px 0;
+            color: var(--text-light);
+            font-size: 14px;
+        }
+
+        .feature-list li::before {
+            content: '✓ ';
+            color: var(--cyan);
+            font-weight: 700;
+            margin-right: 8px;
+        }
+
+        /* Features Section */
+        .features {
+            background: var(--light-gray);
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 40px;
+        }
+
+        .feature {
+            background: white;
+            padding: 32px;
+            border-radius: 12px;
+            border-left: 4px solid var(--cyan);
+        }
+
+        .feature h4 {
+            color: var(--navy);
+            font-size: 18px;
+            margin-bottom: 12px;
+        }
+
+        .feature p {
+            color: var(--text-light);
+            font-size: 14px;
+            line-height: 1.7;
+        }
+
+        /* Pricing Section */
+        .pricing {
+            background: white;
+        }
+
+        .pricing-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+            margin-bottom: 40px;
+        }
+
+        .pricing-table th,
+        .pricing-table td {
+            padding: 20px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+
+        .pricing-table th {
+            background: var(--navy);
+            color: white;
+            font-weight: 600;
+            text-align: center;
+        }
+
+        .pricing-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .pricing-table .product-name {
+            font-weight: 600;
+            color: var(--navy);
+            width: 25%;
+        }
+
+        .pricing-table td {
+            text-align: center;
+            color: var(--text-light);
+            font-size: 14px;
+        }
+
+        .pricing-table .price {
+            color: var(--cyan);
+            font-weight: 700;
+            font-size: 18px;
+        }
+
+        /* How It Works */
+        .how-it-works {
+            background: white;
+        }
+
+        .steps {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 32px;
+        }
+
+        .step {
+            text-align: center;
+        }
+
+        .step-number {
+            width: 60px;
+            height: 60px;
+            background: linear-gradient(135deg, var(--navy) 0%, var(--dark-blue) 100%);
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            font-weight: 700;
+            margin: 0 auto 20px;
+        }
+
+        .step h4 {
+            color: var(--navy);
+            font-size: 18px;
+            margin-bottom: 12px;
+        }
+
+        .step p {
+            color: var(--text-light);
+            font-size: 14px;
+            line-height: 1.7;
+        }
+
+        /* Tech Stack */
+        .tech-stack {
+            background: var(--light-gray);
+        }
+
+        .tech-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 24px;
+        }
+
+        .tech-item {
+            background: white;
+            padding: 24px;
+            border-radius: 8px;
+            border: 1px solid #eee;
+        }
+
+        .tech-item h5 {
+            color: var(--navy);
+            font-size: 16px;
+            margin-bottom: 8px;
+            font-weight: 600;
+        }
+
+        .tech-item p {
+            color: var(--text-light);
+            font-size: 13px;
+        }
+
+        /* Testimonials */
+        .testimonials {
+            background: white;
+        }
+
+        .testimonial-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 32px;
+        }
+
+        .testimonial {
+            background: #f9f9f9;
+            padding: 32px;
+            border-radius: 12px;
+            border-left: 4px solid var(--cyan);
+        }
+
+        .testimonial-text {
+            color: var(--text-light);
+            font-size: 14px;
+            font-style: italic;
+            margin-bottom: 20px;
+            line-height: 1.8;
+        }
+
+        .testimonial-author {
+            color: var(--navy);
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .testimonial-title {
+            color: var(--text-light);
+            font-size: 12px;
+        }
+
+        /* CTA Section */
+        .cta-section {
+            background: linear-gradient(135deg, var(--navy) 0%, var(--dark-blue) 100%);
+            color: white;
+            text-align: center;
+            padding: 80px 40px;
+            border-radius: 12px;
+            margin: 60px 40px;
+        }
+
+        .cta-section h2 {
+            color: white;
+            margin-bottom: 24px;
+        }
+
+        .cta-section p {
+            font-size: 18px;
+            opacity: 0.95;
+            margin-bottom: 32px;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        /* Footer */
+        footer {
+            background: var(--navy);
+            color: white;
+            padding: 60px 40px;
+        }
+
+        .footer-content {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 40px;
+            margin-bottom: 40px;
+        }
+
+        .footer-section h4 {
+            font-size: 16px;
+            margin-bottom: 16px;
+            color: var(--cyan);
+        }
+
+        .footer-section ul {
+            list-style: none;
+        }
+
+        .footer-section a {
+            color: rgba(255, 255, 255, 0.7);
+            text-decoration: none;
+            font-size: 14px;
+            line-height: 2;
+            transition: color 0.3s;
+        }
+
+        .footer-section a:hover {
+            color: var(--cyan);
+        }
+
+        .footer-bottom {
+            text-align: center;
+            padding-top: 40px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 13px;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .nav-links {
+                display: none;
+            }
+
+            .hero h1 {
+                font-size: 36px;
+            }
+
+            .hero p {
+                font-size: 16px;
+            }
+
+            section {
+                padding: 60px 20px;
+            }
+
+            section h2 {
+                font-size: 32px;
+            }
+
+            .hero-buttons {
+                flex-direction: column;
+            }
+
+            .btn-hero-primary, .btn-hero-secondary {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav>
+        <div class="nav-container">
+            <div class="nav-brand">Forge<span>Pay</span></div>
+            <ul class="nav-links">
+                <li><a href="#products">Products</a></li>
+                <li><a href="#features">Features</a></li>
+                <li><a href="#pricing">Pricing</a></li>
+                <li><a href="#how-it-works">How It Works</a></li>
+                <li><a href="#tech">Technology</a></li>
+            </ul>
+            <div class="nav-cta">
+                <a href="/auth/login" class="btn-secondary">Sign In</a>
+                <a href="/auth/signup" class="btn-primary">Start Free Trial</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="hero-content">
+            <h1>Payment & Credit <span>Infrastructure</span> for Emerging Markets</h1>
+            <p>Process payments, manage treasury, and build credit—unified in one platform. Built for African SMEs, founders, and fintech platforms.</p>
+            <div class="hero-buttons">
+                <button class="btn-hero-primary">Start Free Trial</button>
+                <button class="btn-hero-secondary">View Demo</button>
+            </div>
+        </div>
+    </section>
+
+    <!-- Products Section -->
+    <section id="products">
+        <h2>Three Products, One Platform</h2>
+        <div class="product-grid">
+            <!-- Forge Payments -->
+            <div class="product-card">
+                <div class="product-icon">💳</div>
+                <h3>Forge Payments</h3>
+                <div class="product-price">R15,000/mo</div>
+                <p>Process card and bank transfers with intelligent fallback routing.</p>
+                <ul class="feature-list">
+                    <li>Card processing (Visa, Mastercard)</li>
+                    <li>Bank transfer (ACH, EFT)</li>
+                    <li>Automatic fallback chains</li>
+                    <li>Fraud detection & prevention</li>
+                    <li>Real-time settlement tracking</li>
+                    <li>99.7% uptime SLA</li>
+                </ul>
+                <button class="btn-primary">Get Started</button>
+            </div>
+
+            <!-- Forge Treasury -->
+            <div class="product-card">
+                <div class="product-icon">💰</div>
+                <h3>Forge Treasury</h3>
+                <div class="product-price">R40,000/mo</div>
+                <p>Automate multi-agent payouts with netting, OFAC screening, and FX optimization.</p>
+                <ul class="feature-list">
+                    <li>Daily multi-agent netting</li>
+                    <li>OFAC compliance screening</li>
+                    <li>FX rate optimization</li>
+                    <li>Stablecoin settlements (USDC)</li>
+                    <li>Automated reconciliation</li>
+                    <li>Real-time liquidity view</li>
+                </ul>
+                <button class="btn-primary">Get Started</button>
+            </div>
+
+            <!-- Forge Credit Bureau -->
+            <div class="product-card">
+                <div class="product-icon">📊</div>
+                <h3>Forge Credit Bureau</h3>
+                <div class="product-price">R8,500/mo + Revenue Share</div>
+                <p>Dual-mode credit scoring (FICO + on-chain operational). Share in inquiry fees.</p>
+                <ul class="feature-list">
+                    <li>Mode 1: Traditional FICO scoring</li>
+                    <li>Mode 2: On-chain operational scoring</li>
+                    <li>Variance explanations</li>
+                    <li>Credit inquiry API</li>
+                    <li>25% revenue share on inquiries</li>
+                    <li>Real-time score updates</li>
+                </ul>
+                <button class="btn-primary">Get Started</button>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section id="features" class="features">
+        <h2>Why ForgePay?</h2>
+        <div class="features-grid">
+            <div class="feature">
+                <h4>🚀 Built for Scale</h4>
+                <p>Multi-AZ AWS infrastructure with auto-scaling. Handle 10,000+ transactions per minute without breaking a sweat.</p>
+            </div>
+            <div class="feature">
+                <h4>🔗 Unified Revenue Ontology</h4>
+                <p>One canonical event stream capturing all transactions. Perfect audit trail for compliance and analytics.</p>
+            </div>
+            <div class="feature">
+                <h4>💡 Intelligent Routing</h4>
+                <p>Smart fallback chains detect failures and automatically retry via alternative providers. Maximizes success rates.</p>
+            </div>
+            <div class="feature">
+                <h4>🛡️ PCI-Compliant</h4>
+                <p>All card data tokenized in Hyperswitch vault. Zero storage of sensitive payment information in our systems.</p>
+            </div>
+            <div class="feature">
+                <h4>📊 Real-Time Analytics</h4>
+                <p>Live dashboards track payments, treasury, credit scores, support SLA, and churn signals in real-time.</p>
+            </div>
+            <div class="feature">
+                <h4>🎯 Local Support</h4>
+                <p>South African team providing 24-hour support. CSM onboarding and retention playbooks included.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- How It Works -->
+    <section id="how-it-works" class="how-it-works">
+        <h2>How ForgePay Works</h2>
+        <div class="steps">
+            <div class="step">
+                <div class="step-number">1</div>
+                <h4>Integrate SDK</h4>
+                <p>Install our lightweight SDK (Node.js/Python/Go). One API to handle all payments.</p>
+            </div>
+            <div class="step">
+                <div class="step-number">2</div>
+                <h4>Create Subscription</h4>
+                <p>Choose a product tier (Payments, Treasury, Credit Bureau) via our dashboard. Instant activation.</p>
+            </div>
+            <div class="step">
+                <div class="step-number">3</div>
+                <h4>Start Transacting</h4>
+                <p>Send charges, settlements, or credit inquiries. We handle routing, netting, and compliance.</p>
+            </div>
+            <div class="step">
+                <div class="step-number">4</div>
+                <h4>Monitor & Scale</h4>
+                <p>View real-time dashboards, track metrics, optimize costs. Scale to millions in GMV.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Pricing Section -->
+    <section id="pricing">
+        <h2>Transparent Pricing</h2>
+        <table class="pricing-table">
+            <thead>
+                <tr>
+                    <th>Product</th>
+                    <th>Base Price</th>
+                    <th>Setup</th>
+                    <th>Typical ROI</th>
+                    <th>Trial</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td class="product-name">💳 Forge Payments</td>
+                    <td class="price">R15,000/mo</td>
+                    <td>Free</td>
+                    <td>R9K/mo at R1M GMV</td>
+                    <td>14 days free</td>
+                </tr>
+                <tr>
+                    <td class="product-name">💰 Forge Treasury</td>
+                    <td class="price">R40,000/mo</td>
+                    <td>Free</td>
+                    <td>R114K/mo (10 agents)</td>
+                    <td>14 days free</td>
+                </tr>
+                <tr>
+                    <td class="product-name">📊 Forge Credit Bureau</td>
+                    <td class="price">R8,500/mo + 25% rev share</td>
+                    <td>Free</td>
+                    <td>+R41.5K/mo inquiries</td>
+                    <td>14 days free</td>
+                </tr>
+                <tr>
+                    <td class="product-name">📦 Bundle (Treasury + CB)</td>
+                    <td class="price">R45,000/mo</td>
+                    <td>Free</td>
+                    <td>Save R3.5K/mo</td>
+                    <td>14 days free</td>
+                </tr>
+            </tbody>
+        </table>
+        <p style="text-align: center; color: var(--text-light); margin-top: 40px;">
+            <strong>Launch Promo:</strong> First 100 customers get 10% off for 3 months. No credit card required for free trial.
+        </p>
+    </section>
+
+    <!-- Tech Stack -->
+    <section id="tech" class="tech-stack">
+        <h2>Trusted Technology Stack</h2>
+        <div class="tech-grid">
+            <div class="tech-item">
+                <h5>Payment Router</h5>
+                <p><strong>Hyperswitch (Rust)</strong> — Battle-tested payment routing engine. PCI vault, 99.99% uptime.</p>
+            </div>
+            <div class="tech-item">
+                <h5>Billing Engine</h5>
+                <p><strong>Kill Bill (Java)</strong> — Subscription lifecycle management with automatic proration.</p>
+            </div>
+            <div class="tech-item">
+                <h5>Treasury & OFAC</h5>
+                <p><strong>Python/FastAPI + Chainalysis</strong> — Real-time compliance screening and FX optimization.</p>
+            </div>
+            <div class="tech-item">
+                <h5>On-Chain Reputation</h5>
+                <p><strong>Solidity (Base Sepolia)</strong> — Smart contracts for on-chain credit scoring and cross-chain CCIP.</p>
+            </div>
+            <div class="tech-item">
+                <h5>Message Queue</h5>
+                <p><strong>Redis</strong> — Async email processing, idempotency caching, FX rates (3600s TTL).</p>
+            </div>
+            <div class="tech-item">
+                <h5>Database</h5>
+                <p><strong>PostgreSQL (Multi-AZ)</strong> — Schema-per-tenant isolation. Auto-backup, 30-day retention.</p>
+            </div>
+            <div class="tech-item">
+                <h5>Stablecoin Bridge</h5>
+                <p><strong>Circle API + viem</strong> — USDC/USDT for cross-border transfers and fallback settlements.</p>
+            </div>
+            <div class="tech-item">
+                <h5>Infrastructure</h5>
+                <p><strong>AWS EKS (Kubernetes)</strong> — Multi-AZ auto-scaling, CloudWatch monitoring, SNS alerts.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Testimonials -->
+    <section class="testimonials">
+        <h2>What Our Customers Say</h2>
+        <div class="testimonial-grid">
+            <div class="testimonial">
+                <div class="testimonial-text">
+                    "ForgePay's fallback chain reduced our payment failures from 3% to 0.3%. That's hundreds of thousands in recovered revenue."
+                </div>
+                <div class="testimonial-author">Thabo Mthembu</div>
+                <div class="testimonial-title">Founder, SnapPay Marketplace</div>
+            </div>
+            <div class="testimonial">
+                <div class="testimonial-text">
+                    "Netting 50+ agents' daily payouts used to take 4 hours of manual work. ForgePay does it in 2 minutes with better FX rates."
+                </div>
+                <div class="testimonial-author">Zama Nkosi</div>
+                <div class="testimonial-title">CFO, Umuntu Fintech</div>
+            </div>
+            <div class="testimonial">
+                <div class="testimonial-text">
+                    "The dual-mode credit scoring revealed that our agents' on-chain activity was a better predictor than FICO. Game changer for risk."
+                </div>
+                <div class="testimonial-author">Amara Okafor</div>
+                <div class="testimonial-title">Credit Risk Manager, AfroBiz Lender</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA Section -->
+    <div class="cta-section">
+        <h2>Ready to Transform Your Payment Stack?</h2>
+        <p>Join 50+ early adopters processing millions in GMV on ForgePay. Start your free 14-day trial today—no credit card required.</p>
+        <div class="hero-buttons">
+            <button class="btn-hero-primary">Start Free Trial</button>
+            <button class="btn-hero-secondary">Schedule Demo</button>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer>
+        <div class="footer-content">
+            <div class="footer-section">
+                <h4>Product</h4>
+                <ul>
+                    <li><a href="#">Forge Payments</a></li>
+                    <li><a href="#">Forge Treasury</a></li>
+                    <li><a href="#">Forge Credit Bureau</a></li>
+                    <li><a href="#">Pricing</a></li>
+                    <li><a href="#">Security</a></li>
+                </ul>
+            </div>
+            <div class="footer-section">
+                <h4>Developers</h4>
+                <ul>
+                    <li><a href="#">API Docs</a></li>
+                    <li><a href="#">SDK (Node.js)</a></li>
+                    <li><a href="#">SDK (Python)</a></li>
+                    <li><a href="#">Integration Guides</a></li>
+                    <li><a href="#">Status Page</a></li>
+                </ul>
+            </div>
+            <div class="footer-section">
+                <h4>Company</h4>
+                <ul>
+                    <li><a href="#">About</a></li>
+                    <li><a href="#">Blog</a></li>
+                    <li><a href="#">Careers</a></li>
+                    <li><a href="#">Contact</a></li>
+                    <li><a href="#">Support</a></li>
+                </ul>
+            </div>
+            <div class="footer-section">
+                <h4>Legal</h4>
+                <ul>
+                    <li><a href="#">Privacy Policy</a></li>
+                    <li><a href="#">Terms of Service</a></li>
+                    <li><a href="#">POPIA Compliance</a></li>
+                    <li><a href="#">Security</a></li>
+                    <li><a href="#">SLA</a></li>
+                </ul>
+            </div>
+        </div>
+        <div class="footer-bottom">
+            <p>© 2026 ForgePay (Pty) Ltd. All rights reserved. | Johannesburg, South Africa | +27 11 XXX XXXX</p>
+            <p style="margin-top: 12px;">🚀 Launching Week 2, 2026 | Payments Beta → Treasury & Credit Bureau Week 3</p>
+        </div>
+    </footer>
+</body>
+</html>
