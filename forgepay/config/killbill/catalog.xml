@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<catalog>
+  <effectiveDate>2026-01-01T00:00:00Z</effectiveDate>
+  <catalogVersion>1</catalogVersion>
+
+  <!-- ===== PRODUCTS ===== -->
+  <products>
+    <!-- FORGE Payments (Free tier + Growth tier) -->
+    <product name="ForgePayments">
+      <category>BASE</category>
+    </product>
+
+    <!-- FORGE Treasury -->
+    <product name="ForgeTreasury">
+      <category>BASE</category>
+    </product>
+
+    <!-- FORGE Credit Bureau -->
+    <product name="ForgeCreditBureau">
+      <category>BASE</category>
+    </product>
+  </products>
+
+  <!-- ===== PLANS ===== -->
+  <plans>
+    <!-- Payments: Free tier (14-day trial then free) -->
+    <plan name="payments-free-trial">
+      <product>ForgePayments</product>
+      <initialPhase>
+        <duration>
+          <number>14</number>
+          <unitType>DAYS</unitType>
+        </duration>
+        <recurring>
+          <billingPeriod>MONTHLY</billingPeriod>
+          <recurringBillingMode>IN_ADVANCE</recurringBillingMode>
+          <fixedPrice>
+            <price>0.00</price>
+          </fixedPrice>
+        </recurring>
+      </initialPhase>
+      <finalPhase>
+        <duration>
+          <number>1</number>
+          <unitType>MONTHS</unitType>
+        </duration>
+        <recurring>
+          <billingPeriod>MONTHLY</billingPeriod>
+          <recurringBillingMode>IN_ADVANCE</recurringBillingMode>
+          <fixedPrice>
+            <price>0.00</price>
+          </fixedPrice>
+        </recurring>
+      </finalPhase>
+    </plan>
+
+    <!-- Payments: Growth tier (R15K/mo) -->
+    <plan name="payments-growth">
+      <product>ForgePayments</product>
+      <finalPhase>
+        <duration>
+          <number>1</number>
+          <unitType>MONTHS</unitType>
+        </duration>
+        <recurring>
+          <billingPeriod>MONTHLY</billingPeriod>
+          <recurringBillingMode>IN_ADVANCE</recurringBillingMode>
+          <fixedPrice>
+            <price>15000.00</price>
+          </fixedPrice>
+        </recurring>
+      </finalPhase>
+    </plan>
+
+    <!-- Treasury: Standard tier (R40K/mo, 14-day free trial) -->
+    <plan name="treasury-standard">
+      <product>ForgeTreasury</product>
+      <initialPhase>
+        <duration>
+          <number>14</number>
+          <unitType>DAYS</unitType>
+        </duration>
+        <recurring>
+          <billingPeriod>MONTHLY</billingPeriod>
+          <recurringBillingMode>IN_ADVANCE</recurringBillingMode>
+          <fixedPrice>
+            <price>0.00</price>
+          </fixedPrice>
+        </recurring>
+      </initialPhase>
+      <finalPhase>
+        <duration>
+          <number>1</number>
+          <unitType>MONTHS</unitType>
+        </duration>
+        <recurring>
+          <billingPeriod>MONTHLY</billingPeriod>
+          <recurringBillingMode>IN_ADVANCE</recurringBillingMode>
+          <fixedPrice>
+            <price>40000.00</price>
+          </fixedPrice>
+        </recurring>
+      </finalPhase>
+    </plan>
+
+    <!-- Credit Bureau: Standard tier (R8.5K/mo, 14-day free trial) -->
+    <plan name="credit-bureau-standard">
+      <product>ForgeCreditBureau</product>
+      <initialPhase>
+        <duration>
+          <number>14</number>
+          <unitType>DAYS</unitType>
+        </duration>
+        <recurring>
+          <billingPeriod>MONTHLY</billingPeriod>
+          <recurringBillingMode>IN_ADVANCE</recurringBillingMode>
+          <fixedPrice>
+            <price>0.00</price>
+          </fixedPrice>
+        </recurring>
+      </initialPhase>
+      <finalPhase>
+        <duration>
+          <number>1</number>
+          <unitType>MONTHS</unitType>
+        </duration>
+        <recurring>
+          <billingPeriod>MONTHLY</billingPeriod>
+          <recurringBillingMode>IN_ADVANCE</recurringBillingMode>
+          <fixedPrice>
+            <price>8500.00</price>
+          </fixedPrice>
+        </recurring>
+      </finalPhase>
+    </plan>
+
+    <!-- Bundle: Treasury + Credit Bureau (R45K/mo, saves R3.5K) -->
+    <plan name="bundle-treasury-creditbureau">
+      <product>ForgeTreasury</product>
+      <initialPhase>
+        <duration>
+          <number>14</number>
+          <unitType>DAYS</unitType>
+        </duration>
+        <recurring>
+          <billingPeriod>MONTHLY</billingPeriod>
+          <recurringBillingMode>IN_ADVANCE</recurringBillingMode>
+          <fixedPrice>
+            <price>0.00</price>
+          </fixedPrice>
+        </recurring>
+      </initialPhase>
+      <finalPhase>
+        <duration>
+          <number>1</number>
+          <unitType>MONTHS</unitType>
+        </duration>
+        <recurring>
+          <billingPeriod>MONTHLY</billingPeriod>
+          <recurringBillingMode>IN_ADVANCE</recurringBillingMode>
+          <fixedPrice>
+            <price>45000.00</price>
+          </fixedPrice>
+        </recurring>
+      </finalPhase>
+    </plan>
+  </plans>
+</catalog>
