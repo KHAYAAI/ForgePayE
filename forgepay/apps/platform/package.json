@@ -24,7 +24,9 @@
     "nodemailer": "^6.9.0",
     "@types/nodemailer": "^6.4.0",
     "zod": "^3.22.0",
-    "axios": "^1.6.0"
+    "axios": "^1.6.0",
+    "recharts": "^2.10.0",
+    "redis": "^4.6.0"
   },
   "devDependencies": {
     "eslint": "^8.54.0",
