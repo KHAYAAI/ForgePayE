@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ForgePay — Dashboard Hub</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #0A2540 0%, #0F3D5C 100%);
+            min-height: 100vh;
+            color: #333;
+            padding: 40px 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 60px;
+            color: white;
+        }
+
+        .logo {
+            font-size: 32px;
+            font-weight: 700;
+            margin-bottom: 12px;
+            letter-spacing: -1px;
+        }
+
+        .logo span {
+            color: #00F0FF;
+        }
+
+        .tagline {
+            font-size: 18px;
+            font-weight: 400;
+            opacity: 0.9;
+            margin-bottom: 8px;
+        }
+
+        .status {
+            display: inline-block;
+            background: rgba(0, 240, 255, 0.2);
+            border: 1px solid #00F0FF;
+            color: #00F0FF;
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 24px;
+            margin-bottom: 40px;
+        }
+
+        .dashboard-card {
+            background: white;
+            border-radius: 12px;
+            padding: 32px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            border-left: 4px solid #0A2540;
+            display: flex;
+            flex-direction: column;
+            text-decoration: none;
+            color: inherit;
+        }
+
+        .dashboard-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+            border-left-color: #00F0FF;
+        }
+
+        .dashboard-card.payments {
+            border-left-color: #00D4FF;
+        }
+
+        .dashboard-card.treasury {
+            border-left-color: #00B8FF;
+        }
+
+        .dashboard-card.credit {
+            border-left-color: #0099FF;
+        }
+
+        .dashboard-card.ops {
+            border-left-color: #FF6B6B;
+        }
+
+        .dashboard-card.analytics {
+            border-left-color: #4ECDC4;
+        }
+
+        .dashboard-icon {
+            font-size: 40px;
+            margin-bottom: 16px;
+        }
+
+        .dashboard-card h3 {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #0A2540;
+        }
+
+        .dashboard-card p {
+            font-size: 14px;
+            color: #666;
+            line-height: 1.6;
+            margin-bottom: 16px;
+            flex-grow: 1;
+        }
+
+        .dashboard-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        .meta-tag {
+            background: #f5f5f5;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            color: #666;
+            font-weight: 500;
+        }
+
+        .cta-button {
+            background: linear-gradient(135deg, #0A2540 0%, #0F3D5C 100%);
+            color: white;
+            border: none;
+            padding: 10px 16px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+        }
+
+        .cta-button:hover {
+            background: linear-gradient(135deg, #0F3D5C 0%, #153A52 100%);
+            box-shadow: 0 4px 12px rgba(10, 37, 64, 0.3);
+        }
+
+        .cta-button.secondary {
+            background: white;
+            color: #0A2540;
+            border: 2px solid #0A2540;
+        }
+
+        .cta-button.secondary:hover {
+            background: #f9f9f9;
+        }
+
+        .status-grid {
+            background: white;
+            border-radius: 12px;
+            padding: 32px;
+            margin-bottom: 40px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .status-grid h2 {
+            color: #0A2540;
+            font-size: 20px;
+            margin-bottom: 24px;
+        }
+
+        .status-items {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+        }
+
+        .status-item {
+            padding: 16px;
+            background: #f5f5f5;
+            border-radius: 8px;
+            border-left: 3px solid #4ECB60;
+        }
+
+        .status-item.warning {
+            border-left-color: #FFA500;
+            background: #FFF9F0;
+        }
+
+        .status-item.error {
+            border-left-color: #FF6B6B;
+            background: #FFF5F5;
+        }
+
+        .status-label {
+            font-size: 12px;
+            color: #999;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 6px;
+        }
+
+        .status-value {
+            font-size: 18px;
+            font-weight: 600;
+            color: #0A2540;
+        }
+
+        footer {
+            text-align: center;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 14px;
+            padding-top: 40px;
+            border-top: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .coming-soon {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            background: #FFA500;
+            color: white;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .dashboard-card {
+            position: relative;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header>
+            <div class="logo">Forge<span>Pay</span></div>
+            <p class="tagline">Payment & Credit Infrastructure Platform</p>
+            <div class="status">🟢 All Systems Operational</div>
+        </header>
+
+        <!-- System Status Grid -->
+        <div class="status-grid">
+            <h2>System Status</h2>
+            <div class="status-items">
+                <div class="status-item">
+                    <div class="status-label">Payment Router</div>
+                    <div class="status-value">✅ Operational</div>
+                </div>
+                <div class="status-item">
+                    <div class="status-label">Kill Bill Sync</div>
+                    <div class="status-value">✅ Last: 3m ago</div>
+                </div>
+                <div class="status-item">
+                    <div class="status-label">Email Queue</div>
+                    <div class="status-value">✅ 23 jobs</div>
+                </div>
+                <div class="status-item">
+                    <div class="status-label">Database</div>
+                    <div class="status-value">✅ 98.2% uptime</div>
+                </div>
+                <div class="status-item">
+                    <div class="status-label">Settlement Success</div>
+                    <div class="status-value">✅ 99.7%</div>
+                </div>
+                <div class="status-item">
+                    <div class="status-label">Support Queue</div>
+                    <div class="status-value">✅ 12 tickets</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Dashboard Cards -->
+        <div class="dashboard-grid">
+            <!-- Payments Dashboard -->
+            <a href="/dashboard/payments" class="dashboard-card payments">
+                <div class="dashboard-icon">💳</div>
+                <h3>Payments Dashboard</h3>
+                <p>Process card and bank transfers. Monitor transaction flows, success rates, and payment method analytics.</p>
+                <div class="dashboard-meta">
+                    <span class="meta-tag">Live</span>
+                    <span class="meta-tag">Next.js 14</span>
+                    <span class="meta-tag">Real-time</span>
+                </div>
+                <button class="cta-button">Access Dashboard</button>
+            </a>
+
+            <!-- Treasury Dashboard -->
+            <a href="/dashboard/treasury" class="dashboard-card treasury">
+                <div class="dashboard-icon">💰</div>
+                <h3>Treasury Dashboard</h3>
+                <p>Manage agent payouts, netting optimization, FX conversion, and daily settlements across multiple currencies.</p>
+                <div class="dashboard-meta">
+                    <span class="meta-tag">Live</span>
+                    <span class="meta-tag">Next.js 14</span>
+                    <span class="meta-tag">Real-time</span>
+                </div>
+                <button class="cta-button">Access Dashboard</button>
+            </a>
+
+            <!-- Credit Bureau Dashboard -->
+            <a href="/dashboard/credit-bureau" class="dashboard-card credit">
+                <div class="dashboard-icon">📊</div>
+                <h3>Credit Bureau Dashboard</h3>
+                <p>View dual-mode credit scores (Mode 1: FICO + Mode 2: On-chain), variance explanations, and inquiry revenue tracking.</p>
+                <div class="dashboard-meta">
+                    <span class="meta-tag">Live</span>
+                    <span class="meta-tag">Next.js 14</span>
+                    <span class="meta-tag">Real-time</span>
+                </div>
+                <button class="cta-button">Access Dashboard</button>
+            </a>
+
+            <!-- Ops Dashboard -->
+            <a href="/dashboard/ops" class="dashboard-card ops">
+                <div class="dashboard-icon">🚨</div>
+                <h3>Operations Dashboard</h3>
+                <p>Monitor system health, alerts, Kill Bill sync verification, email queue, churn signals, and support metrics.</p>
+                <div class="dashboard-meta">
+                    <span class="meta-tag">Live</span>
+                    <span class="meta-tag">CloudWatch</span>
+                    <span class="meta-tag">Critical</span>
+                </div>
+                <button class="cta-button">Access Dashboard</button>
+            </a>
+
+            <!-- Analytics Dashboard -->
+            <a href="/dashboard/analytics" class="dashboard-card analytics">
+                <div class="dashboard-icon">📈</div>
+                <h3>Analytics Dashboard</h3>
+                <p>Track onboarding funnels, churn rates, email CTR, support SLA compliance, and revenue ontology events.</p>
+                <div class="dashboard-meta">
+                    <span class="meta-tag">Live</span>
+                    <span class="meta-tag">Real-time</span>
+                    <span class="meta-tag">Data</span>
+                </div>
+                <button class="cta-button">Access Dashboard</button>
+            </a>
+
+            <!-- Marketing Site -->
+            <a href="/" class="dashboard-card">
+                <div class="dashboard-icon">🌐</div>
+                <h3>Marketing Site</h3>
+                <p>Customer-facing landing pages, product pages, pricing, and onboarding flows for all three products.</p>
+                <div class="dashboard-meta">
+                    <span class="meta-tag">Public</span>
+                    <span class="meta-tag">Next.js 14</span>
+                    <span class="meta-tag">Live</span>
+                </div>
+                <button class="cta-button">Visit Site</button>
+            </a>
+        </div>
+
+        <!-- Quick Links Section -->
+        <div class="status-grid">
+            <h2>Quick Links & Resources</h2>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px;">
+                <div style="padding: 16px; background: #f5f5f5; border-radius: 8px;">
+                    <h4 style="color: #0A2540; margin-bottom: 8px;">📚 Documentation</h4>
+                    <p style="font-size: 14px; color: #666; margin-bottom: 12px;">API docs, integration guides, architecture overview</p>
+                    <a href="/docs" class="cta-button secondary">View Docs</a>
+                </div>
+                <div style="padding: 16px; background: #f5f5f5; border-radius: 8px;">
+                    <h4 style="color: #0A2540; margin-bottom: 8px;">🔧 Admin Panel</h4>
+                    <p style="font-size: 14px; color: #666; margin-bottom: 12px;">User management, billing configuration, API keys</p>
+                    <a href="/admin" class="cta-button secondary">Go to Admin</a>
+                </div>
+                <div style="padding: 16px; background: #f5f5f5; border-radius: 8px;">
+                    <h4 style="color: #0A2540; margin-bottom: 8px;">📞 Support</h4>
+                    <p style="font-size: 14px; color: #666; margin-bottom: 12px;">Get help, report issues, contact CSM team</p>
+                    <a href="/support" class="cta-button secondary">Get Support</a>
+                </div>
+                <div style="padding: 16px; background: #f5f5f5; border-radius: 8px;">
+                    <h4 style="color: #0A2540; margin-bottom: 8px;">🔐 Account Settings</h4>
+                    <p style="font-size: 14px; color: #666; margin-bottom: 12px;">Credentials, webhook configuration, security</p>
+                    <a href="/settings" class="cta-button secondary">Settings</a>
+                </div>
+                <div style="padding: 16px; background: #f5f5f5; border-radius: 8px;">
+                    <h4 style="color: #0A2540; margin-bottom: 8px;">💻 API Status</h4>
+                    <p style="font-size: 14px; color: #666; margin-bottom: 12px;">Real-time API status, incident history, uptime</p>
+                    <a href="/status" class="cta-button secondary">Check Status</a>
+                </div>
+                <div style="padding: 16px; background: #f5f5f5; border-radius: 8px;">
+                    <h4 style="color: #0A2540; margin-bottom: 8px;">📋 Billing</h4>
+                    <p style="font-size: 14px; color: #666; margin-bottom: 12px;">Invoices, subscription management, usage billing</p>
+                    <a href="/billing" class="cta-button secondary">View Billing</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Product Overview Cards -->
+        <div class="status-grid" style="margin-bottom: 40px;">
+            <h2>Product Overview</h2>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px;">
+                <div style="padding: 20px; border: 2px solid #00D4FF; border-radius: 8px;">
+                    <h4 style="color: #0A2540; font-size: 18px; margin-bottom: 12px;">Forge Payments</h4>
+                    <p style="font-size: 14px; color: #666; line-height: 1.6; margin-bottom: 12px;">
+                        <strong>Price:</strong> R15,000/mo<br>
+                        <strong>Use Case:</strong> Card & bank transfer processing<br>
+                        <strong>Features:</strong> Payment routing, fallback chain, fraud detection
+                    </p>
+                    <p style="font-size: 12px; color: #00D4FF; font-weight: 600;">✅ Live | Customers: 50 (beta)</p>
+                </div>
+                <div style="padding: 20px; border: 2px solid #00B8FF; border-radius: 8px;">
+                    <h4 style="color: #0A2540; font-size: 18px; margin-bottom: 12px;">Forge Treasury</h4>
+                    <p style="font-size: 14px; color: #666; line-height: 1.6; margin-bottom: 12px;">
+                        <strong>Price:</strong> R40,000/mo<br>
+                        <strong>Use Case:</strong> Agent payout netting & settlement<br>
+                        <strong>Features:</strong> OFAC screening, FX optimization, daily netting
+                    </p>
+                    <p style="font-size: 12px; color: #00B8FF; font-weight: 600;">✅ Live | Launch: Week 3</p>
+                </div>
+                <div style="padding: 20px; border: 2px solid #0099FF; border-radius: 8px;">
+                    <h4 style="color: #0A2540; font-size: 18px; margin-bottom: 12px;">Forge Credit Bureau</h4>
+                    <p style="font-size: 14px; color: #666; line-height: 1.6; margin-bottom: 12px;">
+                        <strong>Price:</strong> R8,500/mo + 25% inquiry revenue<br>
+                        <strong>Use Case:</strong> Dual-mode credit scoring<br>
+                        <strong>Features:</strong> Mode 1 (FICO) & Mode 2 (On-chain), inquiry API
+                    </p>
+                    <p style="font-size: 12px; color: #0099FF; font-weight: 600;">✅ Live | Launch: Week 3</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer>
+            <p>ForgePay v1.0.0 | Deployment: AWS EKS (us-east-1) | Build: claude/forgepay-platform-design-gEkgE</p>
+            <p style="margin-top: 8px; font-size: 12px;">Last updated: 2026-06-28 | Incident reporting: ops@forgepay.co.za</p>
+        </footer>
+    </div>
+</body>
+</html>
