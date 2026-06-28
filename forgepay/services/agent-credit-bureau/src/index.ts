@@ -37,10 +37,16 @@ import {
 import {
   computeScore, scoreTier, generateZKProof,
   maxRecommendedLimit, scoreRecommendation, simulateScore,
+  computeDualModeScore,
 } from './scorer';
 import type {
   AgentCreditProfile, CreditReport, Dispute, CreditEvent,
 } from './types';
+import { getChainClient, didToAddress } from './chain';
+import {
+  runSettlement, startSettlementScheduler,
+  getLastSettlementRun, getSettlementReceipt, getSettlementRunCount,
+} from './settlement';
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
@@ -583,6 +589,85 @@ async function buildApp() {
     return reply.send({ data, total: profiles.size });
   });
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Dual-Mode Score — Mode 1 (FICO) + Mode 2 (On-chain operational)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // GET /v1/agents/:agentId/dual-score
+  // Returns both scoring lenses + consensus analysis.
+  // Mode 1 is always live (<15ms). Mode 2 is from last settlement + on-chain stats.
+  // Response shape: DualModeScore (see types.ts)
+  app.get<{ Params: { agentId: string } }>('/v1/agents/:agentId/dual-score', async (req, reply) => {
+    const profile = getProfile(req.params.agentId);
+    if (!profile) return reply.status(404).send({ error: 'NotFound', message: `Agent ${req.params.agentId} not registered` });
+
+    const chain   = getChainClient();
+    const receipt = getSettlementReceipt(req.params.agentId);
+
+    // Resolve on-chain address from DID
+    const agentAddress = didToAddress(profile.did);
+
+    // Compute account age in months from profile.createdAt
+    const ageMonths = Math.max(0,
+      (Date.now() - new Date(profile.createdAt).getTime()) / (1000 * 60 * 60 * 24 * 30.44),
+    );
+
+    // Fetch Mode 2 inputs from on-chain (null if chain unconfigured or agent has no on-chain data)
+    const mode2Inputs = (chain && agentAddress)
+      ? await chain.getMode2Inputs(agentAddress, ageMonths).catch(() => null)
+      : null;
+
+    const dualScore = computeDualModeScore(
+      profile.agentId,
+      profile,
+      mode2Inputs,
+      receipt ? {
+        txHash:      receipt.txHash,
+        blockNumber: receipt.blockNumber,
+        chainId:     receipt.chainId,
+        settledAt:   receipt.settledAt,
+      } : undefined,
+    );
+
+    return reply.send({ data: dualScore });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Settlement — admin endpoints for Mode 2 on-chain settlement
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // GET /v1/settlement/status
+  app.get('/v1/settlement/status', async (_req, reply) => {
+    const chain   = getChainClient();
+    const lastRun = getLastSettlementRun();
+    return reply.send({
+      data: {
+        chainConfigured:   chain !== null,
+        chainId:           chain?.chainId ?? null,
+        settlementAddress: chain?.address ?? null,
+        runCount:          getSettlementRunCount(),
+        lastRun,
+        settledAgents:     profiles.size > 0
+          ? Array.from(profiles.keys()).filter(id => getSettlementReceipt(id) !== undefined).length
+          : 0,
+        pendingAgents: profiles.size > 0
+          ? Array.from(profiles.keys()).filter(id => getSettlementReceipt(id) === undefined).length
+          : 0,
+      },
+    });
+  });
+
+  // POST /v1/settlement/run — manual trigger (admin only in production, open for staging)
+  app.post('/v1/settlement/run', async (_req, reply) => {
+    const result = await runSettlement('manual');
+    return reply.send({
+      data: result,
+      message: result.agentsFailed > 0
+        ? `Partial settlement: ${result.agentsSettled} settled, ${result.agentsFailed} failed`
+        : `Settlement complete: ${result.agentsSettled} agents settled in ${result.txHashes.length} tx(s)`,
+    });
+  });
+
   // ── Error handlers ─────────────────────────────────────────────────────────
   app.setErrorHandler<FastifyError>((err, req, reply) => {
     req.log.error({ err, url: req.url }, 'Unhandled error');
@@ -614,17 +699,24 @@ async function main(): Promise<void> {
 
   await app.listen({ port: PORT, host: '0.0.0.0' });
 
+  // Start Mode 2 settlement scheduler (runs even if chain is unconfigured — no-ops gracefully)
+  startSettlementScheduler();
+
+  const chainClient = getChainClient();
   console.log(`
 ╔══════════════════════════════════════════════════════════════════╗
 ║      ForgePay Agent Credit Bureau v0.1.0                         ║
 ║      Listening on port ${PORT}                                      ║
 ║                                                                  ║
-║  Score        →  GET  /v1/agents/:id/score                       ║
+║  Score        →  GET  /v1/agents/:id/score        [Mode 1 FICO]  ║
+║  Dual Score   →  GET  /v1/agents/:id/dual-score   [Mode 1+2]     ║
 ║  Profile      →  GET  /v1/agents/:id/profile                     ║
 ║  Report       →  POST /v1/reports                                ║
 ║  Disputes     →  GET  /v1/disputes                               ║
 ║  Bureau Stats →  GET  /v1/bureau/stats                           ║
-║  ZK Proofs    →  POST /v1/reports/:id/zk                         ║
+║  Settlement   →  GET  /v1/settlement/status                      ║
+║                                                                  ║
+║  On-chain: ${chainClient ? `Base chainId=${chainClient.chainId} ✓` : 'unconfigured — Mode 1 only '}        ║
 ╚══════════════════════════════════════════════════════════════════╝
 `);
 }
