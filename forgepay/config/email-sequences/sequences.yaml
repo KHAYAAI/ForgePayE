@@ -1,0 +1,139 @@
+# Email sequences trigger on product milestones
+# Sent via email-service using Kill Bill subscription webhooks
+
+sequences:
+  # Day 0: Welcome
+  payments-day0:
+    trigger: "product_license_granted"
+    product: "payments"
+    days_after: 0
+    subject: "Welcome to FORGE Payments 🎉"
+    template: "payments-welcome"
+    variables:
+      - transaction_url: "https://forgepay.com/docs/api/payments"
+      - test_charge: "R10"
+
+  payments-day7:
+    trigger: "license_granted_day7_reminder"
+    product: "payments"
+    days_after: 7
+    subject: "Your first payment processed! Here's what's next"
+    template: "payments-day7"
+    conditional:
+      - if: "transaction_count >= 5"
+        then: "send_upsell_treasury"
+
+  # Treasury upsell sequence
+  treasury-upsell-gmv-high:
+    trigger: "gmv_exceeded_threshold"
+    product: "treasury"
+    gmv_threshold_zar: 1500000
+    time_period: "30d"
+    subject: "Automate R1.5M+ monthly flows with FORGE Treasury"
+    template: "treasury-upsell-high-volume"
+    variables:
+      - estimated_savings: "calculated_from_gmv"
+      - checkout_url: "https://forgepay.com/checkout/treasury"
+
+  treasury-day0:
+    trigger: "product_license_granted"
+    product: "treasury"
+    days_after: 0
+    subject: "Treasury is live—first settlement runs tonight at 22:00 UTC"
+    template: "treasury-welcome"
+    variables:
+      - settlement_time: "22:00 UTC"
+
+  treasury-day7:
+    trigger: "settlement_completed"
+    product: "treasury"
+    days_after: 7
+    subject: "You just settled R{settlement_amount}. Here's how to scale."
+    template: "treasury-day7"
+    conditional:
+      - if: "settlement_count >= 3"
+        then: "send_credit_bureau_upsell"
+
+  # Credit Bureau upsell
+  creditbureau-upsell-agents:
+    trigger: "agent_count_exceeded"
+    product: "credit-bureau"
+    agent_threshold: 10
+    subject: "Automate credit scoring for {agent_count} agents"
+    template: "credit-bureau-upsell"
+    variables:
+      - agent_count: "dynamic"
+      - estimated_revenue: "calculated_from_agents"
+      - checkout_url: "https://forgepay.com/checkout/credit-bureau"
+
+  creditbureau-day0:
+    trigger: "product_license_granted"
+    product: "credit-bureau"
+    days_after: 0
+    subject: "Credit Bureau is live—first scores settle tonight at 20:00 UTC"
+    template: "credit-bureau-welcome"
+
+  # Bundle upsell (Treasury + Credit Bureau)
+  bundle-upsell:
+    trigger: "has_both_products_separately"
+    subject: "Save R3.5K/month by bundling Treasury + Credit Bureau"
+    template: "bundle-upsell"
+    variables:
+      - current_cost: "48500"
+      - bundle_cost: "45000"
+      - savings: "3500"
+      - upgrade_url: "/api/v1/bundle/upgrade-to-bundle"
+
+templates:
+  payments-welcome: |
+    Hi {first_name},
+
+    Welcome to FORGE Payments! Your account is live.
+
+    Quick start:
+    1. Generate an API key: https://dashboard.forgepay.com/api-keys
+    2. Send your first charge: https://forgepay.com/docs/api/payments
+    3. Settle daily to your bank
+
+    You're saving ~40% vs Stripe. Get started: {transaction_url}
+
+    Questions? Reply to this email or chat with support.
+
+    —FORGE Team
+
+  treasury-upsell-high-volume: |
+    Hi {first_name},
+
+    You're processing R{gmv_threshold_zar:currency}/month with Payments.
+
+    FORGE Treasury could automate netting settlements and save ~R{estimated_savings:currency}/month.
+
+    See how: {checkout_url}
+
+    14-day free trial included.
+
+    —FORGE Team
+
+  bundle-upsell: |
+    Hi {first_name},
+
+    You're running both Treasury (R40K/mo) and Credit Bureau (R8.5K/mo).
+
+    Bundle them for R45K/mo and save R{savings:currency}/month.
+
+    Upgrade here: {upgrade_url}
+
+    —FORGE Team
+
+  credit-bureau-welcome: |
+    Hi {first_name},
+
+    Welcome to FORGE Credit Bureau!
+
+    Your agents' scores are being computed daily and settled on-chain at 20:00 UTC.
+
+    Lenders can query scores via your API. You earn 25% of inquiry fees.
+
+    First settled scores: ~24 hours
+
+    —FORGE Team
