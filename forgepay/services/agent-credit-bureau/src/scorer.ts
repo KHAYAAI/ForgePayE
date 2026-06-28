@@ -11,7 +11,10 @@
  *   New Credit / Velocity 10% — hard inquiries in last 30 days
  */
 
-import type { AgentCreditProfile, CreditTier, ScoreFactor } from './types';
+import type {
+  AgentCreditProfile, CreditTier, ScoreFactor,
+  Mode1Score, Mode2Score, Mode2Inputs, DualModeScore, ConsensusLevel,
+} from './types';
 
 // ── Tier thresholds ───────────────────────────────────────────────────────────
 
@@ -270,3 +273,190 @@ export function generateZKProof(
 }
 
 export { riskGrade, scoreTier as tierFromScore };
+
+// ── Mode 2: On-chain operational scoring (Qova-derived factors) ───────────────
+//
+// These weights match Qova's CRE workflow scoring model:
+//   Success Rate      30% — fraction of transactions that succeeded
+//   Transaction Volume 25% — total USD volume (tiered)
+//   Transaction Count  20% — number of recorded transactions (tiered)
+//   Budget Compliance  15% — fraction of spend attempts within budget limits
+//   Account Age        10% — months since first on-chain transaction
+
+export function computeMode2Score(inputs: Mode2Inputs): {
+  score: number;
+  factors: ScoreFactor[];
+} {
+  const factors: ScoreFactor[] = [];
+
+  // ── 1. Success Rate (30%) — max 300pts ────────────────────────────────────
+  const successPct = inputs.successRateBps / 100;   // e.g. 9500 bps → 95%
+  let successScore: number;
+  if      (successPct >= 99) successScore = 300;
+  else if (successPct >= 95) successScore = 270;
+  else if (successPct >= 90) successScore = 220;
+  else if (successPct >= 80) successScore = 150;
+  else if (successPct >= 70) successScore = 80;
+  else                       successScore = 20;
+
+  factors.push({
+    code: successPct >= 95 ? 'HIGH_SUCCESS_RATE' : 'LOW_SUCCESS_RATE',
+    description: `${successPct.toFixed(1)}% of on-chain transactions succeeded.`,
+    impact: successPct >= 90 ? 'positive' : successPct >= 75 ? 'neutral' : 'negative',
+    weight: 30,
+  });
+
+  // ── 2. Transaction Volume (25%) — max 250pts ──────────────────────────────
+  const vol = inputs.totalVolumeUsd;
+  let volScore: number;
+  if      (vol >= 1_000_000) volScore = 250;
+  else if (vol >= 100_000)   volScore = 210;
+  else if (vol >= 10_000)    volScore = 160;
+  else if (vol >= 1_000)     volScore = 100;
+  else if (vol >= 100)       volScore = 50;
+  else                       volScore = 10;
+
+  factors.push({
+    code: vol >= 10_000 ? 'HIGH_VOLUME' : vol >= 100 ? 'MODERATE_VOLUME' : 'LOW_VOLUME',
+    description: `$${vol.toLocaleString()} total on-chain transaction volume.`,
+    impact: vol >= 10_000 ? 'positive' : vol >= 100 ? 'neutral' : 'negative',
+    weight: 25,
+  });
+
+  // ── 3. Transaction Count (20%) — max 200pts ───────────────────────────────
+  const cnt = inputs.totalCount;
+  let cntScore: number;
+  if      (cnt >= 1000) cntScore = 200;
+  else if (cnt >= 100)  cntScore = 160;
+  else if (cnt >= 10)   cntScore = 100;
+  else if (cnt >= 3)    cntScore = 50;
+  else                  cntScore = 10;
+
+  factors.push({
+    code: cnt >= 100 ? 'ACTIVE_TRANSACTION_HISTORY' : cnt >= 10 ? 'MODERATE_HISTORY' : 'THIN_HISTORY',
+    description: `${cnt.toLocaleString()} total on-chain transactions recorded.`,
+    impact: cnt >= 100 ? 'positive' : cnt >= 10 ? 'neutral' : 'negative',
+    weight: 20,
+  });
+
+  // ── 4. Budget Compliance (15%) — max 150pts ───────────────────────────────
+  const compliance = inputs.budgetComplianceRate;   // 0.0-1.0
+  let complianceScore: number;
+  if      (compliance >= 0.99) complianceScore = 150;
+  else if (compliance >= 0.95) complianceScore = 120;
+  else if (compliance >= 0.85) complianceScore = 80;
+  else if (compliance >= 0.70) complianceScore = 40;
+  else                         complianceScore = 0;
+
+  factors.push({
+    code: compliance >= 0.95 ? 'STRONG_BUDGET_COMPLIANCE' : 'POOR_BUDGET_COMPLIANCE',
+    description: `${Math.round(compliance * 100)}% of spending attempts within configured budget limits.`,
+    impact: compliance >= 0.90 ? 'positive' : compliance >= 0.70 ? 'neutral' : 'negative',
+    weight: 15,
+  });
+
+  // ── 5. Account Age (10%) — max 100pts ────────────────────────────────────
+  const ageMonths = inputs.accountAgeMonths;
+  let ageScore: number;
+  if      (ageMonths >= 24) ageScore = 100;
+  else if (ageMonths >= 12) ageScore = 80;
+  else if (ageMonths >= 6)  ageScore = 55;
+  else if (ageMonths >= 3)  ageScore = 30;
+  else                      ageScore = 10;
+
+  factors.push({
+    code: ageMonths >= 12 ? 'ESTABLISHED_ONCHAIN_HISTORY' : 'NEW_ONCHAIN_ACCOUNT',
+    description: `${Math.round(ageMonths)} months of on-chain activity history.`,
+    impact: ageMonths >= 12 ? 'positive' : ageMonths >= 3 ? 'neutral' : 'negative',
+    weight: 10,
+  });
+
+  const raw   = successScore + volScore + cntScore + complianceScore + ageScore;
+  const score = Math.round(Math.max(300, Math.min(1000, raw)));
+
+  return { score, factors: factors.sort((a, b) => b.weight - a.weight) };
+}
+
+// ── Dual-mode composite scorer ────────────────────────────────────────────────
+
+export function computeDualModeScore(
+  agentId:     string,
+  profile:     AgentCreditProfile,
+  mode2Inputs: Mode2Inputs | null,
+  mode2OnChain?: { txHash?: string; blockNumber?: number; chainId?: number; settledAt?: string },
+): DualModeScore {
+  const t0 = Date.now();
+
+  // Mode 1: FORGE FICO (always computed, <15ms)
+  const { score: m1score, factors: m1factors } = computeScore(profile);
+  const m1tier = scoreTier(m1score);
+  const latencyMs = Date.now() - t0;
+
+  const mode1: Mode1Score = {
+    score:               m1score,
+    tier:                m1tier,
+    factors:             m1factors,
+    recommendation:      scoreRecommendation(m1score),
+    maxRecommendedLimit: maxRecommendedLimit(m1score),
+    riskGrade:           riskGrade(m1score),
+    computedAt:          new Date().toISOString(),
+    latencyMs,
+    source:              'FORGE_FICO_OFFCHAIN',
+  };
+
+  // Mode 2: On-chain operational (only if on-chain inputs available)
+  let mode2: Mode2Score | null = null;
+
+  if (mode2Inputs !== null) {
+    const { score: m2score, factors: m2factors } = computeMode2Score(mode2Inputs);
+    mode2 = {
+      score:             m2score,
+      tier:              scoreTier(m2score),
+      factors:           m2factors,
+      txHash:            mode2OnChain?.txHash,
+      blockNumber:       mode2OnChain?.blockNumber,
+      chainId:           mode2OnChain?.chainId,
+      settledAt:         mode2OnChain?.settledAt,
+      source:            'FORGE_OPERATIONAL_ONCHAIN',
+      verifiableOnChain: mode2Inputs.onChainSettled,
+    };
+  }
+
+  // Consensus analysis
+  const variance = mode2 ? Math.abs(m1score - mode2.score) : 0;
+  let level: ConsensusLevel;
+  let recommendation: string;
+  let flagForReview: boolean;
+
+  if (!mode2) {
+    level           = 'MEDIUM';
+    recommendation  = 'Mode 2 on-chain score not yet settled. Mode 1 (FICO) is authoritative.';
+    flagForReview   = false;
+  } else if (variance <= 50) {
+    level           = 'HIGH';
+    recommendation  = `Both modes agree within ${variance} points. High confidence in Mode 1 decision.`;
+    flagForReview   = false;
+  } else if (variance <= 100) {
+    level           = 'MEDIUM';
+    recommendation  = `${variance} point variance between FICO and on-chain scores. Review recommended before large credit decisions.`;
+    flagForReview   = true;
+  } else {
+    level           = 'LOW';
+    recommendation  = `${variance} point divergence detected. On-chain behavior and FICO profile are misaligned. Manual review required.`;
+    flagForReview   = true;
+  }
+
+  return {
+    agentId,
+    mode1,
+    mode2,
+    consensus: {
+      level,
+      variance,
+      authoritative:  'MODE_1',
+      recommendation,
+      flagForReview,
+    },
+    generatedAt: new Date().toISOString(),
+  };
+}

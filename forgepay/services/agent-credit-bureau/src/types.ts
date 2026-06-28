@@ -168,3 +168,75 @@ export interface DataContributor {
   createdAt: string;
   status: 'active' | 'suspended' | 'pending';
 }
+
+// ── Dual-Mode Scoring Types ───────────────────────────────────────────────────
+
+/**
+ * Mode 1: FORGE FICO (off-chain, deterministic, <15ms).
+ * Credit decisioning lens — authoritative for lending decisions.
+ * Weights: Payment History 35%, Utilization 30%, Age 15%, Mix 10%, Velocity 10%
+ */
+export interface Mode1Score {
+  score: number;                   // 0-1000
+  tier: CreditTier;
+  factors: ScoreFactor[];
+  recommendation: 'approve' | 'approve_with_conditions' | 'manual_review' | 'decline';
+  maxRecommendedLimit: number;
+  riskGrade: 'A' | 'B' | 'C' | 'D' | 'F';
+  computedAt: string;              // ISO8601
+  latencyMs: number;
+  source: 'FORGE_FICO_OFFCHAIN';
+}
+
+/**
+ * Mode 2: On-chain operational score (Qova-derived, settled via Chainlink CRE).
+ * Behavioral lens — used for bank audit trails and cross-chain portability.
+ * Weights: Success Rate 30%, Volume 25%, Count 20%, Budget Compliance 15%, Age 10%
+ */
+export interface Mode2Score {
+  score: number;                   // 0-1000
+  tier: CreditTier;
+  factors: ScoreFactor[];
+  txHash?: string;                 // On-chain settlement tx hash
+  blockNumber?: number;
+  chainId?: number;
+  settledAt?: string;              // ISO8601 — when settled on-chain
+  source: 'FORGE_OPERATIONAL_ONCHAIN';
+  verifiableOnChain: boolean;
+}
+
+/**
+ * Consensus level between Mode 1 and Mode 2.
+ * HIGH = both agree within 50 pts → high confidence
+ * MEDIUM = variance 51-100 pts → flag for review
+ * LOW = variance >100 pts → manual review required
+ */
+export type ConsensusLevel = 'HIGH' | 'MEDIUM' | 'LOW';
+
+export interface DualModeScore {
+  agentId: string;
+  mode1: Mode1Score;
+  mode2: Mode2Score | null;        // null when not yet settled on-chain
+  consensus: {
+    level: ConsensusLevel;
+    variance: number;              // |mode1.score - mode2.score|
+    authoritative: 'MODE_1';      // Mode 1 is always the lending decision
+    recommendation: string;       // Human-readable consensus summary
+    flagForReview: boolean;
+  };
+  generatedAt: string;
+}
+
+/**
+ * Inputs for Mode 2 operational scoring — sourced from on-chain ForgeTransactionValidator.
+ * These are the Qova-derived factors computed off the raw TransactionStats struct.
+ */
+export interface Mode2Inputs {
+  successRateBps: number;          // basis points: 9500 = 95%
+  totalVolumeUsd: number;
+  totalCount: number;
+  budgetComplianceRate: number;    // 0.0-1.0: fraction of spend attempts within budget
+  accountAgeMonths: number;
+  onChainSettled: boolean;         // whether ForgeReputationRegistry has a score
+  onChainScore?: number;           // the settled on-chain score (0-1000) if available
+}
