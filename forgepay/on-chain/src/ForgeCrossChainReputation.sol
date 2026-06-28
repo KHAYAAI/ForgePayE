@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.28;
+pragma solidity ^0.8.28;
 
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
-import {CCIPReceiver} from "@chainlink/contracts-ccip/src/v0.8/ccip/applications/CCIPReceiver.sol";
-import {Client} from "@chainlink/contracts-ccip/src/v0.8/ccip/libraries/Client.sol";
-import {IRouterClient} from "@chainlink/contracts-ccip/src/v0.8/ccip/interfaces/IRouterClient.sol";
+import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
+import {CCIPReceiver} from "@chainlink/contracts-ccip/contracts/applications/CCIPReceiver.sol";
+import {Client} from "@chainlink/contracts-ccip/contracts/libraries/Client.sol";
+import {IRouterClient} from "@chainlink/contracts-ccip/contracts/interfaces/IRouterClient.sol";
 
 /// @title ForgeCrossChainReputation
 /// @notice Propagates FORGE agent reputation scores across chains via Chainlink CCIP.
@@ -98,9 +99,35 @@ contract ForgeCrossChainReputation is CCIPReceiver, AccessControl {
         emit SourceChainAllowlisted(chainSelector, allowed);
     }
 
-    function setReputationRegistry(address _registry) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    // ── Two-step registry update (P2 follow-up: no immediate re-point on key compromise) ──
+
+    address public pendingReputationRegistry;
+    uint256 public reputationRegistryAvailableAt;
+    uint256 public constant REGISTRY_UPDATE_DELAY = 48 hours;
+
+    error RegistryUpdateDelayNotElapsed(uint256 availableAt);
+    error NoPendingRegistryUpdate();
+
+    event RegistryUpdateScheduled(address indexed newRegistry, uint256 availableAt);
+    event RegistryUpdateApplied(address indexed oldRegistry, address indexed newRegistry);
+
+    function scheduleRegistryUpdate(address _registry) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (_registry == address(0)) revert ZeroAddress();
-        reputationRegistry = _registry;
+        pendingReputationRegistry    = _registry;
+        reputationRegistryAvailableAt = block.timestamp + REGISTRY_UPDATE_DELAY;
+        emit RegistryUpdateScheduled(_registry, reputationRegistryAvailableAt);
+    }
+
+    function applyRegistryUpdate() external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (pendingReputationRegistry == address(0)) revert NoPendingRegistryUpdate();
+        if (block.timestamp < reputationRegistryAvailableAt) {
+            revert RegistryUpdateDelayNotElapsed(reputationRegistryAvailableAt);
+        }
+        address old = reputationRegistry;
+        reputationRegistry          = pendingReputationRegistry;
+        pendingReputationRegistry   = address(0);
+        reputationRegistryAvailableAt = 0;
+        emit RegistryUpdateApplied(old, reputationRegistry);
     }
 
     function setCcipGasLimit(uint256 newLimit) external onlyRole(DEFAULT_ADMIN_ROLE) {
@@ -247,11 +274,13 @@ contract ForgeCrossChainReputation is CCIPReceiver, AccessControl {
         return _processedMessages[messageId];
     }
 
+    // CCIPReceiver.supportsInterface is `pure`; AccessControl.supportsInterface is `view` —
+    // the two are incompatible in a diamond override, so inline both checks directly.
     function supportsInterface(bytes4 interfaceId)
-        public view virtual override(CCIPReceiver, AccessControl) returns (bool)
+        public pure virtual override(CCIPReceiver, AccessControl) returns (bool)
     {
         return CCIPReceiver.supportsInterface(interfaceId)
-            || AccessControl.supportsInterface(interfaceId);
+            || interfaceId == type(IAccessControl).interfaceId;
     }
 
     receive() external payable {}

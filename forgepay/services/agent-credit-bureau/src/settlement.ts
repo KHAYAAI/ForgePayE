@@ -155,6 +155,9 @@ export async function runSettlement(trigger: 'scheduled' | 'manual' = 'scheduled
   }
 
   // ── Step 4: batch in chunks of 100 ────────────────────────────────────────
+  // An agent may be frozen between Step 3 (our check) and the tx landing on-chain,
+  // causing the entire batch to revert. On failure, fall back to 1-by-1 settlement
+  // so a single frozen agent doesn't block the whole chunk.
   const BATCH_SIZE = 100;
   for (let i = 0; i < toSettle.length; i += BATCH_SIZE) {
     const chunk = toSettle.slice(i, i + BATCH_SIZE);
@@ -167,9 +170,8 @@ export async function runSettlement(trigger: 'scheduled' | 'manual' = 'scheduled
       const txHash = await chain.batchSettleScores(addresses, scores, reasons);
       const receipt = await chain.waitForReceipt(txHash);
 
-      // Store receipts for each agent in this chunk
       for (const c of chunk) {
-        const rec: SettlementReceipt = {
+        _receipts.set(c.agentId, {
           agentId:      c.agentId,
           agentAddress: c.address,
           settledScore: c.score,
@@ -177,15 +179,36 @@ export async function runSettlement(trigger: 'scheduled' | 'manual' = 'scheduled
           blockNumber:  Number(receipt.blockNumber),
           chainId:      chain.chainId,
           settledAt:    new Date().toISOString(),
-        };
-        _receipts.set(c.agentId, rec);
+        });
         run.agentsSettled++;
       }
 
       run.txHashes.push(txHash);
-    } catch (err) {
-      run.agentsFailed += chunk.length;
-      run.errors.push(`Batch ${i / BATCH_SIZE + 1} failed: ${String(err)}`);
+    } catch (batchErr) {
+      // Batch failed — retry each agent individually to isolate frozen/invalid agents.
+      run.errors.push(`Batch ${i / BATCH_SIZE + 1} failed (retrying 1-by-1): ${String(batchErr)}`);
+
+      for (const c of chunk) {
+        try {
+          const txHash = await chain.batchSettleScores([c.address], [c.score], [reason]);
+          const receipt = await chain.waitForReceipt(txHash);
+
+          _receipts.set(c.agentId, {
+            agentId:      c.agentId,
+            agentAddress: c.address,
+            settledScore: c.score,
+            txHash,
+            blockNumber:  Number(receipt.blockNumber),
+            chainId:      chain.chainId,
+            settledAt:    new Date().toISOString(),
+          });
+          run.agentsSettled++;
+          run.txHashes.push(txHash);
+        } catch (singleErr) {
+          run.agentsFailed++;
+          run.errors.push(`${c.agentId}: individual settle failed — ${String(singleErr)}`);
+        }
+      }
     }
   }
 

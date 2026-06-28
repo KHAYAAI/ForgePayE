@@ -38,7 +38,7 @@
 import {
   createPublicClient, createWalletClient,
   http, webSocket, parseAbi,
-  type Abi, type Address, type PublicClient, type WalletClient, type Account,
+  type Address, type Account,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { baseSepolia, base } from 'viem/chains';
@@ -98,8 +98,12 @@ export interface ForgeChainConfig {
 }
 
 export class ForgeChainClient {
-  private public:  PublicClient;
-  private wallet:  WalletClient;
+  // viem v2 generates deeply generic client types that don't unify well when stored
+  // in fields — use explicit any here; all public methods are fully typed.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private public:  any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private wallet:  any;
   private account: Account;
   private cfg:     ForgeChainConfig;
 
@@ -142,7 +146,7 @@ export class ForgeChainClient {
       abi:     REGISTRY_ABI,
       functionName: 'isRegistered',
       args: [agentAddress],
-    });
+    }) as Promise<boolean>;
   }
 
   async isAgentFrozen(agentAddress: Address): Promise<boolean> {
@@ -151,18 +155,19 @@ export class ForgeChainClient {
       abi:     REGISTRY_ABI,
       functionName: 'isFrozen',
       args: [agentAddress],
-    });
+    }) as Promise<boolean>;
   }
 
   // ── ForgeReputationRegistry writes ───────────────────────────────────────────
 
   async registerAgentOnChain(agentAddress: Address): Promise<`0x${string}`> {
     return this.wallet.writeContract({
-      address: this.cfg.registryAddress,
-      abi:     REGISTRY_ABI,
+      account:      this.account,
+      address:      this.cfg.registryAddress,
+      abi:          REGISTRY_ABI,
       functionName: 'registerAgent',
-      args: [agentAddress],
-    });
+      args:         [agentAddress],
+    }) as Promise<`0x${string}`>;
   }
 
   async updateScoreOnChain(
@@ -171,11 +176,12 @@ export class ForgeChainClient {
     reason: `0x${string}`,
   ): Promise<`0x${string}`> {
     return this.wallet.writeContract({
-      address: this.cfg.registryAddress,
-      abi:     REGISTRY_ABI,
+      account:      this.account,
+      address:      this.cfg.registryAddress,
+      abi:          REGISTRY_ABI,
       functionName: 'updateScore',
-      args: [agentAddress, score, reason],
-    });
+      args:         [agentAddress, score, reason],
+    }) as Promise<`0x${string}`>;
   }
 
   /**
@@ -191,11 +197,12 @@ export class ForgeChainClient {
     if (agents.length > 100) throw new Error('batchSettleScores: max 100 per batch');
 
     return this.wallet.writeContract({
-      address: this.cfg.registryAddress,
-      abi:     REGISTRY_ABI,
+      account:      this.account,
+      address:      this.cfg.registryAddress,
+      abi:          REGISTRY_ABI,
       functionName: 'batchUpdateScores',
-      args: [agents, scores.map(s => s), reasons],
-    });
+      args:         [agents, scores, reasons],
+    }) as Promise<`0x${string}`>;
   }
 
   async freezeAgentOnChain(
@@ -204,11 +211,12 @@ export class ForgeChainClient {
     reason: `0x${string}`,
   ): Promise<`0x${string}`> {
     return this.wallet.writeContract({
-      address: this.cfg.registryAddress,
-      abi:     REGISTRY_ABI,
+      account:      this.account,
+      address:      this.cfg.registryAddress,
+      abi:          REGISTRY_ABI,
       functionName: 'setFrozen',
-      args: [agentAddress, freeze, reason],
-    });
+      args:         [agentAddress, freeze, reason],
+    }) as Promise<`0x${string}`>;
   }
 
   // ── ForgeTransactionValidator reads ──────────────────────────────────────────
@@ -225,41 +233,50 @@ export class ForgeChainClient {
     accountAgeMonths: number,
   ): Promise<Mode2Inputs | null> {
     try {
+      // viem readContract returns inferred types from parseAbi — cast to known struct shapes.
+      type TxStats = { totalCount: bigint; totalVolume: bigint; successCount: bigint; failCount: bigint; lastActivityTimestamp: bigint };
+
       const [stats, hasBudget] = await Promise.all([
         this.public.readContract({
           address: this.cfg.validatorAddress,
           abi:     VALIDATOR_ABI,
           functionName: 'getTransactionStats',
           args: [agentAddress],
-        }),
+        }) as Promise<TxStats>,
         this.public.readContract({
           address: this.cfg.enforcerAddress,
           abi:     ENFORCER_ABI,
           functionName: 'hasBudget',
           args: [agentAddress],
-        }),
+        }) as Promise<boolean>,
       ]);
 
       const totalCount    = Number(stats.totalCount);
       const successCount  = Number(stats.successCount);
       const failCount     = Number(stats.failCount);
-      const totalVolumeWei = stats.totalVolume;
+      const totalVolumeWei = stats.totalVolume; // bigint (uint128 from Solidity)
 
-      // Convert volume from wei to approximate USD (using ETH @ $2,500 for testnet)
-      // In production this reads from a Chainlink price feed
+      // Convert volume from wei to approximate USD (using ETH @ $2,500 for testnet).
+      // Divide in two BigInt steps to avoid JS Number precision loss above 2^53 wei (~9000 ETH).
+      // In production this reads from a Chainlink price feed.
       const ethPriceUsd    = Number(process.env['ETH_PRICE_USD'] ?? '2500');
-      const totalVolumeUsd = Number(totalVolumeWei) / 1e18 * ethPriceUsd;
+      const volumeGwei     = Number(totalVolumeWei / 1_000_000_000n);   // gwei, safe for Number
+      const totalVolumeUsd = (volumeGwei / 1e9) * ethPriceUsd;          // ETH → USD
 
-      // Success rate in basis points (10000 = 100%)
+      // Success rate in basis points (10000 = 100%).
+      // Returns 0 for agents with no history — matches on-chain getSuccessRate() behavior.
       const successRateBps = totalCount > 0
         ? Math.round((successCount / totalCount) * 10_000)
-        : 10_000; // no history = neutral assumption
+        : 0;
 
-      // Budget compliance: (attempts - overages) / attempts
-      // We approximate: if hasBudget=false, assume 100%; otherwise use
-      // the ratio of recorded txs to total attempts (overages would revert so they
-      // don't appear in totalCount). This is a conservative approximation.
-      const budgetComplianceRate = hasBudget ? 0.95 : 1.0; // TODO: read from BudgetEnforcer events
+      // Budget compliance approximation:
+      //   hasBudget=false → no limit configured → 1.0 (full compliance by definition)
+      //   hasBudget=true  → limits exist; all recorded txs passed the check (overages revert
+      //                     and are never stored), so compliance is 1.0 for recorded txs.
+      //                     Conservative: treat as 0.97 to reflect potential off-chain attempts
+      //                     that never reached the contract. Replace with event-log analysis
+      //                     once SpendRecorded events are indexed.
+      const budgetComplianceRate = hasBudget ? 0.97 : 1.0;
 
       // Check if score is settled on-chain
       const onChainScore = await this.getOnChainScore(agentAddress);
@@ -292,11 +309,12 @@ export class ForgeChainClient {
     success:      boolean,
   ): Promise<`0x${string}`> {
     return this.wallet.writeContract({
-      address: this.cfg.coreAddress,
-      abi:     CORE_ABI,
+      account:      this.account,
+      address:      this.cfg.coreAddress,
+      abi:          CORE_ABI,
       functionName: 'executeAgentAction',
-      args: [agentAddress, txHash, amount, txType, success],
-    });
+      args:         [agentAddress, txHash, amount, txType, success],
+    }) as Promise<`0x${string}`>;
   }
 
   // ── Tx receipt helper ─────────────────────────────────────────────────────────
