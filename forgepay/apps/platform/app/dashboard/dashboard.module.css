@@ -1,0 +1,80 @@
+.dashboardContainer {
+  display: flex;
+  min-height: 100vh;
+  background: #f8f9fa;
+}
+
+.sidebar {
+  width: 260px;
+  background: var(--navy);
+  color: white;
+  padding: 32px 24px;
+  position: fixed;
+  height: 100vh;
+  overflow-y: auto;
+  border-right: 1px solid rgba(0, 240, 255, 0.1);
+}
+
+.logo {
+  font-size: 20px;
+  font-weight: 700;
+  margin-bottom: 40px;
+  letter-spacing: -0.5px;
+}
+
+.logo span {
+  color: var(--cyan);
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+.navSection h3 {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: rgba(255, 255, 255, 0.5);
+  margin-bottom: 12px;
+  font-weight: 600;
+}
+
+.navItem {
+  display: block;
+  padding: 10px 12px;
+  color: rgba(255, 255, 255, 0.8);
+  border-radius: 6px;
+  margin-bottom: 8px;
+  transition: all 0.3s;
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.navItem:hover {
+  background: rgba(0, 240, 255, 0.1);
+  color: var(--cyan);
+}
+
+.main {
+  flex: 1;
+  margin-left: 260px;
+  padding: 40px;
+}
+
+@media (max-width: 768px) {
+  .sidebar {
+    width: 100%;
+    height: auto;
+    position: static;
+    padding: 20px;
+    display: none;
+  }
+
+  .main {
+    margin-left: 0;
+    padding: 20px;
+  }
+}
