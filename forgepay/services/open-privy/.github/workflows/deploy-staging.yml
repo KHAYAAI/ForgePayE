@@ -1,0 +1,55 @@
+name: Deploy to Staging
+
+on:
+  push:
+    branches: [develop]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: staging
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Build backend
+        run: |
+          cd services/backend
+          npm install
+          npm run build
+
+      - name: Build mobile app
+        run: |
+          cd apps/mobile
+          npm install
+          npm run build
+
+      - name: Deploy to staging
+        run: |
+          echo "Deploying to staging environment..."
+          # Add your deployment commands here
+          # Example: docker build and push to staging registry
+        env:
+          STAGING_API_KEY: ${{ secrets.STAGING_API_KEY }}
+          STAGING_DB_URL: ${{ secrets.STAGING_DB_URL }}
+
+      - name: Run smoke tests
+        run: |
+          npm run test:smoke
+        env:
+          API_URL: https://staging-api.openprivy.io
+
+      - name: Notify Slack
+        if: always()
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "Staging deployment ${{ job.status }}",
+              "channel": "#deployments"
+            }

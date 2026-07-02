@@ -1,0 +1,210 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-rules
+  namespace: openprivy
+data:
+  alert-rules.yml: |
+    groups:
+    - name: openprivy-critical
+      interval: 30s
+      rules:
+
+      # P1: High error rate
+      - alert: HighErrorRate
+        expr: |
+          (sum(rate(openprivy_errors_total[5m])) /
+           sum(rate(openprivy_requests_total[5m]))) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          slo: error_rate
+        annotations:
+          summary: "High error rate detected"
+          description: |
+            Error rate is above 5% for the last 5 minutes.
+            Current error rate: {{ $value | humanizePercentage }}
+          runbook: "https://openprivy.io/runbooks/high-error-rate"
+
+      # P1: Pod crash looping
+      - alert: PodCrashLooping
+        expr: |
+          rate(kube_pod_container_status_restarts_total{namespace="openprivy",pod=~"backend.*"}[15m]) > 0.1
+        for: 5m
+        labels:
+          severity: critical
+          slo: availability
+        annotations:
+          summary: "Pod {{ $labels.pod }} is crash looping"
+          description: "Pod {{ $labels.pod }} has restarted {{ $value }} times in the last 15 minutes"
+          runbook: "https://openprivy.io/runbooks/pod-crash-loop"
+
+      # P1: Database unavailable
+      - alert: DatabaseUnavailable
+        expr: |
+          up{job="postgres"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          slo: availability
+        annotations:
+          summary: "PostgreSQL database is unavailable"
+          description: "PostgreSQL has been down for more than 1 minute"
+          runbook: "https://openprivy.io/runbooks/database-unavailable"
+
+      # P1: High latency
+      - alert: HighLatency
+        expr: |
+          histogram_quantile(0.95, rate(openprivy_request_duration_seconds_bucket[5m])) > 1.0
+        for: 5m
+        labels:
+          severity: critical
+          slo: latency
+        annotations:
+          summary: "High API latency detected"
+          description: |
+            P95 latency is above 1 second for the last 5 minutes.
+            Current P95: {{ $value | humanizeDuration }}
+          runbook: "https://openprivy.io/runbooks/high-latency"
+
+      # P2: High memory usage
+      - alert: HighMemoryUsage
+        expr: |
+          (container_memory_usage_bytes{pod=~"backend.*",namespace="openprivy"} /
+           container_spec_memory_limit_bytes{pod=~"backend.*",namespace="openprivy"}) > 0.85
+        for: 5m
+        labels:
+          severity: high
+          slo: resource
+        annotations:
+          summary: "Pod {{ $labels.pod }} memory usage is high"
+          description: |
+            Pod {{ $labels.pod }} memory usage is at {{ $value | humanizePercentage }} of limit
+          runbook: "https://openprivy.io/runbooks/high-memory"
+
+      # P2: High CPU usage
+      - alert: HighCPUUsage
+        expr: |
+          (rate(container_cpu_usage_seconds_total{pod=~"backend.*",namespace="openprivy"}[5m]) * 100) > 80
+        for: 5m
+        labels:
+          severity: high
+          slo: resource
+        annotations:
+          summary: "Pod {{ $labels.pod }} CPU usage is high"
+          description: "Pod {{ $labels.pod }} CPU usage is at {{ $value | humanize }}%"
+          runbook: "https://openprivy.io/runbooks/high-cpu"
+
+      # P2: Disk space critical
+      - alert: DiskSpaceCritical
+        expr: |
+          (node_filesystem_avail_bytes{fstype=~"ext[234]|btrfs|xfs|zfs"} /
+           node_filesystem_size_bytes) < 0.1
+        for: 5m
+        labels:
+          severity: high
+          slo: resource
+        annotations:
+          summary: "Disk space is critically low"
+          description: "Disk {{ $labels.device }} has less than 10% space available"
+          runbook: "https://openprivy.io/runbooks/disk-space-critical"
+
+      # P3: Failed login attempts spike
+      - alert: FailedLoginAttemptsSpike
+        expr: |
+          rate(openprivy_auth_failures_total{reason="invalid_password"}[5m]) > 10
+        for: 5m
+        labels:
+          severity: medium
+          slo: security
+        annotations:
+          summary: "Spike in failed login attempts detected"
+          description: "{{ $value }} failed login attempts per second in the last 5 minutes"
+          runbook: "https://openprivy.io/runbooks/failed-login-spike"
+
+      # P3: Gas sponsorship costs exceeding threshold
+      - alert: HighGasSponsorship
+        expr: |
+          increase(openprivy_gas_sponsored_wei_total[1h]) > 1e18
+        for: 10m
+        labels:
+          severity: medium
+          slo: cost
+        annotations:
+          summary: "High gas sponsorship costs"
+          description: "Gas sponsorship in last hour: {{ $value | humanize }} ETH"
+          runbook: "https://openprivy.io/runbooks/high-gas-costs"
+
+      # P3: Slow database queries
+      - alert: SlowDatabaseQueries
+        expr: |
+          rate(pg_stat_statements_mean_exec_time_ms{query=~"SELECT.*"}[5m]) > 1000
+        for: 10m
+        labels:
+          severity: medium
+          slo: performance
+        annotations:
+          summary: "Slow database queries detected"
+          description: "Average query execution time is {{ $value | humanize }}ms"
+          runbook: "https://openprivy.io/runbooks/slow-queries"
+
+    - name: openprivy-availability
+      interval: 60s
+      rules:
+
+      # Availability SLO: 99.5% uptime
+      - alert: LowAvailabilitySLO
+        expr: |
+          (1 - (sum(rate(openprivy_errors_total[30m])) /
+           sum(rate(openprivy_requests_total[30m])))) < 0.995
+        for: 15m
+        labels:
+          severity: high
+          slo: availability
+        annotations:
+          summary: "Availability SLO at risk"
+          description: "Current availability: {{ $value | humanizePercentage }}"
+          runbook: "https://openprivy.io/runbooks/low-availability-slo"
+
+      # Latency SLO: P95 < 500ms
+      - alert: LatencySLOViolation
+        expr: |
+          histogram_quantile(0.95, rate(openprivy_request_duration_seconds_bucket[30m])) > 0.5
+        for: 15m
+        labels:
+          severity: high
+          slo: latency
+        annotations:
+          summary: "Latency SLO violation"
+          description: "P95 latency: {{ $value | humanizeDuration }}"
+          runbook: "https://openprivy.io/runbooks/latency-slo-violation"
+
+    - name: openprivy-security
+      interval: 30s
+      rules:
+
+      # Unauthorized access attempts
+      - alert: UnauthorizedAccessAttempts
+        expr: |
+          rate(http_requests_total{status="401"}[5m]) > 50
+        for: 5m
+        labels:
+          severity: medium
+          slo: security
+        annotations:
+          summary: "High number of unauthorized access attempts"
+          description: "{{ $value | humanize }} 401 responses per second"
+          runbook: "https://openprivy.io/runbooks/unauthorized-access"
+
+      # Potential DDoS attack
+      - alert: PotentialDDoS
+        expr: |
+          rate(http_requests_total[5m]) > 10000
+        for: 2m
+        labels:
+          severity: critical
+          slo: security
+        annotations:
+          summary: "Potential DDoS attack detected"
+          description: "Request rate: {{ $value | humanize }} req/sec"
+          runbook: "https://openprivy.io/runbooks/ddos-detection"

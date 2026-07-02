@@ -29,3 +29,15 @@ crypto-gateway:
   source: https://github.com/dilan-dio4/Keagate
   commit: TBD      # Pin after fork
   license: MIT
+
+forge-custody-core:
+  source: https://github.com/KHAYAAI/openfireblocks
+  commit: c35fe4096d746137a9ccfae9269c6636307c3ad1  # 2026-07 — Phase 1 MVP vendored to forgepay/services/openfireblocks
+  license: Apache-2.0
+  note: FORGE Custody (forgepay/services/forge-custody) is the FORGE-facing API; this vendored tree provides mpc-signer, api-gateway, policy-service (OPA), temporal-worker.
+
+forge-wallet-core:
+  source: https://github.com/KHAYAAI/open-privy
+  commit: a63eebebb08547ee2754639dc4e4b239618624e7  # 2026-07 — Phase 0 MVP vendored to forgepay/services/open-privy
+  license: Apache-2.0
+  note: FORGE Wallet (forgepay/services/forge-wallet) is the FORGE-facing API; this vendored tree provides the NestJS backend, web app, paymaster contracts, AWS/K8s guides.

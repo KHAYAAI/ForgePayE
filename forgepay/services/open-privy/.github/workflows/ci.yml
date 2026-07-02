@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: openprivy_test
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build backend
+        run: |
+          cd services/backend
+          npm run build
+
+      - name: Run backend tests
+        env:
+          DATABASE_URL: postgresql://app:test@localhost:5432/openprivy_test
+          JWT_SECRET: test-secret
+          ENCRYPTION_KEY: test-encryption-key-min-32-chars-long
+        run: |
+          cd services/backend
+          npm run test
+
+      - name: Build mobile app
+        run: |
+          cd apps/mobile
+          npm run build
+
+      - name: Run linter
+        run: npm run lint
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Run security audit
+        run: npm audit --production
+
+      - name: SAST scan
+        run: npm run sast 2>/dev/null || echo "No SAST configured"

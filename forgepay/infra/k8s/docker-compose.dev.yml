@@ -296,6 +296,7 @@ services:
       UNIFIED_ROUTER_URL: http://unified-router:8000
       WEBHOOK_SECRET: dev-forge-custody-webhook-secret
       COMPLIANCE_MONITOR_URL: http://compliance-monitor:8004
+      MPC_COORDINATOR_URL: http://openfireblocks-mpc-signer:8080
     ports:
       - "3019:3019"
     depends_on:
@@ -321,5 +322,33 @@ services:
       - "3020:3020"
     depends_on:
       postgres: { condition: service_healthy }
+    networks: [forgepay]
+    profiles: [forge]
+
+  # ── OpenFireblocks MPC signer (vendored) — real signing behind FORGE Custody ─
+  immudb:
+    image: codenotary/immudb:1.9.5
+    environment:
+      IMMUDB_ADMIN_PASSWORD: immudb
+    networks: [forgepay]
+    profiles: [forge]
+
+  openfireblocks-mpc-signer:
+    build:
+      context: ../../services/openfireblocks/services/mpc-signer
+      dockerfile: Dockerfile
+    environment:
+      PORT: "8080"
+      IMMUDB_URL: immudb:3322
+      IMMUDB_USER: immudb
+      IMMUDB_PASSWORD: immudb
+      MPC_SIGNER_PRIVATE_KEY: ${MPC_SIGNER_PRIVATE_KEY:-}
+      # Vault-sourced key (production path):
+      #   VAULT_ADDR: http://vault:8200
+      #   VAULT_TOKEN: <token>
+    ports:
+      - "8080:8080"
+    depends_on:
+      - immudb
     networks: [forgepay]
     profiles: [forge]

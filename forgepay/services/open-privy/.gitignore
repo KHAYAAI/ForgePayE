@@ -1,0 +1,65 @@
+# Dependencies
+node_modules/
+*.pnp
+.pnp.js
+package-lock.json
+yarn.lock
+
+# Testing
+coverage/
+*.lcov
+
+# Production
+build/
+dist/
+.next/
+out/
+
+# Misc
+.DS_Store
+*.pem
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Temporary
+.tmp/
+temp/
+logs/
+*.pid
+
+# Database
+postgres_data/
+*.db
+*.sqlite
+
+# Docker
+docker-compose.override.yml
+
+# Secrets
+.env.production
+secrets/
+*.key
+*.cert
+
+# Build artifacts
+tsconfig.tsbuildinfo

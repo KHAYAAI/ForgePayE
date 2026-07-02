@@ -27,7 +27,7 @@ env:
   RATE_LIMIT_PER_MIN: '300'
   UNIFIED_ROUTER_URL: http://unified-router:8000
   COMPLIANCE_MONITOR_URL: http://compliance-monitor:8004
-  MPC_COORDINATOR_URL: http://openfireblocks-mpc:3002
+  MPC_COORDINATOR_URL: http://openfireblocks-mpc-signer:8080
 # DATABASE_URL, WEBHOOK_SECRET, BLOCKCHAIN_RPC_URL come from the
 # forge-custody-secrets Secret (Vault / AWS Secrets Manager — never inline).
 secretRefs:

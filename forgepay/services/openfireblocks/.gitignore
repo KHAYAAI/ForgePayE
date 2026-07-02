@@ -1,0 +1,21 @@
+# Node
+node_modules/
+dist/
+coverage/
+*.log
+.env
+.env.*
+!.env.example
+
+# Go — compiled service binaries (each main package builds to a binary named
+# after its directory; never commit these).
+/services/mpc-signer/mpc-signer
+/services/policy-service/policy-service
+/services/temporal-worker/temporal-worker
+/services/temporal-worker/worker
+*.test
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/

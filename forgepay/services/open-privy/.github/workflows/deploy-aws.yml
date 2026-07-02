@@ -1,0 +1,246 @@
+name: Deploy to AWS
+
+on:
+  push:
+    branches:
+      - main
+      - production
+    paths:
+      - 'services/backend/**'
+      - 'Dockerfile'
+      - '.github/workflows/deploy-aws.yml'
+      - 'k8s/**'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: openprivy-backend
+  EKS_CLUSTER_NAME: openprivy-prod
+  DOCKER_BUILDKIT: 1
+
+jobs:
+  build:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      image-tag: ${{ steps.image.outputs.tag }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/GitHubActionsRole
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build Docker image
+        id: image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:latest \
+            -f services/backend/Dockerfile \
+            .
+          echo "tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Scan image for vulnerabilities
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ steps.image.outputs.tag }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      - name: Push image to ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ steps.image.outputs.tag }}
+        run: |
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: openprivy_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm run test
+        working-directory: services/backend
+
+      - name: Run integration tests
+        run: npm run test:integration
+        working-directory: services/backend
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/openprivy_test
+          REDIS_URL: redis://localhost:6379
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./services/backend/coverage/coverage-final.json
+          flags: unittests
+          name: codecov-umbrella
+
+  deploy-staging:
+    name: Deploy to Staging
+    needs: [build, test]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/GitHubActionsRole
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig \
+            --name openprivy-staging \
+            --region ${{ env.AWS_REGION }}
+
+      - name: Deploy to EKS (Staging)
+        run: |
+          kubectl set image deployment/backend \
+            backend=${{ steps.login-ecr.outputs.registry }}/openprivy-backend:${{ needs.build.outputs.image-tag }} \
+            -n openprivy-staging
+          kubectl rollout status deployment/backend -n openprivy-staging --timeout=5m
+
+      - name: Run smoke tests
+        run: |
+          POD=$(kubectl get pods -n openprivy-staging -l app=backend -o jsonpath='{.items[0].metadata.name}')
+          kubectl exec -n openprivy-staging $POD -- npm run test:smoke
+        continue-on-error: true
+
+  deploy-production:
+    name: Deploy to Production (Canary)
+    needs: [build, test]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/production'
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/GitHubActionsRole
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig \
+            --name ${{ env.EKS_CLUSTER_NAME }} \
+            --region ${{ env.AWS_REGION }}
+
+      - name: Deploy canary (1% traffic)
+        run: |
+          kubectl set image deployment/backend \
+            backend=${{ steps.login-ecr.outputs.registry }}/openprivy-backend:${{ needs.build.outputs.image-tag }} \
+            -n openprivy
+          kubectl rollout status deployment/backend -n openprivy --timeout=5m
+
+      - name: Monitor canary metrics
+        run: |
+          for i in {1..60}; do
+            ERROR_RATE=$(kubectl exec -n monitoring prometheus-0 -- \
+              curl -s 'http://localhost:9090/api/v1/query?query=rate(openprivy_errors_total[5m])' | \
+              grep -o '"value":\[.*,"\([^"]*\)"' | cut -d'"' -f4 || echo "0")
+            
+            if (( $(echo "$ERROR_RATE > 0.05" | bc -l) )); then
+              echo "High error rate detected: $ERROR_RATE"
+              kubectl rollout undo deployment/backend -n openprivy
+              exit 1
+            fi
+            
+            echo "[$i/60] Error rate: $ERROR_RATE"
+            sleep 10
+          done
+
+      - name: Notify deployment
+        if: success()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          text: 'Production deployment successful'
+          webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+
+      - name: Notify failure
+        if: failure()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          text: 'Production deployment failed - canary rolled back'
+          webhook_url: ${{ secrets.SLACK_WEBHOOK }}

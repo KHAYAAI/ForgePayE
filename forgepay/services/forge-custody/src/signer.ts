@@ -32,28 +32,79 @@ export interface ThresholdSigner {
   sign(request: SigningRequest): Promise<ThresholdSignature>;
 }
 
-/** Production adapter — delegates the ceremony to the MPC coordinator. */
+/** blockchain name → EVM chain id for the mpc-signer contract. */
+const CHAIN_IDS: Record<string, number> = {
+  ethereum: 1,
+  sepolia: 11_155_111,
+  polygon: 137,
+  base: 8453,
+  'base-sepolia': 84_532,
+};
+
+/**
+ * Production adapter — delegates signing to the vendored OpenFireblocks
+ * mpc-signer (forgepay/services/openfireblocks/services/mpc-signer).
+ *
+ * Contract: POST {MPC_COORDINATOR_URL}/sign
+ *   { chainId, to, data, value, gasLimit, gasPrice, nonce }
+ *   → { requestId, signedTx, txHash, from, status, auditLogId }
+ *
+ * The returned signedTx is the RLP-encoded signed transaction — broadcast()
+ * sends it verbatim via eth_sendRawTransaction. Upstream Phase 1 signs with
+ * a single shared key (Vault-backed); per-customer 4-of-7 ceremonies land in
+ * Phase 2 behind this same adapter.
+ */
 export class MpcCoordinatorSigner implements ThresholdSigner {
   name = 'mpc-coordinator';
 
   constructor(private readonly baseUrl: string) {}
 
   async sign(request: SigningRequest): Promise<ThresholdSignature> {
-    const res = await fetch(`${this.baseUrl.replace(/\/$/, '')}/api/v1/ceremonies/sign`, {
+    const chainId = CHAIN_IDS[request.blockchain];
+    if (!chainId) {
+      throw new Error(`mpc-signer has no chain id mapping for '${request.blockchain}'`);
+    }
+    const tx = request.transaction;
+    const nonce = Number((request.metadata as { nonce?: number | string }).nonce ?? 0);
+
+    const res = await fetch(`${this.baseUrl.replace(/\/$/, '')}/sign`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        signing_id: request.id,
-        key_id: request.keyId,
-        blockchain: request.blockchain,
-        transaction: request.transaction,
+        chainId,
+        to: tx.to,
+        data: tx.data ?? '0x',
+        value: tx.value,
+        gasLimit: tx.gas ? Number(tx.gas) : 21_000,
+        gasPrice: tx.gasPrice ?? '20000000000',
+        nonce,
       }),
       signal: AbortSignal.timeout(120_000),
     });
     if (!res.ok) {
-      throw new Error(`MPC coordinator returned ${res.status}`);
+      const body = (await res.json().catch(() => ({}))) as { error?: string; requestId?: string };
+      throw new Error(`mpc-signer returned ${res.status}: ${body.error ?? 'unknown'} (${body.requestId ?? 'no request id'})`);
     }
-    return (await res.json()) as ThresholdSignature;
+    const signed = (await res.json()) as {
+      requestId: string;
+      signedTx: string;
+      txHash: string;
+      from: string;
+      auditLogId: number;
+    };
+    return {
+      signature: signed.signedTx,
+      // Phase 1 upstream signs with one Vault-backed key; record the single
+      // contribution so signing_shares stays an honest ledger. Phase 2 MPC
+      // will return one entry per participating share.
+      sharesUsed: [
+        {
+          shareIndex: 1,
+          holder: `openfireblocks-mpc-signer:${signed.from}`,
+          contributionHash: sha256(`${signed.requestId}:${signed.txHash}:${signed.auditLogId}`),
+        },
+      ],
+    };
   }
 }
 
