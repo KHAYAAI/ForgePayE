@@ -29,7 +29,13 @@ export interface PolicyInput {
 export async function checkSanctions(address: string): Promise<'clear' | 'hit' | 'error'> {
   const baseUrl = process.env.COMPLIANCE_MONITOR_URL;
   if (!baseUrl) {
-    logger.warn({ address }, '[custody] COMPLIANCE_MONITOR_URL not set — sanctions screen SKIPPED');
+    // Fail-closed in production (matches the upstream OpenFireblocks policy
+    // standard: an unreachable policy service denies the request).
+    if (process.env.NODE_ENV === 'production') {
+      logger.error({ address }, '[custody] COMPLIANCE_MONITOR_URL not set in production — sanctions screen FAILS CLOSED');
+      return 'error';
+    }
+    logger.warn({ address }, '[custody] COMPLIANCE_MONITOR_URL not set — sanctions screen SKIPPED (dev only)');
     return 'clear';
   }
   try {

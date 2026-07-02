@@ -50,6 +50,7 @@ import {
   createUser,
   findUserByEmail,
   getActiveWallet,
+  getConsoleSummary,
   getActiveWallets,
   getEncryptedKey,
   getUser,
@@ -356,6 +357,24 @@ export async function buildApp() {
     const claims = requireUser(req, reply);
     if (!claims) return;
     return listGasSponsorship(claims.sub);
+  });
+
+  // ── Console summary (internal read API for the FORGE console) ──────────────
+  // Auth: X-Console-Secret header, timing-safe vs CONSOLE_SECRET env.
+  // In production the secret is required; unset in dev allows local reads.
+  app.get('/api/v1/console/summary', async (req, reply) => {
+    const configured = process.env.CONSOLE_SECRET;
+    if (configured) {
+      const presented = req.headers['x-console-secret'];
+      const a = Buffer.from(typeof presented === 'string' ? presented : '', 'utf8');
+      const b = Buffer.from(configured, 'utf8');
+      if (a.length !== b.length || !timingSafeEqual(a, b)) {
+        return reply.code(401).send({ error: 'unauthorized' });
+      }
+    } else if (process.env.NODE_ENV === 'production') {
+      return reply.code(503).send({ error: 'console_secret_not_configured' });
+    }
+    return getConsoleSummary();
   });
 
   // ── Agent wallets (platform-to-platform) ───────────────────────────────────

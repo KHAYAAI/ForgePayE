@@ -88,6 +88,30 @@ including replay, approval lifecycle, audit writes); `forge-wallet` 9/9 passing
 
 ---
 
+## Upstream alignment gate (OpenFireblocks / OpenPrivy)
+
+Reviewed against the upstream repos' own docs (README, SECURITY.md, CHANGELOG,
+build summary, simulated audit report, AWS/monitoring guides):
+
+- **OpenFireblocks is Phase 1**: signing uses a **single shared key**; the
+  threshold-ECDSA MPC core (Binance TSS-Lib) is proven in-repo but per-customer
+  distributed ceremonies are Phase 2, and upstream states it is **not yet
+  audited for customer funds**. → **Launch gate:** FORGE Custody settles
+  testnet/pilot volumes only until Phase 2 MPC is distributed and external
+  crypto review + pen test pass. The console and marketing must not claim
+  live 4-of-7 custody of customer funds before that gate.
+- **Fail-closed policy**: upstream's OPA policy service denies when
+  unreachable. FORGE Custody now matches — sanctions screening fails closed in
+  production, and `COMPLIANCE_MONITOR_URL` + `CONSOLE_SECRET` are required at
+  production boot.
+- **OpenPrivy paymaster audit**: upstream's simulated audit found 4 issues
+  (1 critical reentrancy in `OpenPrivyPaymaster.postOp`) — remediated
+  upstream. The FORGE gas-sponsorship ledger is off-chain until those
+  contracts deploy, so the finding does not currently apply here.
+- **Orchestration/audit hardening path**: Temporal (durable settlement
+  workflows) and immudb (cryptographic audit ledger) are the upstream
+  production components to adopt behind `executeSigning()` and `audit_log`.
+
 ## Launch checklist deltas
 
 - [x] All webhook ingestion paths verify HMAC-SHA256 with timing-safe comparison

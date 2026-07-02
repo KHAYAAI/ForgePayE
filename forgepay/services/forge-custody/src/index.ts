@@ -45,12 +45,14 @@ import {
   createPolicy,
   createWorkspace,
   issueApiKey,
+  keys,
   newId,
   policiesForWorkspace,
   recordCeremony,
   saveSigningRequest,
   signingApprovals,
   signingRequests,
+  workspaces,
 } from './store';
 import type { SigningRequest } from './types';
 
@@ -58,7 +60,7 @@ const PORT = Number(process.env.PORT ?? 3019);
 
 function requireProductionSecrets(): void {
   if (process.env.NODE_ENV !== 'production') return;
-  const missing = ['WEBHOOK_SECRET', 'MPC_COORDINATOR_URL', 'DATABASE_URL'].filter(
+  const missing = ['WEBHOOK_SECRET', 'MPC_COORDINATOR_URL', 'DATABASE_URL', 'COMPLIANCE_MONITOR_URL', 'CONSOLE_SECRET'].filter(
     (name) => !process.env[name],
   );
   if (missing.length > 0) {
@@ -393,6 +395,72 @@ export async function buildApp() {
       block_number: request.blockNumber,
       confirmation_time: request.confirmationTime,
       error: request.error,
+    };
+  });
+
+  // ── Console summary (internal read API for the FORGE console) ──────────────
+  // Auth: X-Console-Secret header, timing-safe vs CONSOLE_SECRET env.
+  // In production the secret is required; unset in dev allows local reads.
+  app.get('/api/v1/console/summary', async (req, reply) => {
+    const configured = process.env.CONSOLE_SECRET;
+    if (configured) {
+      const presented = req.headers['x-console-secret'];
+      const a = Buffer.from(typeof presented === 'string' ? presented : '', 'utf8');
+      const b = Buffer.from(configured, 'utf8');
+      const { timingSafeEqual } = await import('node:crypto');
+      if (a.length !== b.length || !timingSafeEqual(a, b)) {
+        return reply.code(401).send({ error: 'unauthorized' });
+      }
+    } else if (process.env.NODE_ENV === 'production') {
+      return reply.code(503).send({ error: 'console_secret_not_configured' });
+    }
+
+    const all = [...signingRequests.values()];
+    const dayAgo = Date.now() - 24 * 3600 * 1000;
+    const last24h = all.filter((r) => new Date(r.createdAt).getTime() >= dayAgo);
+    const confirmed24h = last24h.filter((r) => r.status === 'confirmed');
+    const recent = all
+      .sort((x, y) => y.createdAt.localeCompare(x.createdAt))
+      .slice(0, 20)
+      .map((r) => ({
+        id: r.id,
+        workspace: workspaces.get(r.workspaceId)?.name ?? r.workspaceId,
+        destination: r.transaction.to,
+        amount_usd: r.amountUsd,
+        blockchain: r.blockchain,
+        status: r.status,
+        reason_code: r.reasonCode,
+        approvals: (signingApprovals.get(r.id) ?? []).length,
+        approvals_required: r.approvalsRequired,
+        tx_hash: r.txHash,
+        created_at: r.createdAt,
+      }));
+
+    return {
+      stats: {
+        signatures_24h: confirmed24h.length,
+        notional_24h_usd: confirmed24h.reduce((sum, r) => sum + r.amountUsd, 0),
+        pending_approval: all.filter((r) => r.status === 'pending_approval').length,
+        rejected_7d: all.filter(
+          (r) => r.status === 'rejected' && new Date(r.createdAt).getTime() >= Date.now() - 7 * 24 * 3600 * 1000,
+        ).length,
+        active_keys: [...keys.values()].filter((k) => k.rotationStatus !== 'retired').length,
+        workspaces: workspaces.size,
+      },
+      signing_queue: recent,
+      keys: [...keys.values()].map((k) => ({
+        id: k.id,
+        blockchain: k.blockchain,
+        threshold: `${k.threshold}-of-${k.totalShares}`,
+        rotation_status: k.rotationStatus,
+      })),
+      recent_audit: auditLog.slice(-10).reverse().map((e) => ({
+        at: e.createdAt,
+        actor: e.actor,
+        action: e.action,
+        resource: e.resourceId,
+        status: e.statusCode,
+      })),
     };
   });
 

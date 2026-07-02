@@ -9,40 +9,85 @@ import {
   Pill,
   DataTable,
   Grid2,
+  LivePill,
   Meter,
   Mono,
   Addr,
 } from '@/components/forge/ui';
+import { useForge } from '@/components/forge/useForge';
 
 /* ────────────────────────────────────────────────────────────────
    Agent Credit Bureau — reputation & credit for autonomous agents.
-   Reads did:forge identities and wallet/custody events from the
-   Revenue Ontology; issues scores and credit lines; requests
-   extensions from Enterprise Treasury.
+   Live-wired to agent-credit-bureau /v1/bureau/stats + /v1/agents
+   via the /api/forge/bureau proxy; demo fixtures when offline.
+   Scores are 0–1000 with FICO-style tiers.
    ──────────────────────────────────────────────────────────────── */
 
-type AgentRow = {
+interface AgentProfileRow {
+  agentId: string;
   did: string;
-  platform: string;
-  score: number;
-  trend: string;
-  line: string;
-  drawn: string;
-  onTime: string;
-  status: 'good' | 'watch' | 'frozen';
+  operatorEntityId: string;
+  currentScore: number; // 0–1000
+  tier: string;
+  totalDebt: number;
+  totalCreditLimit: number;
+  utilizationRate: number;
+  paymentHistoryRate: number;
+  frozenAt?: string;
+}
+
+interface BureauSummary {
+  stats: {
+    totalAgents: number;
+    avgScore: number;
+    totalDebt: number;
+    totalCreditLimit: number;
+    utilizationRate: number;
+    delinquentAgents?: number;
+    distribution?: Record<string, number>;
+  };
+  agents: AgentProfileRow[];
+}
+
+const DEMO: BureauSummary = {
+  stats: {
+    totalAgents: 312,
+    avgScore: 710,
+    totalDebt: 2_100_000,
+    totalCreditLimit: 6_400_000,
+    utilizationRate: 0.328,
+    delinquentAgents: 3,
+    distribution: { SUPER_PRIME: 41, PRIME: 148, NEAR_PRIME: 84, SUBPRIME: 30, DEEP_SUBPRIME: 9 },
+  },
+  agents: [
+    { agentId: 'agent_001', did: 'did:forge:agent_001', operatorEntityId: 'Umuntu Group', currentScore: 820, tier: 'SUPER_PRIME', totalDebt: 0, totalCreditLimit: 250_000, utilizationRate: 0, paymentHistoryRate: 100 },
+    { agentId: 'agent_114', did: 'did:forge:agent_114', operatorEntityId: 'SnapPay', currentScore: 750, tier: 'PRIME', totalDebt: 38_000, totalCreditLimit: 100_000, utilizationRate: 0.38, paymentHistoryRate: 100 },
+    { agentId: 'agent_078', did: 'did:forge:agent_078', operatorEntityId: 'AfroBiz Lending', currentScore: 630, tier: 'NEAR_PRIME', totalDebt: 40_000, totalCreditLimit: 40_000, utilizationRate: 1.0, paymentHistoryRate: 90 },
+    { agentId: 'agent_231', did: 'did:forge:agent_231', operatorEntityId: 'ComputeRent', currentScore: 705, tier: 'PRIME', totalDebt: 12_000, totalCreditLimit: 60_000, utilizationRate: 0.2, paymentHistoryRate: 97.8 },
+    { agentId: 'agent_009', did: 'did:forge:agent_009', operatorEntityId: 'Umuntu Group', currentScore: 340, tier: 'DEEP_SUBPRIME', totalDebt: 25_000, totalCreditLimit: 0, utilizationRate: 1, paymentHistoryRate: 64.3, frozenAt: '2026-06-28' },
+  ],
 };
 
-const AGENTS: AgentRow[] = [
-  { did: 'did:forge:agent_001', platform: 'Umuntu Group', score: 82, trend: '+4 (repaid on-time)', line: 'R250K', drawn: 'R0', onTime: '52 / 52', status: 'good' },
-  { did: 'did:forge:agent_114', platform: 'SnapPay', score: 75, trend: '+1', line: 'R100K', drawn: 'R38K', onTime: '31 / 31', status: 'good' },
-  { did: 'did:forge:agent_078', platform: 'AfroBiz Lending', score: 63, trend: '−3 (late 2d)', line: 'R40K', drawn: 'R40K', onTime: '18 / 20', status: 'watch' },
-  { did: 'did:forge:agent_231', platform: 'ComputeRent', score: 71, trend: '+2', line: 'R60K', drawn: 'R12K', onTime: '44 / 45', status: 'good' },
-  { did: 'did:forge:agent_009', platform: 'Umuntu Group', score: 34, trend: '−12 (missed repayment)', line: 'R0 (frozen)', drawn: 'R25K overdue', onTime: '9 / 14', status: 'frozen' },
-];
+const TIER_TONE: Record<string, 'ok' | 'warn' | 'danger' | 'accent'> = {
+  SUPER_PRIME: 'ok',
+  PRIME: 'ok',
+  NEAR_PRIME: 'accent',
+  SUBPRIME: 'warn',
+  DEEP_SUBPRIME: 'danger',
+};
 
-const STATUS_TONE = { good: 'ok', watch: 'warn', frozen: 'danger' } as const;
+const money = (n: number) => `R${n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : `${Math.round(n / 1000)}K`}`;
+
+function tierLabel(score: number): string {
+  if (score >= 800) return 'super prime';
+  if (score >= 670) return 'prime';
+  if (score >= 580) return 'near prime';
+  if (score >= 500) return 'subprime';
+  return 'deep subprime';
+}
 
 export default function AgentCreditBureau() {
+  const { data, live } = useForge<BureauSummary>('bureau', DEMO);
   const [extensions, setExtensions] = useState([
     {
       id: 'ext_5501',
@@ -67,16 +112,16 @@ export default function AgentCreditBureau() {
           </>
         }
         lede="Every agent payment recorded in the Revenue Ontology feeds a live reputation score. Scores set credit lines; Enterprise Treasury approves extensions; repayment closes the loop."
-        actions={<button className="btn-ink btn-sm">Score an Agent</button>}
+        actions={<LivePill live={live} />}
       />
 
       <StatGrid>
-        <Stat label="Agents scored" value="312" delta="+18 this week" deltaTone="up" />
-        <Stat label="Avg score" value="71 / 100" delta="+2.4 pts / 30d" deltaTone="up" />
-        <Stat label="Credit extended" value="R2.1M" delta="across 87 lines" />
-        <Stat label="On-time repayment" value="96.8%" delta="target ≥ 95%" deltaTone="up" />
-        <Stat label="Frozen lines" value="3" delta="1 overdue > 7d" deltaTone="down" />
-        <Stat label="Extension requests" value="1" delta="awaiting treasury" />
+        <Stat label="Agents scored" value={data.stats.totalAgents.toLocaleString('en-US')} delta={live ? 'from bureau register' : '+18 this week'} />
+        <Stat label="Avg score" value={`${data.stats.avgScore} / 1000`} delta={tierLabel(data.stats.avgScore)} />
+        <Stat label="Credit drawn" value={money(data.stats.totalDebt)} delta={`of ${money(data.stats.totalCreditLimit)} extended`} />
+        <Stat label="Utilization" value={`${Math.round(data.stats.utilizationRate * 100)}%`} delta="drawn / total limit" />
+        <Stat label="Delinquent agents" value={data.stats.delinquentAgents ?? 0} deltaTone={(data.stats.delinquentAgents ?? 0) > 0 ? 'down' : undefined} delta="open delinquencies" />
+        <Stat label="Extension requests" value={extensions.filter((x) => x.status === 'pending').length} delta="awaiting treasury" />
       </StatGrid>
 
       <Panel
@@ -108,17 +153,17 @@ export default function AgentCreditBureau() {
 
       <Panel title="Agent Register" label="scores from ontology events · updated live" style={{ marginBottom: 20 }}>
         <DataTable
-          columns={['Agent DID', 'Platform', 'Score', '', 'Trend', 'Credit Line', 'Drawn', 'On-time', 'Status']}
-          rows={AGENTS.map((a) => [
+          columns={['Agent DID', 'Operator', 'Score', '', 'Tier', 'Credit Line', 'Drawn', 'On-time %', 'Status']}
+          rows={data.agents.map((a) => [
             <Addr key="d">{a.did}</Addr>,
-            a.platform,
-            <Mono key="s">{a.score}</Mono>,
-            <Meter key="m" pct={a.score} accent={a.score >= 70} />,
-            <span key="t" style={{ fontSize: 12.5, color: a.trend.startsWith('−') ? 'var(--danger)' : 'var(--ok)' }}>{a.trend}</span>,
-            <Mono key="l">{a.line}</Mono>,
-            <Mono key="dr">{a.drawn}</Mono>,
-            <Mono key="o">{a.onTime}</Mono>,
-            <Pill key="st" tone={STATUS_TONE[a.status]}>{a.status}</Pill>,
+            a.operatorEntityId,
+            <Mono key="s">{a.currentScore}</Mono>,
+            <Meter key="m" pct={a.currentScore / 10} accent={a.currentScore >= 670} />,
+            <Pill key="ti" tone={TIER_TONE[a.tier] ?? 'accent'}>{a.tier.replace('_', ' ').toLowerCase()}</Pill>,
+            <Mono key="l">{money(a.totalCreditLimit)}</Mono>,
+            <Mono key="dr">{money(a.totalDebt)}</Mono>,
+            <Mono key="o">{a.paymentHistoryRate.toFixed(1)}%</Mono>,
+            <Pill key="st" tone={a.frozenAt ? 'danger' : 'ok'}>{a.frozenAt ? 'frozen' : 'active'}</Pill>,
           ])}
         />
       </Panel>
@@ -148,13 +193,13 @@ export default function AgentCreditBureau() {
 
         <Panel title="Credit Line Ladder" label="score → automatic limit">
           <DataTable
-            columns={['Score band', 'Line', 'Terms', 'Fee']}
+            columns={['Tier (score)', 'Line', 'Terms', 'Fee']}
             rows={[
-              [<Mono key="b">80 – 100</Mono>, <Mono key="l">up to R250K</Mono>, 'net-30 / net-60', <Mono key="f">1.0%</Mono>],
-              [<Mono key="b">70 – 79</Mono>, <Mono key="l">up to R100K</Mono>, 'net-30', <Mono key="f">1.5%</Mono>],
-              [<Mono key="b">55 – 69</Mono>, <Mono key="l">up to R40K</Mono>, 'net-14', <Mono key="f">2.0%</Mono>],
-              [<Mono key="b">40 – 54</Mono>, <Mono key="l">up to R10K</Mono>, 'net-7 · prepaid gas', <Mono key="f">2.5%</Mono>],
-              [<Mono key="b">{'< 40'}</Mono>, <Mono key="l">frozen</Mono>, 'repayment plan required', <Mono key="f">—</Mono>],
+              [<Mono key="b">super prime (800+)</Mono>, <Mono key="l">up to R250K</Mono>, 'net-30 / net-60', <Mono key="f">1.0%</Mono>],
+              [<Mono key="b">prime (670–799)</Mono>, <Mono key="l">up to R100K</Mono>, 'net-30', <Mono key="f">1.5%</Mono>],
+              [<Mono key="b">near prime (580–669)</Mono>, <Mono key="l">up to R40K</Mono>, 'net-14', <Mono key="f">2.0%</Mono>],
+              [<Mono key="b">subprime (500–579)</Mono>, <Mono key="l">up to R10K</Mono>, 'net-7 · prepaid gas', <Mono key="f">2.5%</Mono>],
+              [<Mono key="b">{'deep subprime (< 500)'}</Mono>, <Mono key="l">frozen</Mono>, 'repayment plan required', <Mono key="f">—</Mono>],
             ]}
           />
         </Panel>

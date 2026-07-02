@@ -160,6 +160,15 @@ export function Addr({ children }: { children: ReactNode }) {
   return <span className="addr">{children}</span>;
 }
 
+/** LIVE / DEMO data-source indicator shown in page headers. */
+export function LivePill({ live }: { live: boolean }) {
+  return live ? (
+    <span className="pill ok"><span className="dot" style={{ marginRight: 6 }} />live data</span>
+  ) : (
+    <span className="pill">demo data — services offline</span>
+  );
+}
+
 /** Two-column responsive grid for panels. */
 export function Grid2({ children }: { children: ReactNode }) {
   return (

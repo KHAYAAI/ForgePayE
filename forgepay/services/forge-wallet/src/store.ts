@@ -39,6 +39,7 @@ import type {
   GasSponsorship,
   RecoveryApproval,
   RecoveryRequest,
+  RecoveryStatus,
   TransactionEvent,
   TransactionStatus,
   TrustedContact,
@@ -432,4 +433,107 @@ export function completeRecovery(requestId: string, newPassword: string): { requ
   void persistRecoveryRequest(request);
 
   return { request, wallets: freshWallets };
+}
+
+// ── Console summary (internal read API for the FORGE console) ─────────────────
+
+export interface ConsoleSummary {
+  stats: {
+    total_wallets: number;
+    agent_wallets: number;
+    user_wallets: number;
+    transactions_24h: number;
+    confirmed_rate_24h: number;
+    gas_sponsored_24h_usd: number;
+    recoveries_open: number;
+    routed_to_custody_24h: number;
+  };
+  recent_transactions: Array<{
+    id: string;
+    from_did: string;
+    to_address: string;
+    amount: number;
+    currency: string;
+    blockchain: Blockchain;
+    status: TransactionStatus;
+    created_at: string;
+  }>;
+  recovery_requests: Array<{
+    id: string;
+    user_did: string;
+    approvals: number;
+    required_approvals: number;
+    status: RecoveryStatus;
+    created_at: string;
+  }>;
+  dids: Array<{ did: string; type: DidType; chains: string[]; tx_count: number }>;
+}
+
+export function getConsoleSummary(): ConsoleSummary {
+  const dayAgo = Date.now() - 24 * 3600 * 1000;
+  const txs = [...transactions.values()];
+  const txs24h = txs.filter((t) => new Date(t.createdAt).getTime() >= dayAgo);
+  const confirmed24h = txs24h.filter((t) => t.status === 'confirmed');
+  const gas24h = gasLedger.filter((g) => new Date(g.createdAt).getTime() >= dayAgo);
+  const activeWallets = [...wallets.values()].filter((w) => w.status === 'active');
+  const openRecoveries = [...recoveryRequests.values()].filter(
+    (r) => r.status === 'pending' || r.status === 'approved',
+  );
+
+  const txCountByOwner = new Map<string, number>();
+  for (const t of txs) txCountByOwner.set(t.ownerId, (txCountByOwner.get(t.ownerId) ?? 0) + 1);
+
+  const didRows: ConsoleSummary['dids'] = [];
+  const seenOwners = new Set<string>();
+  for (const w of activeWallets) {
+    if (seenOwners.has(w.ownerId)) continue;
+    seenOwners.add(w.ownerId);
+    didRows.push({
+      did: w.did,
+      type: w.ownerType,
+      chains: activeWallets.filter((x) => x.ownerId === w.ownerId).map((x) => x.blockchain),
+      tx_count: txCountByOwner.get(w.ownerId) ?? 0,
+    });
+  }
+  didRows.sort((a, b) => b.tx_count - a.tx_count);
+
+  return {
+    stats: {
+      total_wallets: activeWallets.length,
+      agent_wallets: activeWallets.filter((w) => w.ownerType === 'agent').length,
+      user_wallets: activeWallets.filter((w) => w.ownerType === 'user').length,
+      transactions_24h: txs24h.length,
+      confirmed_rate_24h: txs24h.length === 0 ? 100 : Math.round((confirmed24h.length / txs24h.length) * 1000) / 10,
+      gas_sponsored_24h_usd: Math.round(gas24h.reduce((s, g) => s + g.sponsoredUsd, 0) * 100) / 100,
+      recoveries_open: openRecoveries.length,
+      routed_to_custody_24h: 0, // 409-refused requests are not persisted; router metrics carry this
+    },
+    recent_transactions: txs
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, 20)
+      .map((t) => ({
+        id: t.id,
+        from_did: t.did,
+        to_address: t.toAddress,
+        amount: t.amount,
+        currency: t.currency,
+        blockchain: t.blockchain,
+        status: t.status,
+        created_at: t.createdAt,
+      })),
+    recovery_requests: [...recoveryRequests.values()]
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, 10)
+      .map((r) => ({
+        id: r.id,
+        user_did: users.get(r.userId)?.did ?? r.userId,
+        approvals: [...recoveryApprovals.values()].filter(
+          (a) => a.requestId === r.id && a.approvedAt !== null,
+        ).length,
+        required_approvals: r.requiredApprovals,
+        status: r.status,
+        created_at: r.createdAt,
+      })),
+    dids: didRows.slice(0, 20),
+  };
 }

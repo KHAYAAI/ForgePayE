@@ -9,17 +9,47 @@ import {
   Pill,
   DataTable,
   Grid2,
+  LivePill,
   Mono,
   Addr,
 } from '@/components/forge/ui';
+import { useForge } from '@/components/forge/useForge';
 
 /* ────────────────────────────────────────────────────────────────
    Enterprise Treasury — consolidation, netting, sweeps, and the
-   approval desk for agent credit extensions. Consumes ontology
-   events; approves draws that FORGE Custody then settles.
+   approval desk for agent credit extensions. Live-wired to
+   enterprise-treasury /v1/cash-position + /v1/rules via the
+   /api/forge/treasury proxy; demo fixtures when offline.
    ──────────────────────────────────────────────────────────────── */
 
+interface TreasurySummary {
+  cash_position: {
+    data?: {
+      totalUsd: number;
+      idleCashUsd: number;
+      deployedInYieldUsd: number;
+      opportunityCostUsdPerYear: number;
+      bySubsidiary: Record<string, { name: string; totalUsd: number; accountCount: number; currencies: string[]; runwayDays: number }>;
+      lastConsolidated: string;
+    };
+  } | null;
+  rules: { data?: Array<{ id: string; name: string; enabled: boolean }> } | null;
+  approvals: { data?: Array<Record<string, unknown>> } | null;
+  netting_flows: { data?: Array<Record<string, unknown>> } | null;
+}
+
+const usd = (n: number) =>
+  n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(1)}M` : `$${Math.round(n / 1000)}K`;
+
 export default function EnterpriseTreasury() {
+  const { data: liveData, live } = useForge<TreasurySummary>('treasury', {
+    cash_position: null,
+    rules: null,
+    approvals: null,
+    netting_flows: null,
+  });
+  const position = liveData.cash_position?.data;
+  const liveRules = liveData.rules?.data;
   const [approvals, setApprovals] = useState([
     {
       id: 'apr_7311',
@@ -50,17 +80,50 @@ export default function EnterpriseTreasury() {
           </>
         }
         lede="Real-time consolidation across subsidiaries, intercompany netting, rule-driven sweeps — and the approval desk that extends credit to agents against custody funds."
-        actions={<button className="btn-ink btn-sm">New Transfer</button>}
+        actions={<LivePill live={live} />}
       />
 
       <StatGrid>
-        <Stat label="Consolidated cash" value="R48.6M" delta="14 accounts · 3 subsidiaries" />
-        <Stat label="Netting saved / mo" value="R114K" delta="wire fees avoided" deltaTone="up" />
-        <Stat label="Sweeps queued" value="2" delta="next run in 38s" />
+        <Stat
+          label="Consolidated cash"
+          value={position ? usd(position.totalUsd) : 'R48.6M'}
+          delta={
+            position
+              ? `${Object.values(position.bySubsidiary).reduce((s, x) => s + x.accountCount, 0)} accounts · ${Object.keys(position.bySubsidiary).length} subsidiaries`
+              : '14 accounts · 3 subsidiaries'
+          }
+        />
+        <Stat
+          label="Idle cash"
+          value={position ? usd(position.idleCashUsd) : 'R4.1M'}
+          delta={position ? `${usd(position.opportunityCostUsdPerYear)}/yr opportunity cost` : 'earning 0%'}
+          deltaTone="down"
+        />
+        <Stat
+          label="Deployed in yield"
+          value={position ? usd(position.deployedInYieldUsd) : 'R38.2M'}
+          delta="via yield-engine"
+          deltaTone="up"
+        />
+        <Stat label="Active rules" value={liveRules ? liveRules.filter((r) => r.enabled).length : 4} delta="evaluated every 60s" />
         <Stat label="Agent lines funded" value="R2.1M" delta="via custody account" />
-        <Stat label="FX exposure" value="$1.2M" delta="hedge ratio 84%" />
-        <Stat label="Yield accrued / mo" value="R212K" delta="+6.1% APY blended" deltaTone="up" />
+        <Stat label="Netting saved / mo" value="R114K" delta="wire fees avoided" deltaTone="up" />
       </StatGrid>
+
+      {position && (
+        <Panel title="Subsidiary Positions" label={`consolidated ${position.lastConsolidated.slice(0, 16).replace('T', ' ')} UTC`} style={{ marginBottom: 20 }}>
+          <DataTable
+            columns={['Subsidiary', 'Total', 'Accounts', 'Currencies', 'Runway']}
+            rows={Object.values(position.bySubsidiary).map((s) => [
+              s.name,
+              <Mono key="t">{usd(s.totalUsd)}</Mono>,
+              <Mono key="a">{s.accountCount}</Mono>,
+              s.currencies.join(' · '),
+              <Mono key="r">{s.runwayDays}d</Mono>,
+            ])}
+          />
+        </Panel>
+      )}
 
       <Panel title="Approval Desk" label="one-click CFO decisions" ink style={{ marginBottom: 20 }}>
         <DataTable

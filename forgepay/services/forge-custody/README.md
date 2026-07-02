@@ -127,3 +127,27 @@ npm run type-check
 
 See `.env.example`. Production boot requires `WEBHOOK_SECRET`,
 `MPC_COORDINATOR_URL`, and `DATABASE_URL`.
+
+## Upstream alignment (KHAYAAI/openfireblocks)
+
+FORGE Custody is the FORGE-integrated rename of **OpenFireblocks**. The
+upstream repo is a polyglot monorepo; this service implements the FORGE-facing
+API and policy surface with clean boundaries where the upstream components
+plug in:
+
+| OpenFireblocks component | FORGE Custody boundary |
+|---|---|
+| `services/api-gateway` (NestJS — auth, tenancy, `/sign`, `/settlements`) | This service's REST API (workspaces = tenants) |
+| `services/policy-service` (Go + OPA/Rego, **fail-closed**) | `src/policy.ts` — same rule set; swap in OPA via HTTP when deployed |
+| `services/mpc-signer` + `tss/` (Go, Binance TSS-Lib k-of-n) | `MPC_COORDINATOR_URL` adapter (`MpcCoordinatorSigner`) |
+| `services/temporal-worker` (durable policy→sign→broadcast→monitor) | `executeSigning()` pipeline — move onto Temporal for production durability |
+| immudb cryptographic audit ledger | `audit_log` table (append-only) — mirror into immudb at integration |
+| HashiCorp Vault key storage | `vault_path` references (no key material in Postgres) |
+
+**Honest status carried over from upstream:** OpenFireblocks Phase 1 signs
+with a **single shared key** — the threshold-ECDSA MPC core is proven in
+`services/mpc-signer/tss` (`make test-tss`) but per-customer distributed
+ceremonies are Phase 2. Upstream is explicitly **not yet audited for customer
+funds**. FORGE launch gate: custody may settle **testnet/pilot volumes only**
+until Phase 2 MPC is distributed and an external cryptographic review + pen
+test have passed (see upstream `docs/security/audit-checklist.md`).

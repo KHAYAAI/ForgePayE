@@ -83,3 +83,23 @@ best-effort-Postgres pattern as the other ForgePay TypeScript services.
 
 See `.env.example` for configuration. Production boot requires `JWT_SECRET`,
 `WEBHOOK_SECRET`, `DATABASE_URL`, and `AGENT_API_KEY`.
+
+## Upstream alignment (KHAYAAI/open-privy)
+
+FORGE Wallet is the FORGE-integrated rename of **OpenPrivy** (Phase 0 MVP:
+NestJS backend on :3001, Supabase-linked auth, ethers.js/Alchemy, React
+frontend, Prometheus/Grafana). Differences by design in the FORGE integration:
+
+- **Auth**: native email/password + JWT instead of Supabase — one fewer
+  external dependency inside the FORGE mesh; Supabase can still front the
+  public consumer app.
+- **Key encryption**: per-user scrypt(password)-derived keys rather than a
+  single service-wide `ENCRYPTION_KEY` — compromise of one credential never
+  exposes another user's key.
+- **Gas sponsorship**: upstream's ERC-4337 paymaster contracts
+  (`OpenPrivyPaymaster.sol`) carry a simulated audit with remediated findings
+  (reentrancy in `postOp`, checks-effects-interactions applied). The FORGE
+  gas-sponsorship ledger records the same economics off-chain until those
+  contracts deploy on Base.
+- **Observability**: same Prometheus metric surface; point the upstream
+  Grafana dashboards at `/metrics` here.

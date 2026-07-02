@@ -9,9 +9,19 @@ import {
   Pill,
   DataTable,
   Grid2,
+  LivePill,
   Mono,
   Addr,
 } from '@/components/forge/ui';
+import { useForge } from '@/components/forge/useForge';
+
+interface OverviewLive {
+  custody: { live: boolean; data: { stats?: { signatures_24h?: number; pending_approval?: number } } | null };
+  wallet: { live: boolean; data: { stats?: { total_wallets?: number; transactions_24h?: number } } | null };
+  treasury: { live: boolean; data: Record<string, unknown> | null };
+  bureau: { live: boolean; data: { stats?: { totalAgents?: number } } | null };
+  ontology: { live: boolean; data: unknown };
+}
 
 /* ────────────────────────────────────────────────────────────────
    FORGE — Unified Ontology Overview
@@ -135,6 +145,11 @@ const ONTOLOGY_EVENTS: Array<{
 ];
 
 export default function UnifiedDashboard() {
+  const { data: overview, live } = useForge<OverviewLive | null>('overview', null);
+  const liveCount = overview
+    ? [overview.custody, overview.wallet, overview.treasury, overview.bureau, overview.ontology].filter((s) => s?.live).length
+    : 0;
+
   return (
     <>
       <PageHeader
@@ -147,8 +162,9 @@ export default function UnifiedDashboard() {
         lede="Every payment, signature, score, and sweep across six interconnected platforms — recorded once, consumed everywhere."
         actions={
           <>
+            <LivePill live={live} />
+            {live && <span className="pill accent">{liveCount} / 5 services online</span>}
             <Link href="/dashboard/ops" className="btn-ghost btn-sm">System Health</Link>
-            <Link href="/dashboard/analytics" className="btn-ink btn-sm">Analytics</Link>
           </>
         }
       />
