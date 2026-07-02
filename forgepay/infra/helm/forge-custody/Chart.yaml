@@ -1,0 +1,13 @@
+apiVersion: v2
+name: forge-custody
+description: FORGE Custody — institutional digital-asset custody & 4-of-7 threshold signing (OpenFireblocks integrated into FORGE)
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+maintainers:
+  - name: ForgePay Platform
+keywords:
+  - custody
+  - mpc
+  - threshold-signing
+  - compliance

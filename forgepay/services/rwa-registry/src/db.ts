@@ -7,6 +7,11 @@
 
 import { Pool } from 'pg';
 
+// SECURITY: the dev connection string (well-known password) must never reach production.
+if (!process.env['DATABASE_URL'] && process.env['NODE_ENV'] === 'production') {
+  throw new Error('[rwa-registry] DATABASE_URL env var is required in production');
+}
+
 export const pool = new Pool({
   connectionString: process.env['DATABASE_URL'] ?? 'postgresql://forgepay:devpassword@localhost:5432/forgepay_dev',
   max: 10,

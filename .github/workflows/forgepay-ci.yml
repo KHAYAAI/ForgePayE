@@ -61,6 +61,46 @@ jobs:
       - run: npm run lint
       - run: npm test
 
+  # ── FORGE Custody (TypeScript) ──────────────────────────────────────────────
+  forge-custody:
+    name: "forge-custody — type-check + test"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: forgepay/services/forge-custody
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: forgepay/services/forge-custody/package-lock.json
+
+      - run: npm ci
+      - run: npm run type-check
+      - run: npm test
+
+  # ── FORGE Wallet (TypeScript) ───────────────────────────────────────────────
+  forge-wallet:
+    name: "forge-wallet — type-check + test"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: forgepay/services/forge-wallet
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: forgepay/services/forge-wallet/package-lock.json
+
+      - run: npm ci
+      - run: npm run type-check
+      - run: npm test
+
   # ── MoR Layer (Python) ──────────────────────────────────────────────────────
   mor-layer:
     name: "mor-layer — lint + type-check + test"

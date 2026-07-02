@@ -10,7 +10,9 @@ export type EventSource =
   | 'billing-engine'
   | 'mor-layer'
   | 'stablecoin-gateway'
-  | 'crypto-gateway';
+  | 'crypto-gateway'
+  | 'forge-custody'
+  | 'forge-wallet';
 
 export type EventType =
   // Payment events
@@ -40,7 +42,11 @@ export type EventType =
   | 'tax.remitted'
   // Customer
   | 'customer.created'
-  | 'customer.updated';
+  | 'customer.updated'
+  // FORGE Custody (institutional 4-of-7 threshold signing)
+  | 'custody.signature.confirmed'
+  // FORGE Wallet (consumer/agent wallets, did:forge identity)
+  | 'wallet.transaction.confirmed';
 
 /** Amounts are always stored as strings to avoid floating-point issues */
 export interface MoneyAmount {

@@ -109,8 +109,8 @@ export default function SecurityPage() {
           <ul style={{ marginLeft: 20, marginTop: 12 }}>
             <li>Daily RDS snapshots (30-day retention)</li>
             <li>Cross-region replication (optional)</li>
-            <li>RPO (Recovery Point Objective): <1 hour</li>
-            <li>RTO (Recovery Time Objective): <30 minutes</li>
+            <li>RPO (Recovery Point Objective): under 1 hour</li>
+            <li>RTO (Recovery Time Objective): under 30 minutes</li>
             <li>Quarterly disaster recovery drills</li>
           </ul>
         </SecuritySection>

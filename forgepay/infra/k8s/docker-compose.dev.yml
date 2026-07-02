@@ -282,3 +282,44 @@ services:
       redis:    { condition: service_healthy }
     networks: [forgepay]
     profiles: [agentic]
+
+  # ── FORGE Custody (OpenFireblocks → FORGE) — institutional threshold signing ──
+  forge-custody:
+    build:
+      context: ../../services/forge-custody
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: development
+      PORT:     "3019"
+      LOG_LEVEL: debug
+      DATABASE_URL: postgresql://forgepay:devpassword@postgres:5432/forgepay_dev
+      UNIFIED_ROUTER_URL: http://unified-router:8000
+      WEBHOOK_SECRET: dev-forge-custody-webhook-secret
+      COMPLIANCE_MONITOR_URL: http://compliance-monitor:8004
+    ports:
+      - "3019:3019"
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [forgepay]
+    profiles: [forge]
+
+  # ── FORGE Wallet (OpenPrivy → FORGE) — consumer/agent wallets & did:forge ────
+  forge-wallet:
+    build:
+      context: ../../services/forge-wallet
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: development
+      PORT:     "3020"
+      LOG_LEVEL: debug
+      DATABASE_URL: postgresql://forgepay:devpassword@postgres:5432/forgepay_dev
+      UNIFIED_ROUTER_URL: http://unified-router:8000
+      WEBHOOK_SECRET: dev-forge-wallet-webhook-secret
+      AGENT_API_KEY: dev-agent-platform-key
+      LARGE_PAYMENT_THRESHOLD: "100000"
+    ports:
+      - "3020:3020"
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [forgepay]
+    profiles: [forge]

@@ -20,7 +20,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { Banks, Customers, Transactions } from '../store.js';
-import { createHmac, randomUUID } from 'node:crypto';
+import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { BankTransaction } from '../types.js';
 
 interface ForgePayPaymentEvent {
@@ -38,7 +38,12 @@ interface ForgePayPaymentEvent {
 }
 
 export async function registerWebhookRoutes(app: FastifyInstance): Promise<void> {
-  const internalSecret = process.env['INTERNAL_WEBHOOK_SECRET'] ?? 'dev_internal_webhook_secret';
+  // SECURITY: webhook HMAC secret must be explicitly configured in production —
+  // a well-known fallback would let anyone forge payment events.
+  const internalSecret = process.env['INTERNAL_WEBHOOK_SECRET']
+    ?? ((process.env['NODE_ENV'] ?? 'development') === 'production'
+      ? (() => { throw new Error('[bank-whitelabel] INTERNAL_WEBHOOK_SECRET env var is required in production'); })()
+      : 'dev_internal_webhook_secret');
 
   app.post<{ Body: ForgePayPaymentEvent }>(
     '/v1/webhooks/payment',
@@ -65,13 +70,18 @@ export async function registerWebhookRoutes(app: FastifyInstance): Promise<void>
     },
     async (request, reply) => {
       // ── 1. Verify HMAC signature ──────────────────────────────────────────
+      // SECURITY: unsigned payloads are rejected — verification is mandatory,
+      // and comparison is timing-safe (per CLAUDE.md webhook policy).
       const signature = request.headers['x-forgepay-signature'] as string | undefined;
-      if (signature) {
-        const bodyStr  = JSON.stringify(request.body);
-        const expected = createHmac('sha256', internalSecret).update(bodyStr).digest('hex');
-        if (signature !== expected) {
-          return reply.status(401).send({ error: 'Invalid webhook signature' });
-        }
+      if (!signature) {
+        return reply.status(401).send({ error: 'Missing webhook signature' });
+      }
+      const bodyStr  = JSON.stringify(request.body);
+      const expected = createHmac('sha256', internalSecret).update(bodyStr).digest('hex');
+      const sigBuf   = Buffer.from(signature, 'utf8');
+      const expBuf   = Buffer.from(expected, 'utf8');
+      if (sigBuf.length !== expBuf.length || !timingSafeEqual(sigBuf, expBuf)) {
+        return reply.status(401).send({ error: 'Invalid webhook signature' });
       }
 
       const event = request.body;

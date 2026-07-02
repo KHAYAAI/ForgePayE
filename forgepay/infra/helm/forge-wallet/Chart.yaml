@@ -1,0 +1,13 @@
+apiVersion: v2
+name: forge-wallet
+description: FORGE Wallet — consumer/agent wallet-as-a-service & did:forge identity layer (OpenPrivy integrated into FORGE)
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+maintainers:
+  - name: ForgePay Platform
+keywords:
+  - wallet
+  - identity
+  - did
+  - social-recovery

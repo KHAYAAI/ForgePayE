@@ -92,6 +92,20 @@ class Settings(BaseSettings):
     def high_risk_countries_set(self) -> set[str]:
         return {c.strip().upper() for c in self.high_risk_countries.split(",") if c.strip()}
 
+    def model_post_init(self, __context: object) -> None:
+        # SECURITY: never boot production with the well-known dev JWT secret.
+        if self.environment == "production":
+            errors: list[str] = []
+            if self.jwt_secret == "change-me-in-production" or len(self.jwt_secret) < 32:
+                errors.append("JWT_SECRET must be set to a strong value (>= 32 chars) in production")
+            if not self.internal_service_secret:
+                errors.append("INTERNAL_SERVICE_SECRET must be set in production")
+            if errors:
+                raise ValueError(
+                    "Production startup aborted — insecure configuration:\n"
+                    + "\n".join(f"  - {e}" for e in errors)
+                )
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

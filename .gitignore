@@ -273,3 +273,6 @@ creds.json
 .pre-commit-config.yaml
 forgepay/infra/contracts/contracts/
 .claude/
+
+# Next.js build output
+.next/

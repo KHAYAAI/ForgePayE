@@ -15,6 +15,11 @@ export function initDatabaseUrl(): void {
     return;
   }
 
+  // SECURITY: never fall back to the well-known dev password in production.
+  if (!process.env['DB_PASSWORD'] && process.env['NODE_ENV'] === 'production') {
+    throw new Error('[bank-connectivity] DATABASE_URL or DB_PASSWORD env var is required in production');
+  }
+
   // Construct from individual DB_* variables
   const host = process.env['DB_HOST'] ?? 'localhost';
   const port = process.env['DB_PORT'] ?? '5432';

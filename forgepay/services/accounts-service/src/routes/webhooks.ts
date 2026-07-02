@@ -36,10 +36,20 @@ export async function buildWebhookRoutes(app: FastifyInstance) {
         return;
       }
 
-      if (sigHeader && !verifyCircleSignature(rawBody, sigHeader)) {
-        req.log.warn('Invalid Circle webhook signature');
-        reply.code(401).send({ error: 'invalid_signature' });
-        return;
+      // SECURITY: unsigned payloads must be rejected — this route mutates balances.
+      // Only exception: local development with no webhook secret configured.
+      const devUnsignedAllowed = !config.circle.webhookSecret && config.env === 'development';
+      if (!devUnsignedAllowed) {
+        if (!sigHeader) {
+          req.log.warn('Missing Circle webhook signature');
+          reply.code(401).send({ error: 'missing_signature' });
+          return;
+        }
+        if (!verifyCircleSignature(rawBody, sigHeader)) {
+          req.log.warn('Invalid Circle webhook signature');
+          reply.code(401).send({ error: 'invalid_signature' });
+          return;
+        }
       }
 
       const body = req.body as CircleWebhookBody;

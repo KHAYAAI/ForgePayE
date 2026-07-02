@@ -38,6 +38,7 @@ import { normalizeHyperswitchEvent } from '../normalizers/hyperswitch.js';
 import { normalizeKillBillEvent } from '../normalizers/killbill.js';
 import { normalizeStablecoinEvent } from '../normalizers/stablecoin.js';
 import { normalizeCryptoEvent } from '../normalizers/crypto.js';
+import { normalizeForgeCustodyEvent, normalizeForgeWalletEvent } from '../normalizers/forge.js';
 import { dispatchToMerchants } from '../lib/dispatch.js';
 import { config } from '../config.js';
 import { logger } from '../lib/logger.js';
@@ -107,6 +108,40 @@ export async function buildWebhookRoutes(app: FastifyInstance) {
       });
     },
   );
+
+  // ── FORGE Custody (institutional 4-of-7 threshold signing) ────────────────
+  // Timestamped scheme: HMAC-SHA256 over `${x-forge-timestamp}.${rawBody}`
+  // with a ±5-minute freshness window (replay guard).
+  app.post<{ Body: WebhookBody }>(
+    '/forge-custody',
+    { config: { rawBody: true } },
+    async (req, reply) => {
+      await handleIncomingWebhook({
+        req, reply,
+        source: 'forge-custody',
+        secret: config.webhookSecrets.forgeCustody,
+        signatureHeader: 'x-forge-signature',
+        timestampHeader: 'x-forge-timestamp',
+        normalize: normalizeForgeCustodyEvent,
+      });
+    },
+  );
+
+  // ── FORGE Wallet (consumer/agent wallets, did:forge identity) ─────────────
+  app.post<{ Body: WebhookBody }>(
+    '/forge-wallet',
+    { config: { rawBody: true } },
+    async (req, reply) => {
+      await handleIncomingWebhook({
+        req, reply,
+        source: 'forge-wallet',
+        secret: config.webhookSecrets.forgeWallet,
+        signatureHeader: 'x-forge-signature',
+        timestampHeader: 'x-forge-timestamp',
+        normalize: normalizeForgeWalletEvent,
+      });
+    },
+  );
 }
 
 // ── Shared handler ─────────────────────────────────────────────────────────
@@ -117,11 +152,19 @@ interface HandleWebhookArgs {
   source:          string;
   secret:          string;
   signatureHeader: string;
+  /**
+   * When set, the HMAC is computed over `${timestamp}.${rawBody}` and the
+   * timestamp must be within ±5 minutes (replay protection). Used by the
+   * FORGE Custody / FORGE Wallet emitters.
+   */
+  timestampHeader?: string;
   normalize:       (body: WebhookBody) => ForgePayEvent | null | Promise<ForgePayEvent | null>;
 }
 
+const TIMESTAMP_WINDOW_SECONDS = 300;
+
 async function handleIncomingWebhook({
-  req, reply, source, secret, signatureHeader, normalize,
+  req, reply, source, secret, signatureHeader, timestampHeader, normalize,
 }: HandleWebhookArgs): Promise<void> {
   const rawBody = (req as { rawBody?: Buffer }).rawBody;
 
@@ -133,7 +176,20 @@ async function handleIncomingWebhook({
     return;
   }
 
-  const valid = verifyHmacSignature({ payload: rawBody, signature, secret });
+  let signedPayload: Buffer = rawBody;
+  if (timestampHeader) {
+    const timestamp = req.headers[timestampHeader] as string | undefined;
+    const ts = Number(timestamp);
+    const now = Math.floor(Date.now() / 1000);
+    if (!timestamp || !Number.isFinite(ts) || Math.abs(now - ts) > TIMESTAMP_WINDOW_SECONDS) {
+      logger.warn({ source }, 'Missing or stale webhook timestamp');
+      reply.code(401).send({ error: 'invalid_timestamp' });
+      return;
+    }
+    signedPayload = Buffer.concat([Buffer.from(`${timestamp}.`, 'utf8'), rawBody]);
+  }
+
+  const valid = verifyHmacSignature({ payload: signedPayload, signature, secret });
   if (!valid) {
     logger.warn({ source }, 'Invalid webhook signature');
     reply.code(401).send({ error: 'invalid_signature' });

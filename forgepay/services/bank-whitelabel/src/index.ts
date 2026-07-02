@@ -35,9 +35,21 @@ import { Admins, Banks, hashPassword } from './store.js';
 import { randomUUID } from 'node:crypto';
 
 const PORT         = parseInt(process.env['PORT'] ?? '3015', 10);
-const JWT_SECRET   = process.env['JWT_SECRET'] ?? 'forgepay_bank_jwt_secret_dev';
 const NODE_ENV     = process.env['NODE_ENV'] ?? 'development';
-const CORS_ORIGINS = process.env['CORS_ORIGINS']?.split(',') ?? ['*'];
+
+// SECURITY: never ship the dev JWT secret to production — fail fast at boot.
+const JWT_SECRET = process.env['JWT_SECRET'] ?? (NODE_ENV === 'production'
+  ? (() => { throw new Error('[bank-whitelabel] JWT_SECRET env var is required in production'); })()
+  : 'forgepay_bank_jwt_secret_dev');
+if (NODE_ENV === 'production' && JWT_SECRET.length < 32) {
+  throw new Error('[bank-whitelabel] JWT_SECRET must be at least 32 characters in production');
+}
+
+// SECURITY: no wildcard CORS with credentials — require explicit origins in production.
+const CORS_ORIGINS = process.env['CORS_ORIGINS']?.split(',').map((o) => o.trim()).filter(Boolean)
+  ?? (NODE_ENV === 'production'
+    ? (() => { throw new Error('[bank-whitelabel] CORS_ORIGINS env var is required in production'); })()
+    : ['http://localhost:3000']);
 
 async function main(): Promise<void> {
   const app = Fastify({
@@ -120,9 +132,9 @@ async function main(): Promise<void> {
 
   // ── Startup seed ──────────────────────────────────────────────────────────
   // Create the default Investec admin on first boot so the service is immediately usable.
-  // Gate behind SEED_ON_STARTUP=true in production.
+  // SECURITY: dev/test only — never seed a well-known admin credential in production.
 
-  if (Admins.count() === 0 && (process.env['SEED_ON_STARTUP'] !== 'false')) {
+  if (NODE_ENV !== 'production' && Admins.count() === 0 && (process.env['SEED_ON_STARTUP'] !== 'false')) {
     const investecBank = Banks.findById('investec');
     if (investecBank) {
       Admins.create({

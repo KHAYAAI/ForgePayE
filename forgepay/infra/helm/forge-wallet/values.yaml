@@ -1,0 +1,57 @@
+replicaCount: 3
+image:
+  repository: forgepay/forge-wallet
+  pullPolicy: IfNotPresent
+  tag: 0.1.0
+service:
+  type: ClusterIP
+  port: 3020
+  targetPort: 3020
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+env:
+  PORT: '3020'
+  LOG_LEVEL: info
+  NODE_ENV: production
+  RATE_LIMIT_PER_MIN: '120'
+  LARGE_PAYMENT_THRESHOLD: '100000'
+  UNIFIED_ROUTER_URL: http://unified-router:8000
+  CORS_ORIGIN: https://console.forgepay.co.za
+# DATABASE_URL, JWT_SECRET, WEBHOOK_SECRET, AGENT_API_KEY come from the
+# forge-wallet-secrets Secret (Vault / AWS Secrets Manager — never inline).
+secretRefs:
+  - DATABASE_URL
+  - JWT_SECRET
+  - WEBHOOK_SECRET
+  - AGENT_API_KEY
+livenessProbe:
+  httpGet:
+    path: /api/health
+    port: 3020
+  initialDelaySeconds: 20
+  periodSeconds: 30
+  failureThreshold: 3
+readinessProbe:
+  httpGet:
+    path: /api/health
+    port: 3020
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  failureThreshold: 3
+podAnnotations:
+  prometheus.io/scrape: 'true'
+  prometheus.io/port: '3020'
+  prometheus.io/path: /metrics
+metrics:
+  enabled: true

@@ -36,6 +36,42 @@ import { logger } from '../lib/logger';
 
 // ── HMAC helpers ──────────────────────────────────────────────────────────────
 
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+
+/**
+ * SECURITY: webhook signature verification is mandatory. Unsigned payloads are
+ * only tolerated in local development when no secret is configured.
+ * Returns an error reply (and true) when the request must be rejected.
+ */
+function rejectUnverified(
+  req: FastifyRequest & { rawBody?: Buffer },
+  reply: FastifyReply,
+  secret: string,
+  sigHeader: string | undefined,
+  label: string,
+): boolean {
+  if (!secret) {
+    if (IS_PRODUCTION) {
+      logger.error(`${label} webhook secret not configured — rejecting webhook`);
+      reply.code(503).send({ statusCode: 503, error: 'Service Unavailable', message: 'Webhook verification not configured' });
+      return true;
+    }
+    return false; // dev without secret: allow (local testing only)
+  }
+  if (!sigHeader) {
+    logger.warn({ ip: req.ip }, `${label} webhook missing signature header`);
+    reply.code(401).send({ statusCode: 401, error: 'Unauthorized', message: 'Missing webhook signature' });
+    return true;
+  }
+  const rawBody = req.rawBody ?? Buffer.from(JSON.stringify(req.body));
+  if (!verifyHmac(rawBody, sigHeader, secret)) {
+    logger.warn({ ip: req.ip }, `${label} webhook signature verification failed`);
+    reply.code(401).send({ statusCode: 401, error: 'Unauthorized', message: 'Invalid webhook signature' });
+    return true;
+  }
+  return false;
+}
+
 function verifyHmac(payload: Buffer, signature: string, secret: string): boolean {
   if (!secret) return false;
   const expected = createHmac('sha256', secret).update(payload).digest('hex');
@@ -60,17 +96,7 @@ export async function buildWebhookRoutes(app: FastifyInstance): Promise<void> {
       const secret    = process.env.PLAID_WEBHOOK_SECRET ?? '';
       const sigHeader = req.headers['plaid-verification'] as string | undefined;
 
-      if (secret && sigHeader) {
-        const rawBody = req.rawBody ?? Buffer.from(JSON.stringify(req.body));
-        if (!verifyHmac(rawBody, sigHeader, secret)) {
-          logger.warn({ ip: req.ip }, 'Plaid webhook signature verification failed');
-          return reply.code(401).send({
-            statusCode: 401,
-            error:   'Unauthorized',
-            message: 'Invalid webhook signature',
-          });
-        }
-      }
+      if (rejectUnverified(req, reply, secret, sigHeader, 'Plaid')) return reply;
 
       const body = req.body as PlaidWebhookBody;
 
@@ -94,17 +120,7 @@ export async function buildWebhookRoutes(app: FastifyInstance): Promise<void> {
       const secret    = process.env.OB_WEBHOOK_SECRET ?? '';
       const sigHeader = req.headers['x-ob-signature'] as string | undefined;
 
-      if (secret && sigHeader) {
-        const rawBody = req.rawBody ?? Buffer.from(JSON.stringify(req.body));
-        if (!verifyHmac(rawBody, sigHeader, secret)) {
-          logger.warn({ ip: req.ip }, 'Open Banking webhook signature verification failed');
-          return reply.code(401).send({
-            statusCode: 401,
-            error:   'Unauthorized',
-            message: 'Invalid webhook signature',
-          });
-        }
-      }
+      if (rejectUnverified(req, reply, secret, sigHeader, 'Open Banking')) return reply;
 
       const body = req.body as OBWebhookBody;
       logger.info({ eventType: body.EventType }, 'Open Banking webhook received');

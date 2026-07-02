@@ -40,6 +40,8 @@ export const config = {
     morLayer:           optional('MOR_LAYER_WEBHOOK_SECRET', ''),
     stablecoinGateway:  required('STABLECOIN_GW_WEBHOOK_SECRET'),
     cryptoGateway:      required('CRYPTO_GW_WEBHOOK_SECRET'),
+    forgeCustody:       optional('FORGE_CUSTODY_WEBHOOK_SECRET', ''),
+    forgeWallet:        optional('FORGE_WALLET_WEBHOOK_SECRET', ''),
   },
 
   // Merchant webhook delivery

@@ -8,7 +8,7 @@
  * GET  /v1/transfers/internal/:id — status polling by enterprise-treasury
  */
 
-import { randomUUID } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { logger } from '../lib/logger';
@@ -54,6 +54,18 @@ const SettlementBodySchema = z.object({
 const INTERNAL_SECRET = process.env['INTERNAL_SECRET'] ?? '';
 const ALLOWED_SOURCES = new Set(['enterprise-treasury', 'institutional-reporting', 'agent-liquidity-manager', 'mor-layer']);
 
+// SECURITY: settlement routes must never run without a shared secret in production.
+if (!INTERNAL_SECRET && process.env['NODE_ENV'] === 'production') {
+  throw new Error('[bank-connectivity] INTERNAL_SECRET env var is required in production (internal settlement routes)');
+}
+
+/** Timing-safe string comparison — prevents byte-by-byte secret recovery. */
+function safeEqual(a: string, b: string): boolean {
+  const bufA = Buffer.from(a, 'utf8');
+  const bufB = Buffer.from(b, 'utf8');
+  return bufA.length === bufB.length && timingSafeEqual(bufA, bufB);
+}
+
 function verifyInternalRequest(req: FastifyRequest, reply: FastifyReply): boolean {
   const source = req.headers['x-source'] as string | undefined;
   const secret = req.headers['x-internal-secret'] as string | undefined;
@@ -63,9 +75,8 @@ function verifyInternalRequest(req: FastifyRequest, reply: FastifyReply): boolea
     return false;
   }
 
-  // In production: verify HMAC of request body with shared secret.
-  // Skip secret check if INTERNAL_SECRET is not configured (development).
-  if (INTERNAL_SECRET && secret !== INTERNAL_SECRET) {
+  // Secret check may only be skipped in local development when unset.
+  if (INTERNAL_SECRET && (!secret || !safeEqual(secret, INTERNAL_SECRET))) {
     reply.code(401).send({ statusCode: 401, error: 'Unauthorized', message: 'Invalid x-internal-secret' });
     return false;
   }
