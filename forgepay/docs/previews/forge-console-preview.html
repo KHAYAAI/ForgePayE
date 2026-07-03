@@ -142,15 +142,15 @@
       <nav>
         <div class="nav-section">
           <h3>Ontology</h3>
-          <a class="nav-item active">Unified Overview</a>
+          <a class="nav-item active" href="forge-console-preview.html">Unified Overview</a>
         </div>
         <div class="nav-section">
           <h3>Platforms</h3>
           <a class="nav-item">Payments</a>
-          <a class="nav-item">Custody<span class="nav-tag">MPC</span></a>
-          <a class="nav-item">Wallet<span class="nav-tag">DID</span></a>
-          <a class="nav-item">Agent Credit Bureau</a>
-          <a class="nav-item">Enterprise Treasury</a>
+          <a class="nav-item" href="forge-custody.html">Custody<span class="nav-tag">MPC</span></a>
+          <a class="nav-item" href="forge-wallet.html">Wallet<span class="nav-tag">DID</span></a>
+          <a class="nav-item" href="forge-agent-credit-bureau.html">Agent Credit Bureau</a>
+          <a class="nav-item" href="forge-enterprise-treasury.html">Enterprise Treasury</a>
         </div>
         <div class="nav-section">
           <h3>Merchant Products</h3>
@@ -311,9 +311,11 @@
 
   document.querySelectorAll('.nav-item').forEach(function(el){
     el.addEventListener('click', function(e){
-      e.preventDefault();
-      document.querySelectorAll('.nav-item').forEach(function(x){ x.classList.remove('active'); });
-      el.classList.add('active');
+      if (!el.getAttribute('href')) {
+        e.preventDefault();
+        document.querySelectorAll('.nav-item').forEach(function(x){ x.classList.remove('active'); });
+        el.classList.add('active');
+      }
     });
   });
 </script>
