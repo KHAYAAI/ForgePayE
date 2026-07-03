@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FORGE — Sign-Up Journey</title>
+<style>
+  :root{
+    --paper:#F4F2EE; --paper-soft:#EFEBE3; --paper-deep:#ECE8E0;
+    --ink:#0A0A0A; --ink-2:#1A1A1A; --steel:#6F6A62; --steel-2:#8B8579;
+    --hair:#C9C3B7; --hair-dark:#2A2A2A; --accent:#00d1ff;
+    --ok:#1f7a4d; --warn:#a86a00; --danger:#b3261e;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{font-family:'Inter Tight',-apple-system,BlinkMacSystemFont,sans-serif;background:var(--paper);color:var(--ink);line-height:1.55;-webkit-font-smoothing:antialiased;}
+  a{color:inherit;text-decoration:none;}
+  button{font-family:inherit;}
+  .container{max-width:1080px;margin:0 auto;padding:0 clamp(20px,4vw,48px);}
+
+  .mono{font-family:'JetBrains Mono',ui-monospace,monospace;letter-spacing:1.4px;text-transform:uppercase;font-size:11px;color:var(--steel);}
+  .lede{font-size:15.5px;color:var(--steel);max-width:62ch;}
+  em{font-style:italic;font-weight:300;}
+  code{font-family:'JetBrains Mono',monospace;font-size:12px;background:var(--paper-deep);padding:1px 5px;border:1px solid var(--hair);}
+
+  .btn-ink,.btn-ghost{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:2px;text-transform:uppercase;padding:12px 20px;cursor:pointer;border:1px solid var(--ink);display:inline-block;transition:background .18s ease,color .18s ease;background:transparent;color:var(--ink);}
+  .btn-ink{background:var(--ink);color:var(--paper);width:100%;text-align:center;}
+  .btn-ink:hover{background:transparent;color:var(--ink);}
+  .btn-ghost:hover{background:var(--ink);color:var(--paper);}
+
+  .frontend-banner{background:var(--ink);color:var(--paper);text-align:center;padding:10px 16px;font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:1.4px;text-transform:uppercase;}
+  .frontend-banner b{color:var(--accent);}
+  .frontend-banner a{color:var(--paper);border-bottom:1px dotted rgba(244,242,238,.5);}
+
+  nav.top{position:sticky;top:0;z-index:50;background:rgba(244,242,238,.86);backdrop-filter:saturate(180%) blur(12px);-webkit-backdrop-filter:saturate(180%) blur(12px);border-bottom:1px solid var(--hair);}
+  nav.top .row{display:flex;align-items:center;justify-content:space-between;height:60px;gap:24px;}
+  .wordmark{font-family:'JetBrains Mono',monospace;font-weight:700;font-size:15px;letter-spacing:3px;color:var(--ink);}
+  .wordmark span{color:var(--steel);font-weight:400;letter-spacing:1.4px;font-size:10px;margin-left:10px;text-transform:uppercase;}
+
+  header.intro{padding:clamp(44px,7vw,72px) 0 clamp(30px,5vw,48px);border-bottom:1px solid var(--ink);}
+  header.intro h1{font-weight:500;font-size:clamp(32px,5.4vw,58px);letter-spacing:-1.6px;line-height:0.98;margin-bottom:16px;max-width:16ch;}
+  header.intro .lede{font-size:17px;}
+
+  /* progress rail */
+  .rail{display:flex;overflow-x:auto;gap:0;border-bottom:1px solid var(--hair);background:var(--paper-soft);position:sticky;top:60px;z-index:40;}
+  .rail a{flex:0 0 auto;padding:12px 16px;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:var(--steel);border-right:1px solid var(--hair);white-space:nowrap;}
+  .rail a:hover{color:var(--ink);background:var(--paper-deep);}
+  .rail a b{color:var(--ink);}
+
+  /* steps */
+  .step{padding:clamp(44px,6vw,72px) 0;border-bottom:1px solid var(--hair);}
+  .step:last-of-type{border-bottom:none;}
+  .step-head{display:flex;gap:22px;align-items:flex-start;margin-bottom:28px;}
+  .step-num{font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--paper);background:var(--ink);width:40px;height:40px;flex:0 0 40px;display:flex;align-items:center;justify-content:center;}
+  .step-title h2{font-weight:500;font-size:clamp(22px,3vw,32px);letter-spacing:-.6px;margin-bottom:8px;}
+  .step-grid{display:grid;grid-template-columns:minmax(280px,420px) 1fr;gap:36px;align-items:start;}
+  @media (max-width:820px){ .step-grid{grid-template-columns:1fr;} }
+
+  /* mockup frame */
+  .frame{border:1px solid var(--hair-dark);background:var(--paper);box-shadow:0 10px 30px rgba(10,10,10,0.08);}
+  .frame .chrome{background:var(--paper-deep);border-bottom:1px solid var(--hair);padding:8px 12px;display:flex;align-items:center;gap:6px;}
+  .frame .dot{width:8px;height:8px;border-radius:50%;background:var(--hair-dark);opacity:.5;}
+  .frame .url{margin-left:8px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--steel);}
+  .frame .body{padding:22px;}
+
+  /* signup form mock */
+  .field{margin-bottom:14px;}
+  .field label{display:block;font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:1.2px;text-transform:uppercase;color:var(--steel);margin-bottom:6px;}
+  .field .input{border:1px solid var(--hair);background:var(--paper);padding:10px 12px;font-size:13.5px;color:var(--steel);}
+  .field .input.filled{color:var(--ink);}
+
+  /* dashboard mock (mini) */
+  .mini-topbar{background:var(--ink);color:var(--paper);padding:8px 14px;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:1.4px;display:flex;justify-content:space-between;}
+  .mini-banner{background:#fff8e6;border-bottom:1px solid var(--warn);color:var(--warn);font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.6px;padding:8px 14px;}
+  .mini-stat-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:1px;background:var(--hair);border:1px solid var(--hair);margin-top:12px;}
+  .mini-stat{background:var(--paper);padding:10px 12px;}
+  .mini-stat .v{font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:500;}
+  .mini-stat .l{font-family:'JetBrains Mono',monospace;font-size:8.5px;letter-spacing:1px;text-transform:uppercase;color:var(--steel);}
+
+  /* email mock */
+  .email-mock{border:1px solid var(--hair);background:#fff;}
+  .email-mock .hdr{padding:10px 14px;border-bottom:1px solid var(--hair);background:var(--paper-soft);}
+  .email-mock .hdr .subj{font-weight:600;font-size:13px;}
+  .email-mock .hdr .meta{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--steel);margin-top:2px;}
+  .email-mock .content{padding:16px 14px;font-size:13px;color:var(--ink-2);}
+  .email-mock .btn-mini{display:inline-block;margin-top:10px;background:var(--ink);color:var(--paper);font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:1.4px;text-transform:uppercase;padding:9px 16px;}
+
+  /* pipeline list */
+  .pipeline{list-style:none;counter-reset:pl;}
+  .pipeline li{counter-increment:pl;display:flex;gap:14px;padding:10px 0;border-bottom:1px solid var(--hair);align-items:flex-start;}
+  .pipeline li:last-child{border-bottom:none;}
+  .pipeline li::before{content:counter(pl);font-family:'JetBrains Mono',monospace;font-size:10.5px;color:var(--paper);background:var(--steel);width:20px;height:20px;flex:0 0 20px;display:flex;align-items:center;justify-content:center;margin-top:1px;}
+  .pipeline .t{font-weight:500;font-size:13.8px;}
+  .pipeline .d{font-size:12.6px;color:var(--steel);margin-top:2px;}
+
+  /* timeline (trial days) */
+  .timeline{border-left:2px solid var(--hair);padding-left:22px;display:flex;flex-direction:column;gap:22px;}
+  .tl-item{position:relative;}
+  .tl-item::before{content:'';position:absolute;left:-27px;top:3px;width:10px;height:10px;border-radius:50%;background:var(--paper);border:2px solid var(--ink);}
+  .tl-item.done::before{background:var(--ok);border-color:var(--ok);}
+  .tl-day{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--steel);}
+  .tl-title{font-weight:500;font-size:14.5px;margin:3px 0 4px;}
+  .tl-desc{font-size:13px;color:var(--steel);}
+
+  .pill{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:1.2px;text-transform:uppercase;border:1px solid var(--hair);color:var(--steel);padding:3px 9px;display:inline-block;white-space:nowrap;}
+  .pill.ok{border-color:var(--ok);color:var(--ok);}
+  .pill.warn{border-color:var(--warn);color:var(--warn);}
+  .pill.accent{border-color:var(--accent);color:#007e9b;}
+
+  .outcome{background:var(--ink);color:var(--paper);text-align:center;padding:clamp(50px,7vw,80px) 0;}
+  .outcome h2{font-weight:500;font-size:clamp(28px,4.4vw,46px);letter-spacing:-1.2px;margin-bottom:16px;}
+  .outcome .lede{color:rgba(244,242,238,.75);margin:0 auto 26px;}
+  .outcome .actions{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;}
+  .btn-ghost.on-ink{border-color:var(--paper);color:var(--paper);}
+  .btn-ghost.on-ink:hover{background:var(--paper);color:var(--ink);}
+
+  @media (prefers-color-scheme: dark){
+    :root{--paper:#0E0E0D;--paper-soft:#141413;--paper-deep:#1A1A18;--ink:#F1EEE7;--ink-2:#E4E0D8;--steel:#9A948A;--steel-2:#7C766C;--hair:#33322E;--hair-dark:#4A483F;}
+    .mini-topbar,.outcome{background:var(--ink);color:#0E0E0D;}
+    .outcome .lede{color:rgba(14,14,13,.75);}
+    .btn-ink{color:#0E0E0D;}
+    .btn-ghost.on-ink{border-color:#0E0E0D;color:#0E0E0D;}
+    .btn-ghost.on-ink:hover{background:#0E0E0D;color:var(--ink);}
+    .step-num{color:#0E0E0D;}
+    .email-mock{background:#1c1c1a;}
+    .email-mock .btn-mini{color:#0E0E0D;}
+    .field .input{color:var(--steel);}
+    .mini-banner{background:#241c04;}
+  }
+</style>
+</head>
+<body>
+
+<div class="frontend-banner">Static walkthrough of the FORGE sign-up flow &middot; back to <a href="forge-marketing.html">marketing site</a> &middot; on to <a href="forge-console-preview.html">the console</a></div>
+
+<nav class="top">
+  <div class="container row">
+    <a href="forge-marketing.html" class="wordmark">FORGE<span>The Revenue Ontology</span></a>
+  </div>
+</nav>
+
+<header class="intro">
+  <div class="container">
+    <div class="mono" style="margin-bottom:14px;">Sign-Up Journey</div>
+    <h1>From landing page to <em>activated account</em></h1>
+    <p class="lede">Seven steps, real form fields, and the actual backend pipeline behind <code>POST /api/auth/signup</code> — plus the 14-day trial sequence that turns a sign-up into a paying customer.</p>
+  </div>
+</header>
+
+<nav class="rail">
+  <a href="#s1"><b>01</b> Landing</a>
+  <a href="#s2"><b>02</b> Sign-up form</a>
+  <a href="#s3"><b>03</b> Backend pipeline</a>
+  <a href="#s4"><b>04</b> Verification email</a>
+  <a href="#s5"><b>05</b> First dashboard</a>
+  <a href="#s6"><b>06</b> 14-day trial</a>
+  <a href="#s7"><b>07</b> Conversion</a>
+</nav>
+
+<div class="container">
+
+  <!-- STEP 1 -->
+  <section class="step" id="s1">
+    <div class="step-head">
+      <div class="step-num">01</div>
+      <div class="step-title">
+        <h2>Landing page &rarr; <em>Start Trial</em></h2>
+        <p class="lede">A visitor reads the platform story and clicks one of six &ldquo;Start Trial&rdquo; buttons on the marketing site (hero, pricing cards, closing CTA).</p>
+      </div>
+    </div>
+    <div class="step-grid">
+      <div class="frame">
+        <div class="chrome"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="url">forgepay.co.za</span></div>
+        <div class="body">
+          <div class="wordmark" style="font-size:13px;">FORGE</div>
+          <div style="font-size:20px;font-weight:500;letter-spacing:-.5px;margin:14px 0 8px;">The Revenue <em>Ontology</em></div>
+          <p style="font-size:12px;color:var(--steel);margin-bottom:14px;">Six interconnected platforms, one shared event log.</p>
+          <div style="display:flex;gap:8px;">
+            <span class="btn-ink" style="width:auto;padding:9px 14px;font-size:9.5px;">Start Free Trial</span>
+            <span class="btn-ghost" style="padding:9px 14px;font-size:9.5px;">Explore Platforms</span>
+          </div>
+        </div>
+      </div>
+      <div>
+        <ul class="pipeline">
+          <li><div><div class="t">No card required</div><div class="d">Every plan (Payments, Treasury, Credit Bureau) starts with a 14-day free trial.</div></div></li>
+          <li><div><div class="t">Same CTA everywhere</div><div class="d">Hero, pricing table, and closing band all route to the same sign-up form &mdash; one funnel, not per-product forms.</div></div></li>
+          <li><div><div class="t">Product choice deferred</div><div class="d">The visitor doesn't pick a plan yet; account creation is product-agnostic and the dashboard reveals all six platforms after activation.</div></div></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- STEP 2 -->
+  <section class="step" id="s2">
+    <div class="step-head">
+      <div class="step-num">02</div>
+      <div class="step-title">
+        <h2>Sign-up form</h2>
+        <p class="lede">Four fields, client-validated, matching the real <code>signupSchema</code>: name, email, optional company, password (min. 8 chars).</p>
+      </div>
+    </div>
+    <div class="step-grid">
+      <div class="frame">
+        <div class="chrome"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="url">forgepay.co.za/auth/signup</span></div>
+        <div class="body">
+          <div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:1.4px;text-transform:uppercase;color:var(--steel);margin-bottom:4px;">Create your account</div>
+          <div style="font-weight:500;font-size:18px;margin-bottom:16px;">Join FORGE</div>
+          <div class="field"><label>Name</label><div class="input filled">Thandiwe Nkosi</div></div>
+          <div class="field"><label>Email</label><div class="input filled">thandiwe@snappay.co.za</div></div>
+          <div class="field"><label>Company (optional)</label><div class="input filled">SnapPay</div></div>
+          <div class="field"><label>Password</label><div class="input filled">&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;</div></div>
+          <div class="btn-ink" style="margin-top:6px;">Create Account</div>
+          <p style="text-align:center;margin-top:14px;font-size:11px;color:var(--steel);">Already have an account? <span style="color:var(--ink);">Sign in</span></p>
+        </div>
+      </div>
+      <div>
+        <ul class="pipeline">
+          <li><div><div class="t">Client-side check</div><div class="d">Required fields enforced by the browser before submit; company is the one optional field.</div></div></li>
+          <li><div><div class="t">POST /api/auth/signup</div><div class="d">On submit, the form fires a fetch with <code>{ name, email, password, company }</code> as JSON.</div></div></li>
+          <li><div><div class="t">Inline error handling</div><div class="d">A failed request (e.g. duplicate email) renders a red banner above the form &mdash; no page reload.</div></div></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- STEP 3 -->
+  <section class="step" id="s3">
+    <div class="step-head">
+      <div class="step-num">03</div>
+      <div class="step-title">
+        <h2>Backend pipeline</h2>
+        <p class="lede">What actually runs, in order, inside the signup API route &mdash; every step has to succeed for the account to activate.</p>
+      </div>
+    </div>
+    <div class="step-grid">
+      <div>
+        <ol class="pipeline">
+          <li><div><div class="t">Validate with zod</div><div class="d"><code>email().min(2).min(8)</code> &mdash; malformed input returns 400 before touching the database.</div></div></li>
+          <li><div><div class="t">Check for existing email</div><div class="d">Duplicate &rarr; 409 Conflict, form shows &ldquo;Email already registered.&rdquo;</div></div></li>
+          <li><div><div class="t">Create tenant</div><div class="d">A new tenant row is inserted &mdash; named after the company, or the person if none given.</div></div></li>
+          <li><div><div class="t">Hash password</div><div class="d">bcrypt hash generated; the plaintext password is never stored or logged.</div></div></li>
+          <li><div><div class="t">Create user</div><div class="d">User row linked to the tenant.</div></div></li>
+          <li><div><div class="t">Generate JWT + set cookie</div><div class="d">Signed token embeds <code>userId, email, tenantId</code>; set as an HTTP-only auth cookie.</div></div></li>
+          <li><div><div class="t">Send verification email</div><div class="d">Async &mdash; contains a one-time verification link.</div></div></li>
+          <li><div><div class="t">Send onboarding email</div><div class="d">Async &mdash; the Day-1 welcome + quick-start sequence begins.</div></div></li>
+          <li><div><div class="t">201 Created</div><div class="d">Response returns the user object; the browser redirects to <code>/dashboard/payments</code>.</div></div></li>
+        </ol>
+      </div>
+      <div class="frame">
+        <div class="chrome"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="url">POST /api/auth/signup</span></div>
+        <div class="body" style="font-family:'JetBrains Mono',monospace;font-size:11.5px;line-height:1.7;">
+<span style="color:var(--steel);">// request</span><br>
+{<br>
+&nbsp;&nbsp;"email": "thandiwe@snappay.co.za",<br>
+&nbsp;&nbsp;"name": "Thandiwe Nkosi",<br>
+&nbsp;&nbsp;"company": "SnapPay",<br>
+&nbsp;&nbsp;"password": "••••••••••••"<br>
+}<br><br>
+<span style="color:var(--steel);">// 201 response</span><br>
+{<br>
+&nbsp;&nbsp;"success": true,<br>
+&nbsp;&nbsp;"user": {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;"id": "usr_8f2a1c",<br>
+&nbsp;&nbsp;&nbsp;&nbsp;"email": "thandiwe@snappay.co.za",<br>
+&nbsp;&nbsp;&nbsp;&nbsp;"name": "Thandiwe Nkosi",<br>
+&nbsp;&nbsp;&nbsp;&nbsp;"tenantId": "ten_44d0e9"<br>
+&nbsp;&nbsp;}<br>
+}
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- STEP 4 -->
+  <section class="step" id="s4">
+    <div class="step-head">
+      <div class="step-num">04</div>
+      <div class="step-title">
+        <h2>Verification &amp; welcome email</h2>
+        <p class="lede">Two emails fire from the signup route &mdash; both async, so neither blocks the redirect to the dashboard.</p>
+      </div>
+    </div>
+    <div class="step-grid">
+      <div class="email-mock">
+        <div class="hdr"><div class="subj">Verify your FORGE account</div><div class="meta">from noreply@forgepay.co.za &middot; now</div></div>
+        <div class="content">
+          Hi Thandiwe,<br><br>
+          Click below to verify thandiwe@snappay.co.za and finish setting up your account.
+          <div class="btn-mini">Verify Email</div>
+        </div>
+      </div>
+      <div>
+        <ul class="pipeline">
+          <li><div><div class="t">Verification link</div><div class="d">One-time token; unverified accounts keep full dashboard access during the trial but are flagged internally.</div></div></li>
+          <li><div><div class="t">Onboarding email (Day 1)</div><div class="d">A second email follows immediately with a quick-start guide and links to video tutorials.</div></div></li>
+          <li><div><div class="t">Fallback flow armed</div><div class="d">If onboarding completion drops below 50% across sign-ups, a fallback sequence activates: live chat, extra email nudges, and a CSM offer.</div></div></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- STEP 5 -->
+  <section class="step" id="s5">
+    <div class="step-head">
+      <div class="step-num">05</div>
+      <div class="step-title">
+        <h2>First dashboard &mdash; <em>trial mode</em></h2>
+        <p class="lede">The browser redirects to <code>/dashboard/payments</code>. The account exists across all six platforms; Payments is just the default landing product.</p>
+      </div>
+    </div>
+    <div class="step-grid">
+      <div class="frame">
+        <div class="chrome"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="url">forgepay.co.za/dashboard/payments</span></div>
+        <div class="mini-topbar"><span>FORGE</span><span>Trial &middot; 14 days left</span></div>
+        <div class="mini-banner">&#9888; Verify your email to unlock live payment processing</div>
+        <div class="body" style="padding:14px;">
+          <div style="font-size:9.5px;font-family:'JetBrains Mono',monospace;color:var(--steel);letter-spacing:1.2px;text-transform:uppercase;">FORGE / Payments</div>
+          <div style="font-weight:500;font-size:16px;margin:6px 0 10px;">Welcome, Thandiwe</div>
+          <div class="mini-stat-grid">
+            <div class="mini-stat"><div class="v">R0</div><div class="l">Processed / 24h</div></div>
+            <div class="mini-stat"><div class="v">&mdash;</div><div class="l">Success rate</div></div>
+            <div class="mini-stat"><div class="v">0</div><div class="l">API calls</div></div>
+            <div class="mini-stat"><div class="v">Sandbox</div><div class="l">Environment</div></div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <ul class="pipeline">
+          <li><div><div class="t">Trial banner</div><div class="d">Every screen shows days remaining and the primary blocking action (verify email, add a payment method, generate an API key).</div></div></li>
+          <li><div><div class="t">Sandbox by default</div><div class="d">New accounts start in sandbox; production access unlocks after email verification.</div></div></li>
+          <li><div><div class="t">All platforms visible</div><div class="d">The sidebar already lists Custody, Wallet, Agent Credit Bureau, and Enterprise Treasury &mdash; empty until first use, but one login away.</div></div></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- STEP 6 -->
+  <section class="step" id="s6">
+    <div class="step-head">
+      <div class="step-num">06</div>
+      <div class="step-title">
+        <h2>The 14-day trial sequence</h2>
+        <p class="lede">Activation isn't one event &mdash; it's a monitored sequence with a fallback path if the account goes quiet.</p>
+      </div>
+    </div>
+    <div class="timeline">
+      <div class="tl-item done">
+        <div class="tl-day">Day 0</div>
+        <div class="tl-title">Account created <span class="pill ok">done</span></div>
+        <div class="tl-desc">Verification + onboarding emails sent; dashboard active in sandbox.</div>
+      </div>
+      <div class="tl-item done">
+        <div class="tl-day">Day 1&ndash;2</div>
+        <div class="tl-title">Quick-start &amp; first test transaction <span class="pill accent">tracked</span></div>
+        <div class="tl-desc">Onboarding video + guided walkthrough; step completion tracked per funnel stage.</div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-day">Day 3</div>
+        <div class="tl-title">CSM check-in <span class="pill warn">conditional</span></div>
+        <div class="tl-desc">If no test transaction yet, a reminder fires: &ldquo;A CSM can help complete setup.&rdquo;</div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-day">Day 7</div>
+        <div class="tl-title">Progress check-in email</div>
+        <div class="tl-desc">Usage summary + a nudge toward the next platform (Treasury or Credit Bureau) if Payments is active.</div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-day">Day 13</div>
+        <div class="tl-title">Pre-close call</div>
+        <div class="tl-desc">&ldquo;Ready to go live?&rdquo; &mdash; CSM offers to activate production access same-day.</div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-day">Day 14</div>
+        <div class="tl-title">Trial expiry decision</div>
+        <div class="tl-desc">Convert to paid, extend the trial, or the account moves to churn-risk monitoring in the Agent/CSM playbook.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- STEP 7 -->
+  <section class="step" id="s7" style="border-bottom:none;">
+    <div class="step-head">
+      <div class="step-num">07</div>
+      <div class="step-title">
+        <h2>Conversion &mdash; <em>activated account</em></h2>
+        <p class="lede">A converted account isn't just paid Payments &mdash; it's a single login across the full ontology, ready to expand into Treasury, Custody, Wallet, and Credit.</p>
+      </div>
+    </div>
+    <ul class="pipeline">
+      <li><div><div class="t">Billing activates</div><div class="d">Kill Bill starts the subscription; the trial banner disappears; production access unlocks.</div></div></li>
+      <li><div><div class="t">Cross-sell surfaces</div><div class="d">As payment volume grows, the console highlights Treasury (netting ROI) and Agent Credit Bureau (for agent-heavy accounts) &mdash; same account, same data.</div></div></li>
+      <li><div><div class="t">Retention monitoring begins</div><div class="d">The account now feeds the churn-signal pipeline (MRR decline, API inactivity, low usage) that the CSM playbook watches going forward.</div></div></li>
+    </ul>
+  </section>
+
+</div>
+
+<section class="outcome">
+  <div class="container">
+    <h2>One sign-up. Six platforms.</h2>
+    <p class="lede">See the fully activated account in the console, or walk back through the marketing site that started it.</p>
+    <div class="actions">
+      <a class="btn-ink" style="width:auto;background:var(--paper);color:var(--ink);border-color:var(--paper);" href="forge-console-preview.html">Open the Console &rarr;</a>
+      <a class="btn-ghost on-ink" href="forge-marketing.html">Back to Marketing Site</a>
+    </div>
+  </div>
+</section>
+
+</body>
+</html>

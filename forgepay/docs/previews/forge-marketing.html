@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FORGE — The Revenue Ontology</title>
+<style>
+  :root{
+    --paper:#F4F2EE; --paper-soft:#EFEBE3; --paper-deep:#ECE8E0;
+    --ink:#0A0A0A; --ink-2:#1A1A1A; --steel:#6F6A62; --steel-2:#8B8579;
+    --hair:#C9C3B7; --hair-dark:#2A2A2A; --accent:#00d1ff;
+    --ok:#1f7a4d; --warn:#a86a00; --danger:#b3261e;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{font-family:'Inter Tight',-apple-system,BlinkMacSystemFont,sans-serif;background:var(--paper);color:var(--ink);line-height:1.55;-webkit-font-smoothing:antialiased;}
+  a{color:inherit;text-decoration:none;}
+  button{font-family:inherit;}
+  img,svg{display:block;max-width:100%;}
+  .container{max-width:1180px;margin:0 auto;padding:0 clamp(20px,4vw,48px);}
+
+  .mono{font-family:'JetBrains Mono',ui-monospace,monospace;letter-spacing:1.4px;text-transform:uppercase;font-size:11px;color:var(--steel);}
+  .lede{font-size:16px;color:var(--steel);max-width:62ch;}
+  em{font-style:italic;font-weight:300;}
+
+  .btn-ink,.btn-ghost{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:2px;text-transform:uppercase;padding:13px 22px;cursor:pointer;border:1px solid var(--ink);display:inline-block;transition:background .18s ease,color .18s ease;background:transparent;color:var(--ink);}
+  .btn-ink{background:var(--ink);color:var(--paper);}
+  .btn-ink:hover{background:transparent;color:var(--ink);}
+  .btn-ghost:hover{background:var(--ink);color:var(--paper);}
+  .btn-ghost.on-ink{border-color:var(--paper);color:var(--paper);}
+  .btn-ghost.on-ink:hover{background:var(--paper);color:var(--ink);}
+
+  .frontend-banner{background:var(--ink);color:var(--paper);text-align:center;padding:10px 16px;font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:1.4px;text-transform:uppercase;}
+  .frontend-banner b{color:var(--accent);}
+  .frontend-banner a{color:var(--paper);border-bottom:1px dotted rgba(244,242,238,.5);}
+
+  /* ── Nav ── */
+  nav.top{position:sticky;top:0;z-index:50;background:rgba(244,242,238,.86);backdrop-filter:saturate(180%) blur(12px);-webkit-backdrop-filter:saturate(180%) blur(12px);border-bottom:1px solid var(--hair);}
+  nav.top .row{display:flex;align-items:center;justify-content:space-between;height:64px;gap:24px;}
+  .wordmark{font-family:'JetBrains Mono',monospace;font-weight:700;font-size:15px;letter-spacing:3px;color:var(--ink);}
+  .wordmark span{color:var(--steel);font-weight:400;letter-spacing:1.4px;font-size:10px;margin-left:10px;text-transform:uppercase;}
+  .navlinks{display:flex;gap:28px;align-items:center;}
+  .navlinks a{font-size:13.5px;color:var(--ink-2);}
+  .navlinks a:hover{color:var(--steel);}
+  .nav-actions{display:flex;gap:10px;align-items:center;}
+  @media (max-width:780px){ .navlinks{display:none;} }
+
+  /* ── Hero ── */
+  .hero{padding:clamp(60px,9vw,110px) 0 clamp(50px,7vw,90px);border-bottom:1px solid var(--hair);}
+  .hero .meta-top{display:flex;justify-content:space-between;margin-bottom:clamp(34px,6vw,64px);flex-wrap:wrap;gap:16px;}
+  .hero h1{font-weight:500;font-size:clamp(40px,7.4vw,104px);line-height:0.94;letter-spacing:-2.6px;margin:0 0 26px;max-width:14ch;}
+  .hero .lede{font-size:18px;margin-bottom:36px;}
+  .hero .actions{display:flex;gap:12px;flex-wrap:wrap;}
+
+  /* ── Stat strip ── */
+  .stat-strip{border-top:1px solid var(--hair);border-bottom:1px solid var(--hair);background:var(--paper-soft);}
+  .stat-strip .row{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));}
+  .stat-strip .cell{padding:22px clamp(16px,3vw,28px);border-left:1px solid var(--hair);}
+  .stat-strip .cell:first-child{border-left:none;}
+  .stat-strip .value{font-family:'JetBrains Mono',monospace;font-weight:500;font-size:clamp(20px,2.2vw,28px);letter-spacing:-.5px;}
+  .stat-strip .label{margin-top:6px;}
+
+  /* ── Section shell ── */
+  section{padding:clamp(56px,8vw,100px) 0;}
+  section.ink{background:var(--ink);color:var(--paper);}
+  section.deep{background:var(--paper-deep);}
+  .on-ink .mono{color:rgba(244,242,238,.5);}
+  .on-ink .lede{color:rgba(244,242,238,.78);}
+  .sec-head{margin-bottom:clamp(32px,5vw,56px);}
+  .sec-head h2{font-weight:500;font-size:clamp(30px,4.6vw,54px);letter-spacing:-1.4px;line-height:1.02;max-width:18ch;margin-bottom:14px;}
+
+  /* ── Platform grid ── */
+  .platform-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr));gap:1px;background:var(--hair);border:1px solid var(--hair);}
+  .platform-card{background:var(--paper);padding:28px 26px;display:flex;flex-direction:column;gap:14px;min-height:230px;}
+  .platform-card .top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;}
+  .platform-card h3{font-size:19px;font-weight:500;letter-spacing:-.3px;}
+  .platform-card .price{font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--steel);white-space:nowrap;}
+  .platform-card p{font-size:13.8px;color:var(--steel);flex:1;}
+  .platform-card .link{font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:1.4px;text-transform:uppercase;color:var(--ink);border-top:1px solid var(--hair);padding-top:12px;margin-top:auto;}
+
+  /* ── Interconnection flow ── */
+  .flow-strip{border:1px solid var(--hair-dark);background:var(--ink);color:var(--paper);}
+  .flow-track{display:flex;overflow-x:auto;}
+  .flow-step{flex:0 0 auto;min-width:220px;padding:22px 22px;border-right:1px solid var(--hair-dark);}
+  .flow-step:last-child{border-right:none;}
+  .flow-step .n{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--accent);letter-spacing:1.4px;}
+  .flow-step .t{font-weight:500;font-size:15px;margin:8px 0 6px;}
+  .flow-step .d{font-size:12.8px;color:rgba(244,242,238,.68);}
+
+  /* ── Pricing ── */
+  .pricing-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(280px,100%),1fr));gap:1px;background:var(--hair);border:1px solid var(--hair);}
+  .price-card{background:var(--paper);padding:30px 26px;display:flex;flex-direction:column;}
+  .price-card.featured{background:var(--ink);color:var(--paper);}
+  .price-card .tier{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:1.6px;text-transform:uppercase;color:var(--steel);margin-bottom:14px;}
+  .price-card.featured .tier{color:rgba(244,242,238,.55);}
+  .price-card .amount{font-family:'JetBrains Mono',monospace;font-size:34px;font-weight:500;letter-spacing:-1px;margin-bottom:6px;}
+  .price-card .per{font-size:12.5px;color:var(--steel);margin-bottom:20px;}
+  .price-card.featured .per{color:rgba(244,242,238,.6);}
+  .price-card ul{list-style:none;display:flex;flex-direction:column;gap:9px;margin-bottom:24px;flex:1;}
+  .price-card li{font-size:13.2px;padding-left:16px;position:relative;color:var(--ink-2);}
+  .price-card.featured li{color:rgba(244,242,238,.85);}
+  .price-card li::before{content:'—';position:absolute;left:0;color:var(--steel);}
+
+  /* ── Testimonials ── */
+  .quote-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr));gap:20px;}
+  .quote{border:1px solid var(--hair);padding:24px;background:var(--paper);}
+  .quote p{font-size:14.5px;color:var(--ink-2);margin-bottom:16px;}
+  .quote .who{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--steel);}
+
+  /* ── CTA band ── */
+  .closer{background:var(--ink);color:var(--paper);text-align:center;padding:clamp(60px,8vw,100px) 0;}
+  .closer h2{font-weight:500;font-size:clamp(32px,5.4vw,64px);letter-spacing:-1.6px;margin-bottom:18px;}
+  .closer .lede{margin:0 auto 30px;color:rgba(244,242,238,.75);}
+  .closer .actions{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;}
+
+  /* ── Footer ── */
+  footer{border-top:1px solid var(--hair);padding:48px 0 30px;}
+  .foot-grid{display:grid;grid-template-columns:2fr repeat(4,1fr);gap:30px;margin-bottom:36px;}
+  .foot-grid h4{font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:1.6px;text-transform:uppercase;color:var(--steel-2);margin-bottom:14px;}
+  .foot-grid ul{list-style:none;display:flex;flex-direction:column;gap:9px;}
+  .foot-grid a{font-size:13.3px;color:var(--ink-2);}
+  .foot-grid a:hover{color:var(--steel);}
+  .foot-bottom{border-top:1px solid var(--hair);padding-top:22px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;}
+  @media (max-width:820px){ .foot-grid{grid-template-columns:repeat(2,1fr);} }
+
+  @media (prefers-color-scheme: dark){
+    :root{--paper:#0E0E0D;--paper-soft:#141413;--paper-deep:#1A1A18;--ink:#F1EEE7;--ink-2:#E4E0D8;--steel:#9A948A;--steel-2:#7C766C;--hair:#33322E;--hair-dark:#4A483F;}
+    section.ink,.flow-strip,.closer,.price-card.featured{background:var(--ink);color:#0E0E0D;}
+    section.ink .lede,.closer .lede{color:rgba(14,14,13,.75);}
+    section.ink .mono{color:rgba(14,14,13,.55);}
+    .flow-step .d{color:rgba(14,14,13,.68);}
+    .flow-step .n{color:#007e9b;}
+    .btn-ink{color:#0E0E0D;}
+    .price-card.featured li{color:rgba(14,14,13,.85);}
+    .price-card.featured .per{color:rgba(14,14,13,.6);}
+  }
+</style>
+</head>
+<body>
+
+<div class="frontend-banner">Static preview of the FORGE marketing site &middot; see also <a href="forge-signup-journey.html">the sign-up journey &rarr;</a> and <a href="forge-console-preview.html">the console &rarr;</a></div>
+
+<nav class="top">
+  <div class="container row">
+    <a href="#" class="wordmark">FORGE<span>The Revenue Ontology</span></a>
+    <div class="navlinks">
+      <a href="#platforms">Platforms</a>
+      <a href="#flow">How it connects</a>
+      <a href="#pricing">Pricing</a>
+      <a href="#proof">Customers</a>
+    </div>
+    <div class="nav-actions">
+      <a class="btn-ghost btn-sm" style="padding:9px 16px;font-size:10px;">Sign In</a>
+      <a class="btn-ink btn-sm" style="padding:9px 16px;font-size:10px;" href="forge-signup-journey.html">Start Trial</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="container">
+    <div class="meta-top">
+      <span class="mono">Financial Operating System</span>
+      <span class="mono">Payments &middot; Custody &middot; Wallet &middot; Credit &middot; Treasury</span>
+    </div>
+    <h1>The <em>Revenue Ontology</em></h1>
+    <p class="lede">Six interconnected platforms, one shared event log. Every payment, signature, credit score, and treasury sweep is recorded once — and every product reads from the same truth.</p>
+    <div class="actions">
+      <a class="btn-ink" href="forge-signup-journey.html">Start Free Trial</a>
+      <a class="btn-ghost" href="#platforms">Explore Platforms</a>
+    </div>
+  </div>
+</header>
+
+<div class="stat-strip">
+  <div class="container row">
+    <div class="cell"><div class="value">99.7%</div><div class="mono label">payment success</div></div>
+    <div class="cell"><div class="value">4-of-7</div><div class="mono label">threshold signing</div></div>
+    <div class="cell"><div class="value">0&ndash;1000</div><div class="mono label">agent credit score</div></div>
+    <div class="cell"><div class="value">R114K</div><div class="mono label">avg. netting saved/mo</div></div>
+    <div class="cell"><div class="value">6</div><div class="mono label">interconnected platforms</div></div>
+  </div>
+</div>
+
+<section id="platforms">
+  <div class="container">
+    <div class="sec-head">
+      <div class="mono" style="margin-bottom:12px;">Platforms</div>
+      <h2>Every product shares the same <em>ontology</em>.</h2>
+      <p class="lede">Land with payments. Expand into custody, wallets, agent credit, and treasury — each one makes the others smarter, because they all read and write the same event log.</p>
+    </div>
+
+    <div class="platform-grid">
+      <div class="platform-card">
+        <div class="top"><h3>FORGE Payments</h3><span class="price">R15,000/mo</span></div>
+        <p>Routes every transaction by size and risk — Stripe ACH &rarr; Circle USDC fallback chain for the mid tier, direct wallet signing under $100K. 99.7% success target.</p>
+        <span class="link">Routing &amp; settlement &rarr;</span>
+      </div>
+      <div class="platform-card">
+        <div class="top"><h3>FORGE Custody</h3><span class="price">usage-based</span></div>
+        <p>Institutional 4-of-7 threshold signing for transfers above $1M. Policy engine, multi-party approval, no single keyholder — ever.</p>
+        <span class="link">Threshold signing &rarr;</span>
+      </div>
+      <div class="platform-card">
+        <div class="top"><h3>FORGE Wallet</h3><span class="price">usage-based</span></div>
+        <p>Seedless wallets for consumers and agents. Keys encrypted server-side, 2-of-3 social recovery, a did:forge identity for every account.</p>
+        <span class="link">Wallets &amp; identity &rarr;</span>
+      </div>
+      <div class="platform-card">
+        <div class="top"><h3>Agent Credit Bureau</h3><span class="price">from R8,500/mo</span></div>
+        <p>FICO-style 0&ndash;1000 credit scoring for autonomous agents, built from real transaction history. Automatic credit lines, explainable scoring.</p>
+        <span class="link">Agent credit &rarr;</span>
+      </div>
+      <div class="platform-card">
+        <div class="top"><h3>Enterprise Treasury</h3><span class="price">R40,000/mo</span></div>
+        <p>Consolidate 50&ndash;300 accounts into one cash position. Intercompany netting, rule-driven sweeps, and the CFO approval desk for agent credit.</p>
+        <span class="link">Treasury &amp; netting &rarr;</span>
+      </div>
+      <div class="platform-card">
+        <div class="top"><h3>Credit Bureau</h3><span class="price">from R8,500/mo</span></div>
+        <p>Dual-mode merchant scoring &mdash; traditional FICO-style (Mode 1) alongside on-chain operational behavior (Mode 2), with variance alerts.</p>
+        <span class="link">Merchant scoring &rarr;</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="flow" class="ink on-ink deep">
+  <div class="container">
+    <div class="sec-head">
+      <div class="mono" style="margin-bottom:12px;">How it connects</div>
+      <h2 style="max-width:22ch;">One agent, one payment, five platforms in sequence.</h2>
+      <p class="lede">A real request that only works because every platform reads the same event log.</p>
+    </div>
+
+    <div class="flow-strip">
+      <div class="flow-track">
+        <div class="flow-step"><span class="n">01 &middot; Wallet</span><div class="t">Agent initiates payment</div><div class="d">did:forge:agent_001 requests $50K USDC, net-30 terms — exceeds its current credit line.</div></div>
+        <div class="flow-step"><span class="n">02 &middot; Agent Credit Bureau</span><div class="t">Score checked</div><div class="d">Score 75/100 reviewed; requires a credit extension past the R25K limit.</div></div>
+        <div class="flow-step"><span class="n">03 &middot; Enterprise Treasury</span><div class="t">CFO approves</div><div class="d">Treasury manager extends the line to R100K &mdash; one click on the approval desk.</div></div>
+        <div class="flow-step"><span class="n">04 &middot; Payments</span><div class="t">Routed to Custody</div><div class="d">Institutional-size transfer is routed to threshold signing, not the wallet.</div></div>
+        <div class="flow-step"><span class="n">05 &middot; Custody</span><div class="t">4-of-7 signature</div><div class="d">Policy pass &rarr; approvals &rarr; threshold signature &rarr; broadcast.</div></div>
+        <div class="flow-step"><span class="n">06 &middot; Ontology</span><div class="t">Recorded once</div><div class="d">Confirmed event lands in the Revenue Ontology; every platform reads it.</div></div>
+        <div class="flow-step"><span class="n">07 &middot; Agent Credit Bureau</span><div class="t">Score improves</div><div class="d">On-time repayment lifts the score 78&rarr;82; the line grows to R250K for next time.</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="pricing" class="deep">
+  <div class="container">
+    <div class="sec-head">
+      <div class="mono" style="margin-bottom:12px;">Pricing</div>
+      <h2>Start on one platform. Expand as you grow.</h2>
+      <p class="lede">14-day free trial on every plan. No card required to start.</p>
+    </div>
+
+    <div class="pricing-grid">
+      <div class="price-card">
+        <div class="tier">Payments</div>
+        <div class="amount">R15K</div>
+        <div class="per">per month</div>
+        <ul>
+          <li>Stripe ACH + Circle USDC fallback</li>
+          <li>99.7% success target</li>
+          <li>Wallet-tier direct signing under $100K</li>
+          <li>Live payments dashboard</li>
+        </ul>
+        <a class="btn-ghost" href="forge-signup-journey.html">Start Trial</a>
+      </div>
+      <div class="price-card featured">
+        <div class="tier">Treasury</div>
+        <div class="amount">R40K</div>
+        <div class="per">per month</div>
+        <ul>
+          <li>Multi-account consolidation</li>
+          <li>Intercompany netting</li>
+          <li>Rule-driven sweeps to yield</li>
+          <li>Agent credit approval desk</li>
+        </ul>
+        <a class="btn-ink" href="forge-signup-journey.html">Start Trial</a>
+      </div>
+      <div class="price-card">
+        <div class="tier">Credit Bureau</div>
+        <div class="amount">R8.5K</div>
+        <div class="per">per month + inquiry share</div>
+        <ul>
+          <li>Dual-mode merchant scoring</li>
+          <li>Agent credit lines (0&ndash;1000)</li>
+          <li>Explainable, event-sourced scores</li>
+          <li>Variance alerting</li>
+        </ul>
+        <a class="btn-ghost" href="forge-signup-journey.html">Start Trial</a>
+      </div>
+    </div>
+    <p class="lede" style="margin-top:24px;font-size:13px;">Custody and Wallet are usage-based and provisioned alongside any plan &mdash; talk to sales for institutional volume pricing.</p>
+  </div>
+</section>
+
+<section id="proof">
+  <div class="container">
+    <div class="sec-head">
+      <div class="mono" style="margin-bottom:12px;">Customers</div>
+      <h2>Built for teams moving real money.</h2>
+    </div>
+    <div class="quote-grid">
+      <div class="quote">
+        <p>&ldquo;Payment failures dropped from 3% to 0.3% in the first month. The fallback chain just works.&rdquo;</p>
+        <div class="who">&mdash; SnapPay, Payments customer</div>
+      </div>
+      <div class="quote">
+        <p>&ldquo;Netting alone paid for the Treasury subscription in the first quarter.&rdquo;</p>
+        <div class="who">&mdash; Umuntu Group, Treasury customer</div>
+      </div>
+      <div class="quote">
+        <p>&ldquo;Dual-mode scoring caught risk our old bureau data completely missed.&rdquo;</p>
+        <div class="who">&mdash; AfroBiz Lending, Credit Bureau customer</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="closer">
+  <div class="container">
+    <h2>Ready to move onto one ontology?</h2>
+    <p class="lede">Start free on Payments. Expand into Custody, Wallet, Credit, and Treasury when you're ready — same login, same data, same account.</p>
+    <div class="actions">
+      <a class="btn-ink" style="background:var(--paper);color:var(--ink);border-color:var(--paper);" href="forge-signup-journey.html">Start Free Trial &rarr;</a>
+      <a class="btn-ghost on-ink" href="forge-console-preview.html">See the Console</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <div class="foot-grid">
+      <div>
+        <div class="wordmark" style="font-size:14px;">FORGE</div>
+        <p class="lede" style="font-size:13px;margin-top:12px;">The Revenue Ontology &mdash; one financial operating system across payments, custody, wallets, agent credit, and treasury.</p>
+      </div>
+      <div><h4>Platforms</h4><ul><li><a href="#platforms">Payments</a></li><li><a href="#platforms">Custody</a></li><li><a href="#platforms">Wallet</a></li></ul></div>
+      <div><h4>Products</h4><ul><li><a href="#platforms">Agent Credit Bureau</a></li><li><a href="#platforms">Enterprise Treasury</a></li><li><a href="#platforms">Credit Bureau</a></li></ul></div>
+      <div><h4>Resources</h4><ul><li><a href="#">Docs</a></li><li><a href="#">API Reference</a></li><li><a href="#">Security</a></li></ul></div>
+      <div><h4>Company</h4><ul><li><a href="#">About</a></li><li><a href="#">Contact</a></li><li><a href="mailto:support@forgepay.co.za">Support</a></li></ul></div>
+    </div>
+    <div class="foot-bottom">
+      <span class="mono">&copy; 2026 ForgePay (Pty) Ltd &middot; Johannesburg, South Africa</span>
+      <span class="mono">Custody: pilot / testnet volumes only — see Security</span>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
