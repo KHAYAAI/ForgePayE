@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FORGE — Component Dependency & Event-Flow Diagram</title>
+<style>
+  :root{
+    --paper:#F4F2EE; --paper-soft:#EFEBE3; --paper-deep:#ECE8E0;
+    --ink:#0A0A0A; --ink-2:#1A1A1A; --steel:#6F6A62; --steel-2:#8B8579;
+    --hair:#C9C3B7; --hair-dark:#2A2A2A; --accent:#00d1ff;
+    --ok:#1f7a4d; --warn:#a86a00; --danger:#b3261e;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{
+    background:var(--paper); color:var(--ink);
+    font-family:'Inter Tight',-apple-system,BlinkMacSystemFont,sans-serif;
+    line-height:1.5; padding:clamp(20px,4vw,56px);
+  }
+  .mono{font-family:'JetBrains Mono',ui-monospace,monospace;letter-spacing:1.2px;text-transform:uppercase;font-size:10px;color:var(--steel);}
+  header{max-width:1400px;margin:0 auto 28px;border-bottom:1px solid var(--ink);padding-bottom:22px;}
+  h1{font-weight:500;font-size:clamp(26px,4vw,42px);letter-spacing:-1.2px;line-height:0.98;}
+  h1 em{font-style:italic;font-weight:300;}
+  .sub{color:var(--steel);font-size:15px;margin-top:12px;max-width:70ch;}
+  .wrap{max-width:1400px;margin:0 auto;}
+
+  /* legend */
+  .legend{display:flex;flex-wrap:wrap;gap:18px;margin:22px 0 30px;align-items:center;}
+  .legkey{display:flex;align-items:center;gap:8px;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--steel);}
+  .swatch{width:26px;height:0;border-top-width:2px;border-top-style:solid;}
+  .swatch.call{border-color:var(--ink);}
+  .swatch.event{border-color:var(--accent);}
+  .swatch.async{border-color:var(--steel-2);border-top-style:dashed;}
+  .chip{width:13px;height:13px;border:1px solid var(--hair);display:inline-block;}
+  .chip.product{background:var(--ink);border-color:var(--ink);}
+  .chip.spine{background:var(--accent);border-color:var(--accent);}
+  .chip.support{background:var(--paper-deep);}
+  .chip.infra{background:var(--paper);border-style:dashed;}
+
+  /* diagram tiers */
+  .tier{border:1px solid var(--hair);background:var(--paper-soft);margin-bottom:20px;}
+  .tier-head{display:flex;justify-content:space-between;align-items:baseline;padding:11px 16px;border-bottom:1px solid var(--hair);gap:16px;flex-wrap:wrap;}
+  .tier-head h2{font-size:15px;font-weight:500;letter-spacing:-0.3px;}
+  .tier-body{padding:18px 16px;display:flex;flex-wrap:wrap;gap:14px;}
+
+  .node{
+    border:1px solid var(--hair);background:var(--paper);
+    padding:12px 14px;min-width:150px;flex:0 1 auto;position:relative;
+  }
+  .node .name{font-family:'JetBrains Mono',monospace;font-weight:700;font-size:12.5px;letter-spacing:0.4px;}
+  .node .role{font-size:11.5px;color:var(--steel);margin-top:4px;max-width:26ch;line-height:1.35;}
+  .node .port{position:absolute;top:9px;right:11px;font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--steel-2);}
+  .node.product{background:var(--ink);color:var(--paper);border-color:var(--ink);}
+  .node.product .role{color:rgba(244,242,238,0.7);}
+  .node.product .port{color:rgba(244,242,238,0.55);}
+  .node.spine{border-color:var(--accent);border-width:2px;}
+  .node.spine .name{color:#007e9b;}
+  .node.support{background:var(--paper-deep);}
+  .node.infra{background:var(--paper);border-style:dashed;color:var(--steel);}
+  .node.vendored{background:var(--paper);border-color:var(--hair-dark);}
+  .node .tag{display:inline-block;margin-top:8px;font-family:'JetBrains Mono',monospace;font-size:8.5px;letter-spacing:1px;text-transform:uppercase;border:1px solid currentColor;padding:1px 6px;opacity:0.6;}
+
+  /* flow tables */
+  .flows{margin-top:34px;}
+  .flows h2{font-size:20px;font-weight:500;letter-spacing:-0.5px;border-bottom:1px solid var(--ink);padding-bottom:10px;margin-bottom:0;}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:26px;}
+  th{font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:1.2px;text-transform:uppercase;color:var(--steel);text-align:left;padding:9px 12px;border-bottom:1px solid var(--ink);white-space:nowrap;}
+  td{padding:10px 12px;border-bottom:1px solid var(--hair);vertical-align:top;}
+  td.f{font-family:'JetBrains Mono',monospace;font-size:11.5px;letter-spacing:0;white-space:nowrap;}
+  .edge-call{color:var(--ink);font-weight:600;}
+  .edge-event{color:#007e9b;font-weight:600;}
+  .arrow{font-family:'JetBrains Mono',monospace;color:var(--steel);}
+
+  /* linear flow strips */
+  .strip{border:1px solid var(--hair);background:var(--paper);padding:16px;margin-bottom:16px;}
+  .strip .title{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:1.4px;text-transform:uppercase;color:var(--steel);margin-bottom:12px;}
+  .chain{display:flex;flex-wrap:wrap;align-items:center;gap:6px;}
+  .step{border:1px solid var(--ink);padding:6px 10px;font-family:'JetBrains Mono',monospace;font-size:11px;background:var(--paper);}
+  .step.prod{background:var(--ink);color:var(--paper);}
+  .step.acc{border-color:var(--accent);color:#007e9b;}
+  .sep{font-family:'JetBrains Mono',monospace;color:var(--steel-2);font-size:14px;}
+  .sep.ev{color:var(--accent);}
+  footer{max-width:1400px;margin:36px auto 0;padding-top:18px;border-top:1px solid var(--hair);color:var(--steel);font-size:12px;}
+  @media (prefers-color-scheme: dark){
+    :root{--paper:#0E0E0D;--paper-soft:#141413;--paper-deep:#1A1A18;--ink:#F1EEE7;--ink-2:#E4E0D8;--steel:#9A948A;--steel-2:#7C766C;--hair:#33322E;--hair-dark:#4A483F;}
+    .node.product{background:var(--ink);color:#0E0E0D;} .node.product .role{color:rgba(14,14,13,0.7);} .node.product .port{color:rgba(14,14,13,0.55);}
+    .step.prod{background:var(--ink);color:#0E0E0D;}
+  }
+  :root[data-theme="dark"]{--paper:#0E0E0D;--paper-soft:#141413;--paper-deep:#1A1A18;--ink:#F1EEE7;--steel:#9A948A;--hair:#33322E;}
+  :root[data-theme="light"]{--paper:#F4F2EE;--ink:#0A0A0A;--steel:#6F6A62;--hair:#C9C3B7;}
+</style>
+</head>
+<body>
+<header>
+  <div class="mono">FORGE / Architecture</div>
+  <h1>Component Dependency &amp; <em>Event-Flow</em> Map</h1>
+  <p class="sub">Which service calls which (solid), and how events propagate through the Revenue Ontology (cyan). 26 services across five tiers. Companion to <span class="mono" style="font-size:11px">PLATFORM_ARCHITECTURE.md</span>.</p>
+</header>
+
+<div class="wrap">
+
+  <div class="legend">
+    <span class="legkey"><span class="chip spine"></span>Shared spine</span>
+    <span class="legkey"><span class="chip product"></span>Product service</span>
+    <span class="legkey"><span class="chip support"></span>Supporting service</span>
+    <span class="legkey"><span class="chip infra"></span>Infra / data</span>
+    <span class="legkey"><span class="swatch call"></span>sync call (REST/gRPC)</span>
+    <span class="legkey"><span class="swatch event"></span>ontology event</span>
+    <span class="legkey"><span class="swatch async"></span>async / scheduled</span>
+  </div>
+
+  <!-- PRESENTATION -->
+  <div class="tier">
+    <div class="tier-head"><h2>Presentation</h2><span class="mono">browser · server-side proxy</span></div>
+    <div class="tier-body">
+      <div class="node"><div class="name">console</div><div class="role">Next.js 14 · 10 dashboards · useForge() polling</div><div class="tag">/api/forge/*</div></div>
+      <div class="node"><div class="name">marketing</div><div class="role">public site + merchant checkout</div></div>
+    </div>
+  </div>
+
+  <!-- PRODUCT -->
+  <div class="tier">
+    <div class="tier-head"><h2>Product services</h2><span class="mono">the six platforms</span></div>
+    <div class="tier-body">
+      <div class="node product"><span class="port">router</span><div class="name">Payments</div><div class="role">tier decision engine → wallet / optimal / custody</div></div>
+      <div class="node product"><span class="port">3019</span><div class="name">forge-custody</div><div class="role">4-of-7 threshold signing · policy · approvals</div><div class="tag">OpenFireblocks</div></div>
+      <div class="node product"><span class="port">3020</span><div class="name">forge-wallet</div><div class="role">seedless wallets · did:forge · social recovery</div><div class="tag">OpenPrivy</div></div>
+      <div class="node product"><span class="port">3018</span><div class="name">agent-credit-bureau</div><div class="role">FICO-style 0–1000 scoring for AI agents</div></div>
+      <div class="node product"><span class="port">3012</span><div class="name">enterprise-treasury</div><div class="role">consolidation · netting · sweeps · approval desk</div></div>
+      <div class="node product"><span class="port">—</span><div class="name">credit-bureau</div><div class="role">dual-mode merchant scoring (Mode 1 / Mode 2)</div></div>
+    </div>
+  </div>
+
+  <!-- SPINE -->
+  <div class="tier">
+    <div class="tier-head"><h2>Shared spine</h2><span class="mono">single source of truth</span></div>
+    <div class="tier-body">
+      <div class="node spine"><span class="port">8000</span><div class="name">unified-router</div><div class="role">event bus · verify → normalize → dedup → persist → fan-out</div></div>
+      <div class="node spine"><span class="port">postgres</span><div class="name">Revenue Ontology</div><div class="role">forgepay_events · append-only · every event once</div></div>
+    </div>
+  </div>
+
+  <!-- SUPPORTING -->
+  <div class="tier">
+    <div class="tier-head"><h2>Supporting services</h2><span class="mono">rails · compliance · yield · billing · agents</span></div>
+    <div class="tier-body">
+      <div class="node support"><span class="port">3006</span><div class="name">bank-connectivity</div><div class="role">Plaid + Open Banking rails</div></div>
+      <div class="node support"><span class="port">8004</span><div class="name">compliance-monitor</div><div class="role">OFAC/sanctions · fail-closed</div></div>
+      <div class="node support"><span class="port">KB</span><div class="name">billing-engine</div><div class="role">Kill Bill · subs + proration</div></div>
+      <div class="node support"><span class="port">—</span><div class="name">stablecoin-gateway</div><div class="role">USDC/USDT · Circle leg</div></div>
+      <div class="node support"><span class="port">—</span><div class="name">crypto-gateway</div><div class="role">BTC/ETH/LTC/XMR invoices</div></div>
+      <div class="node support"><span class="port">—</span><div class="name">yield-engine</div><div class="role">idle → DeFi yield vaults</div></div>
+      <div class="node support"><span class="port">3008</span><div class="name">rwa-registry</div><div class="role">tokenized T-bills / MMF</div></div>
+      <div class="node support"><span class="port">3017</span><div class="name">institutional-reporting</div><div class="role">CFO/auditor reports</div></div>
+      <div class="node support"><span class="port">—</span><div class="name">liquidity-forecaster</div><div class="role">cash-runway prediction</div></div>
+      <div class="node support"><span class="port">3010</span><div class="name">agent-identity</div><div class="role">DID + reputation</div></div>
+      <div class="node support"><span class="port">3016</span><div class="name">agent-credit-lines</div><div class="role">net-30/60/90 terms</div></div>
+      <div class="node support"><span class="port">3013</span><div class="name">agent-decision-framework</div><div class="role">risk / counterparty logic</div></div>
+      <div class="node support"><span class="port">3014</span><div class="name">agent-liquidity-manager</div><div class="role">agent portfolio sweeps</div></div>
+      <div class="node support"><span class="port">3011</span><div class="name">agent-negotiation</div><div class="role">offer/counter protocol</div></div>
+      <div class="node support"><span class="port">3015</span><div class="name">bank-whitelabel</div><div class="role">multi-tenant bank console</div></div>
+      <div class="node support"><span class="port">—</span><div class="name">mor-layer</div><div class="role">Polar · MoR checkout + tax</div></div>
+      <div class="node support"><span class="port">—</span><div class="name">chain-sync</div><div class="role">on-chain ↔ postgres</div></div>
+      <div class="node support"><span class="port">—</span><div class="name">email-service</div><div class="role">Redis async queue</div></div>
+    </div>
+  </div>
+
+  <!-- INFRA + VENDORED -->
+  <div class="tier">
+    <div class="tier-head"><h2>Infrastructure &amp; vendored cores</h2><span class="mono">data · keys · signing</span></div>
+    <div class="tier-body">
+      <div class="node infra"><div class="name">Postgres</div><div class="role">schema-per-service · multi-AZ</div></div>
+      <div class="node infra"><div class="name">Redis</div><div class="role">dedup cache · email queue</div></div>
+      <div class="node infra"><div class="name">Vault</div><div class="role">key material · vault_path refs</div></div>
+      <div class="node infra"><div class="name">immudb</div><div class="role">cryptographic audit ledger</div></div>
+      <div class="node vendored"><span class="port">8080</span><div class="name">mpc-signer</div><div class="role">Go · go-ethereum · real signing</div><div class="tag">vendored</div></div>
+    </div>
+  </div>
+
+  <!-- EVENT FLOWS -->
+  <div class="flows">
+    <h2>Key event flows</h2>
+
+    <div class="strip">
+      <div class="title">① Consumer / agent payment &nbsp;— &lt; $100K, wallet signs directly</div>
+      <div class="chain">
+        <span class="step">consumer/agent</span><span class="sep">→</span>
+        <span class="step prod">forge-wallet</span><span class="sep ev">⇒ wallet.transaction.confirmed</span>
+        <span class="step acc">unified-router</span><span class="sep ev">⇒</span>
+        <span class="step acc">Revenue Ontology</span><span class="sep ev">⇒</span>
+        <span class="step prod">agent-credit-bureau</span><span class="sep ev">⇒</span>
+        <span class="step prod">enterprise-treasury</span>
+      </div>
+    </div>
+
+    <div class="strip">
+      <div class="title">② Institutional / agent-credit draw &nbsp;— &gt; $1M, threshold signing</div>
+      <div class="chain">
+        <span class="step prod">Payments router</span><span class="sep">→</span>
+        <span class="step prod">forge-custody</span><span class="sep">→ policy</span>
+        <span class="step support">compliance-monitor</span><span class="sep">→ approve</span>
+        <span class="step">CFO + CEO</span><span class="sep">→ sign</span>
+        <span class="step vendored" style="border:1px solid var(--hair-dark);padding:6px 10px;font-family:'JetBrains Mono',monospace;font-size:11px;">mpc-signer</span><span class="sep ev">⇒ custody.signature.confirmed</span>
+        <span class="step acc">Ontology</span>
+      </div>
+    </div>
+
+    <div class="strip">
+      <div class="title">③ Agent-credit closed loop &nbsp;— the interconnection that is the moat</div>
+      <div class="chain">
+        <span class="step prod">agent (wallet)</span><span class="sep">needs &gt; line →</span>
+        <span class="step prod">agent-credit-bureau</span><span class="sep">extension req →</span>
+        <span class="step prod">enterprise-treasury</span><span class="sep">CFO approve →</span>
+        <span class="step prod">forge-custody</span><span class="sep">signs draw ⇒</span>
+        <span class="step acc">Ontology</span><span class="sep">→ score↑ →</span>
+        <span class="step prod">bigger line next time</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- EDGE TABLE -->
+  <div class="flows">
+    <h2>Dependency edges (who calls whom)</h2>
+    <table>
+      <thead><tr><th>From</th><th></th><th>To</th><th>Kind</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td class="f">console</td><td class="arrow">→</td><td class="f">/api/forge proxy → all product services</td><td><span class="edge-call">call</span></td><td>dashboard reads (server-side, secrets hidden)</td></tr>
+        <tr><td class="f">Payments router</td><td class="arrow">→</td><td class="f">forge-wallet / forge-custody</td><td><span class="edge-call">call</span></td><td>tier-based signing routing</td></tr>
+        <tr><td class="f">forge-wallet</td><td class="arrow">⇒</td><td class="f">unified-router</td><td><span class="edge-event">event</span></td><td>wallet.transaction.confirmed (HMAC)</td></tr>
+        <tr><td class="f">forge-custody</td><td class="arrow">→</td><td class="f">compliance-monitor</td><td><span class="edge-call">call</span></td><td>sanctions screen (fail-closed)</td></tr>
+        <tr><td class="f">forge-custody</td><td class="arrow">→</td><td class="f">mpc-signer (Go)</td><td><span class="edge-call">call</span></td><td>POST /sign → signed RLP tx</td></tr>
+        <tr><td class="f">forge-custody</td><td class="arrow">⇒</td><td class="f">unified-router</td><td><span class="edge-event">event</span></td><td>custody.signature.confirmed (HMAC + ts)</td></tr>
+        <tr><td class="f">agent-credit-bureau</td><td class="arrow">→</td><td class="f">forge-wallet</td><td><span class="edge-call">call</span></td><td>DID-by-address lookup</td></tr>
+        <tr><td class="f">agent-credit-bureau</td><td class="arrow">→</td><td class="f">enterprise-treasury</td><td><span class="edge-call">call</span></td><td>credit extension request</td></tr>
+        <tr><td class="f">enterprise-treasury</td><td class="arrow">→</td><td class="f">bank-connectivity</td><td><span class="edge-call">call</span></td><td>balance refresh (15 min)</td></tr>
+        <tr><td class="f">enterprise-treasury</td><td class="arrow">→</td><td class="f">yield-engine</td><td><span class="edge-call">call</span></td><td>sweep idle cash to yield</td></tr>
+        <tr><td class="f">unified-router</td><td class="arrow">⇒</td><td class="f">agent-credit-bureau · enterprise-treasury</td><td><span class="edge-event">event</span></td><td>ontology fan-out (score / cash updates)</td></tr>
+        <tr><td class="f">unified-router</td><td class="arrow">→</td><td class="f">Redis · Postgres</td><td><span class="edge-call">call</span></td><td>dedup + append-only persist</td></tr>
+        <tr><td class="f">payment-engine · billing · gateways</td><td class="arrow">⇒</td><td class="f">unified-router</td><td><span class="edge-event">event</span></td><td>payment / subscription / crypto events</td></tr>
+        <tr><td class="f">forge-custody</td><td class="arrow">→</td><td class="f">Vault · immudb</td><td><span class="edge-call">call</span></td><td>key shares · cryptographic audit</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+</div>
+
+<footer>
+  FORGE platform · generated architecture reference · branch claude/forgepay-platform-design-gEkgE ·
+  ⇒ = ontology event, → = synchronous call · Custody launches pilot/testnet until Phase-2 MPC audit clears.
+</footer>
+
+<script>
+  // honor a viewer theme toggle if the host stamps data-theme
+  (function(){ try{ var t=document.documentElement.getAttribute('data-theme'); }catch(e){} })();
+</script>
+</body>
+</html>
