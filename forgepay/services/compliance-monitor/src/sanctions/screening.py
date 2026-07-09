@@ -139,14 +139,24 @@ def normalize_name(name: str) -> str:
     """
     lower = name.lower().strip()
 
-    # Remove punctuation
-    no_punct = re.sub(r'[^\w\s]', ' ', lower)
+    # Apostrophes join a name rather than separate it — "O'Brien" must
+    # normalize to "obrien", not "o brien" (two tokens that would then be
+    # unmatchable against the single-token form on a sanctions list).
+    # Strip them before the general punctuation pass, which replaces
+    # everything else with a space (comma/period act as separators).
+    no_apostrophe = re.sub(r"['’]", '', lower)
+    no_punct = re.sub(r'[^\w\s]', ' ', no_apostrophe)
 
-    # Noise words to strip
+    # Noise words to strip: corporate entity-type suffixes and stopwords
+    # only. Words like "global", "solutions", "international", "group",
+    # "holdings" are part of what actually DISTINGUISHES one entity's name
+    # from another — stripping them collapses unrelated companies (e.g.
+    # every "X Solutions" or "Y International") down to the same
+    # normalized name, which is a false-positive/false-negative risk in
+    # sanctions matching, not a cleanup.
     noise = {
         'inc', 'llc', 'ltd', 'corp', 'co', 'company', 'corporation',
-        'limited', 'group', 'holding', 'holdings', 'international',
-        'enterprises', 'solutions', 'services', 'global', 'the', 'and',
+        'limited', 'the', 'and',
         'of', 'for', 'in', 'a', 'an', 'sa', 'ag', 'bv', 'gmbh', 'pte',
         'pty', 'plc', 'llp', 'lp', 'nv', 'spa', 'srl', 'sas', 'se',
         'inc.', 'llc.', 'ltd.', 'corp.', 'co.',

@@ -302,7 +302,7 @@ class OfacFeedManager:
                     list_type.value: {
                         "entry_count": metadata.entry_count,
                         "age_hours": round(age_h, 2),
-                        "hash": metadata.hash[:16],
+                        "hash": metadata.hash[:8],
                     }
                 }
             return {list_type.value: {"error": "not_loaded"}}
@@ -315,7 +315,7 @@ class OfacFeedManager:
                 response[lt.value] = {
                     "entry_count": metadata.entry_count,
                     "age_hours": round(age_h, 2),
-                    "hash": metadata.hash[:16],
+                    "hash": metadata.hash[:8],
                 }
             else:
                 response[lt.value] = {"error": "not_loaded"}
@@ -331,15 +331,25 @@ class OfacFeedManager:
         """Normalize name for matching: lowercase, remove punctuation, collapse spaces."""
         import re
         lower = name.lower().strip()
-        # Remove noise words (Inc, LLC, Ltd, etc.)
+
+        # Apostrophes join a name rather than separate it — "O'Brien" must
+        # normalize to "obrien", not "o brien" (see screening.py's
+        # normalize_name, which has the same fix for the same reason: two
+        # tokens would fail to match the single-token form on a watchlist).
+        no_apostrophe = re.sub(r"['’]", "", lower)
+
+        # Noise words: corporate entity-type suffixes and stopwords only.
+        # "global", "solutions", "international", "group", "holdings" etc.
+        # are part of what DISTINGUISHES one entity's name from another —
+        # stripping them collapses unrelated companies (every "X Solutions"
+        # or "Y International") to the same normalized name, which is a
+        # false-positive/false-negative risk in sanctions matching.
         noise = {"inc", "llc", "ltd", "corp", "co", "company", "corporation",
-                 "limited", "group", "holding", "holdings", "international",
-                 "enterprises", "solutions", "services", "global", "the", "and",
+                 "limited", "the", "and",
                  "of", "for", "in", "a", "an", "sa", "ag", "bv", "gmbh", "pte",
                  "pty", "plc", "llp", "lp", "nv", "spa", "srl", "sas"}
 
-        # Remove punctuation
-        no_punct = re.sub(r"[^\w\s]", " ", lower)
+        no_punct = re.sub(r"[^\w\s]", " ", no_apostrophe)
         tokens = [t for t in no_punct.split() if t and t not in noise]
         return " ".join(tokens)
 
@@ -375,15 +385,18 @@ class OfacFeedManager:
         """
         Parse OFAC CSV file into OfacEntry objects.
 
-        CSV format (no headers, fixed columns):
-          SDN.CSV: uid, ent_num, sdn_name, sdn_type, program (repeat), country, address
-          DPL.CSV: id, name, add_type, address
-          EEL.CSV: id, name, add_type, address
+        Column layout genuinely differs by list type (confirmed against the
+        real Treasury schema — see the field map in _parse_row):
+          SDN.CSV: uid, ent_num, sdn_name, sdn_type, program, ..., country, ...
+          DPL.CSV: name, address, country, effective_date  (no id column)
+          EEL.CSV: name, country, effective_date            (no id column)
 
-        This implementation assumes the Treasury CSV format with:
-          Col 0: UID/ID
-          Col 1+: Name (may span multiple columns)
-          (Other columns vary by list type)
+        Parsed by header name (csv.DictReader), not fixed positional
+        indices — a prior positional implementation (col0=uid, col1=name,
+        col2=country, col3=programs) silently mismapped every field for
+        SDN and DPL/EEL alike, since their real column orders don't agree
+        with each other or with that fixed scheme. Column name matching is
+        case-insensitive to tolerate header casing variation across feeds.
 
         Real-world parsing requires consulting Treasury docs:
           https://www.treasury.gov/ofac/downloads/ssi/ssi_schema.txt
@@ -391,25 +404,19 @@ class OfacFeedManager:
         entries: list[OfacEntry] = []
 
         try:
-            # Decode CSV
             text = csv_data.decode("utf-8", errors="replace")
-            reader = csv.reader(io.StringIO(text))
+            reader = csv.DictReader(io.StringIO(text))
 
             for row_num, row in enumerate(reader):
-                if row_num == 0:
-                    # Skip header if present
-                    if row and row[0].lower() in ("uid", "id", "ent_num"):
-                        continue
+                # Normalize header casing once per row so field lookups
+                # below are case-insensitive regardless of feed formatting.
+                normalized = {(k or "").strip().lower(): (v or "").strip() for k, v in row.items()}
 
-                if len(row) < 2:
-                    continue
-
-                # Parse row based on list type
                 try:
-                    entry = OfacFeedManager._parse_row(row, list_type)
+                    entry = OfacFeedManager._parse_row(normalized, list_type, row_num)
                     if entry:
                         entries.append(entry)
-                except (ValueError, IndexError) as e:
+                except (ValueError, IndexError, KeyError) as e:
                     logger.warning(
                         "ofac_feed.parse_error",
                         list_type=list_type.value,
@@ -434,35 +441,32 @@ class OfacFeedManager:
             raise
 
     @staticmethod
-    def _parse_row(row: list[str], list_type: ListType) -> OfacEntry | None:
+    def _parse_row(row: dict[str, str], list_type: ListType, row_num: int) -> OfacEntry | None:
         """
-        Parse a single CSV row into an OfacEntry.
-
-        Row format varies by list type. We use a simplified approach:
-          - Col 0: UID
-          - Col 1: Full Name (or first/last name pair)
-          - Optional cols: Country, Program, Address
-
-        Real implementation should validate against Treasury schema.
+        Parse a single CSV row (as a lowercase-keyed dict from DictReader)
+        into an OfacEntry, using the field names that actually appear for
+        each list type. Falls back to a synthetic uid (`{list_type}-{row}`)
+        when the feed has no id/uid column at all — true for the real DPL
+        and EEL formats, which identify entries by name, not a numeric id.
         """
-        if not row or len(row) < 2:
+        if list_type == ListType.SDN:
+            uid = row.get("uid") or row.get("ent_num") or ""
+            full_name = row.get("sdn_name") or row.get("name") or ""
+            country = row.get("country", "")
+            programs = [p.strip() for p in row.get("program", "").split(";") if p.strip()]
+            entity_type = row.get("sdn_type") or "Unknown"
+        else:
+            # DPL / EEL share the same simple {name, country, ...} shape.
+            uid = row.get("id") or row.get("uid") or ""
+            full_name = row.get("name") or ""
+            country = row.get("country", "")
+            programs = [p.strip() for p in row.get("program", "").split(";") if p.strip()]
+            entity_type = row.get("add_type") or "Entity"
+
+        if not full_name:
             return None
-
-        uid = row[0].strip()
-        full_name = row[1].strip() if len(row) > 1 else ""
-
-        if not uid or not full_name:
-            return None
-
-        # Extract additional fields (varies by list type)
-        country = ""
-        programs: list[str] = []
-
-        if len(row) > 2:
-            country = row[2].strip()
-        if len(row) > 3:
-            # Assume programs are in col 3, comma-separated
-            programs = [p.strip() for p in row[3].split(",") if p.strip()]
+        if not uid:
+            uid = f"{list_type.value}-{row_num}"
 
         return OfacEntry(
             uid=uid,
@@ -471,7 +475,7 @@ class OfacFeedManager:
             alt_names=[],
             programs=programs,
             country=country,
-            entity_type="Entity" if list_type != ListType.SDN else "Unknown",
+            entity_type=entity_type,
         )
 
     async def _store_in_cache(
