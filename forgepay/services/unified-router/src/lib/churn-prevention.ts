@@ -11,6 +11,7 @@
  */
 
 import { db } from '../db';
+import { createCrmTask, sendSlackAlert } from './notifications.js';
 
 export interface ChurnSignal {
   customerId: string;
@@ -203,8 +204,29 @@ async function detectCancellationRequests(): Promise<ChurnSignal[]> {
 
 async function notifyCSM(signal: ChurnSignal): Promise<void> {
   console.error(`[Churn Prevention] Notifying CSM of high-risk churn: ${signal.customerId}`);
-  // TODO: Create task in CSM CRM (Salesforce, Hubspot, etc.)
-  // TODO: Send Slack alert to #csm channel
+
+  const severityToPriority: Record<ChurnSignal['severity'], 'high' | 'normal' | 'low'> = {
+    high: 'high',
+    medium: 'normal',
+    low: 'low',
+  };
+
+  await Promise.all([
+    createCrmTask({
+      subjectId: signal.customerId,
+      title: `Churn risk (${signal.severity}) — ${signal.customerId}`,
+      description: `Product: ${signal.product}\nSignal: ${signal.signalType}\nReason: ${signal.reason}\nRecommended action: ${signal.recommendedAction}`,
+      priority: severityToPriority[signal.severity],
+      tags: ['churn', signal.product, signal.signalType],
+    }),
+    sendSlackAlert(
+      `:rotating_light: *Churn risk (${signal.severity})* — \`${signal.customerId}\` (${signal.product})\n` +
+        `Signal: ${signal.signalType}\n` +
+        `Reason: ${signal.reason}\n` +
+        `Recommended action: ${signal.recommendedAction}`,
+      { channel: '#csm' },
+    ),
+  ]);
 }
 
 export function getChurnSignals(): ChurnSignal[] {

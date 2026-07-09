@@ -10,6 +10,7 @@
  */
 
 import { db } from '../db';
+import { createCrmTask, sendSlackAlert } from './notifications.js';
 
 interface OnboardingStep {
   product: 'payments' | 'treasury' | 'credit-bureau';
@@ -142,11 +143,36 @@ async function activateFallbackFlow(product: string): Promise<void> {
     [product]
   );
 
-  console.info(`[Onboarding Monitor] Found ${stuckCustomers.rowCount} customers stuck on step 1`);
+  const stuckCount = stuckCustomers.rowCount ?? stuckCustomers.rows.length;
+  console.info(`[Onboarding Monitor] Found ${stuckCount} customers stuck on step 1`);
 
-  // TODO: Send "Need help?" email to each
-  // TODO: Enable Intercom live chat widget
-  // TODO: Create reminder: "CSM can help complete setup" (Day 3 if not completed)
+  if (stuckCount > 0) {
+    await sendSlackAlert(
+      `:warning: *Onboarding fallback flow activated* for \`${product}\` — ${stuckCount} customer(s) stuck on step 1.`,
+      { channel: '#csm' },
+    );
+
+    // One CRM reminder task per stuck customer — "CSM can help complete
+    // setup" per the Day-3 fallback playbook. Best-effort: a failed task
+    // for one customer shouldn't block reminders for the rest.
+    await Promise.all(
+      stuckCustomers.rows.map((row) =>
+        createCrmTask({
+          subjectId: row.customer_id as string,
+          title: `Onboarding stalled — ${row.customer_id}`,
+          description:
+            `Customer completed step 1 of the ${product} onboarding flow but hasn't reached step 2. ` +
+            `Offer a 15-minute guided walkthrough (Day-3 fallback playbook).`,
+          priority: 'normal',
+          tags: ['onboarding', product, 'fallback-flow'],
+        }),
+      ),
+    );
+  }
+
+  // Not yet wired — different systems than the Slack/CRM notifications above:
+  //   - "Need help?" email to each stuck customer: needs email-service integration.
+  //   - Intercom live chat widget: a frontend/product change, not a backend notification.
 }
 
 /**
