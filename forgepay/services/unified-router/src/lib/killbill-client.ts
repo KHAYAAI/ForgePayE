@@ -1,4 +1,6 @@
-import fetch from 'node-fetch';
+// Node 20 (the Docker runtime for this service) ships a native, global
+// `fetch` — no need for the node-fetch package (whose v3 is ESM-only and
+// cannot be `require()`'d from this CommonJS-compiled service anyway).
 
 const KILLBILL_URL = process.env['KILLBILL_URL'] || 'http://localhost:8080';
 const KILLBILL_API_KEY = process.env['KILLBILL_API_KEY'];

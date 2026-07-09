@@ -205,10 +205,7 @@ async function handleIncomingWebhook({
   }
 
   // 3. Idempotency check (Redis)
-  const isDuplicate = await deduplicateEvent(
-    (req.server as { redis: { get: (k: string) => Promise<string | null>; set: (k: string, v: string, ex: string, t: number) => Promise<void> } }).redis,
-    event.sourceEventId,
-  );
+  const isDuplicate = await deduplicateEvent(req.server.redis, event.sourceEventId);
   if (isDuplicate) {
     logger.debug({ eventId: event.id, sourceEventId: event.sourceEventId }, 'Duplicate event, skipping');
     reply.code(200).send({ received: true, processed: false, reason: 'duplicate' });
@@ -216,11 +213,10 @@ async function handleIncomingWebhook({
   }
 
   // 4. Persist event to Postgres
-  await persistEvent((req.server as { db: unknown }).db, event);
+  await persistEvent(req.server.db, event);
 
   // 5. Fan-out to merchant webhook endpoints (async — don't block ack)
-  const db = (req.server as { db: unknown }).db;
-  dispatchToMerchants(event, db as Parameters<typeof dispatchToMerchants>[1]).catch((err) =>
+  dispatchToMerchants(event, req.server.db).catch((err) =>
     logger.error({ err, eventId: event.id }, 'Merchant dispatch error'),
   );
 

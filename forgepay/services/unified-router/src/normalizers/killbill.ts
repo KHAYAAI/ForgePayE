@@ -7,7 +7,6 @@
  */
 
 import type { ForgePayEvent, EventType, SubscriptionEventData, InvoiceEventData } from '../types/events.js';
-import { fetchSubscription, fetchInvoice } from '../lib/killbill-client.js';
 
 interface KillBillNotification {
   eventType?:      string;
@@ -32,45 +31,42 @@ const EVENT_TYPE_MAP: Partial<Record<string, EventType>> = {
   OVERDUE_CHANGE:             'subscription.past_due',
 };
 
-export async function normalizeKillBillEvent(
+/**
+ * Normalizes a Kill Bill webhook notification to a canonical ForgePayEvent.
+ *
+ * Deliberately synchronous and enrichment-free: Kill Bill notification
+ * payloads don't carry planId/amount, so those fields are populated from
+ * `killbill-sync.ts`'s hourly reconciliation (which already fetches full
+ * subscription/invoice state via killbill-client.ts) rather than an inline
+ * API call on the webhook's hot path — a slow or down Kill Bill API must
+ * never block webhook ingestion.
+ */
+export function normalizeKillBillEvent(
   body: Record<string, unknown>,
-): Promise<ForgePayEvent | null> {
+): ForgePayEvent | null {
   const payload  = body as KillBillNotification;
   const eventType = EVENT_TYPE_MAP[payload.eventType ?? ''];
 
   if (!eventType) return null;
 
-  // Kill Bill uses tenantId as the per-merchant API key
-  const tenantApiKey = payload.tenantId ?? '';
-
   let data: SubscriptionEventData | InvoiceEventData;
 
   if (eventType.startsWith('subscription.')) {
-    // Enrich with Kill Bill subscription API (planName, chargedThroughDate)
-    const sub = payload.subscriptionId
-      ? await fetchSubscription(payload.subscriptionId, tenantApiKey)
-      : null;
-
     data = {
       subscriptionId:     payload.subscriptionId ?? '',
       customerId:         payload.accountId ?? '',
-      planId:             sub?.planName ?? '',
+      planId:             '',
       status:             mapSubscriptionStatus(eventType),
       currentPeriodStart: payload.eventDate ?? new Date().toISOString(),
-      currentPeriodEnd:   sub?.chargedThroughDate ?? '',
+      currentPeriodEnd:   '',
     } satisfies SubscriptionEventData;
   } else {
-    // Enrich with Kill Bill invoice API (amount, currency)
-    const invoice = payload.invoiceId
-      ? await fetchInvoice(payload.invoiceId, tenantApiKey)
-      : null;
-
     data = {
       invoiceId:  payload.invoiceId ?? '',
       customerId: payload.accountId ?? '',
       amount: {
-        value:    invoice ? invoice.amount.toFixed(2) : '0.00',
-        currency: invoice?.currency ?? 'USD',
+        value:    '0.00',
+        currency: 'USD',
       },
       status: mapInvoiceStatus(eventType),
     } satisfies InvoiceEventData;

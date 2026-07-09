@@ -23,7 +23,7 @@ const DEDUP_KEY_PREFIX  = 'fp:dedup:event:';
 
 interface RedisClient {
   get: (key: string) => Promise<string | null>;
-  set: (key: string, value: string, expiryMode: string, time: number) => Promise<unknown>;
+  set: (key: string, value: string, expiryMode: 'EX', time: number) => Promise<unknown>;
 }
 
 /**

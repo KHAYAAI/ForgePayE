@@ -34,7 +34,7 @@
  *   Health  :8000 /healthz /readyz
  */
 
-import Fastify from 'fastify';
+import Fastify, { FastifyRequest } from 'fastify';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import { buildWebhookRoutes } from './routes/webhooks.js';
@@ -42,7 +42,7 @@ import { buildPaymentRoutes } from './routes/payments.js';
 import { buildEventRoutes } from './routes/events.js';
 import { buildHealthRoutes } from './routes/health.js';
 import { createRedisClient } from './lib/redis.js';
-import { createDbPool } from './lib/db.js';
+import { pool as sharedPool } from './db/index.js';
 import { config } from './config.js';
 import { logger } from './lib/logger.js';
 
@@ -52,7 +52,31 @@ async function main() {
     trustProxy: true,
     requestIdHeader: 'x-request-id',
     genReqId: () => crypto.randomUUID(),
+    bodyLimit: 5 * 1024 * 1024, // 5MB — generous ceiling for webhook payloads
   });
+
+  // ── Raw body capture ──────────────────────────────────────────────────────
+  // webhooks.ts verifies each source's HMAC signature over the *exact* bytes
+  // received (verifyHmacSignature reads `req.rawBody`). Fastify's default
+  // JSON parser discards the raw buffer after parsing, so without this the
+  // buffer is always undefined and every webhook is rejected as
+  // "missing_signature" — this parser is what makes that verification real.
+  app.addContentTypeParser(
+    'application/json',
+    { parseAs: 'buffer' },
+    (req, body: Buffer, done) => {
+      (req as FastifyRequest & { rawBody?: Buffer }).rawBody = body;
+      if (body.length === 0) {
+        done(null, {});
+        return;
+      }
+      try {
+        done(null, JSON.parse(body.toString('utf8')));
+      } catch (err) {
+        done(err as Error, undefined);
+      }
+    },
+  );
 
   // ── Security ──────────────────────────────────────────────────────────────
   await app.register(helmet, {
@@ -68,7 +92,7 @@ async function main() {
 
   // ── Shared resources ──────────────────────────────────────────────────────
   const redis = createRedisClient(config.redis.url);
-  const db    = createDbPool(config.postgres);
+  const db    = sharedPool; // same pool ../db's tenant-scoped wrapper uses — one pool per process
 
   // Decorate so routes can access them
   app.decorate('redis', redis);

@@ -7,11 +7,12 @@
  */
 
 import { readdir, readFile } from 'node:fs/promises';
-import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import type { Pool } from 'pg';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+// This service compiles to CommonJS (no "type": "module" in package.json),
+// where __dirname is already a native global — no import.meta/fileURLToPath
+// ESM shim needed (and that shim doesn't compile under CJS output anyway).
 
 async function findMigrationsDir(): Promise<string> {
   const candidates = [
