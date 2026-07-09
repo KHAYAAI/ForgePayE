@@ -10,6 +10,13 @@ export const pool = new Pool({
   max: 10,
 });
 
+let ledgerDbReady = false;
+
+/** True once runMigrations() has completed successfully — gates persistAsync(). */
+export function isLedgerDbReady(): boolean {
+  return ledgerDbReady;
+}
+
 export async function runMigrations(): Promise<void> {
   const client = await pool.connect();
   try {
@@ -54,8 +61,46 @@ export async function runMigrations(): Promise<void> {
       );
 
       CREATE INDEX IF NOT EXISTS idx_escrow_session ON negotiation_escrows(session_id);
+
+      -- Escrow ledger: real internal per-agent balance accounting (see ledger.ts).
+      -- In-memory Maps are the source of truth for a running instance; these
+      -- tables are best-effort mirrors written fire-and-forget via persistAsync().
+      CREATE TABLE IF NOT EXISTS negotiation_agent_balances (
+        agent_id TEXT PRIMARY KEY,
+        balance_usd NUMERIC(20,2) NOT NULL DEFAULT 0,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS negotiation_ledger_entries (
+        id TEXT PRIMARY KEY,
+        action TEXT NOT NULL,
+        escrow_id TEXT,
+        from_agent_id TEXT,
+        to_agent_id TEXT,
+        amount_usd NUMERIC(20,2) NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_ledger_escrow ON negotiation_ledger_entries(escrow_id);
+      CREATE INDEX IF NOT EXISTS idx_ledger_from_agent ON negotiation_ledger_entries(from_agent_id);
+      CREATE INDEX IF NOT EXISTS idx_ledger_to_agent ON negotiation_ledger_entries(to_agent_id);
     `);
+    ledgerDbReady = true;
   } finally {
     client.release();
   }
+}
+
+/**
+ * Fire-and-forget persistence for the escrow ledger, matching the idiom used
+ * by forge-custody and enterprise-treasury: a no-op until migrations have
+ * succeeded, so the service (and the test suite) work fully in-memory without
+ * a reachable Postgres. Failures are logged, never thrown — the in-memory
+ * ledger Maps remain the source of truth for a running instance.
+ */
+export function persistAsync(sql: string, params: unknown[]): void {
+  if (!ledgerDbReady) return;
+  pool.query(sql, params).catch((err) => {
+    console.warn('[agent-negotiation] best-effort ledger persistence failed:', (err as Error).message);
+  });
 }

@@ -48,6 +48,33 @@ export interface Escrow {
   status: EscrowStatus;
   fundedAt?: string;
   releasedAt?: string;
+  refundedAt?: string;
   disputeReason?: string;
+  createdAt: string;
+}
+
+// ── Escrow ledger ─────────────────────────────────────────────────────────────
+// Internal per-agent balance accounting. See escrow.ts / ledger.ts module
+// comments for exactly what this covers (a real internal ledger) and what it
+// does not (on-chain settlement — not wired yet).
+
+export type LedgerAction = 'deposit' | 'lock' | 'release' | 'refund';
+
+/**
+ * A single attributable balance mutation.
+ *  - 'deposit': toAgentId credited, fromAgentId null (funds enter the ledger
+ *    from outside — see the admin/test-only deposit endpoint).
+ *  - 'lock':    fromAgentId debited, toAgentId null (funds move into escrow
+ *    custody).
+ *  - 'release'/'refund': toAgentId credited, fromAgentId null (funds move out
+ *    of escrow custody to the counterparty or back to the funder).
+ */
+export interface LedgerEntry {
+  id: string;
+  action: LedgerAction;
+  escrowId: string | null;
+  fromAgentId: string | null;
+  toAgentId: string | null;
+  amountUsd: number;
   createdAt: string;
 }

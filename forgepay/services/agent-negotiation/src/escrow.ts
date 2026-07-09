@@ -2,15 +2,27 @@
  * Escrow management — create, fund, release, refund, and dispute escrows
  * linked to negotiation sessions.
  *
- * Note: fund/release/refund are stubs in this version.
- * Production: integrate with stablecoin-gateway (port 3002) to lock/release funds on-chain.
+ * fund/release/refund are backed by a REAL internal ledger (see ledger.ts):
+ * agents hold a tracked USD balance in this service, funding an escrow debits
+ * the buyer's balance (rejecting cleanly on insufficient funds — no negative
+ * balances), and release/refund credit the counterparty exactly once each,
+ * enforced by the status guards below (only a 'funded' escrow may transition
+ * to 'released' or 'refunded', so double-release / double-refund / release-
+ * after-refund / refund-after-release all fail cleanly rather than double-pay).
+ *
+ * What this does NOT do: move real money on-chain. The ledger is an internal
+ * IOU system scoped to this service — balances are credited via the
+ * admin/test-only deposit endpoint, not from any live USDC/USDT rail.
+ * Integrating actual on-chain settlement (via FORGE Wallet, or a future
+ * stablecoin-gateway escrow API — stablecoin-gateway currently exposes no
+ * lock/release/refund endpoints at all) is the next integration step, not
+ * yet wired.
  */
 
 import { v4 as uuidv4 } from 'uuid';
 import type { Escrow } from './types';
 import { getEscrow, setEscrow, getSession, setSession } from './store';
-
-const STABLECOIN_GATEWAY_URL = process.env['STABLECOIN_GATEWAY_URL'] ?? 'http://localhost:3002';
+import { lock as lockLedger, release as releaseLedger, refund as refundLedger } from './ledger';
 
 // ── Create Escrow ─────────────────────────────────────────────────────────────
 
@@ -56,11 +68,12 @@ export async function fundEscrow(escrowId: string): Promise<Escrow | { error: st
     return { error: `Escrow cannot be funded — current status: ${escrow.status}` };
   }
 
-  // Stub: in production, call stablecoin-gateway to lock funds on-chain
-  console.log(
-    `[escrow] STUB: Would call ${STABLECOIN_GATEWAY_URL}/v1/lock to lock ` +
-    `${escrow.amountUsd} ${escrow.asset} on ${escrow.chain} for session ${escrow.sessionId}`
-  );
+  // Debit the buyer's tracked ledger balance. Rejects cleanly (no mutation,
+  // no negative balance) if the buyer doesn't have enough — see ledger.ts.
+  const lockResult = lockLedger(escrow.id, escrow.buyerAgentId, escrow.amountUsd);
+  if (!lockResult.ok) {
+    return { error: lockResult.error };
+  }
 
   const updated: Escrow = {
     ...escrow,
@@ -76,15 +89,16 @@ export async function fundEscrow(escrowId: string): Promise<Escrow | { error: st
 export async function releaseEscrow(escrowId: string, settlementTxId?: string): Promise<Escrow | { error: string }> {
   const escrow = await getEscrow(escrowId);
   if (!escrow) return { error: `Escrow ${escrowId} not found` };
+  // This status guard is what makes release idempotent: once an escrow has
+  // moved to 'released' or 'refunded' it is no longer 'funded', so a second
+  // release call (or a release after a refund) is rejected here — before any
+  // ledger credit happens.
   if (escrow.status !== 'funded') {
     return { error: `Escrow cannot be released — current status: ${escrow.status}` };
   }
 
-  // Stub: in production, call stablecoin-gateway to release funds to seller
-  console.log(
-    `[escrow] STUB: Would call ${STABLECOIN_GATEWAY_URL}/v1/release to send ` +
-    `${escrow.amountUsd} ${escrow.asset} to seller agent ${escrow.sellerAgentId}`
-  );
+  // Credit the seller's tracked ledger balance from escrow custody.
+  releaseLedger(escrow.id, escrow.sellerAgentId, escrow.amountUsd);
 
   const now     = new Date().toISOString();
   const updated: Escrow = {
@@ -108,19 +122,19 @@ export async function releaseEscrow(escrowId: string, settlementTxId?: string): 
 export async function refundEscrow(escrowId: string, reason: string): Promise<Escrow | { error: string }> {
   const escrow = await getEscrow(escrowId);
   if (!escrow) return { error: `Escrow ${escrowId} not found` };
+  // Same idempotency guard as releaseEscrow: only a 'funded' escrow can be
+  // refunded, so double-refund and refund-after-release are rejected here.
   if (escrow.status !== 'funded') {
     return { error: `Escrow cannot be refunded — current status: ${escrow.status}` };
   }
 
-  // Stub: in production, call stablecoin-gateway to refund buyer
-  console.log(
-    `[escrow] STUB: Would call ${STABLECOIN_GATEWAY_URL}/v1/refund to return ` +
-    `${escrow.amountUsd} ${escrow.asset} to buyer agent ${escrow.buyerAgentId}. Reason: ${reason}`
-  );
+  // Credit the original funding agent's (buyer's) balance back from escrow custody.
+  refundLedger(escrow.id, escrow.buyerAgentId, escrow.amountUsd);
 
   const updated: Escrow = {
     ...escrow,
-    status: 'refunded',
+    status:     'refunded',
+    refundedAt: new Date().toISOString(),
   };
   await setEscrow(updated);
   return updated;

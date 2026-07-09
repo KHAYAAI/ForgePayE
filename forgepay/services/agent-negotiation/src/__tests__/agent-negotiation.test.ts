@@ -4,6 +4,11 @@
  * Uses Fastify's built-in app.inject() to exercise HTTP routes without
  * binding to a real port. The apiKeyAuth plugin allows any non-empty
  * key in non-production mode, so all non-health requests carry 'x-api-key'.
+ *
+ * Escrow-ledger tests use per-test agent ids (rather than the shared
+ * 'agent-buyer-1' / 'agent-seller-1' defaults) so that balance assertions
+ * don't depend on test execution order — the ledger's in-memory balances
+ * persist for the lifetime of the single `app` built in beforeAll.
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -71,6 +76,25 @@ async function createEscrow(
     throw new Error(`createEscrow failed: ${res.statusCode} ${res.body}`);
   }
   return res.json<{ data: { id: string } }>().data.id;
+}
+
+/** Deposits into an agent's internal ledger balance via the admin/test-only endpoint. */
+async function depositBalance(app: FastifyApp, agentId: string, amountUsd: number): Promise<void> {
+  const res = await app.inject({
+    method:  'POST',
+    url:     `/v1/agents/${agentId}/balance/deposit`,
+    headers: AUTH,
+    payload: { amountUsd },
+  });
+  if (res.statusCode !== 201) {
+    throw new Error(`depositBalance failed: ${res.statusCode} ${res.body}`);
+  }
+}
+
+/** Reads an agent's current ledger balance. */
+async function getBalance(app: FastifyApp, agentId: string): Promise<number> {
+  const res = await app.inject({ method: 'GET', url: `/v1/agents/${agentId}/balance`, headers: AUTH });
+  return res.json<{ data: { balanceUsd: number } }>().data.balanceUsd;
 }
 
 // ── Suite ─────────────────────────────────────────────────────────────────────
@@ -452,9 +476,14 @@ describe('Agent Negotiation Protocol', () => {
 
   // ── POST /v1/escrow/:id/fund ──────────────────────────────────────────────
 
-  it('POST /v1/escrow/:id/fund funds the escrow (stub)', async () => {
-    const sessionId = await createSession(app);
-    const escrowId  = await createEscrow(app, sessionId, { amountUsd: 750, asset: 'USDT', chain: 'ethereum' });
+  it('POST /v1/escrow/:id/fund debits the buyer ledger balance and marks the escrow funded', async () => {
+    const buyer      = 'agent-buyer-fund-1';
+    const sessionId  = await createSession(app, { initiatorAgentId: buyer });
+    const escrowId   = await createEscrow(app, sessionId, {
+      buyerAgentId: buyer, amountUsd: 750, asset: 'USDT', chain: 'ethereum',
+    });
+
+    await depositBalance(app, buyer, 1000);
 
     const res = await app.inject({
       method:  'POST',
@@ -466,15 +495,45 @@ describe('Agent Negotiation Protocol', () => {
     const body = res.json<{ data: { status: string; fundedAt: string } }>();
     expect(body.data.status).toBe('funded');
     expect(typeof body.data.fundedAt).toBe('string');
+    expect(await getBalance(app, buyer)).toBe(250); // 1000 deposited - 750 locked
+  });
+
+  it('POST /v1/escrow/:id/fund rejects with a clean error when the buyer balance is insufficient', async () => {
+    const buyer      = 'agent-buyer-poor-1';
+    const sessionId  = await createSession(app, { initiatorAgentId: buyer });
+    const escrowId   = await createEscrow(app, sessionId, { buyerAgentId: buyer, amountUsd: 500 });
+
+    // No deposit made — buyer balance is 0.
+    const res = await app.inject({
+      method:  'POST',
+      url:     `/v1/escrow/${escrowId}/fund`,
+      headers: AUTH,
+    });
+
+    expect(res.statusCode).toBe(422);
+    const body = res.json<{ error: string; message: string }>();
+    expect(body.error).toBe('EscrowError');
+    expect(body.message).toMatch(/insufficient balance/i);
+
+    // Balance must not have gone negative or been mutated.
+    expect(await getBalance(app, buyer)).toBe(0);
+
+    // The escrow itself must remain 'pending' — the lock never happened.
+    const escrowRes = await app.inject({ method: 'GET', url: `/v1/escrow/${escrowId}`, headers: AUTH });
+    expect(escrowRes.json<{ data: { status: string } }>().data.status).toBe('pending');
   });
 
   // ── POST /v1/escrow/:id/release ───────────────────────────────────────────
 
-  it('POST /v1/escrow/:id/release releases escrow to seller', async () => {
-    const sessionId = await createSession(app);
-    const escrowId  = await createEscrow(app, sessionId, { amountUsd: 1000, chain: 'polygon' });
+  it('POST /v1/escrow/:id/release releases escrow to seller and credits the seller ledger', async () => {
+    const buyer      = 'agent-buyer-release-1';
+    const seller     = 'agent-seller-release-1';
+    const sessionId  = await createSession(app, { initiatorAgentId: buyer });
+    const escrowId   = await createEscrow(app, sessionId, {
+      buyerAgentId: buyer, sellerAgentId: seller, amountUsd: 1000, chain: 'polygon',
+    });
 
-    // Fund first
+    await depositBalance(app, buyer, 1000);
     await app.inject({ method: 'POST', url: `/v1/escrow/${escrowId}/fund`, headers: AUTH });
 
     const releaseRes = await app.inject({
@@ -488,6 +547,9 @@ describe('Agent Negotiation Protocol', () => {
     const body = releaseRes.json<{ data: { status: string; releasedAt: string } }>();
     expect(body.data.status).toBe('released');
     expect(typeof body.data.releasedAt).toBe('string');
+
+    expect(await getBalance(app, buyer)).toBe(0);    // locked away, never returned
+    expect(await getBalance(app, seller)).toBe(1000); // credited on release
   });
 
   it('POST /v1/escrow/:id/release on un-funded escrow returns 422', async () => {
@@ -504,14 +566,56 @@ describe('Agent Negotiation Protocol', () => {
     expect(res.statusCode).toBe(422);
   });
 
+  it('POST /v1/escrow/:id/release twice (double-release) fails cleanly on the second call', async () => {
+    const buyer      = 'agent-buyer-double-release-1';
+    const seller     = 'agent-seller-double-release-1';
+    const sessionId  = await createSession(app, { initiatorAgentId: buyer });
+    const escrowId   = await createEscrow(app, sessionId, { buyerAgentId: buyer, sellerAgentId: seller, amountUsd: 400 });
+
+    await depositBalance(app, buyer, 400);
+    await app.inject({ method: 'POST', url: `/v1/escrow/${escrowId}/fund`, headers: AUTH });
+
+    const first = await app.inject({ method: 'POST', url: `/v1/escrow/${escrowId}/release`, headers: AUTH, payload: {} });
+    expect(first.statusCode).toBe(200);
+
+    const second = await app.inject({ method: 'POST', url: `/v1/escrow/${escrowId}/release`, headers: AUTH, payload: {} });
+    expect(second.statusCode).toBe(422);
+    expect(second.json<{ error: string }>().error).toBe('EscrowError');
+
+    // Seller must only have been paid once, not twice.
+    expect(await getBalance(app, seller)).toBe(400);
+  });
+
+  it('POST /v1/escrow/:id/release after a refund fails cleanly (no double-pay)', async () => {
+    const buyer      = 'agent-buyer-release-after-refund-1';
+    const seller     = 'agent-seller-release-after-refund-1';
+    const sessionId  = await createSession(app, { initiatorAgentId: buyer });
+    const escrowId   = await createEscrow(app, sessionId, { buyerAgentId: buyer, sellerAgentId: seller, amountUsd: 150 });
+
+    await depositBalance(app, buyer, 150);
+    await app.inject({ method: 'POST', url: `/v1/escrow/${escrowId}/fund`, headers: AUTH });
+    await app.inject({ method: 'POST', url: `/v1/escrow/${escrowId}/refund`, headers: AUTH, payload: {} });
+
+    const releaseAfterRefund = await app.inject({
+      method: 'POST', url: `/v1/escrow/${escrowId}/release`, headers: AUTH, payload: {},
+    });
+    expect(releaseAfterRefund.statusCode).toBe(422);
+
+    // Buyer got the refund; seller must never be paid.
+    expect(await getBalance(app, buyer)).toBe(150);
+    expect(await getBalance(app, seller)).toBe(0);
+  });
+
   // ── POST /v1/escrow/:id/refund ────────────────────────────────────────────
 
-  it('POST /v1/escrow/:id/refund refunds escrow to buyer', async () => {
-    const sessionId = await createSession(app);
-    const escrowId  = await createEscrow(app, sessionId, { amountUsd: 200, asset: 'USDT' });
+  it('POST /v1/escrow/:id/refund refunds escrow to buyer and credits the buyer ledger', async () => {
+    const buyer      = 'agent-buyer-refund-1';
+    const sessionId  = await createSession(app, { initiatorAgentId: buyer });
+    const escrowId   = await createEscrow(app, sessionId, { buyerAgentId: buyer, amountUsd: 200, asset: 'USDT' });
 
-    // Fund first
+    await depositBalance(app, buyer, 200);
     await app.inject({ method: 'POST', url: `/v1/escrow/${escrowId}/fund`, headers: AUTH });
+    expect(await getBalance(app, buyer)).toBe(0);
 
     const refundRes = await app.inject({
       method:  'POST',
@@ -523,6 +627,85 @@ describe('Agent Negotiation Protocol', () => {
     expect(refundRes.statusCode).toBe(200);
     const body = refundRes.json<{ data: { status: string } }>();
     expect(body.data.status).toBe('refunded');
+    expect(await getBalance(app, buyer)).toBe(200); // restored in full
+  });
+
+  it('POST /v1/escrow/:id/refund twice (double-refund) fails cleanly on the second call', async () => {
+    const buyer      = 'agent-buyer-double-refund-1';
+    const sessionId  = await createSession(app, { initiatorAgentId: buyer });
+    const escrowId   = await createEscrow(app, sessionId, { buyerAgentId: buyer, amountUsd: 90 });
+
+    await depositBalance(app, buyer, 90);
+    await app.inject({ method: 'POST', url: `/v1/escrow/${escrowId}/fund`, headers: AUTH });
+
+    const first = await app.inject({ method: 'POST', url: `/v1/escrow/${escrowId}/refund`, headers: AUTH, payload: {} });
+    expect(first.statusCode).toBe(200);
+
+    const second = await app.inject({ method: 'POST', url: `/v1/escrow/${escrowId}/refund`, headers: AUTH, payload: {} });
+    expect(second.statusCode).toBe(422);
+    expect(second.json<{ error: string }>().error).toBe('EscrowError');
+
+    // Buyer must only have been refunded once, not twice.
+    expect(await getBalance(app, buyer)).toBe(90);
+  });
+
+  it('POST /v1/escrow/:id/refund after a release fails cleanly (no double-pay)', async () => {
+    const buyer      = 'agent-buyer-refund-after-release-1';
+    const seller     = 'agent-seller-refund-after-release-1';
+    const sessionId  = await createSession(app, { initiatorAgentId: buyer });
+    const escrowId   = await createEscrow(app, sessionId, { buyerAgentId: buyer, sellerAgentId: seller, amountUsd: 60 });
+
+    await depositBalance(app, buyer, 60);
+    await app.inject({ method: 'POST', url: `/v1/escrow/${escrowId}/fund`, headers: AUTH });
+    await app.inject({ method: 'POST', url: `/v1/escrow/${escrowId}/release`, headers: AUTH, payload: {} });
+
+    const refundAfterRelease = await app.inject({
+      method: 'POST', url: `/v1/escrow/${escrowId}/refund`, headers: AUTH, payload: {},
+    });
+    expect(refundAfterRelease.statusCode).toBe(422);
+
+    // Seller got paid; buyer must never be refunded on top of that.
+    expect(await getBalance(app, seller)).toBe(60);
+    expect(await getBalance(app, buyer)).toBe(0);
+  });
+
+  // ── Escrow ledger — deposit & audit trail ─────────────────────────────────
+
+  it('POST /v1/agents/:agentId/balance/deposit credits balance and GET reflects it plus an audit trail', async () => {
+    const agentId = 'agent-ledger-audit-1';
+
+    const depositRes = await app.inject({
+      method:  'POST',
+      url:     `/v1/agents/${agentId}/balance/deposit`,
+      headers: AUTH,
+      payload: { amountUsd: 42.5 },
+    });
+    expect(depositRes.statusCode).toBe(201);
+    const depositBody = depositRes.json<{ data: { agentId: string; balanceUsd: number } }>();
+    expect(depositBody.data.agentId).toBe(agentId);
+    expect(depositBody.data.balanceUsd).toBe(42.5);
+
+    const balanceRes = await app.inject({ method: 'GET', url: `/v1/agents/${agentId}/balance`, headers: AUTH });
+    expect(balanceRes.statusCode).toBe(200);
+    const balanceBody = balanceRes.json<{
+      data: { agentId: string; balanceUsd: number; ledger: Array<{ action: string; amountUsd: number; toAgentId: string | null }> };
+    }>();
+    expect(balanceBody.data.balanceUsd).toBe(42.5);
+    expect(balanceBody.data.ledger.length).toBeGreaterThanOrEqual(1);
+    expect(balanceBody.data.ledger[0]?.action).toBe('deposit');
+    expect(balanceBody.data.ledger[0]?.amountUsd).toBe(42.5);
+    expect(balanceBody.data.ledger[0]?.toAgentId).toBe(agentId);
+  });
+
+  it('POST /v1/agents/:agentId/balance/deposit with a non-positive amount returns 400', async () => {
+    const res = await app.inject({
+      method:  'POST',
+      url:     `/v1/agents/agent-ledger-bad-1/balance/deposit`,
+      headers: AUTH,
+      payload: { amountUsd: -5 },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json<{ error: string }>().error).toBe('ValidationError');
   });
 
   // ── POST /v1/escrow/:id/dispute ───────────────────────────────────────────

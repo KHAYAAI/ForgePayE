@@ -46,6 +46,7 @@ function rowToEscrow(row: Record<string, unknown>): Escrow {
     status:        row['status'] as Escrow['status'],
     fundedAt:      row['funded_at'] ? (row['funded_at'] as Date).toISOString() : undefined,
     releasedAt:    row['released_at'] ? (row['released_at'] as Date).toISOString() : undefined,
+    refundedAt:    row['refunded_at'] ? (row['refunded_at'] as Date).toISOString() : undefined,
     disputeReason: row['dispute_reason'] as string | undefined,
     createdAt:     (row['created_at'] as Date).toISOString(),
   };
@@ -329,12 +330,13 @@ export async function setEscrow(escrow: Escrow): Promise<Escrow> {
   await pool.query(
     `INSERT INTO negotiation_escrows
        (id, session_id, buyer_agent_id, seller_agent_id, amount_usd, asset, chain,
-        status, funded_at, released_at, dispute_reason, created_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+        status, funded_at, released_at, refunded_at, dispute_reason, created_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
      ON CONFLICT (id) DO UPDATE SET
        status         = EXCLUDED.status,
        funded_at      = EXCLUDED.funded_at,
        released_at    = EXCLUDED.released_at,
+       refunded_at    = EXCLUDED.refunded_at,
        dispute_reason = EXCLUDED.dispute_reason`,
     [
       escrow.id,
@@ -347,6 +349,7 @@ export async function setEscrow(escrow: Escrow): Promise<Escrow> {
       escrow.status,
       escrow.fundedAt ?? null,
       escrow.releasedAt ?? null,
+      escrow.refundedAt ?? null,
       escrow.disputeReason ?? null,
       escrow.createdAt,
     ]

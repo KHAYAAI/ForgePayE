@@ -16,22 +16,28 @@
  *   POST /v1/sessions/:id/reject             — reject negotiation (shortcut)
  *   GET  /v1/sessions/:id/agreed-terms       — get final agreed terms
  *   POST /v1/escrow                          — create escrow linked to session
- *   POST /v1/escrow/:id/fund                 — fund escrow (stub)
- *   POST /v1/escrow/:id/release              — release escrow to seller
- *   POST /v1/escrow/:id/refund               — refund to buyer
+ *   POST /v1/escrow/:id/fund                 — fund escrow (debits buyer's ledger balance)
+ *   POST /v1/escrow/:id/release              — release escrow to seller (credits ledger)
+ *   POST /v1/escrow/:id/refund               — refund to buyer (credits ledger)
  *   POST /v1/escrow/:id/dispute              — open dispute
  *   GET  /v1/escrow/:id                      — get escrow status
+ *   POST /v1/agents/:agentId/balance/deposit — ADMIN/TEST/INTERNAL: credit an agent's
+ *                                               internal ledger balance (see ledger.ts —
+ *                                               real on-chain funding is not wired yet)
+ *   GET  /v1/agents/:agentId/balance         — current ledger balance + audit trail
  */
 
 import Fastify, { type FastifyError } from 'fastify';
 import helmet from '@fastify/helmet';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
+import { z } from 'zod';
 import apiKeyAuth from './plugins/api-key-auth';
 
 import { getSession, listSessions, getEscrow, initStore } from './store';
 import { createSession, addMessage, getAgreedTerms, isExpired } from './negotiation';
 import { createEscrow, fundEscrow, releaseEscrow, refundEscrow, disputeEscrow } from './escrow';
+import { deposit as depositAgentBalance, getBalance, getLedgerEntries } from './ledger';
 import type { NegotiationSession, NegotiationTerm, MessageRole } from './types';
 
 // ── Configuration ─────────────────────────────────────────────────────────────
@@ -288,7 +294,7 @@ async function buildApp() {
 
   // ── POST /v1/escrow/:id/fund — Fund escrow ────────────────────────────────
   app.post<{ Params: { id: string } }>('/v1/escrow/:id/fund', async (req, reply) => {
-    app.log.info({ escrowId: req.params.id }, '[agent-negotiation] Escrow fund requested — stub call to stablecoin-gateway');
+    app.log.info({ escrowId: req.params.id }, '[agent-negotiation] Escrow fund requested — debiting buyer ledger balance');
     const result = await fundEscrow(req.params.id);
     if ('error' in result) {
       const status = result.error.includes('not found') ? 404 : 422;
@@ -343,6 +349,46 @@ async function buildApp() {
       return reply.status(404).send({ error: 'NotFound', message: `Escrow ${req.params.id} not found` });
     }
     return reply.send({ data: escrow });
+  });
+
+  // ── POST /v1/agents/:agentId/balance/deposit — Deposit (ADMIN/TEST/INTERNAL) ─
+  // Credits an agent's internal escrow-ledger balance. Real on-chain funding
+  // is NOT wired yet (see escrow.ts / ledger.ts module comments) — this
+  // exists purely so the ledger's lock/release/refund accounting is
+  // testable end-to-end. This is an internal/admin operation: it is gated
+  // by the same shared API key as every other route here, which is NOT
+  // sufficient authorization for a production money-movement endpoint.
+  const depositSchema = z.object({
+    amountUsd: z.number().positive().finite(),
+  });
+
+  app.post<{ Params: { agentId: string } }>('/v1/agents/:agentId/balance/deposit', async (req, reply) => {
+    const parsed = depositSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.status(400).send({
+        error:   'ValidationError',
+        message: 'amountUsd is required and must be a positive finite number',
+        detail:  parsed.error.flatten(),
+      });
+    }
+
+    const result = depositAgentBalance(req.params.agentId, parsed.data.amountUsd);
+    app.log.info(
+      { agentId: req.params.agentId, amountUsd: parsed.data.amountUsd },
+      '[agent-negotiation] Agent ledger balance deposit (admin/test/internal — not real on-chain funding)'
+    );
+    return reply.status(201).send({ data: result });
+  });
+
+  // ── GET /v1/agents/:agentId/balance — Current balance + audit trail ──────
+  app.get<{ Params: { agentId: string } }>('/v1/agents/:agentId/balance', async (req, reply) => {
+    return reply.send({
+      data: {
+        agentId:    req.params.agentId,
+        balanceUsd: getBalance(req.params.agentId),
+        ledger:     getLedgerEntries(req.params.agentId),
+      },
+    });
   });
 
   // ── Error handlers ─────────────────────────────────────────────────────────
