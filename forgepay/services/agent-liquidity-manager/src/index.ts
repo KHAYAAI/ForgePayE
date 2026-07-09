@@ -25,6 +25,7 @@
 import Fastify, { FastifyError } from 'fastify';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
+import { runMigrations } from './db';
 import helmet from '@fastify/helmet';
 import { z } from 'zod';
 
@@ -39,6 +40,9 @@ import {
   appendHistory,
   getHistory,
   listAllWallets,
+  executeRebalancePlan,
+  debitAssetClassAcrossWallets,
+  creditAssetToAgent,
 } from './store';
 import {
   computeRebalance,
@@ -274,18 +278,32 @@ async function buildApp() {
 
       const execute = (req.query as { execute?: string }).execute === 'true';
       if (execute) {
-        for (const a of actions) {
-          a.executedAt = new Date().toISOString();
-          app.log.info({ agentId: req.params.agentId, action: a }, '[alm] Executing rebalance leg (stub)');
+        const results = executeRebalancePlan(req.params.agentId, actions);
+        const failed = results.filter(r => r.status === 'failed');
+        if (failed.length > 0) {
+          app.log.warn(
+            { agentId: req.params.agentId, failed },
+            '[alm] one or more rebalance legs failed to execute',
+          );
         }
-        appendHistory(req.params.agentId, 'rebalance', { actions, executed: true });
-      } else if (actions.length > 0) {
+        appendHistory(req.params.agentId, 'rebalance', { actions: results, executed: true });
+        return reply.send({
+          data:      results,
+          executed:  true,
+          skipped:   false,
+          totalLegs: results.length,
+          failedLegs: failed.length,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      if (actions.length > 0) {
         appendHistory(req.params.agentId, 'rebalance', { actions, executed: false });
       }
 
       return reply.send({
         data:      actions,
-        executed:  execute,
+        executed:  false,
         skipped:   actions.length === 0,
         totalLegs: actions.length,
         timestamp: new Date().toISOString(),
@@ -302,6 +320,12 @@ async function buildApp() {
     const wallets = getWalletsForAgent(req.params.agentId);
     const result  = await sweepToYield(req.params.agentId, policy, wallets);
     if (result.status === 'swept') {
+      // sweepToYield() genuinely moves funds to the vault (real side effect)
+      // but doesn't touch this service's own tracked balances — debit the
+      // swept amount out of the stables class now, so a repeat sweep call
+      // recomputes idle balance from the post-sweep state instead of
+      // re-sweeping the same funds.
+      debitAssetClassAcrossWallets(req.params.agentId, 'stables', result.amountUsd);
       appendHistory(req.params.agentId, 'sweep', { amountUsd: result.amountUsd, vault: result.vault });
     }
     return reply.send({ data: result });
@@ -316,6 +340,10 @@ async function buildApp() {
     const wallets = getWalletsForAgent(req.params.agentId);
     const result  = await liquidateFromYield(req.params.agentId, policy, wallets);
     if (result.status === 'liquidated') {
+      // Mirror of the sweep fix above: credit the withdrawn stables back
+      // into tracked balances so a repeat liquidate call sees the
+      // now-restored liquid balance instead of the stale deficit.
+      creditAssetToAgent(req.params.agentId, 'USDC', result.amountUsd);
       appendHistory(req.params.agentId, 'liquidate', { amountUsd: result.amountUsd });
     }
     return reply.send({ data: result });
@@ -389,6 +417,13 @@ async function buildApp() {
 // ── Startup ───────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
+  try {
+    await runMigrations();
+  } catch (err) {
+    if (process.env['NODE_ENV'] === 'production') throw err;
+    console.warn('[alm] Postgres unavailable — running in-memory only (dev):', err);
+  }
+
   const app = await buildApp();
 
   const shutdown = async () => {

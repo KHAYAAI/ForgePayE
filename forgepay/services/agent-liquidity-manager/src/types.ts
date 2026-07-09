@@ -62,6 +62,21 @@ export interface RebalanceAction {
   executedAt?: string;
 }
 
+/**
+ * Outcome of actually attempting to apply a single RebalanceAction against
+ * tracked wallet state. Atomicity boundary is per-leg: each leg either fully
+ * applies (debit + credit both committed) or fully fails (no mutation at
+ * all) — a failure never partially unwinds a sibling leg that already
+ * committed. See executeRebalanceLeg() in store.ts.
+ */
+export type RebalanceLegStatus = 'executed' | 'failed';
+
+export interface RebalanceLegResult extends RebalanceAction {
+  status:      RebalanceLegStatus;
+  executedAt:  string;
+  error?:      string;
+}
+
 export interface PortfolioSnapshot {
   agentId:           string;
   totalUsd:          number;
