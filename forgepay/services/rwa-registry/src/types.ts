@@ -69,6 +69,7 @@ export interface MerchantRWAPosition {
   totalIncomeEarnedUsd: number;
   pendingIncomeUsd: number;   // income not yet distributed
   lastIncomeDistributionAt?: string;
+  lastAccrualAt?: string;     // last time real elapsed-time income accrual ran (defaults to openedAt)
 
   // Redemption
   pendingRedemptionUnits: number;

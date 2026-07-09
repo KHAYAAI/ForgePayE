@@ -32,7 +32,7 @@ const instrumentationPlugin: FastifyPluginAsync = async (fastify) => {
     const durationSec = durationMs / 1000;
 
     // Normalize route path to avoid cardinality explosion
-    const route = normalizeRoute(req.url, req.routerPath || req.url);
+    const route = normalizeRoute(req.url, req.routeOptions?.url || req.url);
     const method = req.method;
     const statusCode = reply.statusCode.toString();
 

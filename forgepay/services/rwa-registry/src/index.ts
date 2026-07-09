@@ -235,6 +235,7 @@ async function buildApp() {
       pendingRedemptionUsd: 0,
       openedAt: now,
       lastUpdatedAt: now,
+      lastAccrualAt: now,
     };
 
     addPosition(position);
