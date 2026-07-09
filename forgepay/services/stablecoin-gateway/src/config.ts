@@ -63,6 +63,17 @@ export const config = {
 
   // Shielded stablecoin payments (ZK-proof privacy)
   shielded: {
+    // Master switch for the shielded-deposits and x402 shielded-pay HTTP
+    // routes. Default OFF: the Groth16 verifier (lib/proof-verifier.ts) is
+    // currently a stub that always returns true, so until real on-chain
+    // verification is wired up, these routes must not be reachable at all.
+    // Only set SHIELDED_PAYMENTS_ENABLED=true once you understand the
+    // stub's current limitations — see .env.example.
+    paymentsEnabled: opt('SHIELDED_PAYMENTS_ENABLED', 'false') === 'true',
+    // Separate switch for the background monitor that polls the
+    // NullifierRegistry contracts for confirmations. Independent of
+    // paymentsEnabled above — a deposit that was never created (routes off)
+    // has nothing for this monitor to confirm anyway.
     enabled: opt('SHIELDED_ENABLED', 'false') === 'true',
     // How often to poll NullifierRegistry for confirmed shielded payments (ms)
     monitorIntervalMs: parseInt(opt('SHIELDED_MONITOR_INTERVAL_MS', '30000'), 10),

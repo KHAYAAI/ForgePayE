@@ -11,10 +11,67 @@
  *   check that (a) the nullifier is unspent, and (b) the Groth16 proof is
  *   valid for the given merkle root. Falls back to dev-mode bypass when the
  *   registry is not yet deployed (all-zero address) outside of production.
+ *
+ *   STUB WARNING: the "not yet deployed" bypass unconditionally returns
+ *   true — it does NOT actually verify the proof bytes. This is only safe
+ *   because the shielded-deposits and /x402/shielded-pay HTTP routes that
+ *   call this function are themselves gated behind
+ *   config.shielded.paymentsEnabled (SHIELDED_PAYMENTS_ENABLED, default
+ *   false) in src/index.ts. assertShieldedPaymentsSafeToBoot() below is a
+ *   second line of defense: it refuses to start the process at all if
+ *   someone enables the routes in production without a real, deployed
+ *   NullifierRegistry backing every chain.
  */
 
 import { ethers } from 'ethers';
 import { config } from '../config.js';
+
+const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
+
+/**
+ * Chains for which the shielded-deposits / x402 shielded-pay routes accept
+ * a `chain` value (see routes/shielded-deposits.ts and routes/x402-shielded.ts).
+ */
+const SHIELDED_CHAINS = ['ethereum', 'polygon', 'base', 'arbitrum'] as const;
+
+function isNullifierRegistryDeployed(chain: string): boolean {
+  const contractAddress = (config.shielded.nullifierRegistry as Record<string, string>)[chain];
+  return Boolean(contractAddress) && contractAddress !== ZERO_ADDRESS;
+}
+
+/**
+ * Startup guard for shielded payments.
+ *
+ * verifyGroth16Proof() below always returns `true` for any chain whose
+ * NullifierRegistry contract isn't deployed yet (all-zero address) — it is
+ * a STUB, not a real verifier. That's tolerable while the shielded routes
+ * are unmounted (SHIELDED_PAYMENTS_ENABLED=false, the default). But if an
+ * operator flips SHIELDED_PAYMENTS_ENABLED=true while running with
+ * NODE_ENV=production and the contracts are still undeployed, the service
+ * would silently accept ANY proof bytes as valid for real money movement.
+ *
+ * Call this once at process startup (see src/index.ts). It throws — and
+ * the process must be allowed to crash — rather than let that combination
+ * boot successfully.
+ */
+export function assertShieldedPaymentsSafeToBoot(): void {
+  if (!config.shielded.paymentsEnabled) return;
+  if (config.env !== 'production') return;
+
+  const undeployed = SHIELDED_CHAINS.filter((chain) => !isNullifierRegistryDeployed(chain));
+  if (undeployed.length > 0) {
+    throw new Error(
+      '[stablecoin-gateway] REFUSING TO START: SHIELDED_PAYMENTS_ENABLED=true and ' +
+      'NODE_ENV=production, but the NullifierRegistry contract is not deployed ' +
+      `(all-zero address) for: ${undeployed.join(', ')}. ` +
+      'verifyGroth16Proof() is a STUB that always returns true when the registry is ' +
+      'undeployed — booting like this would accept any Groth16 proof bytes as valid ' +
+      'for real USDC/USDT shielded deposits. Deploy the NullifierRegistry contracts ' +
+      'and set NULLIFIER_REGISTRY_<CHAIN> for every chain above, or set ' +
+      'SHIELDED_PAYMENTS_ENABLED=false until you do.',
+    );
+  }
+}
 
 // ── Auditor decrypt ────────────────────────────────────────────────────────────
 
@@ -79,15 +136,22 @@ export async function verifyGroth16Proof(
 ): Promise<boolean> {
   const contractAddress = (config.shielded.nullifierRegistry as Record<string, string>)[chain];
 
-  if (!contractAddress || contractAddress === '0x0000000000000000000000000000000000000000') {
+  if (!isNullifierRegistryDeployed(chain)) {
     // Contracts not yet deployed — allow in development
     if (config.env === 'production') {
+      // Defense in depth: assertShieldedPaymentsSafeToBoot() should have
+      // already refused to boot this process in this exact situation, but
+      // if verifyGroth16Proof somehow still gets called here, never fall
+      // through to the stub bypass in production.
       throw new Error(
         `NullifierRegistry not deployed on ${chain} — cannot verify proof in production`,
       );
     }
     console.warn(
-      `⚠️  NullifierRegistry not deployed on ${chain} — bypassing proof verification (dev only)`,
+      `[stablecoin-gateway] STUB: NullifierRegistry not deployed on ${chain} — ` +
+      'verifyGroth16Proof() is BYPASSING real verification and returning true for ' +
+      'ANY proof bytes (dev/test only, never production). ' +
+      `nullifier=${nullifier}`,
     );
     return true;
   }

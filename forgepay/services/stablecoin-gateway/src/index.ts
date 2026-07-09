@@ -36,9 +36,16 @@ import { buildX402Routes } from './routes/x402.js';
 import { buildX402ShieldedRoutes } from './routes/x402-shielded.js';
 import { buildShieldedDepositRoutes } from './routes/shielded-deposits.js';
 import { startShieldedMonitor, startShieldedRecoveryPoller } from './lib/shielded-monitor.js';
+import { assertShieldedPaymentsSafeToBoot } from './lib/proof-verifier.js';
 import apiKeyAuth from './plugins/api-key-auth.js';
 
 async function main() {
+  // Fail fast, before we even bind a port, if shielded payments are enabled
+  // in production without a real (deployed) proof-verification path. See
+  // lib/proof-verifier.ts for details — this must never silently fall back
+  // to the always-true stub in production.
+  assertShieldedPaymentsSafeToBoot();
+
   const app = Fastify({ logger: true, trustProxy: true });
   await app.register(helmet, { contentSecurityPolicy: false });
 
@@ -66,8 +73,28 @@ async function main() {
   // Register routes
   await app.register(buildDepositRoutes,         { prefix: '/deposits' });
   await app.register(buildX402Routes,            { prefix: '/x402' });
-  await app.register(buildX402ShieldedRoutes,    { prefix: '/x402' });
-  await app.register(buildShieldedDepositRoutes, { prefix: '/shielded-deposits' });
+
+  // Shielded (ZK-proof) routes are gated behind SHIELDED_PAYMENTS_ENABLED.
+  // verifyGroth16Proof() in lib/proof-verifier.ts is currently a stub that
+  // always returns true outside of production, so until real Groth16
+  // verification against a deployed NullifierRegistry is wired up, these
+  // routes must default to NOT being registered at all — anyone could
+  // otherwise POST garbage proof bytes and have them accepted as valid.
+  if (config.shielded.paymentsEnabled) {
+    await app.register(buildX402ShieldedRoutes,    { prefix: '/x402' });
+    await app.register(buildShieldedDepositRoutes, { prefix: '/shielded-deposits' });
+    console.warn(
+      '[stablecoin-gateway] SHIELDED_PAYMENTS_ENABLED=true — shielded-deposits and ' +
+      '/x402/shielded-pay routes are mounted. Verify verifyGroth16Proof() is backed by ' +
+      'a deployed NullifierRegistry before accepting real traffic.',
+    );
+  } else {
+    console.log(
+      '[stablecoin-gateway] Shielded payment routes disabled ' +
+      '(SHIELDED_PAYMENTS_ENABLED is unset/false) — /shielded-deposits and ' +
+      '/x402/shielded-pay will 404.',
+    );
+  }
 
   // Health / readiness
   app.get('/healthz', async () => ({ status: 'ok', service: 'stablecoin-gateway' }));

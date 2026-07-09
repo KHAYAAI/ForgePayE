@@ -44,7 +44,7 @@ describe('Crypto Gateway - HD Wallet Generation', () => {
 
   describe('Ethereum Address Generation', () => {
     it('should generate valid Ethereum address format', () => {
-      const ethAddr = '0x742d35Cc6634C0532925a3b844Bc9e7595f42E';
+      const ethAddr = '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045';
       expect(ethAddr).toMatch(/^0x[0-9a-fA-F]{40}$/);
     });
   });
@@ -56,7 +56,7 @@ describe('Crypto Gateway - HD Wallet Generation', () => {
     });
 
     it('should validate ETH addresses', () => {
-      const validEth = '0x742d35Cc6634C0532925a3b844Bc9e7595f42E';
+      const validEth = '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045';
       expect(validEth).toMatch(/^0x[0-9a-fA-F]{40}$/);
     });
   });
