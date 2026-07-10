@@ -276,3 +276,11 @@ forgepay/infra/contracts/contracts/
 
 # Next.js build output
 .next/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+.venv/
+venv/
