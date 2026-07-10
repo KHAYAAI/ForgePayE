@@ -13,7 +13,7 @@ spec:
     matchLabels:
       {{- include "unified-router.selectorLabels" . | nindent 6 }}
   endpoints:
-    - port: metrics
+    - port: http
       interval: {{ .Values.serviceMonitor.interval }}
       scrapeTimeout: {{ .Values.serviceMonitor.scrapeTimeout }}
       path: {{ .Values.metrics.path | quote }}
