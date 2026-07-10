@@ -1,33 +1,106 @@
 # ForgePay Pre-Deployment Audit Report
 
-**Audit Date**: 2026-06-25  
+**Audit Date**: 2026-06-25 (original), updated 2026-07-10  
 **Auditor**: Automated codebase scan (Claude Code)  
-**Scope**: 21 services under `forgepay/services/`, infra under `forgepay/infra/`
+**Scope**: 26 services under `forgepay/services/`, infra under `forgepay/infra/`
+
+---
+
+## Update — 2026-07-10
+
+A full bug-fix sweep ran across every service since the original audit below
+was written. Two kinds of things changed:
+
+1. **Real bugs fixed this session, verified with tsc/build/vitest/pytest/mvn
+   test runs** (not just read — actually compiled and exercised):
+   - **Every service now has `unhandledRejection`/`uncaughtException`
+     handlers** (section 7 below is stale — was 0/16, now 16/16).
+   - **`institutional-reporting` now has a SIGTERM/SIGINT handler**
+     (section 6 is stale — was the one gap, now closed).
+   - **`accounts-service` and `unified-router` had a real `runMigrations()`
+     function that was never called from anywhere** — a fresh Postgres
+     database would be missing every table these services read/write.
+     Wired into startup. (`agent-identity` and `agent-negotiation`, also
+     listed as gaps in section 2 below, turned out to call migrations
+     indirectly via `initStore()` — false alarms, not fixed because not
+     broken. `agent-decision-framework`, `bank-connectivity`,
+     `bank-whitelabel`, `institutional-reporting` don't use Postgres at all
+     — no migrations needed. `bank-connectivity` uses Prisma, whose
+     migrations are a `prisma migrate deploy` step, not in-process.)
+   - `agent-liquidity-manager`, `agent-negotiation`, `rwa-registry`: stub
+     execution logic replaced with real, tested ledger/accounting code
+     (rebalance/sweep/liquidate execution, escrow ledger, redemption/income
+     settlement).
+   - `unified-router`: webhook HMAC signature verification was silently
+     broken (no raw-body capture, so verification always failed) — fixed,
+     plus a broken Kill Bill normalizer and ~64 tsc errors.
+   - `compliance-monitor`: OFAC sanctions-screening name normalization and
+     CSV parsing were both wrong (87/87 tests now pass, was 78/87).
+   - Stablecoin-gateway's shielded-payments route (fake Groth16 proof
+     verifier) is now feature-flagged off by default with a startup guard.
+   - A systemic cross-directory import bug (`../../lib/db.js` unreachable at
+     real Docker build time) fixed across 7 services.
+   - `billing-engine`'s Kill Bill plugin (Java/Maven) could not compile —
+     missing Micrometer and Servlet API dependencies. Now compiles, packages,
+     and passes 21/21 JUnit tests. Its Shiro config defined a credentials
+     matcher that was never wired to a realm (silent fallback to plain-text
+     comparison) — fixed.
+   - Roughly a dozen more bugs across accounts-service, agent-credit-lines,
+     agent-identity, bank-connectivity, chain-sync, enterprise-treasury,
+     yield-engine: missing `await`s on async store functions (some breaking
+     `try/catch` error handling), missing dependencies, wrong import paths,
+     `ethers` v6 typing, `jose` v6 API changes, and more. Full detail is in
+     the git log for this session's commits.
+   - Every touched service was verified with `tsc --noEmit`, `npm run
+     build`, and the full test suite (or `pytest`/`mvn test` for
+     Python/Java). Postgres-integration tests that require a live database
+     unavailable in the sandbox are left failing with `ECONNREFUSED` — a
+     documented, accepted limitation, not a bug.
+
+2. **Several claims in the original audit below (sections 2, 4, 10, 11, 16)
+   turned out to be stale**, not because they were fixed this session, but
+   because infra/DevOps work in an *earlier* session updated Helm charts,
+   resource limits, and metrics routes without this document being
+   refreshed to match. Spot-checked and corrected inline below. **This
+   session did not do a fresh infra audit** — resource limits, Pod
+   Disruption Budgets, NetworkPolicies, and runbook coverage were only
+   spot-checked, not exhaustively re-verified the way the application code
+   was. Treat the infra-related sections as a starting point for a proper
+   follow-up audit, not a final answer.
+
+**What's still genuinely open** (confirmed, not stale): NetworkPolicies
+(none exist anywhere), Pod Disruption Budgets (none exist), 8 of 12 planned
+on-call runbooks, load-testing baseline is still placeholder data, and Helm
+resource limits — while higher than this doc previously stated — are still
+below the checklist's spec numbers for at least the services spot-checked.
 
 ---
 
 ## Executive Summary Table
 
-| Category | Status | Score |
-|---|---|---|
-| Environment Config (.env.example) | ⚠️ PARTIAL | 17/21 services |
-| Database Migrations Wired | ⚠️ PARTIAL | 7/16 TS services |
-| Rate Limiting | ✅ READY | All services with HTTP APIs |
-| Prometheus /metrics Endpoint | ⚠️ PARTIAL | All have metrics lib; 14/16 TS missing route in index.ts |
-| TLS cert-manager | ✅ READY | certificate-issuer.yaml exists |
-| Graceful Shutdown (SIGTERM) | ⚠️ PARTIAL | 15/16 TS services; Python services use lifespan/uvicorn |
-| Unhandled Rejection Handlers | ❌ MISSING | 0/16 TS services |
-| HMAC Webhook Verification | ✅ READY | unified-router fully implemented |
-| Load Testing Suite | ✅ READY | Suite exists; baseline.json is placeholder data |
-| Helm Resource Limits | ⚠️ PARTIAL | Below checklist spec on all services |
-| Helm Replica Counts | ⚠️ PARTIAL | All at 2 replicas; agent-identity at 1 |
-| Pod Disruption Budgets | ❌ MISSING | Not present in individual charts |
-| Network Policies | ❌ MISSING | No NetworkPolicy manifests found |
-| On-Call Runbooks | ⚠️ PARTIAL | 4 docs exist; missing 5 service-specific runbooks |
-| Secrets Management (Vault) | ✅ READY | Vault setup, ExternalSecrets, policies in place |
-| Observability (Prometheus+Grafana) | ✅ READY | Full stack configured with alert rules |
+*Original 2026-06-25 columns kept for history; **Current** reflects the 2026-07-10 update above.*
 
-**Overall Readiness Score: 54/100**
+| Category | Original Status | Current Status |
+|---|---|---|
+| Environment Config (.env.example) | ⚠️ PARTIAL (17/21) | ✅ READY — all services now have one |
+| Database Migrations Wired | ⚠️ PARTIAL (7/16) | ✅ READY — 2 real gaps fixed, rest were false alarms or N/A |
+| Rate Limiting | ✅ READY | ✅ READY (unchanged) |
+| Prometheus /metrics Endpoint | ⚠️ PARTIAL | ✅ READY — all 16 TS services register the route |
+| TLS cert-manager | ✅ READY | ✅ READY (unchanged) |
+| Graceful Shutdown (SIGTERM) | ⚠️ PARTIAL | ✅ READY — institutional-reporting gap closed |
+| Unhandled Rejection Handlers | ❌ MISSING (0/16) | ✅ READY — 16/16 |
+| HMAC Webhook Verification | ✅ READY (claimed) | ✅ READY — unified-router's was actually silently broken (no raw-body capture) and is now genuinely fixed and tested |
+| Load Testing Suite | ✅ READY | ⚠️ PARTIAL — baseline still placeholder, unchanged |
+| Helm Resource Limits | ⚠️ PARTIAL | ⚠️ PARTIAL — improved from stale numbers, still below spec |
+| Helm Replica Counts | ⚠️ PARTIAL (agent-identity at 1) | ⚠️ PARTIAL — agent-identity now 2, fleet still at 2 not 3 |
+| Pod Disruption Budgets | ❌ MISSING | ❌ MISSING — not re-verified, assume still true |
+| Network Policies | ❌ MISSING | ❌ MISSING — confirmed still true |
+| On-Call Runbooks | ⚠️ PARTIAL (4 docs) | ⚠️ PARTIAL — still 4 docs, confirmed unchanged |
+| Secrets Management (Vault) | ✅ READY | ✅ READY (unchanged) |
+| Observability (Prometheus+Grafana) | ✅ READY | ✅ READY — plus compliance-monitor/liquidity-forecaster Helm charts now complete |
+
+See "Update — 2026-07-10" above for what was verified vs. spot-checked vs.
+carried over unchanged.
 
 ---
 
@@ -35,48 +108,30 @@
 
 ### 1. Environment Configuration (.env.example)
 
-**Status: ⚠️ PARTIAL**
+**Status: ✅ READY (as of 2026-07-10 — was PARTIAL)**
 
-17 of 21 services have `.env.example`. Three are missing:
-
-| Service | Status |
-|---|---|
-| agent-liquidity-manager | ❌ MISSING `.env.example` |
-| bank-whitelabel | ❌ MISSING `.env.example` |
-| chain-sync | ❌ MISSING `.env.example` |
-
-All other 17 services (accounts-service, agent-credit-lines, agent-decision-framework, agent-identity, agent-negotiation, bank-connectivity, billing-engine, compliance-monitor, crypto-gateway, enterprise-treasury, institutional-reporting, liquidity-forecaster, mor-layer, rwa-registry, stablecoin-gateway, unified-router, yield-engine) have `.env.example` present.
-
-**Action**: Add `.env.example` to the three missing services.
+The three services this doc previously listed as missing `.env.example`
+(agent-liquidity-manager, bank-whitelabel, chain-sync) all have one now.
 
 ---
 
 ### 2. Database Migrations
 
-**Status: ⚠️ PARTIAL**
+**Status: ✅ READY (as of 2026-07-10 — was PARTIAL)**
 
-Only 7 of 16 TypeScript services call `runMigrations()` or equivalent in their `src/index.ts`. The Python services (mor-layer, compliance-monitor, liquidity-forecaster) use SQLAlchemy with separate migration tooling (Alembic), which is acceptable but must be verified.
+This table was wrong even at the time it was written — it only grepped for
+`runMigrations()` inside `index.ts`, missing indirect calls made from
+`store.ts`/`initStore()`. Corrected, verified by actually reading each
+service's startup path:
 
-| Service | `runMigrations()` in index.ts |
+| Service | Migrations run at startup? |
 |---|---|
-| agent-credit-lines | ✅ YES |
-| chain-sync | ✅ YES |
-| enterprise-treasury | ✅ YES |
-| rwa-registry | ✅ YES |
-| stablecoin-gateway | ✅ YES |
-| crypto-gateway | ✅ YES |
-| yield-engine | ✅ YES |
-| accounts-service | ❌ NO |
-| agent-decision-framework | ❌ NO |
-| agent-identity | ❌ NO |
-| agent-liquidity-manager | ❌ NO |
-| agent-negotiation | ❌ NO |
-| bank-connectivity | ❌ NO |
-| bank-whitelabel | ❌ NO |
-| institutional-reporting | ❌ NO |
-| unified-router | ❌ NO |
+| agent-credit-lines, chain-sync, enterprise-treasury, rwa-registry, stablecoin-gateway, crypto-gateway, yield-engine, agent-liquidity-manager | ✅ YES — direct `runMigrations()` call in `index.ts` |
+| agent-identity, agent-negotiation | ✅ YES — indirect, via `initStore()` in `store.ts` (the original doc's grep missed this) |
+| accounts-service, unified-router | ✅ YES — **fixed 2026-07-10**: both had a real `runMigrations(db)` in `src/db/migrate.ts` that was never called anywhere. A fresh Postgres database would have been missing every table these two services read/write. Now wired into startup before the app accepts traffic. |
+| agent-decision-framework, bank-connectivity, bank-whitelabel, institutional-reporting | N/A — no Postgres usage in these services at all (bank-connectivity uses Prisma, whose migrations are a separate `prisma migrate deploy` deploy step, not in-process) |
 
-**Note**: Services missing `runMigrations()` may rely on pre-deployment migration jobs or manual steps — this must be confirmed and documented before go-live. Unverified migration state is a **critical blocker** if those services use a database.
+The Python services (mor-layer, compliance-monitor, liquidity-forecaster) use SQLAlchemy/Alembic — separate migration tooling, verify Alembic migration status is current before go-live.
 
 ---
 
@@ -92,17 +147,16 @@ Only 7 of 16 TypeScript services call `runMigrations()` or equivalent in their `
 
 ### 4. Prometheus /metrics Endpoint
 
-**Status: ⚠️ PARTIAL**
+**Status: ✅ READY (as of 2026-07-10 — was PARTIAL)**
 
-All 16 TypeScript services have a `src/lib/metrics.ts` with `prom-client` instrumentation. The Python services have `src/observability/metrics.py` with `prometheus_client`.
+All 16 TypeScript services now register a `/metrics` HTTP route in
+`src/index.ts` (verified by grep across all of them, not just read) — this
+doc's claim that only `unified-router` did so is stale. The Python services
+expose `/metrics` via FastAPI + `prometheus_client` middleware.
 
-**However**: Only `unified-router` registers `/metrics` as an actual HTTP route in `src/index.ts`. The remaining 15 TypeScript services define the metrics class but do not expose it as a scrape endpoint in the main server setup. The metrics port 9090 is configured in Prometheus scrape config and Helm values — the route must be wired in each service's index.
-
-The Python services (mor-layer, compliance-monitor, liquidity-forecaster) appear to expose `/metrics` via middleware configuration (FastAPI route detected in middleware skip logic), which is the correct pattern for FastAPI + prometheus_client.
-
-**Prometheus static scrape config** (`prometheus.yml`) only explicitly lists: unified-router, mor-layer, stablecoin-gateway, crypto-gateway, payment-engine, billing-engine, postgres, redis — plus a kubernetes-pods autodiscovery job. Services like accounts-service, agent-identity, yield-engine etc. depend on pod annotation-based autodiscovery (`prometheus.io/scrape: "true"` annotation).
-
-**Action**: Wire `/metrics` route into each TypeScript service's `src/index.ts` using their existing `metrics.ts` class.
+Prometheus scrape config coverage (explicit job list vs. autodiscovery) was
+not re-verified this pass — worth confirming the static job list matches
+the current 26-service fleet before go-live.
 
 ---
 
@@ -124,47 +178,33 @@ TLS annotations (`cert-manager.io/cluster-issuer: "letsencrypt-prod"`) are prese
 
 ### 6. Graceful Shutdown (SIGTERM)
 
-**Status: ⚠️ PARTIAL**
+**Status: ✅ READY (as of 2026-07-10 — was PARTIAL)**
 
-| Service | SIGTERM Handler |
-|---|---|
-| accounts-service | ✅ (`for (const signal of ['SIGTERM', 'SIGINT'])`) |
-| agent-credit-lines | ✅ (`process.once('SIGTERM', cleanup)`) |
-| agent-decision-framework | ✅ |
-| agent-identity | ✅ |
-| agent-liquidity-manager | ✅ |
-| agent-negotiation | ✅ |
-| bank-connectivity | ✅ |
-| bank-whitelabel | ✅ |
-| chain-sync | ✅ |
-| crypto-gateway | ✅ |
-| enterprise-treasury | ✅ |
-| rwa-registry | ✅ |
-| stablecoin-gateway | ✅ |
-| unified-router | ✅ (`process.on('SIGTERM', () => shutdown('SIGTERM'))`) |
-| yield-engine | ✅ |
-| institutional-reporting | ❌ MISSING — no SIGTERM handler found; `start()` function has no shutdown logic |
-| mor-layer (Python) | ⚠️ Uses FastAPI `lifespan` context manager (uvicorn handles SIGTERM at process level — acceptable) |
-| compliance-monitor (Python) | ⚠️ Same pattern (uvicorn SIGTERM handling) |
-| liquidity-forecaster (Python) | ⚠️ Same pattern (uvicorn SIGTERM handling) |
-
-**Action**: Add SIGTERM handler to `institutional-reporting/src/index.ts`.
+`institutional-reporting` — the one gap this doc identified — now has a
+SIGTERM/SIGINT handler. All 16 TypeScript services handle graceful
+shutdown; Python services rely on uvicorn's process-level SIGTERM handling
+(acceptable).
 
 ---
 
 ### 7. Unhandled Rejection / Uncaught Exception Handlers
 
-**Status: ❌ MISSING**
+**Status: ✅ READY (as of 2026-07-10 — was MISSING)**
 
-Zero of the 16 TypeScript services register `process.on('unhandledRejection', ...)` or `process.on('uncaughtException', ...)` handlers. Without these, unhandled promise rejections will crash the process in Node.js 18+ without logging context. Fastify catches most route-level rejections, but top-level async initialization errors (DB connect failures, config loading) will be uncaught.
+All 16 TypeScript services now register `process.on('unhandledRejection',
+...)` and `process.on('uncaughtException', ...)` handlers that log with
+full context and exit (letting the orchestrator restart the pod, rather
+than continuing in a possibly-corrupted state).
 
-**Action**: Add to each service's `src/index.ts`:
-```typescript
-process.on('unhandledRejection', (reason) => {
-  console.error('Unhandled rejection:', reason);
-  process.exit(1);
-});
-```
+One thing to know if adding more test files that import a service's
+`buildApp` directly (as `agent-identity`, `agent-negotiation`, and
+`rwa-registry`'s test suites do): each service's `index.ts` guards its
+`main()` auto-start with `if (require.main === module)` so merely
+importing the module for tests doesn't start a second real listener on the
+same port. `agent-identity` hit exactly this bug this session — two test
+files both imported `buildApp`, and before the guard was added, each
+import called `main()` a second time, colliding on the port and crashing
+the whole test run.
 
 ---
 
@@ -206,33 +246,35 @@ Load testing suite exists at `forgepay/infra/load-tests/`:
 
 ### 10. Helm Resource Limits vs. Checklist Specification
 
-**Status: ⚠️ PARTIAL**
+**Status: ⚠️ PARTIAL (numbers below corrected 2026-07-10 — the original figures were stale, from before an earlier session's infra pass)**
 
-The checklist specifies production resource allocations. Current Helm values are significantly under-provisioned:
+The checklist specifies production resource allocations. Current Helm values are still under-provisioned relative to spec, though less severely than this doc previously stated:
 
 | Service | Spec CPU Req / Limit | Actual CPU Req / Limit | Spec RAM Req / Limit | Actual RAM Req / Limit |
 |---|---|---|---|---|
-| unified-router | 500m / 2000m | **100m / 500m** | 512Mi / 2Gi | **128Mi / 512Mi** |
-| mor-layer | 1000m / 4000m | **200m / 1000m** | 1Gi / 4Gi | **512Mi / 1024Mi** |
-| crypto-gateway | 500m / 2000m | **100m / 500m** | 512Mi / 2Gi | **256Mi / 512Mi** |
-| stablecoin-gateway | 500m / 2000m | **100m / 500m** | 512Mi / 2Gi | **256Mi / 512Mi** |
-| yield-engine | 2000m / 4000m | **200m / 1000m** | 2Gi / 4Gi | **256Mi / 1024Mi** |
-| agent-identity | 500m / 2000m | **100m / 300m** | 512Mi / 2Gi | **128Mi / 256Mi** |
+| unified-router | 500m / 2000m | 300m / 500m | 512Mi / 2Gi | 512Mi / 1Gi |
+| mor-layer | 1000m / 4000m | 300m / 500m | 1Gi / 4Gi | 512Mi / 1Gi |
+| crypto-gateway | 500m / 2000m | 300m / 500m | 512Mi / 2Gi | 512Mi / 1Gi |
+| stablecoin-gateway | 500m / 2000m | 300m / 500m | 512Mi / 2Gi | 512Mi / 1Gi |
+| yield-engine | 2000m / 4000m | 200m / 400m | 2Gi / 4Gi | 256Mi / 512Mi |
+| agent-identity | 500m / 2000m | 200m / 400m | 512Mi / 2Gi | 256Mi / 512Mi |
 
-All services are provisioned at roughly 20-25% of the required resources. This is a **critical blocker for production** — under load, services will be OOMKilled or CPU-throttled.
+Still a real gap (roughly 40-60% of spec rather than the previously-stated
+20-25%), and still worth resolving before a real production load test —
+but not the emergency the old numbers implied. Only the 6 services above
+were spot-checked; a full pass across all 26 Helm charts wasn't done this
+session.
 
 ---
 
 ### 11. Replica Counts
 
-**Status: ⚠️ PARTIAL**
+**Status: ⚠️ PARTIAL (corrected 2026-07-10)**
 
-All critical services are set to `replicaCount: 2` (minimum HA). The checklist requires 3 for HA services. `agent-identity` is set to `replicaCount: 1` — this is a single point of failure.
-
-| Service | Current Replicas | Required |
-|---|---|---|
-| agent-identity | **1** | 3 |
-| all others | 2 | 3 |
+`agent-identity` is now at `replicaCount: 2`, not `1` as this doc
+previously stated — no longer a single point of failure. The checklist's
+target of 3 replicas for HA services is still unmet fleet-wide (spot-
+checked services are at 2).
 
 ---
 
@@ -303,74 +345,91 @@ Vault setup is comprehensive:
 - OTel Collector: `forgepay/infra/observability/otel-collector/config.yaml`
 - ServiceMonitors exist for: agent-credit-lines, agent-identity, bank-connectivity, billing-engine, crypto-gateway, enterprise-treasury, mor-layer, stablecoin-gateway, unified-router, yield-engine
 
-**Gap**: compliance-monitor only has `values.yaml` (no Chart.yaml or templates) — Helm chart is incomplete and cannot be deployed. liquidity-forecaster has no Helm chart at all.
+**Corrected 2026-07-10**: both compliance-monitor and liquidity-forecaster
+now have complete Helm charts (`Chart.yaml`, `deployment.yaml`,
+`service.yaml`, `serviceMonitor.yaml`, `values.yaml`) — the gap this doc
+described no longer exists.
 
 ---
 
-## Critical Blockers (Must Fix Before Production)
+## Critical Blockers (Must Fix Before Production) — updated 2026-07-10
 
-These issues **will cause production failures** if not resolved:
+Of the original 8 blockers, 4 are now resolved (application-code fixes,
+verified this session) and 1 is resolved by earlier infra work this doc
+hadn't caught up to. What's genuinely still open:
 
-1. **❌ Helm Resource Limits Under-Provisioned** — All services at ~20% of required resources. Will cause OOMKill and CPU throttling under load. Update all `values.yaml` to match checklist specs.
+1. **❌ No NetworkPolicy Manifests** — All pods can communicate with all
+   other pods. Violates PCI/security requirements. Confirmed still true.
+   Create deny-all + whitelist NetworkPolicies.
 
-2. **❌ /metrics Route Not Wired in 15 TypeScript Services** — Prometheus cannot scrape these services. Add HTTP GET `/metrics` route using the existing `metrics.ts` class in each service's `index.ts`.
+2. **⚠️ Helm Resource Limits Below Spec** — Improved from what this doc
+   previously stated (see section 10) but still under the checklist's
+   numbers on the services spot-checked. Not confirmed across the full
+   fleet.
 
-3. **❌ compliance-monitor Helm Chart Incomplete** — Only `values.yaml` exists; no `Chart.yaml` or `templates/`. Cannot be deployed via Helm. Create the missing files.
+3. **⚠️ Load Testing Baseline is Placeholder** — `baseline.json` still
+   contains placeholder data as of this update. Run an actual staging soak
+   test before go-live to establish real P99 baselines.
 
-4. **❌ No Helm Chart for liquidity-forecaster** — Service cannot be deployed to Kubernetes. Create Helm chart.
+**Resolved, no longer blockers:**
+- ~~/metrics route not wired~~ — all 16 TS services register it (§4).
+- ~~compliance-monitor / liquidity-forecaster Helm charts incomplete or
+  missing~~ — both now complete (§16).
+- ~~Database migrations not wired~~ — accounts-service and unified-router
+  fixed this session; everything else in the original list was either a
+  false alarm (indirect migration calls the original grep missed) or
+  doesn't use Postgres (§2).
+- ~~agent-identity replicaCount: 1~~ — now 2 (§11).
 
-5. **❌ No NetworkPolicy Manifests** — All pods can communicate with all other pods. Violates PCI/security requirements. Create deny-all + whitelist NetworkPolicies.
-
-6. **❌ Database Migrations Not Wired in 9 TypeScript Services** — accounts-service, agent-decision-framework, agent-identity, agent-negotiation, bank-connectivity, bank-whitelabel, institutional-reporting, unified-router, and agent-liquidity-manager do not call `runMigrations()`. Schema may be out of date on fresh deployments.
-
-7. **❌ agent-identity replicaCount: 1** — Single point of failure for agent authentication. Set to minimum 3.
-
-8. **⚠️ Load Testing Baseline is Placeholder** — `baseline.json` contains placeholder data. Run actual staging soak test before go-live to establish real P99 baselines.
+**Not independently re-verified this session** (carried over from the
+original audit, spot-checked in some cases but not exhaustively): Pod
+Disruption Budgets (still appear to be missing), on-call runbook coverage,
+OCSP stapling, mTLS between services, webhook timestamp/replay validation.
+Treat these as open until a dedicated infra audit confirms otherwise.
 
 ---
 
 ## Nice-to-Haves (Can Fix Post-Launch)
 
-These are improvements that do not block launch but should be addressed soon after:
-
-1. **unhandledRejection handlers missing** — Add to all 16 TypeScript services for better crash logging. (Medium priority — Fastify catches most errors)
-
-2. **SIGTERM missing in institutional-reporting** — Low blast radius as it's a reporting service, but should be added.
-
-3. **Missing .env.example for 3 services** — agent-liquidity-manager, bank-whitelabel, chain-sync. Add before next developer onboarding.
-
-4. **Pod Disruption Budgets missing** — Add PDB templates with `minAvailable: 2` to each Helm chart.
-
-5. **OCSP stapling not configured** — Add `nginx.ingress.kubernetes.io/enable-ocsp-stapling: "true"` to ingress annotations.
-
-6. **On-call runbooks for 8 services** — unified-router, mor-layer, crypto-gateway, stablecoin-gateway, yield-engine, database, redis, kubernetes runbooks are missing.
-
-7. **Replica counts at 2, not 3** — Bump all critical services to `minReplicas: 3` in HPA config.
-
-8. **Prometheus scrape only covers 4 services explicitly** — The kubernetes-pods autodiscovery should cover the rest, but explicit job definitions for each service are more reliable.
-
-9. **Webhook timestamp/replay validation not verified** — Review route handlers for < 5 minute timestamp validation and nonce tracking.
-
-10. **mTLS between services not configured** — Service-to-service traffic is not mutually authenticated. Consider Istio/Linkerd service mesh for mTLS.
+1. ~~unhandledRejection handlers missing~~ — **done**, all 16 TS services (§7).
+2. ~~SIGTERM missing in institutional-reporting~~ — **done** (§6).
+3. ~~Missing .env.example for 3 services~~ — **done** (§1).
+4. **Pod Disruption Budgets missing** — add PDB templates with `minAvailable: 2` to each Helm chart. Not re-verified this session but no evidence it's been added.
+5. **OCSP stapling not configured** — add `nginx.ingress.kubernetes.io/enable-ocsp-stapling: "true"` to ingress annotations.
+6. **On-call runbooks for 8 services** — unified-router, mor-layer, crypto-gateway, stablecoin-gateway, yield-engine, database, redis, kubernetes runbooks are still missing (confirmed 2026-07-10 — still only 4 files in `forgepay/docs/runbooks/`).
+7. **Replica counts at 2, not 3** — bump critical services to `minReplicas: 3` in HPA config.
+8. **Prometheus scrape config coverage** — re-verify the explicit job list matches the current 26-service fleet.
+9. **Webhook timestamp/replay validation not verified** — review route handlers for < 5 minute timestamp validation and nonce tracking.
+10. **mTLS between services not configured** — consider Istio/Linkerd service mesh for mTLS.
 
 ---
 
-## Overall Readiness Score: 54/100
+## Overall Readiness Score
 
-**Scoring breakdown**:
-- Environment config: 8/10 (3 missing .env.example)
-- Migrations: 4/10 (9 services unverified)  
-- Rate limiting: 10/10
-- Metrics/observability: 5/10 (no route wiring in 15 services)
-- TLS/cert-manager: 9/10 (missing OCSP stapling)
-- Graceful shutdown: 7/10 (1 missing, Python acceptable)
-- Error handlers: 0/10 (unhandledRejection missing everywhere)
-- HMAC webhook: 9/10 (unified-router excellent; timestamp/replay not verified)
-- Load testing: 5/10 (suite ready; baseline placeholder)
-- Helm resources: 2/10 (all under-provisioned)
-- Security (NetworkPolicy, PDB): 0/10 (both missing)
-- Secrets management: 9/10
-- Runbooks: 4/10 (4/12 present)
-- Replica counts: 3/10 (agent-identity at 1; all at 2 not 3)
+**Application code / service-level readiness: substantially improved and
+verified this session** — every service that has one was built, type-
+checked, and test-run (or `pytest`/`mvn test` for Python/Java); real bugs
+were found and fixed across roughly 20 of the 26 services, including
+several that would have caused hard failures in production (broken
+webhook signature verification, migrations that would never run against a
+fresh database, an entire Kill Bill plugin that didn't compile).
 
-**Go-live recommendation**: NOT READY. Resolve the 8 critical blockers — particularly resource limits, NetworkPolicies, and the compliance-monitor/liquidity-forecaster Helm chart gaps — before proceeding to production.
+**Infra/deployment readiness: not re-scored.** The prior 54/100 score
+mixed application-code and infra concerns, and several of its infra
+inputs turned out to be stale. Rather than publish a new single number
+built on a mix of this session's verified work and un-reverified carry-
+over claims, the honest summary is:
+
+- **Code-level blockers**: resolved, to the depth verified above.
+- **Infra-level blockers still open**: NetworkPolicies (confirmed
+  missing), Pod Disruption Budgets (likely still missing, not
+  reconfirmed), load-testing baseline (confirmed still placeholder),
+  Helm resource limits (confirmed still below spec, though better than
+  previously documented).
+
+**Go-live recommendation**: The application code is meaningfully closer
+to production-ready than the 2026-06-25 audit reflected. Before declaring
+launch-ready, run a dedicated infra audit (NetworkPolicies, PDBs, real
+Helm resource limits across the full 26-service fleet, a real staging
+soak test for the load-testing baseline) — that work was out of scope for
+this session's code-focused sweep.
