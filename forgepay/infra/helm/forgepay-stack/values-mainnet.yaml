@@ -200,14 +200,14 @@ ingress:
       paths:
         - path: /
           pathType: Prefix
-          serviceName: unified-router
-          servicePort: 8030
+          service: unified-router
+          port: 8000
     - host: checkout.forgepay.io
       paths:
         - path: /
           pathType: Prefix
-          serviceName: mor-layer
-          servicePort: 8000
+          service: mor-layer
+          port: 8010
   tls:
     - secretName: forgepay-tls-prod
       hosts:
