@@ -84,3 +84,5 @@ export function recordHttpRequest(options: {
 export function getRegistry(): promClient.Registry {
   return registry;
 }
+
+export const register = registry;

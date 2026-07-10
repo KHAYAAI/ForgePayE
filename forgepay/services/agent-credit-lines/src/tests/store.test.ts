@@ -67,13 +67,13 @@ describe('store', () => {
     expect(getCreditLine('cl_del')).toBeUndefined();
   });
 
-  it('persists draws and filters by line', () => {
+  it('persists draws and filters by line', async () => {
     putDraw(makeDraw({ id: 'd1', creditLineId: 'cl_1' }));
     putDraw(makeDraw({ id: 'd2', creditLineId: 'cl_2' }));
     putDraw(makeDraw({ id: 'd3', creditLineId: 'cl_1' }));
     expect(getDraw('d1')?.id).toBe('d1');
     expect(listDraws()).toHaveLength(3);
-    expect(listDrawsByLine('cl_1')).toHaveLength(2);
+    expect(await listDrawsByLine('cl_1')).toHaveLength(2);
   });
 
   it('records defaults and returns a copy of the list', () => {

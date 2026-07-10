@@ -116,6 +116,17 @@ async function main() {
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT',  () => shutdown('SIGINT'));
 
+  // ── Global error handlers (prevent silent pod crashes) ────────────────
+  process.on('unhandledRejection', (reason, promise) => {
+    logger.error({ reason, promise }, 'Unhandled Rejection');
+    process.exit(1);
+  });
+
+  process.on('uncaughtException', (error) => {
+    logger.error({ error }, 'Uncaught Exception');
+    process.exit(1);
+  });
+
   // ── Start ─────────────────────────────────────────────────────────────────
   await app.listen({ port: config.port, host: '0.0.0.0' });
   logger.info({ port: config.port }, 'ForgePay unified-router started');

@@ -113,8 +113,8 @@ describe('accountService', () => {
     await svc.linkOpenBankingAccount('merchant-A', 'consent-2', 'ob-2', 'GBP', 'savings',  '2222');
     await svc.linkOpenBankingAccount('merchant-B', 'consent-3', 'ob-3', 'EUR', 'checking', '3333');
 
-    const accountsA = svc.getAccountsForMerchant('merchant-A');
-    const accountsB = svc.getAccountsForMerchant('merchant-B');
+    const accountsA = await svc.getAccountsForMerchant('merchant-A');
+    const accountsB = await svc.getAccountsForMerchant('merchant-B');
 
     expect(accountsA).toHaveLength(2);
     expect(accountsB).toHaveLength(1);
@@ -124,7 +124,7 @@ describe('accountService', () => {
 
   it('getAccountsForMerchant returns empty array for unknown merchant', async () => {
     const svc    = await freshAccountService();
-    const result = svc.getAccountsForMerchant('nonexistent-merchant');
+    const result = await svc.getAccountsForMerchant('nonexistent-merchant');
     expect(result).toEqual([]);
   });
 
@@ -133,7 +133,7 @@ describe('accountService', () => {
     const merchantId = 'merchant-001';
 
     const linked  = await svc.linkOpenBankingAccount(merchantId, 'c1', 'ob-1', 'USD', 'checking', '9999');
-    const fetched = svc.getAccount(linked.id, merchantId);
+    const fetched = await svc.getAccount(linked.id, merchantId);
 
     expect(fetched.id).toBe(linked.id);
   });
@@ -143,9 +143,9 @@ describe('accountService', () => {
 
     const linked = await svc.linkOpenBankingAccount('merchant-A', 'c1', 'ob-1', 'USD', 'checking', '0000');
 
-    expect(() => svc.getAccount(linked.id, 'merchant-B')).toThrowError();
+    await expect(svc.getAccount(linked.id, 'merchant-B')).rejects.toThrow();
     try {
-      svc.getAccount(linked.id, 'merchant-B');
+      await svc.getAccount(linked.id, 'merchant-B');
     } catch (err) {
       expect((err as NodeJS.ErrnoException).code).toBe('NOT_FOUND');
     }
@@ -156,7 +156,7 @@ describe('accountService', () => {
     const merchantId = 'merchant-001';
 
     const linked  = await svc.linkOpenBankingAccount(merchantId, 'c1', 'ob-1', 'USD', 'checking', '1234');
-    const updated = svc.updateAccount(linked.id, merchantId, { nickname: 'Ops Account' });
+    const updated = await svc.updateAccount(linked.id, merchantId, { nickname: 'Ops Account' });
 
     expect(updated.nickname).toBe('Ops Account');
     expect(updated.id).toBe(linked.id);
@@ -173,13 +173,13 @@ describe('accountService', () => {
     await svc.disconnectAccount(linked.id, merchantId);
 
     // Disconnected accounts are excluded from list queries
-    const accounts = svc.getAccountsForMerchant(merchantId);
+    const accounts = await svc.getAccountsForMerchant(merchantId);
     expect(accounts.find((a) => a.id === linked.id)).toBeUndefined();
 
     // But still exist (for audit history) — getAccount should find it when we look directly
     // Note: the underlying map still has the record with status 'disconnected'
     // Access token should be gone
-    expect(() => svc.getAccessToken(linked.id)).toThrow();
+    await expect(svc.getAccessToken(linked.id)).rejects.toThrow();
   });
 
   it('refreshBalance updates stored balances (OB mocked)', async () => {
@@ -231,7 +231,7 @@ describe('transferService — initiate and list', () => {
 
   it('listTransfers returns empty for unknown merchant', async () => {
     const svc    = await import('../services/transferService');
-    const result = svc.listTransfers({ merchantId: 'nobody' });
+    const result = await svc.listTransfers({ merchantId: 'nobody' });
     expect(result.transfers).toHaveLength(0);
     expect(result.total).toBe(0);
     expect(result.hasMore).toBe(false);
@@ -240,7 +240,7 @@ describe('transferService — initiate and list', () => {
   it('getTransfer throws NOT_FOUND for unknown id', async () => {
     const svc = await import('../services/transferService');
     try {
-      svc.getTransfer('00000000-0000-0000-0000-000000000000', 'merchant-A');
+      await svc.getTransfer('00000000-0000-0000-0000-000000000000', 'merchant-A');
       expect(true).toBe(false); // should not reach here
     } catch (err) {
       expect((err as NodeJS.ErrnoException).code).toBe('NOT_FOUND');

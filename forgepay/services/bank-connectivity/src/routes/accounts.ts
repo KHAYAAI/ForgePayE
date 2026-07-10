@@ -120,7 +120,7 @@ export async function buildAccountRoutes(app: FastifyInstance): Promise<void> {
   // ── GET /api/v1/accounts ──────────────────────────────────────────────────
   app.get('/accounts', async (req: FastifyRequest, reply: FastifyReply) => {
     const merchantId = req.jwtPayload.sub;
-    const accts      = accountService.getAccountsForMerchant(merchantId);
+    const accts      = await accountService.getAccountsForMerchant(merchantId);
     return reply.code(200).send({ accounts: accts, count: accts.length });
   });
 
@@ -131,7 +131,7 @@ export async function buildAccountRoutes(app: FastifyInstance): Promise<void> {
       const merchantId = req.jwtPayload.sub;
 
       try {
-        const account = accountService.getAccount(req.params.id, merchantId);
+        const account = await accountService.getAccount(req.params.id, merchantId);
         return reply.code(200).send(account);
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code === 'NOT_FOUND') {
@@ -256,10 +256,10 @@ export async function buildAccountRoutes(app: FastifyInstance): Promise<void> {
       const offset    = (q.page - 1) * q.perPage;
 
       try {
-        const account = accountService.getAccount(req.params.id, merchantId);
+        const account = await accountService.getAccount(req.params.id, merchantId);
 
         if (account.provider === 'plaid') {
-          const accessToken = accountService.getAccessToken(req.params.id);
+          const accessToken = await accountService.getAccessToken(req.params.id);
           const { transactions, totalTransactions } = await plaid.getTransactions(
             accessToken,
             startDate,
@@ -277,7 +277,7 @@ export async function buildAccountRoutes(app: FastifyInstance): Promise<void> {
           });
         } else if (account.provider === 'open_banking' && account.obAccountId) {
           const { getOpenBankingClient } = await import('../openbanking/client');
-          const consentId   = accountService.getConsentId(req.params.id);
+          const consentId   = await accountService.getConsentId(req.params.id);
           const obClient    = getOpenBankingClient();
           const transactions = await obClient.getTransactions(
             account.obAccountId,

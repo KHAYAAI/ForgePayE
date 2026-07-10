@@ -27,6 +27,7 @@ export interface EmailJob {
 }
 
 const QUEUE_NAME = 'email:queue';
+const RETRY_QUEUE = 'email:retry'; // sorted set, score = nextRetryAt epoch ms
 const DEAD_LETTER_QUEUE = 'email:dead-letter';
 
 export async function enqueueEmail(job: Omit<EmailJob, 'id' | 'createdAt' | 'retryCount' | 'maxRetries'>): Promise<string> {
@@ -43,11 +44,31 @@ export async function enqueueEmail(job: Omit<EmailJob, 'id' | 'createdAt' | 'ret
   return id;
 }
 
+/**
+ * Move any retry-queue jobs whose backoff delay has elapsed back onto the
+ * main queue. Retries are held in a sorted set (score = nextRetryAt epoch
+ * ms) rather than pushed straight back onto QUEUE_NAME — a plain list has
+ * no concept of "not visible yet", so a job retried with a 16s backoff
+ * would otherwise be picked up on the very next 5s processor tick instead
+ * of after its actual delay.
+ */
+async function promoteDueRetries(): Promise<void> {
+  const due = await redis.zrangebyscore(RETRY_QUEUE, 0, Date.now());
+  if (due.length === 0) return;
+
+  for (const jobStr of due) {
+    await redis.zrem(RETRY_QUEUE, jobStr);
+    await redis.rpush(QUEUE_NAME, jobStr);
+  }
+}
+
 export async function processEmailQueue() {
   console.info('[Email Queue] Starting queue processor...');
 
   setInterval(async () => {
     try {
+      await promoteDueRetries();
+
       for (let i = 0; i < 10; i++) {
         const jobStr = await redis.lpop(QUEUE_NAME);
         if (!jobStr) break;
@@ -78,11 +99,12 @@ async function retryEmail(job: EmailJob, error: Error): Promise<void> {
   }
 
   const delayMs = Math.pow(2, job.retryCount - 1) * 1000;
-  job.nextRetryAt = new Date(Date.now() + delayMs);
+  const nextRetryAt = new Date(Date.now() + delayMs);
+  job.nextRetryAt = nextRetryAt;
 
   console.info(`[Email Queue] Retrying ${job.id} in ${delayMs}ms (attempt ${job.retryCount}/${job.maxRetries})`);
 
-  await redis.rpush(QUEUE_NAME, JSON.stringify(job));
+  await redis.zadd(RETRY_QUEUE, nextRetryAt.getTime(), JSON.stringify(job));
 }
 
 async function sendEmail(job: EmailJob): Promise<void> {

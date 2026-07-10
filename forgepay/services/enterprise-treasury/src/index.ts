@@ -505,6 +505,17 @@ async function main(): Promise<void> {
   process.on('SIGTERM', shutdown);
   process.on('SIGINT',  shutdown);
 
+  // ── Global error handlers (prevent silent pod crashes) ────────────────
+  process.on('unhandledRejection', (reason, promise) => {
+    app.log.error({ reason, promise }, 'Unhandled Rejection');
+    process.exit(1);
+  });
+
+  process.on('uncaughtException', (error) => {
+    app.log.error({ error }, 'Uncaught Exception');
+    process.exit(1);
+  });
+
   // DB migrations + data load (best-effort, non-blocking)
   try {
     await runMigrations();

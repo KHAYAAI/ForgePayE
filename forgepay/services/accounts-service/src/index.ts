@@ -1,4 +1,4 @@
-import Fastify from 'fastify';
+import Fastify, { FastifyRequest } from 'fastify';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import cors from '@fastify/cors';
@@ -9,6 +9,29 @@ import { buildTransactionRoutes } from './routes/transactions.js';
 import { buildWebhookRoutes } from './routes/webhooks.js';
 
 const app = Fastify({ logger: true });
+
+// ── Raw body capture ──────────────────────────────────────────────────────
+// routes/webhooks.ts verifies the Circle webhook's HMAC signature over the
+// *exact* bytes received (reads `req.rawBody`). Fastify's default JSON parser
+// discards the raw buffer after parsing, so without this the buffer is
+// always undefined and every webhook is rejected as "missing_body" — this
+// parser is what makes that verification real.
+app.addContentTypeParser(
+  'application/json',
+  { parseAs: 'buffer' },
+  (req, body: Buffer, done) => {
+    (req as FastifyRequest & { rawBody?: Buffer }).rawBody = body;
+    if (body.length === 0) {
+      done(null, {});
+      return;
+    }
+    try {
+      done(null, JSON.parse(body.toString('utf8')));
+    } catch (err) {
+      done(err as Error, undefined);
+    }
+  },
+);
 
 await app.register(helmet);
 
@@ -49,6 +72,17 @@ app.get('/readyz', async (_req, reply) => {
 await app.register(buildAccountRoutes,     { prefix: '/v1/accounts' });
 await app.register(buildTransactionRoutes, { prefix: '/v1/accounts' });
 await app.register(buildWebhookRoutes,     { prefix: '/v1/webhooks' });
+
+// Global error handlers (prevent silent pod crashes)
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[accounts-service] Unhandled Rejection:', reason, promise);
+  process.exit(1);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('[accounts-service] Uncaught Exception:', error);
+  process.exit(1);
+});
 
 // Start
 try {

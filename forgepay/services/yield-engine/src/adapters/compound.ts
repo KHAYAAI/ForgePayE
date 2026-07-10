@@ -118,7 +118,7 @@ export class CompoundAdapter implements BaseYieldAdapter {
     const approveTx  = await erc20['approve'](this.cometAddress, amount) as ethers.TransactionResponse;
     await approveTx.wait(1);
 
-    const cometWithSigner = this.comet.connect(signer);
+    const cometWithSigner = this.comet.connect(signer) as ethers.Contract;
     const tx = await cometWithSigner['supply'](this.usdcAddress, amount) as ethers.TransactionResponse;
     const receipt = await tx.wait(1);
     if (!receipt) throw new Error('supply transaction receipt is null');
@@ -132,7 +132,7 @@ export class CompoundAdapter implements BaseYieldAdapter {
    * @returns on-chain transaction hash
    */
   async withdraw(signer: ethers.Signer, amount: bigint): Promise<string> {
-    const cometWithSigner = this.comet.connect(signer);
+    const cometWithSigner = this.comet.connect(signer) as ethers.Contract;
     const tx = await cometWithSigner['withdraw'](this.usdcAddress, amount) as ethers.TransactionResponse;
     const receipt = await tx.wait(1);
     if (!receipt) throw new Error('withdraw transaction receipt is null');

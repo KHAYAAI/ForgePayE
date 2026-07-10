@@ -15,12 +15,15 @@ import {
   importSPKI,
   exportJWK,
   generateKeyPair,
-  type KeyLike,
+  type CryptoKey,
 } from 'jose';
 
+// jose v6 dropped the old `KeyLike` union type (KeyObject | CryptoKey |
+// Uint8Array) in favor of the standard Web Crypto `CryptoKey` — every jose
+// key function now imports/exports/generates plain `CryptoKey`s.
 interface KeySet {
-  privateKey: KeyLike;
-  publicKey:  KeyLike;
+  privateKey: CryptoKey;
+  publicKey:  CryptoKey;
   keyId:      string;
 }
 

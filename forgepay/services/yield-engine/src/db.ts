@@ -13,9 +13,45 @@ import { Pool, PoolClient } from 'pg';
 import path from 'path';
 import fs from 'fs';
 import type { YieldPosition, YieldTransaction, SweepConfig } from './types';
-import { createDbPool, initDb as initDbConnection } from '../../lib/db.js';
 
 const logger = pino({ name: 'db' });
+
+/**
+ * Self-contained by necessity: this used to delegate to the shared
+ * ../../lib/db.ts at the monorepo root, but this service's Dockerfile only
+ * `COPY src/ ./src/` — that root lib is unreachable at build time (the
+ * import resolved to nothing and `tsc` failed with TS2307). Inlined here
+ * instead, mirroring forgepay/services/unified-router/src/lib/db.ts.
+ */
+function createDbPool(): Pool {
+  const dbPool = new Pool({
+    host: process.env['DB_HOST'] ?? 'localhost',
+    port: parseInt(process.env['DB_PORT'] ?? '5432', 10),
+    user: process.env['DB_USER'] ?? 'postgres',
+    password: process.env['DB_PASSWORD'] ?? 'postgres',
+    database: process.env['DB_NAME'] ?? 'forgepay',
+    max: Math.max(1, parseInt(process.env['DB_POOL_MAX'] ?? '20', 10)),
+    min: Math.max(0, parseInt(process.env['DB_POOL_MIN'] ?? '2', 10)),
+    idleTimeoutMillis: Math.max(0, parseInt(process.env['DB_IDLE_TIMEOUT_MS'] ?? '30000', 10)),
+    connectionTimeoutMillis: Math.max(0, parseInt(process.env['DB_STATEMENT_TIMEOUT_MS'] ?? '5000', 10)),
+  });
+
+  dbPool.on('error', (err: Error, _client: PoolClient) => {
+    logger.error({ err }, '[db] unhandled error in PostgreSQL pool');
+  });
+
+  return dbPool;
+}
+
+async function initDbConnection(dbPool: Pool): Promise<void> {
+  const client = await dbPool.connect();
+  try {
+    const result = await client.query('SELECT NOW()');
+    logger.info({ timestamp: result.rows[0]?.now }, 'Database connection verified');
+  } finally {
+    client.release();
+  }
+}
 
 let pool: Pool | null = null;
 
@@ -305,7 +341,7 @@ async function loadRemainingPositions(): Promise<void> {
       }
 
       // Import the store to add positions (avoid circular dependency)
-      const { positionsStore } = await import('../store');
+      const { positionsStore } = await import('./store');
       for (const row of result.rows) {
         const position: YieldPosition = {
           id: row.id,

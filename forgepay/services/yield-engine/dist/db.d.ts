@@ -30,8 +30,9 @@ export declare function getPool(): Pool;
  */
 export declare function upsertPosition(position: YieldPosition): Promise<void>;
 /**
- * Load all positions from the database.
- * Called during startup to restore state from persistent storage.
+ * Load first batch of positions and return immediately.
+ * Background task (started below) loads remaining positions.
+ * Called during startup to populate in-memory cache without blocking.
  */
 export declare function loadAllPositions(): Promise<YieldPosition[]>;
 /**

@@ -158,7 +158,7 @@ export class AaveAdapter implements BaseYieldAdapter {
     await approveTx.wait(1);
 
     // 2. supply(asset, amount, onBehalfOf, referralCode=0)
-    const poolWithSigner = this.pool.connect(signer);
+    const poolWithSigner = this.pool.connect(signer) as ethers.Contract;
     const signerAddress  = await signer.getAddress();
     const supplyTx = await poolWithSigner['supply'](
       asset,
@@ -178,7 +178,7 @@ export class AaveAdapter implements BaseYieldAdapter {
    * @returns on-chain transaction hash
    */
   async withdraw(signer: ethers.Signer, asset: string, amount: bigint): Promise<string> {
-    const poolWithSigner = this.pool.connect(signer);
+    const poolWithSigner = this.pool.connect(signer) as ethers.Contract;
     const signerAddress  = await signer.getAddress();
     const tx = await poolWithSigner['withdraw'](
       asset,

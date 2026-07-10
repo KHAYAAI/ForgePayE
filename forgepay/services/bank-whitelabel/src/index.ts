@@ -159,6 +159,17 @@ async function main(): Promise<void> {
   process.on('SIGTERM', shutdown);
   process.on('SIGINT',  shutdown);
 
+  // ── Global error handlers (prevent silent pod crashes) ────────────────
+  process.on('unhandledRejection', (reason, promise) => {
+    app.log.error({ reason, promise }, 'Unhandled Rejection');
+    process.exit(1);
+  });
+
+  process.on('uncaughtException', (error) => {
+    app.log.error({ error }, 'Uncaught Exception');
+    process.exit(1);
+  });
+
   await app.listen({ port: PORT, host: '0.0.0.0' });
   app.log.info(`[bank-whitelabel] Listening on :${PORT} (${NODE_ENV})`);
 }

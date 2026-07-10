@@ -14,13 +14,13 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const vitest_1 = require("vitest");
 // ── Mock the adapters module before importing aggregator ──────────────────────
-vitest_1.vi.mock('../../adapters', () => {
+vitest_1.vi.mock('../adapters', () => {
     return {
         getAdapter: vitest_1.vi.fn(),
     };
 });
 // ── Mock the config so we control the cache TTL ───────────────────────────────
-vitest_1.vi.mock('../../config', () => ({
+vitest_1.vi.mock('../config', () => ({
     config: {
         apyCacheTtlMs: 15 * 60 * 1000, // 15 min (tests manipulate Date)
         ondoApiBase: 'https://api.ondo.finance/v1',
@@ -39,9 +39,9 @@ vitest_1.vi.mock('../../config', () => ({
         port: 3007,
     },
 }));
-const adapters_1 = require("../../adapters");
-const apyAggregator_1 = require("../../services/apyAggregator");
-const store_1 = require("../../store");
+const adapters_1 = require("../adapters");
+const apyAggregator_1 = require("../services/apyAggregator");
+const store_1 = require("../store");
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function makeAdapter(apy) {
     return {

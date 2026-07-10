@@ -113,6 +113,17 @@ async function main() {
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
 
+  // ── Global error handlers (prevent silent pod crashes) ────────────────
+  process.on('unhandledRejection', (reason, promise) => {
+    console.error('[chain-sync] Unhandled Rejection:', reason, promise);
+    process.exit(1);
+  });
+
+  process.on('uncaughtException', (error) => {
+    console.error('[chain-sync] Uncaught Exception:', error);
+    process.exit(1);
+  });
+
   await app.listen({ port: config.port, host: '0.0.0.0' });
   console.log(`[chain-sync] Listening on :${config.port}`);
 

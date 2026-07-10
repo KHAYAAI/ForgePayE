@@ -147,6 +147,10 @@ async function buildApp() {
         service: 'yield-engine',
         version: '0.1.0',
     }));
+    app.get('/metrics', async (_req, reply) => {
+        const { register } = await Promise.resolve().then(() => __importStar(require('./lib/metrics.js')));
+        reply.type('text/plain; version=0.0.4; charset=utf-8').send(await register.metrics());
+    });
     app.get('/readyz', async (_req, reply) => {
         // In production: verify DB connection and at least one RPC endpoint
         return reply.send({ status: 'ready' });
@@ -225,6 +229,15 @@ async function main() {
     };
     process.on('SIGTERM', shutdown);
     process.on('SIGINT', shutdown);
+    // ── Global error handlers (prevent silent pod crashes) ────────────────
+    process.on('unhandledRejection', (reason, promise) => {
+        console.error('[yield-engine] Unhandled Rejection:', reason, promise);
+        process.exit(1);
+    });
+    process.on('uncaughtException', (error) => {
+        console.error('[yield-engine] Uncaught Exception:', error);
+        process.exit(1);
+    });
     await app.listen({ port: config_1.config.port, host: '0.0.0.0' });
     console.log(`[yield-engine] Listening on :${config_1.config.port}`);
 }

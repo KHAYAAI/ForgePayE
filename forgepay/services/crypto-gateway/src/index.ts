@@ -89,6 +89,17 @@ async function main() {
   process.on('SIGTERM', shutdown);
   process.on('SIGINT',  shutdown);
 
+  // ── Global error handlers (prevent silent pod crashes) ────────────────
+  process.on('unhandledRejection', (reason, promise) => {
+    console.error('[crypto-gateway] Unhandled Rejection:', reason, promise);
+    process.exit(1);
+  });
+
+  process.on('uncaughtException', (error) => {
+    console.error('[crypto-gateway] Uncaught Exception:', error);
+    process.exit(1);
+  });
+
   await app.listen({ port: config.port, host: '0.0.0.0' });
   console.log(`[crypto-gateway] Listening on :${config.port}`);
 }

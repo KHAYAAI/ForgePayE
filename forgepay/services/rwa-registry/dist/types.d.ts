@@ -43,6 +43,7 @@ export interface MerchantRWAPosition {
     totalIncomeEarnedUsd: number;
     pendingIncomeUsd: number;
     lastIncomeDistributionAt?: string;
+    lastAccrualAt?: string;
     pendingRedemptionUnits: number;
     pendingRedemptionUsd: number;
     openedAt: string;

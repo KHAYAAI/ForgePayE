@@ -6,7 +6,7 @@
  *   - Normalize routes (UUIDs → {uuid}, IDs → {id})
  */
 
-import { FastifyPlugin, FastifyRequest, FastifyReply } from 'fastify';
+import { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import { recordHttpRequest } from './metrics';
 
 const UUID_REGEX = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
@@ -24,7 +24,7 @@ function normalizeRoute(path: string): string {
 /**
  * Fastify plugin to instrument HTTP metrics
  */
-const instrumentationPlugin: FastifyPlugin = async (fastify) => {
+const instrumentationPlugin: FastifyPluginAsync = async (fastify) => {
   fastify.addHook('onRequest', async (req: FastifyRequest) => {
     // Attach start time to request
     (req as any).startTime = Date.now();

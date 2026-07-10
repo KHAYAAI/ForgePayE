@@ -329,6 +329,15 @@ app.get('/v1/agent/tools', async (_req, reply) => {
   });
 });
 
+// ── Graceful shutdown ─────────────────────────────────────────────────
+const shutdown = async (): Promise<void> => {
+  console.log('[institutional-reporting] Shutting down...');
+  await app.close();
+  process.exit(0);
+};
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
+
 // ── Start ─────────────────────────────────────────────────────────────────────
 
   await app.listen({ port: PORT, host: '0.0.0.0' });

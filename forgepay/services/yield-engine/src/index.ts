@@ -220,6 +220,17 @@ async function main(): Promise<void> {
   process.on('SIGTERM', shutdown);
   process.on('SIGINT',  shutdown);
 
+  // ── Global error handlers (prevent silent pod crashes) ────────────────
+  process.on('unhandledRejection', (reason, promise) => {
+    console.error('[yield-engine] Unhandled Rejection:', reason, promise);
+    process.exit(1);
+  });
+
+  process.on('uncaughtException', (error) => {
+    console.error('[yield-engine] Uncaught Exception:', error);
+    process.exit(1);
+  });
+
   await app.listen({ port: config.port, host: '0.0.0.0' });
   console.log(`[yield-engine] Listening on :${config.port}`);
 }

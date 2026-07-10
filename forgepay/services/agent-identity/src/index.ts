@@ -487,6 +487,17 @@ async function main(): Promise<void> {
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
 
+  // ── Global error handlers (prevent silent pod crashes) ────────────────
+  process.on('unhandledRejection', (reason, promise) => {
+    app.log.error({ reason, promise }, 'Unhandled Rejection');
+    process.exit(1);
+  });
+
+  process.on('uncaughtException', (error) => {
+    app.log.error({ error }, 'Uncaught Exception');
+    process.exit(1);
+  });
+
   await app.listen({ port: PORT, host: '0.0.0.0' });
 
   console.log(`
@@ -503,7 +514,13 @@ async function main(): Promise<void> {
 `);
 }
 
-main().catch((err) => {
-  console.error('[agent-identity] Fatal startup error:', err);
-  process.exit(1);
-});
+// Only auto-start when this module is the actual process entrypoint (e.g.
+// `node dist/index.js`) — not when it's `import`ed for `buildApp` (as the
+// test suite does), which would otherwise start a second real listener on
+// the same port as a side effect of merely importing the module.
+if (require.main === module) {
+  main().catch((err) => {
+    console.error('[agent-identity] Fatal startup error:', err);
+    process.exit(1);
+  });
+}

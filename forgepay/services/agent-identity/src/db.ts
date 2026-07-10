@@ -5,8 +5,34 @@
  * identities, reputation events, and attestations.
  */
 
-import { Pool } from 'pg';
-import { createDbPool } from '../../lib/db.js';
+import { Pool, PoolClient } from 'pg';
+
+/**
+ * Self-contained by necessity: this used to delegate to the shared
+ * ../../lib/db.ts at the monorepo root, but this service's Dockerfile only
+ * `COPY src/ ./src/` — that root lib is unreachable at build time (the
+ * import resolved to nothing and `tsc` failed with TS2307). Inlined here
+ * instead, mirroring forgepay/services/unified-router/src/lib/db.ts.
+ */
+function createDbPool(): Pool {
+  const pool = new Pool({
+    host: process.env['DB_HOST'] ?? 'localhost',
+    port: parseInt(process.env['DB_PORT'] ?? '5432', 10),
+    user: process.env['DB_USER'] ?? 'postgres',
+    password: process.env['DB_PASSWORD'] ?? 'postgres',
+    database: process.env['DB_NAME'] ?? 'forgepay',
+    max: Math.max(1, parseInt(process.env['DB_POOL_MAX'] ?? '20', 10)),
+    min: Math.max(0, parseInt(process.env['DB_POOL_MIN'] ?? '2', 10)),
+    idleTimeoutMillis: Math.max(0, parseInt(process.env['DB_IDLE_TIMEOUT_MS'] ?? '30000', 10)),
+    connectionTimeoutMillis: Math.max(0, parseInt(process.env['DB_STATEMENT_TIMEOUT_MS'] ?? '5000', 10)),
+  });
+
+  pool.on('error', (err: Error, _client: PoolClient) => {
+    console.error('[agent-identity] unhandled error in PostgreSQL pool', err);
+  });
+
+  return pool;
+}
 
 export const pool = createDbPool();
 

@@ -17,7 +17,7 @@ export declare const config: {
     readonly stablecoinGatewayUrl: string;
     readonly sweepIntervalMinutes: number;
     readonly corsOrigins: string[];
-    readonly signerPrivateKey: any;
+    readonly signerPrivateKey: string;
     readonly apyCacheTtlMs: number;
 };
 //# sourceMappingURL=config.d.ts.map

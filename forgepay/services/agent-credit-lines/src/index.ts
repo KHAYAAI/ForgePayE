@@ -166,7 +166,7 @@ async function buildApp() {
   app.get<{ Params: { id: string } }>('/v1/credit-lines/:id', async (req, reply) => {
     const line = getCreditLine(req.params.id);
     if (!line) return reply.status(404).send({ error: 'NotFound', message: `Credit line ${req.params.id} not found` });
-    const draws = listDrawsByLine(line.id);
+    const draws = await listDrawsByLine(line.id);
     return reply.send({ data: line, draws, drawCount: draws.length });
   });
 
@@ -188,7 +188,7 @@ async function buildApp() {
   app.post<{ Params: { id: string } }>('/v1/credit-lines/:id/close', async (req, reply) => {
     const line = getCreditLine(req.params.id);
     if (!line) return reply.status(404).send({ error: 'NotFound' });
-    const outstanding = listDrawsByLine(line.id).filter((d) => d.status === 'outstanding' || d.status === 'overdue');
+    const outstanding = (await listDrawsByLine(line.id)).filter((d) => d.status === 'outstanding' || d.status === 'overdue');
     if (outstanding.length > 0) {
       return reply.status(409).send({
         error:                'Conflict',
@@ -373,6 +373,17 @@ async function main(): Promise<void> {
   };
   process.on('SIGTERM', shutdown);
   process.on('SIGINT',  shutdown);
+
+  // ── Global error handlers (prevent silent pod crashes) ────────────────
+  process.on('unhandledRejection', (reason, promise) => {
+    app.log.error({ reason, promise }, 'Unhandled Rejection');
+    process.exit(1);
+  });
+
+  process.on('uncaughtException', (error) => {
+    app.log.error({ error }, 'Uncaught Exception');
+    process.exit(1);
+  });
 
   // DB migrations + data load (best-effort)
   try {

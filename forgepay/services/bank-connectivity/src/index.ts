@@ -161,6 +161,17 @@ async function main(): Promise<void> {
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
   process.on('SIGINT',  () => void shutdown('SIGINT'));
 
+  // ── Global error handlers (prevent silent pod crashes) ────────────────
+  process.on('unhandledRejection', (reason, promise) => {
+    logger.error({ reason, promise }, 'Unhandled Rejection');
+    process.exit(1);
+  });
+
+  process.on('uncaughtException', (error) => {
+    logger.error({ error }, 'Uncaught Exception');
+    process.exit(1);
+  });
+
   // ── Connect Prisma ────────────────────────────────────────────────────────
   await prisma.$connect();
   app.log.info('[bank-connectivity] Prisma connected to PostgreSQL');

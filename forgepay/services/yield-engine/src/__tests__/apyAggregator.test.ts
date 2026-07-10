@@ -15,7 +15,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // ── Mock the adapters module before importing aggregator ──────────────────────
 
-vi.mock('../../adapters', () => {
+vi.mock('../adapters', () => {
   return {
     getAdapter: vi.fn(),
   };
@@ -23,7 +23,7 @@ vi.mock('../../adapters', () => {
 
 // ── Mock the config so we control the cache TTL ───────────────────────────────
 
-vi.mock('../../config', () => ({
+vi.mock('../config', () => ({
   config: {
     apyCacheTtlMs:          15 * 60 * 1000, // 15 min (tests manipulate Date)
     ondoApiBase:            'https://api.ondo.finance/v1',
@@ -43,13 +43,13 @@ vi.mock('../../config', () => ({
   },
 }));
 
-import { getAdapter } from '../../adapters';
+import { getAdapter } from '../adapters';
 import {
   fetchAllApys,
   getBestVault,
   invalidateApyCache,
-} from '../../services/apyAggregator';
-import { vaultsStore } from '../../store';
+} from '../services/apyAggregator';
+import { vaultsStore } from '../store';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

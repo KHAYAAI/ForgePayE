@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.calculateDailyIncome = calculateDailyIncome;
+exports.accruePositionIncome = accruePositionIncome;
 exports.distributeIncome = distributeIncome;
 exports.getIncomeHistory = getIncomeHistory;
 exports.calculateTaxLiability = calculateTaxLiability;
@@ -9,17 +10,62 @@ exports.distributeAllPendingIncome = distributeAllPendingIncome;
 const uuid_1 = require("uuid");
 const store_1 = require("./store");
 // ── Income calculations ───────────────────────────────────────────────────────
+const MS_PER_YEAR = 365 * 24 * 60 * 60 * 1000;
 /**
- * Calculate the daily income earned by a position.
- * Formula: (currentValueUsd * apyBps / 10_000) / 365
+ * Nominal one-day income at the position's *current* value and the asset's
+ * *current* APY. Useful for display/estimation purposes only — real accrual
+ * bookkeeping (below) is driven by actual elapsed wall-clock time, not this
+ * flat one-day assumption, so it stays correct regardless of exactly when
+ * the accrual job runs or how long a position goes between distributions.
  */
 function calculateDailyIncome(position, asset) {
     return (position.currentValueUsd * asset.currentApyBps) / 10_000 / 365;
 }
 /**
+ * Accrue real income for a single position based on:
+ *   - the position's actual current holdings (currentValueUsd)
+ *   - the asset's actual current yield rate (currentApyBps)
+ *   - the ACTUAL time elapsed since the position's last accrual point
+ *     (position.lastAccrualAt, falling back to openedAt for a position
+ *     that has never been accrued)
+ *
+ * This replaces a prior stub that derived income from a flat heuristic
+ * (a fixed "one day" of income) applied every time accrual ran, regardless
+ * of how much time had actually passed. That heuristic silently over- or
+ * under-counted income whenever accrual didn't land on an exact 24h
+ * cadence — e.g. an ad hoc POST /v1/income/distribute call made a few
+ * hours after the last scheduled accrual would previously still credit a
+ * full day's income.
+ *
+ * Mutates position.pendingIncomeUsd and position.lastAccrualAt in place and
+ * returns the amount accrued.
+ */
+function accruePositionIncome(position, asset, now = new Date()) {
+    const lastAccrualAt = new Date(position.lastAccrualAt ?? position.openedAt);
+    const elapsedMs = Math.max(0, now.getTime() - lastAccrualAt.getTime());
+    const accrued = ((position.currentValueUsd * asset.currentApyBps) / 10_000) * (elapsedMs / MS_PER_YEAR);
+    position.pendingIncomeUsd = (position.pendingIncomeUsd ?? 0) + accrued;
+    position.lastAccrualAt = now.toISOString();
+    position.lastUpdatedAt = now.toISOString();
+    return accrued;
+}
+/**
  * Distribute pending income for a specific position.
  * Creates an IncomeDistribution record and updates the position's pendingIncomeUsd.
- * In production: transfers net amount to merchant's USDC wallet.
+ *
+ * Before distributing, this true-ups any income accrued since the position's
+ * last accrual point using REAL elapsed time (accruePositionIncome) — so
+ * this behaves consistently whether it's invoked by the scheduled 24h
+ * accrual+distribution cycle (see index.ts) or ad hoc via the API.
+ *
+ * Settlement here is REAL internal-ledger settlement: pendingIncomeUsd is
+ * correctly swept into totalIncomeEarnedUsd and the IncomeDistribution
+ * record is marked 'settled' with settledAt = now, because that is
+ * genuinely the moment this registry's own books recognize/settle the
+ * accrued income. What this does NOT do is move real money: crediting the
+ * netAmount as USDC to the merchant's wallet still requires a call to
+ * stablecoin-gateway — that external transfer is the next integration step
+ * (see NOTE below), not something this function claims to have done.
  */
 function distributeIncome(merchantId, assetId, positionId) {
     const position = store_1.positions.get(positionId);
@@ -32,12 +78,22 @@ function distributeIncome(merchantId, assetId, positionId) {
     const asset = store_1.rwaAssets.get(assetId);
     if (!asset)
         throw new Error(`Asset ${assetId} not found`);
-    // Accrue daily income to pending if none is pending yet
-    let pendingAmount = position.pendingIncomeUsd;
-    if (pendingAmount <= 0) {
-        pendingAmount = calculateDailyIncome(position, asset);
+    const now = new Date();
+    // True up any income accrued since the last accrual/distribution point
+    // using real elapsed time before sweeping pendingIncomeUsd into a
+    // distribution record.
+    accruePositionIncome(position, asset, now);
+    const pendingAmount = position.pendingIncomeUsd;
+    // A sub-cent accrual isn't practically distributable — and, with real
+    // elapsed-time accrual, calling this immediately after opening a position
+    // never measures out to exactly zero (some nonzero wall-clock time always
+    // passes between "position opened" and "distribute called"), so the
+    // threshold has to be a real minimum amount, not an exact-zero check.
+    const MIN_DISTRIBUTABLE_USD = 0.01;
+    if (pendingAmount < MIN_DISTRIBUTABLE_USD) {
+        throw new Error(`No pending income to distribute for position ${positionId}`);
     }
-    const now = new Date().toISOString();
+    const nowIso = now.toISOString();
     const withholdingTax = 0; // Institutional products typically have 0 withholding
     const taxableAmount = pendingAmount;
     const netAmount = pendingAmount - withholdingTax;
@@ -52,18 +108,19 @@ function distributeIncome(merchantId, assetId, positionId) {
         taxableAmountUsd: taxableAmount,
         withholdingTaxUsd: withholdingTax,
         netAmountUsd: netAmount,
-        distributionDate: now,
-        settledAt: now, // Stub: immediate settlement
+        distributionDate: nowIso,
+        settledAt: nowIso, // Real: this is the moment the internal ledger settles the accrual.
         status: 'settled',
     };
     store_1.incomeDistributions.set(distribution.id, distribution);
     // Update position: clear pending, accumulate total income
     position.totalIncomeEarnedUsd = (position.totalIncomeEarnedUsd ?? 0) + netAmount;
     position.pendingIncomeUsd = 0;
-    position.lastIncomeDistributionAt = now;
-    position.lastUpdatedAt = now;
+    position.lastIncomeDistributionAt = nowIso;
+    position.lastUpdatedAt = nowIso;
     // NOTE: In production this would call stablecoin-gateway to transfer
-    // netAmount USDC to the merchant's designated wallet address.
+    // netAmount USDC to the merchant's designated wallet address. That
+    // external transfer is not performed here — see module doc comment above.
     console.log(`[rwa-registry] Distributed $${netAmount.toFixed(4)} (${asset.symbol}) to merchant ${merchantId}`);
     return distribution;
 }
@@ -96,19 +153,22 @@ function calculateTaxLiability(distributions) {
     return result;
 }
 /**
- * Accrue daily income to all active positions for a merchant.
- * Called by the 24h background scheduler.
+ * Accrue real income to all active positions for a merchant, based on each
+ * position's actual holdings/asset yield and actual elapsed time since its
+ * last accrual point.
+ * Called by the 24h background scheduler (see index.ts).
  */
 function accrueAllPendingIncome() {
+    const now = new Date();
+    let accruedCount = 0;
     for (const position of store_1.positions.values()) {
         const asset = store_1.rwaAssets.get(position.assetId);
         if (!asset || asset.status !== 'active')
             continue;
-        const daily = calculateDailyIncome(position, asset);
-        position.pendingIncomeUsd = (position.pendingIncomeUsd ?? 0) + daily;
-        position.lastUpdatedAt = new Date().toISOString();
+        accruePositionIncome(position, asset, now);
+        accruedCount++;
     }
-    console.log(`[rwa-registry] Accrued daily income for ${store_1.positions.size} positions`);
+    console.log(`[rwa-registry] Accrued real (elapsed-time) income for ${accruedCount} active positions`);
 }
 /**
  * Distribute income to all positions with pending amounts.

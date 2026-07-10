@@ -39,6 +39,39 @@
  *   POST /v1/redemptions/:id/cancel   — cancel pending redemption
  *   POST /v1/nav/refresh          — manually trigger NAV refresh
  */
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -94,6 +127,11 @@ async function buildApp() {
         positionCount: store_1.positions.size,
         timestamp: new Date().toISOString(),
     }));
+    // ── Metrics ────────────────────────────────────────────────────────────────
+    app.get('/metrics', async (_req, reply) => {
+        const { register } = await Promise.resolve().then(() => __importStar(require('./lib/metrics.js')));
+        reply.type('text/plain; version=0.0.4; charset=utf-8').send(await register.metrics());
+    });
     // ── Asset routes ──────────────────────────────────────────────────────────
     /**
      * GET /v1/assets
@@ -187,6 +225,7 @@ async function buildApp() {
             pendingRedemptionUsd: 0,
             openedAt: now,
             lastUpdatedAt: now,
+            lastAccrualAt: now,
         };
         (0, store_1.addPosition)(position);
         return reply.status(201).send({ data: position });
@@ -466,6 +505,15 @@ async function main() {
     };
     process.on('SIGTERM', shutdown);
     process.on('SIGINT', shutdown);
+    // ── Global error handlers (prevent silent pod crashes) ────────────────
+    process.on('unhandledRejection', (reason, promise) => {
+        app.log.error({ reason, promise }, 'Unhandled Rejection');
+        process.exit(1);
+    });
+    process.on('uncaughtException', (error) => {
+        app.log.error({ error }, 'Uncaught Exception');
+        process.exit(1);
+    });
     // Initialize NAV cache from database on startup
     await initNavCacheFromDb();
     startBackgroundJobs(app);
@@ -486,8 +534,14 @@ async function main() {
 ╚══════════════════════════════════════════════════════════════════╝
 `);
 }
-main().catch((err) => {
-    console.error('[rwa-registry] Fatal startup error:', err);
-    process.exit(1);
-});
+// Only auto-start when this module is the actual process entrypoint (e.g.
+// `node dist/index.js`) — not when it's `import`ed for `buildApp` (as the
+// test suite does), which would otherwise start a second real listener on
+// the same port as a side effect of merely importing the module.
+if (require.main === module) {
+    main().catch((err) => {
+        console.error('[rwa-registry] Fatal startup error:', err);
+        process.exit(1);
+    });
+}
 //# sourceMappingURL=index.js.map
