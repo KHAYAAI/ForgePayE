@@ -1,4 +1,4 @@
-replicaCount: 2
+replicaCount: 3
 minReadySeconds: 30
 strategy:
   type: RollingUpdate
@@ -26,11 +26,11 @@ kyapay:
   trustedIssuers: https://skyfire.xyz,https://api.forgepay.com
 resources:
   requests:
-    cpu: 200m
-    memory: 256Mi
+    cpu: 300m
+    memory: 384Mi
   limits:
-    cpu: 400m
-    memory: 512Mi
+    cpu: 600m
+    memory: 768Mi
 livenessProbe:
   httpGet:
     path: /health

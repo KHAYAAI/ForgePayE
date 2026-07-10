@@ -1,4 +1,4 @@
-replicaCount: 2
+replicaCount: 3
 image:
   repository: forgepay/institutional-reporting
   pullPolicy: IfNotPresent
@@ -9,14 +9,14 @@ service:
   targetPort: 3017
 resources:
   requests:
-    cpu: 200m
-    memory: 384Mi
+    cpu: 300m
+    memory: 576Mi
   limits:
-    cpu: 400m
-    memory: 768Mi
+    cpu: 600m
+    memory: 1152Mi
 autoscaling:
   enabled: true
-  minReplicas: 2
+  minReplicas: 3
   maxReplicas: 8
   targetCPUUtilizationPercentage: 70
   targetMemoryUtilizationPercentage: 80

@@ -1,4 +1,4 @@
-replicaCount: 2
+replicaCount: 3
 image:
   repository: forgepay/unified-router
   tag: latest
@@ -16,14 +16,14 @@ kyapay:
   issuerUrl: https://api.forgepay.com
 resources:
   requests:
-    cpu: 300m
-    memory: 512Mi
-  limits:
-    cpu: 500m
+    cpu: 600m
     memory: 1Gi
+  limits:
+    cpu: 1000m
+    memory: 2Gi
 autoscaling:
   enabled: true
-  minReplicas: 2
+  minReplicas: 3
   maxReplicas: 10
   targetCPUUtilizationPercentage: 70
 livenessProbe:

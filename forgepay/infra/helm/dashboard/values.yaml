@@ -1,4 +1,4 @@
-replicaCount: 2
+replicaCount: 3
 image:
   repository: forgepay/dashboard
   pullPolicy: IfNotPresent
@@ -23,14 +23,14 @@ ingress:
     - dashboard.forgepay.dev
 resources:
   requests:
-    cpu: 150m
-    memory: 256Mi
+    cpu: 200m
+    memory: 384Mi
   limits:
-    cpu: 300m
-    memory: 512Mi
+    cpu: 450m
+    memory: 768Mi
 autoscaling:
   enabled: true
-  minReplicas: 2
+  minReplicas: 3
   maxReplicas: 6
   targetCPUUtilizationPercentage: 70
   targetMemoryUtilizationPercentage: 80

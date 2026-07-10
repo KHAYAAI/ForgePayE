@@ -16,11 +16,11 @@ rateLimitPerMinute: 200
 secretRef: forgepay-agent-negotiation-secrets
 resources:
   requests:
-    cpu: 200m
-    memory: 256Mi
+    cpu: 300m
+    memory: 384Mi
   limits:
-    cpu: 400m
-    memory: 512Mi
+    cpu: 600m
+    memory: 768Mi
 livenessProbe:
   httpGet:
     path: /health

@@ -1,4 +1,4 @@
-replicaCount: 2
+replicaCount: 3
 image:
   repository: forgepay/compliance-monitor
   tag: 0.1.0
@@ -48,11 +48,11 @@ securityContext:
     - ALL
 resources:
   requests:
-    cpu: 250m
-    memory: 384Mi
-  limits:
-    cpu: 400m
+    cpu: 500m
     memory: 768Mi
+  limits:
+    cpu: 800m
+    memory: 1536Mi
 persistence:
   enabled: false
 livenessProbe:
@@ -73,7 +73,7 @@ readinessProbe:
   failureThreshold: 2
 autoscaling:
   enabled: true
-  minReplicas: 2
+  minReplicas: 3
   maxReplicas: 5
   targetCPUUtilizationPercentage: 70
   targetMemoryUtilizationPercentage: 80

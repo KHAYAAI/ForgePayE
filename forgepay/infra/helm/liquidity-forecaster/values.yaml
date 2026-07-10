@@ -1,4 +1,4 @@
-replicaCount: 2
+replicaCount: 3
 image:
   repository: forgepay/liquidity-forecaster
   tag: 0.1.0
@@ -37,11 +37,11 @@ securityContext:
     - ALL
 resources:
   requests:
-    cpu: 200m
-    memory: 256Mi
+    cpu: 300m
+    memory: 384Mi
   limits:
-    cpu: 400m
-    memory: 512Mi
+    cpu: 600m
+    memory: 768Mi
 livenessProbe:
   httpGet:
     path: /health
@@ -60,7 +60,7 @@ readinessProbe:
   failureThreshold: 2
 autoscaling:
   enabled: true
-  minReplicas: 2
+  minReplicas: 3
   maxReplicas: 5
   targetCPUUtilizationPercentage: 70
   targetMemoryUtilizationPercentage: 80

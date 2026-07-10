@@ -31,11 +31,11 @@ contracts:
     commitmentTree: '0x0000000000000000000000000000000000000000'
 resources:
   requests:
-    cpu: 150m
-    memory: 256Mi
+    cpu: 200m
+    memory: 384Mi
   limits:
-    cpu: 300m
-    memory: 512Mi
+    cpu: 450m
+    memory: 768Mi
 autoscaling:
   enabled: false
 livenessProbe:

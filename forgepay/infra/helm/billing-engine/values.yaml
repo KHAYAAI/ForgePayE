@@ -25,11 +25,11 @@ plugins:
     '
 resources:
   requests:
-    cpu: 250m
-    memory: 384Mi
-  limits:
-    cpu: 400m
+    cpu: 500m
     memory: 768Mi
+  limits:
+    cpu: 800m
+    memory: 1536Mi
 livenessProbe:
   httpGet:
     path: /1.0/kb/health

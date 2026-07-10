@@ -9,11 +9,11 @@ service:
   targetPort: 3020
 resources:
   requests:
-    cpu: 250m
-    memory: 256Mi
+    cpu: 400m
+    memory: 384Mi
   limits:
-    cpu: 500m
-    memory: 512Mi
+    cpu: 750m
+    memory: 768Mi
 autoscaling:
   enabled: true
   minReplicas: 3
