@@ -73,6 +73,16 @@ await app.register(buildAccountRoutes,     { prefix: '/v1/accounts' });
 await app.register(buildTransactionRoutes, { prefix: '/v1/accounts' });
 await app.register(buildWebhookRoutes,     { prefix: '/v1/webhooks' });
 
+// Run DB migrations before accepting traffic — without this, a fresh
+// Postgres database has none of the tables this service queries.
+try {
+  const { runMigrations } = await import('./db/migrate.js');
+  await runMigrations(getDb());
+} catch (err) {
+  if (config.env === 'production') throw err;
+  app.log.warn({ err }, '[accounts-service] Migrations failed — continuing (dev only)');
+}
+
 // Global error handlers (prevent silent pod crashes)
 process.on('unhandledRejection', (reason, promise) => {
   console.error('[accounts-service] Unhandled Rejection:', reason, promise);

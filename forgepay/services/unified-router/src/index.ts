@@ -98,6 +98,17 @@ async function main() {
   app.decorate('redis', redis);
   app.decorate('db',    db);
 
+  // Run DB migrations before accepting traffic — without this, a fresh
+  // Postgres database has none of the tables this service queries/writes
+  // (forgepay_events, dedup, etc.).
+  try {
+    const { runMigrations } = await import('./db/migrate.js');
+    await runMigrations(db);
+  } catch (err) {
+    if (config.env === 'production') throw err;
+    logger.warn({ err }, '[unified-router] Migrations failed — continuing (dev only)');
+  }
+
   // ── Routes ────────────────────────────────────────────────────────────────
   await app.register(buildHealthRoutes);
   await app.register(buildWebhookRoutes, { prefix: '/webhooks' });
