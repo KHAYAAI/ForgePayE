@@ -1,0 +1,14 @@
+{
+  "name": "@forgepay/billing-engine",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ForgePay Billing Engine — Kill Bill config validation tests (the plugin itself is a Maven/Java project under forgepay-plugin/)",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.1"
+  }
+}

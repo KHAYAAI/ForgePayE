@@ -51,7 +51,11 @@ describe('Billing Engine - Kill Bill Configuration', () => {
       const filePath = path.join(configDir, 'shiro.ini');
       const content = fs.readFileSync(filePath, 'utf-8');
 
-      expect(content).toMatch(/\[.*realm.*\]/i);
+      // Shiro builds an implicit realm from [users]/[roles] rather than a
+      // section literally named "[realm]" — a real realm config wires a
+      // credentialsMatcher onto that realm (e.g. `iniRealm.credentialsMatcher
+      // = ...`), which is what actually matters here.
+      expect(content).toMatch(/realm\.credentialsMatcher\s*=/i);
     });
   });
 
