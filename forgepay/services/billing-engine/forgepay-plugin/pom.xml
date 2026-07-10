@@ -64,6 +64,28 @@
             <version>${gson.version}</version>
         </dependency>
 
+        <!-- Prometheus metrics (MetricsRegistry) -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-core</artifactId>
+            <version>1.11.5</version>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+            <version>1.11.5</version>
+        </dependency>
+
+        <!-- Servlet API (MetricsServlet) — provided by Kill Bill's servlet
+             container at runtime, matching the javax.servlet namespace Kill
+             Bill 0.24.x runs on (pre-Jakarta EE9). -->
+        <dependency>
+            <groupId>javax.servlet</groupId>
+            <artifactId>javax.servlet-api</artifactId>
+            <version>4.0.1</version>
+            <scope>provided</scope>
+        </dependency>
+
         <!-- Testing Dependencies -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>
