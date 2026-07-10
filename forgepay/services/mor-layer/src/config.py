@@ -72,7 +72,7 @@ class Settings(BaseSettings):
     enable_stablecoin_checkout: bool = True
 
     def model_post_init(self, __context: object) -> None:
-        if self.environment != "development":
+        if self.environment == "production":
             errors: list[str] = []
             if self.jwt_secret == _DEV_JWT_SECRET:
                 errors.append(

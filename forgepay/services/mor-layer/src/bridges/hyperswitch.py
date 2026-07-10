@@ -21,10 +21,13 @@ import hmac
 import logging
 from typing import Any
 
+from typing import Annotated
+
 import httpx
+from fastapi import Depends
 from pydantic import BaseModel
 
-from src.config import get_settings
+from src.config import Settings, get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -91,8 +94,8 @@ class HyperswitchClient:
     One instance per tenant (scoped to a merchant's API key).
     """
 
-    def __init__(self, api_key: str | None = None) -> None:
-        settings = get_settings()
+    def __init__(self, api_key: str | None = None, settings: Settings | None = None) -> None:
+        settings = settings or get_settings()
         self._base_url = settings.hyperswitch_base_url.rstrip("/")
         self._api_key  = api_key or settings.hyperswitch_api_key
         self._client   = httpx.AsyncClient(
@@ -246,11 +249,25 @@ def verify_hyperswitch_webhook(
 # ── Singleton factory (dependency injection) ──────────────────────────────────
 
 _default_client: HyperswitchClient | None = None
+_default_client_base_url: str | None = None
 
 
-def get_hyperswitch_client() -> HyperswitchClient:
-    """FastAPI dependency — returns a shared async client."""
-    global _default_client
-    if _default_client is None:
-        _default_client = HyperswitchClient()
+def get_hyperswitch_client(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> HyperswitchClient:
+    """
+    FastAPI dependency — returns a client bound to the current settings.
+
+    The client is cached and reused across requests (it wraps a pooled
+    httpx.AsyncClient), but the cache key includes the configured base URL so
+    that overriding ``get_settings`` — e.g. via
+    ``app.dependency_overrides[get_settings]`` in tests — actually takes
+    effect instead of silently keeping whichever client was built from the
+    first settings instance ever seen.
+    """
+    global _default_client, _default_client_base_url
+    base_url = settings.hyperswitch_base_url.rstrip("/")
+    if _default_client is None or _default_client_base_url != base_url:
+        _default_client = HyperswitchClient(settings=settings)
+        _default_client_base_url = base_url
     return _default_client
