@@ -1,0 +1,13 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "liquidity-forecaster.fullname" . }}
+  labels:
+    {{- include "liquidity-forecaster.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "liquidity-forecaster.selectorLabels" . | nindent 6 }}
+{{- end }}

@@ -44,3 +44,7 @@ podAnnotations:
   prometheus.io/scrape: 'true'
   prometheus.io/port: '3013'
   prometheus.io/path: /health
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

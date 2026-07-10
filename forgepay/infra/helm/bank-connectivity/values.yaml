@@ -52,3 +52,7 @@ serviceMonitor:
   scrapeTimeout: 10s
   labels:
     release: prometheus
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

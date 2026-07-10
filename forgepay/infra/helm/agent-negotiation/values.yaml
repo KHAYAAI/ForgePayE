@@ -33,3 +33,7 @@ readinessProbe:
     port: 3011
   initialDelaySeconds: 5
   periodSeconds: 10
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

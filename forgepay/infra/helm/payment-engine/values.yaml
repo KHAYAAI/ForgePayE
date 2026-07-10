@@ -38,3 +38,7 @@ readinessProbe:
     port: 8080
   initialDelaySeconds: 10
   periodSeconds: 10
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

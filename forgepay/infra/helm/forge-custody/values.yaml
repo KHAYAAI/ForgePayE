@@ -54,3 +54,7 @@ podAnnotations:
   prometheus.io/path: /metrics
 metrics:
   enabled: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

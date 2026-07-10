@@ -50,3 +50,7 @@ readinessProbe:
     port: 8050
   initialDelaySeconds: 10
   periodSeconds: 15
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

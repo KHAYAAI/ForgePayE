@@ -1,0 +1,13 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "compliance-monitor.fullname" . }}
+  labels:
+    {{- include "compliance-monitor.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "compliance-monitor.selectorLabels" . | nindent 6 }}
+{{- end }}
