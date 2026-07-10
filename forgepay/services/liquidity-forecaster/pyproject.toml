@@ -23,6 +23,7 @@ structlog         = "^24.2.0"
 tenacity          = "^8.4.2"
 python-jose       = { version = "^3.3.0", extras = ["cryptography"] }
 slowapi            = "^0.1.8"          # Rate limiting for DDoS and fair usage protection
+prometheus-client = "^0.20.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest            = "^8.2.2"

@@ -26,6 +26,7 @@ python-multipart = "^0.0.9"
 stripe       = "^10.5.0"         # Keep as type reference only; no live calls
 python-dateutil = "^2.9.0"      # Relative date arithmetic for tax filing due dates
 slowapi      = "^0.1.8"          # Rate limiting for DDoS and fair usage protection
+prometheus-client = "^0.20.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest       = "^8.2.2"

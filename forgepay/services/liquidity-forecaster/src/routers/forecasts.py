@@ -50,11 +50,11 @@ def _parse_horizon(horizon: str) -> ForecastHorizon:
 
 @router.get("/{merchant_id}", response_model=ForecastResult)
 async def get_forecast(
+    request: Request,
     merchant_id: str,
     horizon: str = Query(default="30d", description="Forecast horizon: 7d | 30d | 90d"),
     currency: str = Query(default="USD", max_length=3),
     authenticated_merchant: str = Depends(get_current_merchant),
-    request: Request = Depends(),
 ) -> ForecastResult:
     """
     Return a liquidity forecast for the given merchant and horizon.
@@ -80,9 +80,9 @@ async def get_forecast(
 
 @router.get("/{merchant_id}/history")
 async def get_forecast_history(
+    request: Request,
     merchant_id: str,
     authenticated_merchant: str = Depends(get_current_merchant),
-    request: Request = Depends(),
 ) -> list[dict[str, Any]]:
     """
     Return a list of previously generated forecasts for accuracy tracking.
@@ -98,10 +98,10 @@ async def get_forecast_history(
 
 @router.post("/{merchant_id}/refresh")
 async def refresh_forecasts(
+    request: Request,
     merchant_id: str,
     currency: str = Query(default="USD", max_length=3),
     authenticated_merchant: str = Depends(get_current_merchant),
-    request: Request = Depends(),
 ) -> dict[str, ForecastResult]:
     """
     Force-refresh forecasts for all three horizons, bypassing the cache.

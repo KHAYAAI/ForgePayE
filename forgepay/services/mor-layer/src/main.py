@@ -43,7 +43,8 @@ import httpx
 import structlog
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
+from prometheus_client import CONTENT_TYPE_LATEST, REGISTRY, generate_latest
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -54,6 +55,7 @@ from src.api.merchants import auth_router, router as merchants_router
 from src.api.tax_filing_routes import router as tax_filing_router
 from src.bootstrap.mor_account import ensure_mor_operating_account
 from src.config import get_settings
+from src.observability.middleware import PrometheusMiddleware
 
 structlog.configure(
     processors=[
@@ -121,6 +123,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.add_middleware(PrometheusMiddleware)
+
 # Public routes (no auth required)
 app.include_router(merchants_router, prefix="/v1")
 app.include_router(auth_router,      prefix="/v1")
@@ -135,6 +139,12 @@ app.include_router(auditor_router)   # prefix already set in auditor.py (/v1/aud
 
 # Tax filing routes (JWT Bearer token required — dependency in each route handler)
 app.include_router(tax_filing_router)
+
+
+@app.get("/metrics", include_in_schema=False)
+async def metrics() -> Response:
+    """Prometheus scrape endpoint — text-exposition format."""
+    return Response(content=generate_latest(REGISTRY), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.get("/healthz", include_in_schema=False)

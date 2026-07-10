@@ -32,6 +32,7 @@ router = APIRouter(prefix="/api/v1/alerts", tags=["alerts"])
 
 @router.get("/{merchant_id}", response_model=list[LiquidityAlert])
 async def get_alerts(
+    request: Request,
     merchant_id: str,
     current_balance: float = Query(
         default=0.0,
@@ -45,7 +46,6 @@ async def get_alerts(
         description="Re-evaluate alert conditions before returning results.",
     ),
     authenticated_merchant: str = Depends(get_current_merchant),
-    request: Request = Depends(),
 ) -> list[LiquidityAlert]:
     """
     Return all active liquidity alerts for the merchant.

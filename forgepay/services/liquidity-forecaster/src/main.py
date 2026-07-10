@@ -40,13 +40,16 @@ import structlog
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 from src.config import get_settings
 from src.data.ingestor import _ingest_status, get_ingestor
+from src.observability.metrics import prometheus_registry
+from src.observability.middleware import PrometheusMiddleware
 from src.routers import alerts, forecasts, ingest, runway
 
 # ── Structured logging ────────────────────────────────────────────────────────
@@ -172,6 +175,8 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
 )
 
+app.add_middleware(PrometheusMiddleware)
+
 # ── Routers ───────────────────────────────────────────────────────────────────
 
 app.include_router(forecasts.router)
@@ -213,6 +218,14 @@ async def unhandled_exception_handler(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={"detail": "Internal server error"},
     )
+
+
+# ── Metrics endpoint ──────────────────────────────────────────────────────────
+
+@app.get("/metrics", include_in_schema=False)
+async def metrics() -> Response:
+    """Prometheus scrape endpoint — text-exposition format."""
+    return Response(content=generate_latest(prometheus_registry), media_type=CONTENT_TYPE_LATEST)
 
 
 # ── Health endpoints ──────────────────────────────────────────────────────────

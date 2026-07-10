@@ -3,6 +3,11 @@ import type { FastifyInstance } from 'fastify';
 export async function buildHealthRoutes(app: FastifyInstance) {
   app.get('/healthz', async () => ({ status: 'ok' }));
 
+  app.get('/metrics', async (_req, reply) => {
+    const { register } = await import('../lib/metrics.js');
+    reply.type('text/plain; version=0.0.4; charset=utf-8').send(await register.metrics());
+  });
+
   app.get('/readyz', async (req, reply) => {
     // Check Redis and Postgres connectivity
     try {

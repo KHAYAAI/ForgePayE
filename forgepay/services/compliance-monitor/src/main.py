@@ -38,7 +38,8 @@ import structlog
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -46,6 +47,8 @@ from slowapi.errors import RateLimitExceeded
 from src.config import get_settings
 from src.kyc.manager import KycManager
 from src.monitoring.engine import TransactionMonitoringEngine
+from src.observability.metrics import prometheus_registry
+from src.observability.middleware import PrometheusMiddleware
 from src.ofac.feed import ListType, OfacFeedManager
 from src.reporting.sar import SarManager
 from src.routers import monitoring, reporting, sanctions, screening, webhooks, ofac_screening
@@ -286,6 +289,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.add_middleware(PrometheusMiddleware)
+
 # ---------------------------------------------------------------------------
 # Routers
 # ---------------------------------------------------------------------------
@@ -295,6 +300,20 @@ app.include_router(monitoring.router)
 app.include_router(sanctions.router)
 app.include_router(reporting.router)
 app.include_router(webhooks.router)
+
+
+# ---------------------------------------------------------------------------
+# Metrics endpoint
+# ---------------------------------------------------------------------------
+
+
+@app.get("/metrics", include_in_schema=False)
+async def metrics() -> Response:
+    """Prometheus scrape endpoint — text-exposition format."""
+    return Response(
+        content=generate_latest(prometheus_registry),
+        media_type=CONTENT_TYPE_LATEST,
+    )
 
 
 # ---------------------------------------------------------------------------

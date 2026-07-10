@@ -31,6 +31,7 @@ router = APIRouter(prefix="/api/v1/runway", tags=["runway"])
 
 @router.get("/{merchant_id}", response_model=RunwayResult)
 async def get_runway(
+    request: Request,
     merchant_id: str,
     current_balance: float = Query(
         ...,
@@ -44,7 +45,6 @@ async def get_runway(
         le=365,
     ),
     authenticated_merchant: str = Depends(get_current_merchant),
-    request: Request = Depends(),
 ) -> RunwayResult:
     """
     Calculate how many days the merchant can operate at their current burn rate.
@@ -75,6 +75,7 @@ async def get_runway(
 
 @router.get("/{merchant_id}/scenarios")
 async def get_scenarios(
+    request: Request,
     merchant_id: str,
     current_balance: float = Query(
         ...,
@@ -83,7 +84,6 @@ async def get_scenarios(
     ),
     lookback_days: int = Query(default=90, ge=7, le=365),
     authenticated_merchant: str = Depends(get_current_merchant),
-    request: Request = Depends(),
 ) -> dict[str, Any]:
     """
     Return the three runway scenarios in a table-friendly format with

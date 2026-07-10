@@ -55,6 +55,11 @@ python-dotenv==1.0.1
 structlog==24.2.0
 tenacity==8.4.2
 
+# Rate limiting + metrics
+slowapi==0.1.9
+limits==3.13.0
+prometheus-client==0.20.0
+
 # ASGI extras (uvicorn[standard])
 websockets==12.0
 httptools==0.6.1
