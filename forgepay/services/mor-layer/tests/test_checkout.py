@@ -188,7 +188,12 @@ SHIELDED_CHECKOUT_PAYLOAD = {
     "merchant_id": "merch_test_01",
     "customer_id": "cus_hs_01",
     "encrypted_memo": base64.b64encode(b"stub_encrypted_memo_data").decode("utf-8"),
-    "audit_proof": base64.b64encode(b"stub_groth16_proof_data").decode("utf-8"),
+    # audit_proof is optional (verified only "if provided" — see checkout.py);
+    # tests that aren't specifically about proof verification omit it so they
+    # aren't tripped up by AuditorClient.verify_audit_proof's structural
+    # length check (a real Groth16 proof is 128 or 256 bytes; earlier this
+    # fixture used a short human-readable placeholder that isn't proof-shaped
+    # and was rejected before the checkout logic under test ever ran).
     "currency": "USD",
     "success_url": "https://example.com/success",
     "cancel_url": "https://example.com/cancel",
@@ -344,12 +349,14 @@ async def test_shielded_checkout_groth16_proof_verification(client: AsyncClient)
         })
     )
 
-    # Proof is optional in Phase 2 (testing mode) but accepted if provided
+    # Proof is optional in Phase 2 (testing mode) but accepted if provided,
+    # as long as it is structurally proof-shaped: AuditorClient.verify_audit_proof
+    # requires 128 or 256 raw bytes (compressed Groth16 / ABI-encoded format).
     resp = await client.post(
         "/v1/checkout/sessions/shielded",
         json={
             **SHIELDED_CHECKOUT_PAYLOAD,
-            "audit_proof": base64.b64encode(b"valid_groth16_proof").decode("utf-8"),
+            "audit_proof": base64.b64encode(b"\x00" * 128).decode("utf-8"),
         },
     )
 

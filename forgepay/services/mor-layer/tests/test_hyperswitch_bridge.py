@@ -49,9 +49,20 @@ def hs_client() -> HyperswitchClient:
     return HyperswitchClient(api_key="test_api_key")
 
 
+# NOTE: these tests use bare `@respx.mock` (no `base_url=` kwarg). Passing
+# `base_url=` to the decorator makes respx branch out to a fresh, isolated
+# MockRouter instance for the decorated test (see respx.router.MockRouter.__call__),
+# while the routes below are registered on the *global* `respx` router via the
+# module-level `respx.post(...)` helper. Combining the two meant the route was
+# never seen by the router that was actually active during the request, so
+# every request came back "not mocked" regardless of what was registered.
+# Each test already pins `hs_client._client.base_url` explicitly, so the
+# global router doesn't need `base_url=` to resolve requests correctly.
+
+
 # ── Payment creation ──────────────────────────────────────────────────────────
 
-@respx.mock(base_url=MOCK_BASE)
+@respx.mock
 @pytest.mark.asyncio
 async def test_create_payment_success(hs_client: HyperswitchClient):
     """
@@ -83,7 +94,7 @@ async def test_create_payment_success(hs_client: HyperswitchClient):
     assert sent_request.headers.get("x-idempotency-key") == "order_test_001"
 
 
-@respx.mock(base_url=MOCK_BASE)
+@respx.mock
 @pytest.mark.asyncio
 async def test_create_payment_currency_uppercased(hs_client: HyperswitchClient):
     """Currency must always be uppercase when sent to Hyperswitch."""
@@ -97,7 +108,7 @@ async def test_create_payment_currency_uppercased(hs_client: HyperswitchClient):
     assert sent["currency"] == "USD"
 
 
-@respx.mock(base_url=MOCK_BASE)
+@respx.mock
 @pytest.mark.asyncio
 async def test_create_payment_propagates_http_error(hs_client: HyperswitchClient):
     """A 4xx from Hyperswitch should raise an exception (not silently fail)."""
@@ -112,7 +123,7 @@ async def test_create_payment_propagates_http_error(hs_client: HyperswitchClient
 
 # ── Payment retrieval ─────────────────────────────────────────────────────────
 
-@respx.mock(base_url=MOCK_BASE)
+@respx.mock
 @pytest.mark.asyncio
 async def test_retrieve_payment(hs_client: HyperswitchClient):
     respx.get("/payments/pay_01HZTEST").mock(
@@ -126,7 +137,7 @@ async def test_retrieve_payment(hs_client: HyperswitchClient):
 
 # ── Refund ────────────────────────────────────────────────────────────────────
 
-@respx.mock(base_url=MOCK_BASE)
+@respx.mock
 @pytest.mark.asyncio
 async def test_create_full_refund(hs_client: HyperswitchClient):
     refund_response = {
@@ -149,7 +160,7 @@ async def test_create_full_refund(hs_client: HyperswitchClient):
 
 # ── Customer creation ─────────────────────────────────────────────────────────
 
-@respx.mock(base_url=MOCK_BASE)
+@respx.mock
 @pytest.mark.asyncio
 async def test_create_customer(hs_client: HyperswitchClient):
     """
