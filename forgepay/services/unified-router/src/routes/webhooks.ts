@@ -212,8 +212,24 @@ async function handleIncomingWebhook({
     return;
   }
 
-  // 4. Persist event to Postgres
-  await persistEvent(req.server.db, event);
+  // 4. Persist event to Postgres — this is also the second idempotency
+  // guard the module doc describes: if Redis dedup missed this event
+  // (key evicted early, Redis flushed, or a race between two concurrent
+  // requests for the same event both passing the Redis check), the
+  // unique index on source_event_id makes this INSERT a no-op. Checking
+  // that here — not just discarding the result — is what actually makes
+  // it a guard: without it, a Redis-dedup miss would still fan out to
+  // merchants a second time even though the duplicate row was correctly
+  // rejected.
+  const wasNewEvent = await persistEvent(req.server.db, event);
+  if (!wasNewEvent) {
+    logger.debug(
+      { eventId: event.id, sourceEventId: event.sourceEventId },
+      'Duplicate event caught by Postgres unique index (Redis dedup miss), skipping dispatch',
+    );
+    reply.code(200).send({ received: true, processed: false, reason: 'duplicate' });
+    return;
+  }
 
   // 5. Fan-out to merchant webhook endpoints (async — don't block ack)
   dispatchToMerchants(event, req.server.db).catch((err) =>
@@ -224,9 +240,10 @@ async function handleIncomingWebhook({
   reply.code(200).send({ received: true, eventId: event.id });
 }
 
-async function persistEvent(db: unknown, event: ForgePayEvent): Promise<void> {
-  const pool = db as { query: (sql: string, params: unknown[]) => Promise<void> };
-  await pool.query(
+/** Returns true if this event was newly inserted, false if it was a duplicate (ON CONFLICT DO NOTHING). */
+async function persistEvent(db: unknown, event: ForgePayEvent): Promise<boolean> {
+  const pool = db as { query: (sql: string, params: unknown[]) => Promise<{ rowCount: number | null }> };
+  const result = await pool.query(
     `INSERT INTO forgepay_events
        (id, type, source, merchant_id, occurred_at, processed_at, data, raw_payload, source_event_id, api_version)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
@@ -244,4 +261,5 @@ async function persistEvent(db: unknown, event: ForgePayEvent): Promise<void> {
       event.apiVersion,
     ],
   );
+  return (result.rowCount ?? 0) > 0;
 }
