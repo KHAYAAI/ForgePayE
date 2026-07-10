@@ -110,20 +110,26 @@ async def calculate_runway(
         # Return a safe zero-burn result rather than crashing
         return _zero_runway(merchant_id, current_balance)
 
-    # Aggregate outflow by calendar month
+    # Compute the mean daily outflow over the lookback window and scale to a
+    # 30.44-day month.  NOTE: grouping into calendar-month buckets and
+    # averaging (the previous approach) understates the burn rate, because a
+    # rolling lookback window is rarely aligned to month boundaries — its
+    # first and last calendar-month buckets are partial (fewer days of
+    # outflow) yet get averaged as if they were full months, dragging the
+    # mean down. Computing a straight daily average avoids that distortion
+    # regardless of window alignment.
     df_copy = df.copy()
-    df_copy["month"] = df_copy["date"].dt.to_period("M")
-    monthly = df_copy.groupby("month")["outflow"].sum()
+    num_days = len(df_copy)
+    daily_burn = float(df_copy["outflow"].sum()) / num_days if num_days > 0 else 0.0
+    monthly_burn_rate = daily_burn * _DAYS_PER_MONTH
 
-    monthly_burn_rate = float(monthly.mean())
     log.info(
         "runway_burn_rate",
         merchant_id=merchant_id,
         monthly_burn_usd=round(monthly_burn_rate, 2),
-        months_of_data=len(monthly),
+        days_of_data=num_days,
     )
 
-    daily_burn = monthly_burn_rate / _DAYS_PER_MONTH
     if daily_burn <= 0:
         runway_days = _MAX_RUNWAY_DAYS
     else:
