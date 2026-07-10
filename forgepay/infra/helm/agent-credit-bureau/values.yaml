@@ -48,7 +48,6 @@ podAnnotations:
   prometheus.io/path: /metrics
 metrics:
   enabled: true
-  port: 9099
   path: /metrics
 serviceMonitor:
   enabled: true
