@@ -58,3 +58,9 @@ metrics:
 podDisruptionBudget:
   enabled: true
   minAvailable: 1
+
+networkPolicy:
+  enabled: true
+  allowIngressFromIngressController: false
+  ingressControllerNamespace: ingress-nginx
+  monitoringNamespace: monitoring
