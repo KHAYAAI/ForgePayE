@@ -51,6 +51,26 @@ was written. Two kinds of things changed:
      `try/catch` error handling), missing dependencies, wrong import paths,
      `ethers` v6 typing, `jose` v6 API changes, and more. Full detail is in
      the git log for this session's commits.
+   - `accounts-service` and `unified-router` had a real `runMigrations()`
+     defined but never called from anywhere — fixed (§2 below).
+   - `liquidity-forecaster` and `mor-layer` (Python): `check_rate_limit()`
+     called `limiter.hit(limit_string)`, a Flask-Limiter method that
+     doesn't exist on slowapi's real `Limiter` — **every rate-limited
+     request to both services would have raised `AttributeError` in
+     production** (§3 below). Also fixed: a burn-rate calculation bug in
+     `liquidity-forecaster`'s runway forecaster that understated monthly
+     burn (calendar-month-bucket averaging distorted by a non-aligned
+     rolling window); a `mor-layer` config bug that gated required
+     production secrets on `environment != "development"` instead of
+     `== "production"`, which broke every test at fixture construction; and
+     a Hyperswitch-client dependency-injection bug where test overrides of
+     the client config silently had no effect. `liquidity-forecaster` went
+     from 50/51 to 51/51 passing; `mor-layer` went from 0/106 (erroring at
+     fixture construction) to 93/106, with the remaining 13 documented as
+     Postgres-dependent or needing new crypto test fixtures (shielded-
+     checkout tests need real X25519/AES-GCM ciphertext, not placeholder
+     bytes) — not bugs in the checked-in code. Independently re-run and
+     confirmed: 51/51 and 93/106 respectively.
    - Every touched service was verified with `tsc --noEmit`, `npm run
      build`, and the full test suite (or `pytest`/`mvn test` for
      Python/Java). Postgres-integration tests that require a live database
@@ -84,7 +104,7 @@ below the checklist's spec numbers for at least the services spot-checked.
 |---|---|---|
 | Environment Config (.env.example) | ⚠️ PARTIAL (17/21) | ✅ READY — all services now have one |
 | Database Migrations Wired | ⚠️ PARTIAL (7/16) | ✅ READY — 2 real gaps fixed, rest were false alarms or N/A |
-| Rate Limiting | ✅ READY | ✅ READY (unchanged) |
+| Rate Limiting | ✅ READY (claimed) | ✅ READY — Python services' rate limiter was actually calling a nonexistent slowapi method (`AttributeError` on every rate-limited request); now genuinely fixed and tested |
 | Prometheus /metrics Endpoint | ⚠️ PARTIAL | ✅ READY — all 16 TS services register the route |
 | TLS cert-manager | ✅ READY | ✅ READY (unchanged) |
 | Graceful Shutdown (SIGTERM) | ⚠️ PARTIAL | ✅ READY — institutional-reporting gap closed |
@@ -137,10 +157,10 @@ The Python services (mor-layer, compliance-monitor, liquidity-forecaster) use SQ
 
 ### 3. Rate Limiting
 
-**Status: ✅ READY**
+**Status: ✅ READY (was silently broken until 2026-07-10)**
 
 - **TypeScript/Fastify services**: 15/16 TS services use `@fastify/rate-limit`. The only exception is `chain-sync`, which is a background sync service (no public HTTP API) — acceptable.
-- **Python/FastAPI services** (mor-layer, compliance-monitor, liquidity-forecaster): All use `slowapi` with per-endpoint limits configured.
+- **Python/FastAPI services** (mor-layer, liquidity-forecaster): configured with `slowapi`, but `check_rate_limit()` called `limiter.hit(limit_string)` — a Flask-Limiter method that doesn't exist on slowapi's real `Limiter` class. **Every rate-limited request to both services would have raised `AttributeError` in production** (checkout, merchants, alerts, runway, forecasts endpoints). Fixed 2026-07-10 to use the real `limits`-library contract; independently re-verified with a fresh pytest run.
 - `chain-sync` has no rate limiting but also has no public endpoint — not a blocker.
 
 ---
