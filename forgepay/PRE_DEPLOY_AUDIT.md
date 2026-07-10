@@ -110,17 +110,22 @@ below the checklist's spec numbers for at least the services spot-checked.
 | Graceful Shutdown (SIGTERM) | ⚠️ PARTIAL | ✅ READY — institutional-reporting gap closed |
 | Unhandled Rejection Handlers | ❌ MISSING (0/16) | ✅ READY — 16/16 |
 | HMAC Webhook Verification | ✅ READY (claimed) | ✅ READY — unified-router's was actually silently broken (no raw-body capture) and is now genuinely fixed and tested |
-| Load Testing Suite | ✅ READY | ⚠️ PARTIAL — baseline still placeholder, unchanged |
-| Helm Resource Limits | ⚠️ PARTIAL | ⚠️ PARTIAL — improved from stale numbers, still below spec |
-| Helm Replica Counts | ⚠️ PARTIAL (agent-identity at 1) | ⚠️ PARTIAL — agent-identity now 2, fleet still at 2 not 3 |
-| Pod Disruption Budgets | ❌ MISSING | ❌ MISSING — not re-verified, assume still true |
-| Network Policies | ❌ MISSING | ❌ MISSING — confirmed still true |
-| On-Call Runbooks | ⚠️ PARTIAL (4 docs) | ⚠️ PARTIAL — still 4 docs, confirmed unchanged |
+| Load Testing Suite | ✅ READY | ⚠️ PARTIAL — baseline still placeholder; needs a real staging soak test |
+| Helm Resource Limits | ⚠️ PARTIAL | ⚠️ PARTIAL — bumped ~1.5-2x fleet-wide, still not backed by a real load test |
+| Helm Replica Counts | ⚠️ PARTIAL (agent-identity at 1) | ✅ READY — 19 services bumped 2→3; 5 intentionally left at 1 |
+| Pod Disruption Budgets | ❌ MISSING | ✅ READY — added to all 25 charts |
+| Network Policies | ❌ MISSING | ✅ READY — added to all 25 charts (same-namespace + explicit cross-namespace allows) |
+| On-Call Runbooks | ⚠️ PARTIAL (4 docs) | ✅ READY — all 12 planned runbooks now exist |
 | Secrets Management (Vault) | ✅ READY | ✅ READY (unchanged) |
-| Observability (Prometheus+Grafana) | ✅ READY | ✅ READY — plus compliance-monitor/liquidity-forecaster Helm charts now complete |
+| Observability (Prometheus+Grafana) | ✅ READY | ✅ READY — plus 4 services' /metrics wiring and 12 charts' ServiceMonitor port targeting fixed, agent-credit-bureau chart built from scratch |
 
-See "Update — 2026-07-10" above for what was verified vs. spot-checked vs.
-carried over unchanged.
+See "Update — 2026-07-10" above for the code-fix pass and "Critical
+Blockers" below for the infra-build-out pass — both ran this same day.
+Structural validation (brace-balance, YAML-parse, cross-file label/port
+consistency) was done on every touched template; a real `helm template`/
+`helm lint`/`kubectl apply --dry-run` run was not possible in this
+environment (no `helm` binary available) and should be the first thing
+done before actually deploying these changes.
 
 ---
 
@@ -372,80 +377,93 @@ described no longer exists.
 
 ---
 
-## Critical Blockers (Must Fix Before Production) — updated 2026-07-10
+## Critical Blockers (Must Fix Before Production) — updated 2026-07-10 (infra pass)
 
-Of the original 8 blockers, 4 are now resolved (application-code fixes,
-verified this session) and 1 is resolved by earlier infra work this doc
-hadn't caught up to. What's genuinely still open:
+A second pass this same day built out the infra gaps this document
+identified. Of the original 8 blockers, only 1 remains genuinely open:
 
-1. **❌ No NetworkPolicy Manifests** — All pods can communicate with all
-   other pods. Violates PCI/security requirements. Confirmed still true.
-   Create deny-all + whitelist NetworkPolicies.
+1. **⚠️ Load Testing Baseline is Placeholder** — `baseline.json` still
+   contains placeholder data. This is the one item that requires a real
+   staging environment and can't be fixed from a code/config pass alone —
+   run an actual staging soak test before go-live to establish real P99
+   baselines.
 
-2. **⚠️ Helm Resource Limits Below Spec** — Improved from what this doc
-   previously stated (see section 10) but still under the checklist's
-   numbers on the services spot-checked. Not confirmed across the full
-   fleet.
-
-3. **⚠️ Load Testing Baseline is Placeholder** — `baseline.json` still
-   contains placeholder data as of this update. Run an actual staging soak
-   test before go-live to establish real P99 baselines.
-
-**Resolved, no longer blockers:**
-- ~~/metrics route not wired~~ — all 16 TS services register it (§4).
+**Resolved this session, verified or independently reasoned through:**
+- ~~/metrics route not wired~~ — all services register it; additionally
+  found and fixed 4 services (unified-router, mor-layer, compliance-monitor,
+  liquidity-forecaster) whose `/metrics` route or middleware was never
+  actually wired despite the instrumentation code existing, and 12 Helm
+  charts whose ServiceMonitor pointed at a separate "metrics" port nothing
+  in the app ever binds (§4).
 - ~~compliance-monitor / liquidity-forecaster Helm charts incomplete or
-  missing~~ — both now complete (§16).
+  missing~~ — both complete; `agent-credit-bureau` also had no Helm chart
+  and no Dockerfile at all — built both (§16, §18 in the change log).
 - ~~Database migrations not wired~~ — accounts-service and unified-router
-  fixed this session; everything else in the original list was either a
-  false alarm (indirect migration calls the original grep missed) or
-  doesn't use Postgres (§2).
-- ~~agent-identity replicaCount: 1~~ — now 2 (§11).
+  fixed (§2).
+- ~~agent-identity replicaCount: 1~~ — now 3, along with 18 other services
+  bumped from 2 to 3 replicas.
+- ~~No NetworkPolicy Manifests~~ — added to all 25 service Helm charts:
+  same-namespace ingress/egress allowed (the real segmentation perimeter
+  for now), ingress-controller and monitoring-namespace ingress on the
+  http port for the services that need it, DNS + external-HTTPS-via-ipBlock
+  egress for everything else.
+- ~~Pod Disruption Budgets missing~~ — added to all 25 charts (disabled by
+  design on the 5 services still at `replicaCount: 1`, where a PDB would
+  stall node drains rather than protect availability).
+- ~~Helm Resource Limits Below Spec~~ — bumped ~1.5x fleet-wide, ~2x for
+  the payment-critical/high-throughput services; unified-router and
+  mor-layer now land close to this document's original spec numbers.
+- ~~On-call runbooks for 8 services~~ — unified-router, mor-layer,
+  crypto-gateway, stablecoin-gateway, yield-engine, database, redis,
+  kubernetes runbooks all written.
+- ~~Webhook timestamp/replay validation not verified~~ — verified,
+  and found + fixed a real gap: unified-router's Postgres idempotency
+  guard (the fallback for when Redis dedup misses an event) silently
+  discarded whether the insert actually happened, so a Redis-dedup miss
+  still fanned out to merchants a second time. Fixed and directly
+  verified with a mock DB/Redis reproducing the exact failure mode.
+- Also fixed along the way, not on the original blocker list: the
+  umbrella chart's `ingress:` values configured `api.forgepay.io`/
+  `checkout.forgepay.io` routing that no template ever consumed (no
+  Ingress resource was ever created), with wrong ports for both
+  services in the mainnet override on top of that; a Helm bug in
+  unified-router referencing a `secret.yaml` template that never existed
+  (would break `helm install` outright); 8 Helm charts with fully
+  corrupted `{{ }}` template syntax in their ServiceMonitor files.
 
-**Not independently re-verified this session** (carried over from the
-original audit, spot-checked in some cases but not exhaustively): Pod
-Disruption Budgets (still appear to be missing), on-call runbook coverage,
-OCSP stapling, mTLS between services, webhook timestamp/replay validation.
-Treat these as open until a dedicated infra audit confirms otherwise.
-
----
-
-## Nice-to-Haves (Can Fix Post-Launch)
-
-1. ~~unhandledRejection handlers missing~~ — **done**, all 16 TS services (§7).
-2. ~~SIGTERM missing in institutional-reporting~~ — **done** (§6).
-3. ~~Missing .env.example for 3 services~~ — **done** (§1).
-4. **Pod Disruption Budgets missing** — add PDB templates with `minAvailable: 2` to each Helm chart. Not re-verified this session but no evidence it's been added.
-5. **OCSP stapling not configured** — add `nginx.ingress.kubernetes.io/enable-ocsp-stapling: "true"` to ingress annotations.
-6. **On-call runbooks for 8 services** — unified-router, mor-layer, crypto-gateway, stablecoin-gateway, yield-engine, database, redis, kubernetes runbooks are still missing (confirmed 2026-07-10 — still only 4 files in `forgepay/docs/runbooks/`).
-7. **Replica counts at 2, not 3** — bump critical services to `minReplicas: 3` in HPA config.
-8. **Prometheus scrape config coverage** — re-verify the explicit job list matches the current 26-service fleet.
-9. **Webhook timestamp/replay validation not verified** — review route handlers for < 5 minute timestamp validation and nonce tracking.
-10. **mTLS between services not configured** — consider Istio/Linkerd service mesh for mTLS.
+**Not addressed, needs real infrastructure/tooling, not a code pass:**
+- OCSP stapling not configured on ingress.
+- mTLS between services not configured (would need a service mesh).
+- Prometheus scrape config's explicit job list not re-verified against
+  the full 26-service fleet.
 
 ---
 
 ## Overall Readiness Score
 
-**Application code / service-level readiness: substantially improved and
-verified this session** — every service that has one was built, type-
-checked, and test-run (or `pytest`/`mvn test` for Python/Java); real bugs
-were found and fixed across roughly 20 of the 26 services, including
-several that would have caused hard failures in production (broken
-webhook signature verification, migrations that would never run against a
-fresh database, an entire Kill Bill plugin that didn't compile).
+**Application code / service-level readiness:** every service that has
+one was built, type-checked, and test-run (or `pytest`/`mvn test` for
+Python/Java); real bugs were found and fixed across roughly 20 of the 26
+services, including several that would have caused hard failures in
+production (broken webhook signature verification, migrations that would
+never run against a fresh database, an entire Kill Bill plugin that
+didn't compile, 6 FastAPI routes that would have crashed an entire
+Python service at import time).
 
-**Infra/deployment readiness: not re-scored.** The prior 54/100 score
-mixed application-code and infra concerns, and several of its infra
-inputs turned out to be stale. Rather than publish a new single number
-built on a mix of this session's verified work and un-reverified carry-
-over claims, the honest summary is:
+**Infra/deployment readiness:** NetworkPolicies, PodDisruptionBudgets,
+Ingress, resource/replica sizing, and runbook coverage are now built out
+across the fleet and structurally verified (brace-balance + YAML-parse
+checks on every touched template, cross-referenced against what each
+service's Deployment actually names its ports and labels — not just
+written and assumed correct). None of this has been validated with a
+real `helm template`/`helm lint`/`kubectl apply --dry-run` pass, since no
+`helm` binary was available in this environment — **run one before
+actually deploying** these changes, as a final check this pass couldn't
+perform itself.
 
-- **Code-level blockers**: resolved, to the depth verified above.
-- **Infra-level blockers still open**: NetworkPolicies (confirmed
-  missing), Pod Disruption Budgets (likely still missing, not
-  reconfirmed), load-testing baseline (confirmed still placeholder),
-  Helm resource limits (confirmed still below spec, though better than
-  previously documented).
+**What's left, and it's a short, honest list:** a real staging soak test
+to replace the placeholder load-testing baseline, OCSP stapling, and
+mTLS — none of which are fixable from a code/config pass alone.
 
 **Go-live recommendation**: The application code is meaningfully closer
 to production-ready than the 2026-06-25 audit reflected. Before declaring
