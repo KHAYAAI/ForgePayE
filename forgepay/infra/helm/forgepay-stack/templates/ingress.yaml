@@ -26,9 +26,10 @@ spec:
                 "<chart>.fullname" helper (release-name-prefixed), not the
                 bare chart name — resolve it here rather than hardcoding a
                 name in values.yaml that would only be right for a release
-                literally named after the chart.
+                literally named after the chart. See _helpers.tpl for why
+                this can't just be `include (printf "%s.fullname" .service) $`.
                 */}}
-                name: {{ include (printf "%s.fullname" .service) $ }}
+                name: {{ include "forgepay-stack.subchartFullname" (list $ .service) }}
                 port:
                   number: {{ .port }}
           {{- end }}

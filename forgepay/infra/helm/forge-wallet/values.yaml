@@ -55,6 +55,14 @@ podAnnotations:
   prometheus.io/path: /metrics
 metrics:
   enabled: true
+  path: /metrics
+
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  scrapeTimeout: 10s
+  labels:
+    release: prometheus
 
 podDisruptionBudget:
   enabled: true

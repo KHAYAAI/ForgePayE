@@ -15,6 +15,15 @@ global:
       password: "postgres-password"
   redis:
     url: "redis://forgepay-redis-master:6379"
+  # Internal URL other services use to reach unified-router (webhook
+  # forwarding, event-bus reads). Subchart Service names are release-name-
+  # prefixed via each chart's own "<chart>.fullname" helper — this MUST
+  # match the release name this umbrella chart is actually installed
+  # under (see the `helm upgrade forgepay-stack ./helm/forgepay-stack`
+  # usage comment in values-mainnet.yaml). Override with
+  # --set global.unifiedRouterUrl=... if installing under a different
+  # release name.
+  unifiedRouterUrl: "http://forgepay-stack-unified-router:8000"
   # All services emit OTEL traces/metrics here
   otel:
     endpoint: "http://otel-collector:4317"

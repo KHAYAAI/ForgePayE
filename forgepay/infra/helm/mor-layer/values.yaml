@@ -55,3 +55,14 @@ networkPolicy:
   allowIngressFromIngressController: true
   ingressControllerNamespace: ingress-nginx
   monitoringNamespace: monitoring
+
+# Standalone-install fallback for the global.* values the umbrella chart
+# (forgepay-stack) normally injects. `helm lint`/`helm template` on this
+# chart alone would otherwise panic on a nil-map dereference — these are
+# empty defaults the in-template `| default "..."` filters fall back
+# past, not real connection info. When installed via the umbrella, these
+# are entirely overridden by the umbrella's own global values.
+global:
+  postgresql: {}
+  redis: {}
+  unifiedRouterUrl: ""

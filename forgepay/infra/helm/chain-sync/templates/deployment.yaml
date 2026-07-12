@@ -36,7 +36,7 @@ spec:
             - name: POLL_INTERVAL_MS
               value: {{ .Values.env.POLL_INTERVAL_MS | quote }}
             - name: UNIFIED_ROUTER_URL
-              value: {{ .Values.global.unifiedRouterUrl | default "http://unified-router:8000" | quote }}
+              value: {{ .Values.global.unifiedRouterUrl | default "http://forgepay-unified-router:8000" | quote }}
             # Contract addresses from values (not secrets — not sensitive)
             - name: ETHEREUM_GROTH16_VERIFIER_ADDR
               value: {{ .Values.contracts.ethereum.groth16Verifier | quote }}

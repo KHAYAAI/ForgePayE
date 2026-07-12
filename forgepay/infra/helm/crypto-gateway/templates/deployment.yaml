@@ -44,7 +44,7 @@ spec:
             - name: REDIS_URL
               value: {{ .Values.global.redis.url | default "redis://forgepay-redis-master:6379" | quote }}
             - name: UNIFIED_ROUTER_URL
-              value: {{ .Values.global.unifiedRouterUrl | default "http://forgepay-unified-router:8000" | quote }}
+              value: {{ .Values.global.unifiedRouterUrl | default "http://forgepay-stack-unified-router:8000" | quote }}
           envFrom:
             - secretRef:
                 name: {{ .Values.secretRef }}
