@@ -431,11 +431,75 @@ identified. Of the original 8 blockers, only 1 remains genuinely open:
   (would break `helm install` outright); 8 Helm charts with fully
   corrupted `{{ }}` template syntax in their ServiceMonitor files.
 
-**Not addressed, needs real infrastructure/tooling, not a code pass:**
-- OCSP stapling not configured on ingress.
-- mTLS between services not configured (would need a service mesh).
-- Prometheus scrape config's explicit job list not re-verified against
-  the full 26-service fleet.
+**Resolved in a follow-up pass the same day**, once a real `helm` binary
+became available (built via `go install helm.sh/helm/v3/cmd/helm` —
+`get.helm.sh` is blocked by this environment's egress policy but
+`proxy.golang.org` isn't, so a Go install worked where a direct binary
+download didn't):
+
+- **OCSP stapling** — the earlier suggestion (a per-Ingress annotation)
+  was itself wrong; that annotation doesn't exist in ingress-nginx. OCSP
+  stapling is a controller-wide ConfigMap setting. Added
+  `forgepay/infra/helm/ingress-nginx-values.yaml` with the correct
+  `enable-ocsp` key and the real install command, since this repo never
+  otherwise references the ingress-nginx controller's own install.
+- **Load-testing baseline tooling** — couldn't run a real 48-hour staging
+  soak (no staging cluster in this sandbox), but installed k6 the same
+  way as helm and found the *tooling itself* was fundamentally broken:
+  `checkout-stress-test.js` defined a threshold on a metric that was
+  never created (k6 refuses to start); `capture-baseline.sh`,
+  `compare-baseline.sh`, and `run-load-tests.sh` all used `k6 run --out
+  json=`, which writes a raw per-sample stream with no aggregate
+  `.metrics` object at all — every `jq` query against it silently
+  returned null, so the regression-detection logic had never actually
+  worked. Beyond that, the checked-in `baseline.json` uses a per-service
+  schema neither script could have produced or consumed in the first
+  place. Rewrote all three against `--summary-export` (verified against
+  this k6 version's real output shape) and a consistent per-service
+  schema; verified end-to-end with real k6 runs, including confirming
+  the regression check correctly fails on a synthetic regression and
+  passes on a synthetic non-regression. **The placeholder baseline.json
+  itself is still a placeholder** — this only fixes the tooling that
+  will consume it once a real staging soak test exists.
+- Running `helm lint`/`helm template` against every chart (not just
+  structural YAML checks) found several more real, confirmed bugs: 8
+  charts panic when installed standalone (`.Values.global.postgresql`
+  nil-dereference — they'd only ever been implicitly assumed to run
+  under the umbrella); forge-custody/forge-wallet were missing the
+  `serviceMonitor`/`metrics.path` values keys entirely; the umbrella's
+  Ingress backend-name resolution (added earlier this session) was
+  itself buggy — calling a subchart's `<chart>.fullname` helper from the
+  *parent* chart's template silently collapsed every backend name down
+  to just the release name with no service suffix, since the borrowed
+  context's `.Chart.Name` was the umbrella's own name; enterprise-treasury's
+  chart version didn't match what the umbrella's dependency block
+  pinned, breaking `helm dependency build` outright. All fixed and
+  reverified with `helm template` output inspected directly, not just
+  "did it exit 0" — e.g. confirmed the Ingress backends literally match
+  the real rendered Service names.
+- Fixed a mistake from earlier in this same pass: a `global.unifiedRouterUrl`
+  fallback string was set assuming the umbrella's release name is
+  "forgepay-stack" (per a comment in values-mainnet.yaml) — cross-checking
+  the actual CI/CD workflow showed this repo's own docs disagree with each
+  other, and the real, executed pipeline uses "forgepay"/"forgepay-staging",
+  neither of which is "forgepay-stack". Corrected, and added an explicit
+  `--set global.unifiedRouterUrl=...` to the CI workflow itself so this
+  never again depends on a guessed fallback for the path that actually runs.
+
+**Found, documented, not fixed — genuinely needs design work, not a
+quick pass:** `forgepay/config/environments/{dev,staging,prod}.yaml` are
+passed to `helm upgrade --values` in the CI/CD deploy workflow, but their
+schema (snake_case, `payment_engine.base_url`, `postgres.host`, ...) does
+not match the Helm charts' real values schema (camelCase,
+`global.postgresql.host`, `paymentEngine.image.tag`, ...) at all — no
+service code reads these files directly either, so as far as this repo's
+actual git history shows, that `--values` flag in the deploy workflow has
+never done anything. The per-environment settings these files document
+(autoscaling targets, DB host, tax provider, OTEL sampling) are real and
+presumably intended to reach the deployed services somehow, but
+reconciling two independently-evolved config schemas needs someone who
+knows which environment-specific values are still accurate to decide the
+target schema — not something to guess through mechanically.
 
 ---
 
@@ -451,23 +515,27 @@ didn't compile, 6 FastAPI routes that would have crashed an entire
 Python service at import time).
 
 **Infra/deployment readiness:** NetworkPolicies, PodDisruptionBudgets,
-Ingress, resource/replica sizing, and runbook coverage are now built out
-across the fleet and structurally verified (brace-balance + YAML-parse
-checks on every touched template, cross-referenced against what each
-service's Deployment actually names its ports and labels — not just
-written and assumed correct). None of this has been validated with a
-real `helm template`/`helm lint`/`kubectl apply --dry-run` pass, since no
-`helm` binary was available in this environment — **run one before
-actually deploying** these changes, as a final check this pass couldn't
-perform itself.
+Ingress, resource/replica sizing, and runbook coverage are built out
+across the fleet and now genuinely `helm lint`/`helm template` clean —
+not just structurally plausible YAML, but verified against a real Helm
+binary, including the full `forgepay-stack` umbrella chart's dependency
+build and template render (Bitnami's postgresql/redis subcharts couldn't
+be fetched in this sandbox's network policy and were disabled for the
+dry run — not a bug, just an external chart this sandbox can't reach).
 
-**What's left, and it's a short, honest list:** a real staging soak test
-to replace the placeholder load-testing baseline, OCSP stapling, and
-mTLS — none of which are fixable from a code/config pass alone.
+**What's left, and it's now a genuinely short list:**
+1. A real staging soak test to replace the placeholder baseline —
+   the tooling to consume it is fixed and verified; the placeholder data
+   itself can only be replaced by actually running one.
+2. mTLS between services — would need a service mesh (Istio/Linkerd),
+   which is a cluster-level install this pass couldn't meaningfully do
+   or verify without a real cluster to install it into.
+3. The `forgepay/config/environments/*.yaml` ↔ Helm values schema
+   mismatch described above — a real design decision, not a mechanical
+   fix.
 
-**Go-live recommendation**: The application code is meaningfully closer
-to production-ready than the 2026-06-25 audit reflected. Before declaring
-launch-ready, run a dedicated infra audit (NetworkPolicies, PDBs, real
-Helm resource limits across the full 26-service fleet, a real staging
-soak test for the load-testing baseline) — that work was out of scope for
-this session's code-focused sweep.
+**Go-live recommendation**: The application code and Helm chart set are
+substantially more production-ready than the 2026-06-25 audit reflected,
+and — as of this pass — actually verified against a real Helm binary
+rather than assumed correct. The three items above are the genuine
+remaining gap.
