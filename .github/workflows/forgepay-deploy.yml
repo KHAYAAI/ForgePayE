@@ -49,10 +49,18 @@ jobs:
 
       - name: Helm upgrade --install (staging)
         run: |
+          # global.unifiedRouterUrl must match this release's own name —
+          # subchart Service names are release-name-prefixed via each
+          # chart's own fullname helper (forgepay-staging-unified-router
+          # here), and the chart-level fallback default can't know what
+          # release name any given `helm upgrade --install <name>` will
+          # actually use. See forgepay-stack/values.yaml for the full
+          # explanation of why this can't be baked into the chart itself.
           helm upgrade --install forgepay-staging ${{ env.HELM_CHART }} \
             --namespace forgepay-staging \
             --create-namespace \
             --values forgepay/config/environments/dev.yaml \
+            --set global.unifiedRouterUrl=http://forgepay-staging-unified-router:8000 \
             --set global.imageTag=${{ steps.tag.outputs.tag }} \
             --set paymentEngine.image.tag=${{ steps.tag.outputs.tag }} \
             --set unifiedRouter.image.tag=${{ steps.tag.outputs.tag }} \
@@ -100,10 +108,13 @@ jobs:
 
       - name: Helm upgrade --install (production)
         run: |
+          # See the staging job above for why global.unifiedRouterUrl
+          # needs an explicit --set matching this release's own name.
           helm upgrade --install forgepay ${{ env.HELM_CHART }} \
             --namespace forgepay \
             --create-namespace \
             --values forgepay/config/environments/prod.yaml \
+            --set global.unifiedRouterUrl=http://forgepay-unified-router:8000 \
             --set global.imageTag=${{ steps.tag.outputs.tag }} \
             --set paymentEngine.image.tag=${{ steps.tag.outputs.tag }} \
             --set unifiedRouter.image.tag=${{ steps.tag.outputs.tag }} \

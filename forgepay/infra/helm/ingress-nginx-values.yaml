@@ -1,0 +1,35 @@
+# Values overlay for the third-party ingress-nginx controller chart.
+#
+# ForgePay's own charts (forgepay-stack and friends) only ever create
+# Ingress *resources* — they don't install the ingress-nginx *controller*
+# itself, which is a separate cluster-wide component installed once per
+# cluster from the upstream chart. Apply this alongside that install:
+#
+#   helm install ingress-nginx ingress-nginx/ingress-nginx \
+#     --namespace ingress-nginx --create-namespace \
+#     -f forgepay/infra/helm/ingress-nginx-values.yaml
+#
+# PRE_DEPLOY_AUDIT.md previously suggested a per-Ingress annotation
+# (`nginx.ingress.kubernetes.io/enable-ocsp-stapling`) for OCSP
+# stapling — that annotation doesn't exist. OCSP stapling in
+# ingress-nginx is a controller-wide nginx.conf setting
+# (`ssl_stapling on;`), configured via the controller's own ConfigMap
+# (exposed here as `controller.config`), not per-Ingress-resource.
+
+controller:
+  config:
+    # Enables OCSP stapling: the ingress controller fetches the
+    # certificate's revocation status from the CA's OCSP responder and
+    # includes it directly in the TLS handshake, so clients don't have
+    # to make their own separate OCSP request (faster handshakes, and
+    # avoids leaking which sites a client is visiting to the CA).
+    enable-ocsp: "true"
+    # OCSP stapling requires the full certificate chain (leaf + all
+    # intermediates) to validate the response — cert-manager's
+    # `letsencrypt-prod`/`letsencrypt-staging` ClusterIssuers (see
+    # certificate-issuer.yaml) already produce a full-chain secret via
+    # ACME, so no additional cert configuration is needed here.
+    ssl-protocols: "TLSv1.2 TLSv1.3"
+    hsts: "true"
+    hsts-max-age: "31536000"
+    hsts-include-subdomains: "true"

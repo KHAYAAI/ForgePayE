@@ -19,11 +19,23 @@ global:
   # forwarding, event-bus reads). Subchart Service names are release-name-
   # prefixed via each chart's own "<chart>.fullname" helper — this MUST
   # match the release name this umbrella chart is actually installed
-  # under (see the `helm upgrade forgepay-stack ./helm/forgepay-stack`
-  # usage comment in values-mainnet.yaml). Override with
-  # --set global.unifiedRouterUrl=... if installing under a different
-  # release name.
-  unifiedRouterUrl: "http://forgepay-stack-unified-router:8000"
+  # under.
+  #
+  # This repo's own docs/scripts disagree on that release name — some
+  # (values-mainnet.yaml's usage comment, forgepay/infra/staging/*, the
+  # contracts deploy script) say "forgepay-stack"; the actual CI/CD
+  # pipeline (.github/workflows/forgepay-deploy.yml) uses "forgepay" for
+  # production and "forgepay-staging" for staging, neither of which is
+  # "forgepay-stack". That workflow now passes
+  # --set global.unifiedRouterUrl=... explicitly per environment, which
+  # always wins over this default — this value only matters for a
+  # standalone/manual `helm install` under some other release name, so
+  # it's set to match the *production* CI job's actual release name
+  # ("forgepay") rather than the aspirational "forgepay-stack" convention
+  # some docs describe but the real pipeline doesn't follow. Always pass
+  # --set global.unifiedRouterUrl=http://<release-name>-unified-router:8000
+  # explicitly for any install under a different release name.
+  unifiedRouterUrl: "http://forgepay-unified-router:8000"
   # All services emit OTEL traces/metrics here
   otel:
     endpoint: "http://otel-collector:4317"
