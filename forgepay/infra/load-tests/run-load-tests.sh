@@ -31,6 +31,8 @@ fi
 mkdir -p "$RESULTS_DIR"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 FAILED=0
+# name -> summary-export path, for any --compare-baseline pass below.
+declare -A RUN_SUMMARIES
 
 run_test() {
   local name="$1"
@@ -50,12 +52,20 @@ run_test() {
     env_flags="-e BASE_URL=${BASE_URL}"
   fi
 
-  if k6 run $env_flags --out json="$out" "${SCRIPT_DIR}/${script}"; then
-    echo "  ✓ ${name}: PASSED"
+  # NOTE: --out json= writes a raw per-sample NDJSON stream (no top-level
+  # `.metrics` object) — useless for the aggregate p95/error-rate numbers
+  # --capture-baseline/--compare-baseline need. --summary-export writes
+  # the single aggregate JSON object those actually read.
+  if k6 run $env_flags \
+      --summary-trend-stats="avg,min,med,max,p(90),p(95),p(99)" \
+      --summary-export="$out" \
+      "${SCRIPT_DIR}/${script}"; then
+    echo "  PASSED: ${name}"
   else
-    echo "  ✗ ${name}: FAILED (thresholds not met)"
+    echo "  FAILED: ${name} (thresholds not met)"
     FAILED=$((FAILED + 1))
   fi
+  RUN_SUMMARIES["$name"]="$out"
 }
 
 case "$TEST" in
@@ -69,10 +79,10 @@ case "$TEST" in
     run_test "checkout-spike" "checkout-spike-test.js"
     ;;
   stablecoin)
-    run_test "stablecoin" "stablecoin-load-test.js"
+    run_test "stablecoin-gateway" "stablecoin-load-test.js"
     ;;
   crypto)
-    run_test "crypto" "crypto-load-test.js"
+    run_test "crypto-gateway" "crypto-load-test.js"
     ;;
   agent-identity)
     run_test "agent-identity" "agent-identity-load-test.js" "http://localhost:3010"
@@ -90,8 +100,8 @@ case "$TEST" in
     ;;
   all)
     run_test "checkout"          "checkout-load-test.js"
-    run_test "stablecoin"        "stablecoin-load-test.js"
-    run_test "crypto"            "crypto-load-test.js"
+    run_test "stablecoin-gateway" "stablecoin-load-test.js"
+    run_test "crypto-gateway"     "crypto-load-test.js"
     run_test "agent-identity"    "agent-identity-load-test.js"    "http://localhost:3010"
     run_test "agent-negotiation" "agent-negotiation-load-test.js" "http://localhost:3011"
     run_test "rwa-registry"      "rwa-registry-load-test.js"      "http://localhost:3008"
@@ -102,36 +112,39 @@ case "$TEST" in
     ;;
 esac
 
-# Handle baseline operations
+# Handle baseline operations. Both delegate to the per-service scripts
+# rather than duplicating their (now-fixed) parsing logic here.
 if [[ "$COMPARE_BASELINE" == true ]]; then
-  LATEST=$(ls -t "$RESULTS_DIR"/checkout_*.json 2>/dev/null | head -1 || echo "")
-  if [[ -z "$LATEST" ]]; then
-    echo "⚠️  No recent checkout test results found for baseline comparison"
-  elif [[ ! -f "$RESULTS_DIR/baseline.json" ]]; then
-    echo "⚠️  No baseline.json found. Run with --capture-baseline first."
+  if [[ ! -f "$SCRIPT_DIR/baseline.json" ]]; then
+    echo "No baseline.json found. Run capture-baseline.sh first."
   else
-    if bash "$SCRIPT_DIR/compare-baseline.sh" "$LATEST" "$RESULTS_DIR/baseline.json"; then
-      echo "✅ Baseline comparison passed"
-    else
-      echo "❌ Baseline comparison failed"
-      FAILED=$((FAILED + 1))
-    fi
+    for name in "${!RUN_SUMMARIES[@]}"; do
+      summary="${RUN_SUMMARIES[$name]}"
+      echo ""
+      if bash "$SCRIPT_DIR/compare-baseline.sh" "$name" "$summary"; then
+        echo "Baseline comparison passed: ${name}"
+      else
+        echo "Baseline comparison failed: ${name}"
+        FAILED=$((FAILED + 1))
+      fi
+    done
   fi
 fi
 
 if [[ "$CAPTURE_BASELINE" == true ]]; then
-  LATEST=$(ls -t "$RESULTS_DIR"/checkout_*.json 2>/dev/null | head -1 || echo "")
-  if [[ -n "$LATEST" ]]; then
-    cp "$LATEST" "$RESULTS_DIR/baseline.json"
-    echo "✅ Baseline captured: $RESULTS_DIR/baseline.json"
-  fi
+  echo ""
+  echo "--capture-baseline runs a dedicated, longer capture across every"
+  echo "service rather than reusing this invocation's results (which may"
+  echo "only cover a subset of services depending on which TEST arg was"
+  echo "passed) — delegating to capture-baseline.sh."
+  bash "$SCRIPT_DIR/capture-baseline.sh"
 fi
 
 echo ""
 if [[ $FAILED -eq 0 ]]; then
-  echo "✓ All load tests passed. Results in: ${RESULTS_DIR}/"
+  echo "All load tests passed. Results in: ${RESULTS_DIR}/"
   exit 0
 else
-  echo "✗ ${FAILED} test(s) failed. Results in: ${RESULTS_DIR}/"
+  echo "${FAILED} test(s) failed. Results in: ${RESULTS_DIR}/"
   exit 1
 fi

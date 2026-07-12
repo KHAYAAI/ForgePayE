@@ -1,5 +1,8 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
+import { Trend } from 'k6/metrics';
+
+const checkoutLatency = new Trend('checkout_latency');
 
 /**
  * Stress test for ForgePay checkout API
@@ -65,7 +68,12 @@ export default function () {
     'checkout response time': (r) => latency < 800,
   });
 
-  // Record custom metric
+  // Record custom metric — this is what the checkout_latency threshold
+  // above actually measures against; without this call the metric never
+  // has any samples and k6 refuses to even start the run
+  // ("no metric name \"checkout_latency\" found").
+  checkoutLatency.add(latency);
+
   if (__VU % 100 === 0) {
     console.log(`[VU ${__VU}] Checkout latency: ${latency}ms`);
   }
