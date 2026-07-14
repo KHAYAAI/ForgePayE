@@ -5,7 +5,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
 /* FORGE editorial auth screen — paper/ink design system (globals.css).
-   Mirrors /auth/login's split layout so the two form a matched pair. */
+   Split layout: ink statement panel + paper form, matching the marketing
+   site's hero/statement language. */
 
 const label: React.CSSProperties = {
   display: 'block',
@@ -28,16 +29,11 @@ const input: React.CSSProperties = {
   fontFamily: 'inherit',
 };
 
-export default function SignupPage() {
+export default function LoginPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [formData, setFormData] = useState({
-    name: '',
-    email: '',
-    password: '',
-    company: '',
-  });
+  const [formData, setFormData] = useState({ email: '', password: '' });
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -45,7 +41,7 @@ export default function SignupPage() {
     setError('');
 
     try {
-      const res = await fetch('/api/auth/signup', {
+      const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData),
@@ -53,12 +49,12 @@ export default function SignupPage() {
 
       if (!res.ok) {
         const data = await res.json();
-        throw new Error(data.error || 'Signup failed');
+        throw new Error(data.error || 'Sign-in failed');
       }
 
-      router.push('/dashboard/payments');
+      router.push('/dashboard');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Signup failed');
+      setError(err instanceof Error ? err.message : 'Sign-in failed');
     } finally {
       setLoading(false);
     }
@@ -73,17 +69,17 @@ export default function SignupPage() {
       {/* Ink statement panel */}
       <aside className="auth-aside" style={{ background: 'var(--ink)', color: 'var(--paper)', padding: 'clamp(32px, 4vw, 56px)', display: 'flex', flexDirection: 'column' }}>
         <span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, fontSize: 15, letterSpacing: 3 }}>FORGE</span>
-        <h1 style={{ fontWeight: 500, fontSize: 'clamp(38px, 4.6vw, 64px)', lineHeight: 0.94, letterSpacing: -2, marginTop: 'auto', maxWidth: '15ch' }}>
-          One sign-up. <em style={{ fontStyle: 'italic', fontWeight: 300 }}>Six platforms.</em>
+        <h1 style={{ fontWeight: 500, fontSize: 'clamp(38px, 4.6vw, 64px)', lineHeight: 0.94, letterSpacing: -2, marginTop: 'auto', maxWidth: '14ch' }}>
+          Every form of <em style={{ fontStyle: 'italic', fontWeight: 300 }}>value.</em> One console.
         </h1>
         <p style={{ color: 'rgba(244,242,238,0.72)', fontSize: 15.5, lineHeight: 1.55, maxWidth: '44ch', marginTop: 20 }}>
-          Land with payments. Expand into custody, wallets, agent credit and treasury — same login, same ledger.
+          Payments, agent credit, treasury and custody behind a single sign-in.
         </p>
         <div style={{ marginTop: 'clamp(32px, 5vw, 56px)', paddingTop: 22, borderTop: '1px solid rgba(244,242,238,0.2)', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 20 }}>
           {[
-            ['14 days', 'Free trial, no card'],
-            ['R0/mo', 'Payments platform fee'],
-            ['2 min', 'To connect an agent'],
+            ['0–1000', 'Agent credit score'],
+            ['$2.80', 'Per score inquiry'],
+            ['99.7%', 'Payment success'],
           ].map(([v, k]) => (
             <div key={k}>
               <div style={{ fontSize: 'clamp(19px, 2vw, 26px)', fontWeight: 500, letterSpacing: -0.4 }}>{v}</div>
@@ -97,15 +93,15 @@ export default function SignupPage() {
       <main style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '44px 26px', background: 'var(--paper)' }}>
         <div style={{ width: '100%', maxWidth: 400 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 22 }}>
-            <span className="mono">Create your account</span>
+            <span className="mono">Console access</span>
             <span style={{ width: 24, height: 1, background: 'var(--steel)' }} />
             <span className="mono">forgepay.io</span>
           </div>
 
           <h2 style={{ fontSize: 'clamp(26px, 3vw, 34px)', fontWeight: 500, letterSpacing: -0.8, lineHeight: 1.02, marginBottom: 6 }}>
-            Join <em style={{ fontStyle: 'italic', fontWeight: 300 }}>FORGE</em>.
+            Welcome <em style={{ fontStyle: 'italic', fontWeight: 300 }}>back</em>.
           </h2>
-          <p style={{ fontSize: 13.5, color: 'var(--steel)', marginBottom: 24 }}>Start your 14-day free trial. No card needed.</p>
+          <p style={{ fontSize: 13.5, color: 'var(--steel)', marginBottom: 24 }}>Sign in to the FORGE console.</p>
 
           {error && (
             <div style={{ border: '1px solid var(--danger)', color: 'var(--danger)', padding: '11px 13px', marginBottom: 18, fontSize: 13 }}>
@@ -114,19 +110,6 @@ export default function SignupPage() {
           )}
 
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <div>
-              <label style={label}>Name</label>
-              <input
-                type="text"
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                style={input}
-                placeholder="Your name"
-                autoComplete="name"
-                required
-              />
-            </div>
-
             <div>
               <label style={label}>Work email</label>
               <input
@@ -141,27 +124,14 @@ export default function SignupPage() {
             </div>
 
             <div>
-              <label style={label}>Company · optional</label>
-              <input
-                type="text"
-                value={formData.company}
-                onChange={(e) => setFormData({ ...formData, company: e.target.value })}
-                style={input}
-                placeholder="Your company"
-                autoComplete="organization"
-              />
-            </div>
-
-            <div>
               <label style={label}>Password</label>
               <input
                 type="password"
                 value={formData.password}
                 onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                 style={input}
-                placeholder="Min. 8 characters"
-                autoComplete="new-password"
-                minLength={8}
+                placeholder="••••••••••••"
+                autoComplete="current-password"
                 required
               />
             </div>
@@ -183,14 +153,14 @@ export default function SignupPage() {
                 marginTop: 8,
               }}
             >
-              {loading ? 'Creating account…' : 'Create account →'}
+              {loading ? 'Signing in…' : 'Sign in →'}
             </button>
           </form>
 
           <p style={{ textAlign: 'center', marginTop: 20, color: 'var(--steel)', fontSize: 12.5 }}>
-            Already have an account?{' '}
-            <Link href="/auth/login" style={{ color: 'var(--ink)', borderBottom: '1px solid var(--ink)' }}>
-              Sign in
+            New to FORGE?{' '}
+            <Link href="/auth/signup" style={{ color: 'var(--ink)', borderBottom: '1px solid var(--ink)' }}>
+              Create an account
             </Link>
           </p>
         </div>
