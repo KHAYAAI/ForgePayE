@@ -51,6 +51,15 @@ interface WalletSummary {
     created_at: string;
   }>;
   dids: Array<{ did: string; type: 'user' | 'agent'; chains: string[]; tx_count: number }>;
+  corporate_wallets?: Array<{
+    name: string;
+    did: string;
+    purpose: string;
+    daily_limit: string;
+    single_tx_ceiling: string;
+    status: 'active' | 'pending_approval';
+    approvals?: string;
+  }>;
 }
 
 const DEMO: WalletSummary = {
@@ -80,6 +89,11 @@ const DEMO: WalletSummary = {
     { did: 'did:forge:agent_001', type: 'agent', chains: ['ethereum', 'polygon'], tx_count: 1204 },
     { did: 'did:forge:agent_114', type: 'agent', chains: ['ethereum'], tx_count: 388 },
     { did: 'did:forge:user_8842', type: 'user', chains: ['polygon', 'solana'], tx_count: 92 },
+  ],
+  corporate_wallets: [
+    { name: 'Operating', did: 'did:forge:snappay_ops', purpose: 'Day-to-day payments', daily_limit: 'R250,000', single_tx_ceiling: 'R100,000', status: 'active' },
+    { name: 'Payroll', did: 'did:forge:snappay_payroll', purpose: 'Monthly salaries', daily_limit: 'R1,200,000', single_tx_ceiling: 'R100,000', status: 'active' },
+    { name: 'Supplier settlements', did: 'did:forge:snappay_w381', purpose: 'Net-30 supplier payments', daily_limit: 'R500,000', single_tx_ceiling: 'R100,000', status: 'pending_approval', approvals: '1 of 2 seniors' },
   ],
 };
 
@@ -122,6 +136,30 @@ export default function WalletConsole() {
         <Stat label="Recoveries open" value={data.stats.recoveries_open} delta="2-of-3 contacts required" />
         <Stat label="Routed to Custody" value={data.stats.routed_to_custody_24h} delta="above $100K tier" />
       </StatGrid>
+
+      <Panel title="Corporate Wallets" label="provisioning requires 2-of-3 senior custody sign-off" style={{ marginBottom: 20 }}>
+        <DataTable
+          columns={['Wallet', 'DID', 'Purpose', 'Daily limit', 'Single-tx ceiling', 'Status']}
+          rows={(data.corporate_wallets ?? DEMO.corporate_wallets ?? []).map((w) => [
+            <strong key="n">{w.name}</strong>,
+            <Addr key="d">{w.did}</Addr>,
+            w.purpose,
+            <Mono key="l">{w.daily_limit}</Mono>,
+            <Mono key="c">{w.single_tx_ceiling}</Mono>,
+            w.status === 'active' ? (
+              <Pill key="s" tone="ok">active</Pill>
+            ) : (
+              <Pill key="s" tone="warn">{`pending · ${w.approvals ?? 'awaiting seniors'}`}</Pill>
+            ),
+          ])}
+        />
+        <p className="lede" style={{ fontSize: 13, marginTop: 14 }}>
+          Creating, renaming or raising the limits of a corporate wallet is a governed change: the
+          request queues in Custody and needs sign-off from 2 of 3 senior officers before the
+          wallet activates. Payments above a wallet's single-transaction ceiling don't fail — they
+          escalate to the Custody signing queue automatically.
+        </p>
+      </Panel>
 
       <Grid2>
         <Panel title="Recent Transactions" label="signed server-side · key never leaves backend">

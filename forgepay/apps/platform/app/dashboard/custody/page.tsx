@@ -47,6 +47,8 @@ interface CustodySummary {
   signing_queue: SigningRow[];
   keys: Array<{ id: string; blockchain: string; threshold: string; rotation_status: string }>;
   recent_audit: Array<{ at: string; actor: string; action: string; resource: string | null; status: number | null }>;
+  signers?: Array<{ name: string; role: string; seniority: 'senior' | 'approver'; method: string; status: 'active' | 'pending' | 'standby' }>;
+  policy_matrix?: Array<{ action: string; who: string; required: string; cooldown: string }>;
 }
 
 const DEMO: CustodySummary = {
@@ -76,6 +78,23 @@ const DEMO: CustodySummary = {
     { at: '14:29:55', actor: 'policy-engine', action: 'policy.reject', resource: 'sig_a17b', status: 200 },
     { at: '14:12:38', actor: 'mpc-orchestrator', action: 'shares.collected', resource: 'sig_a19f', status: 200 },
     { at: '13:58:20', actor: 'treasury@umuntu', action: 'signing.create', resource: 'sig_a1ae', status: 201 },
+  ],
+  signers: [
+    { name: 'S. Mokoena', role: 'CFO', seniority: 'senior', method: 'Hardware key', status: 'active' },
+    { name: 'T. Nkosi', role: 'Ops lead', seniority: 'senior', method: 'Registered device', status: 'active' },
+    { name: 'R. Dlamini', role: 'Treasury lead', seniority: 'senior', method: 'Mobile', status: 'active' },
+    { name: 'B. Khumalo', role: 'Finance manager', seniority: 'approver', method: 'Mobile', status: 'active' },
+    { name: 'FORGE custodian α', role: 'Platform co-signer', seniority: 'approver', method: 'Automated policy check', status: 'active' },
+    { name: 'FORGE custodian β', role: 'Platform co-signer', seniority: 'approver', method: 'Automated policy check', status: 'active' },
+    { name: 'External auditor', role: 'Compliance co-sign', seniority: 'approver', method: 'Mobile', status: 'standby' },
+  ],
+  policy_matrix: [
+    { action: 'Transfer < $100K', who: 'Any approver', required: '2 of 7', cooldown: 'None' },
+    { action: 'Transfer $100K – $1M', who: 'Any approver, ≥1 senior', required: '4 of 7', cooldown: '15 min' },
+    { action: 'Transfer > $1M', who: 'Seniors + external auditor', required: '6 of 7', cooldown: '2 hours' },
+    { action: 'Create / change company wallet', who: 'Senior officers only', required: '2 of 3 seniors', cooldown: 'None' },
+    { action: 'Add or remove a signer', who: 'All current signers vote', required: '4 of 7', cooldown: '24 hours' },
+    { action: 'Change this policy table', who: 'All current signers vote', required: '4 of 7', cooldown: '24 hours' },
   ],
 };
 
@@ -140,6 +159,39 @@ export default function CustodyConsole() {
         <p className="lede" style={{ fontSize: 13, marginTop: 14 }}>
           Approvals are signed API calls (`POST /api/v1/signing/:id/approve`) from registered
           approver roles — distinct approvers and distinct roles enforced server-side.
+        </p>
+      </Panel>
+
+      <Panel title="Governance Policy" label="what needs how many signatures" style={{ marginBottom: 20 }}>
+        <DataTable
+          columns={['Action', 'Who can sign', 'Required', 'Cooling-off']}
+          rows={(data.policy_matrix ?? DEMO.policy_matrix ?? []).map((p) => [
+            p.action,
+            p.who,
+            <Mono key="r">{p.required}</Mono>,
+            p.cooldown,
+          ])}
+        />
+        <p className="lede" style={{ fontSize: 13, marginTop: 14 }}>
+          Wallet provisioning, signer changes and policy edits are governed changes — they queue
+          exactly like transfers and never take effect on a single keyholder's say-so.
+        </p>
+      </Panel>
+
+      <Panel title="Signer Roster" label="add/remove requires a 4-of-7 vote + 24h cooling-off" style={{ marginBottom: 20 }}>
+        <DataTable
+          columns={['Signer', 'Role', 'Seniority', 'Method', 'Status']}
+          rows={(data.signers ?? DEMO.signers ?? []).map((s) => [
+            s.name,
+            s.role,
+            <Pill key="sen" tone={s.seniority === 'senior' ? 'accent' : undefined}>{s.seniority}</Pill>,
+            s.method,
+            <Pill key="st" tone={s.status === 'active' ? 'ok' : s.status === 'pending' ? 'warn' : undefined}>{s.status}</Pill>,
+          ])}
+        />
+        <p className="lede" style={{ fontSize: 13, marginTop: 14 }}>
+          A newly invited signer stays <strong>pending</strong> until 4 of 7 current signers
+          approve, then serves a 24-hour cooling-off before their first co-signature counts.
         </p>
       </Panel>
 
