@@ -51,7 +51,7 @@ const REGISTRY_ABI = parseAbi([
   'function updateScore(address agent, uint16 newScore, bytes32 reason) external',
   'function batchUpdateScores(address[] calldata agents, uint16[] calldata scores, bytes32[] calldata reasons) external',
   'function getScore(address agent) external view returns (uint16)',
-  'function getAgentDetails(address agent) external view returns (tuple(uint16 score, uint48 lastUpdated, uint32 updateCount, bool registered, bool frozen))',
+  'function getAgentDetails(address agent) external view returns ((uint16 score, uint48 lastUpdated, uint32 updateCount, bool registered, bool frozen))',
   'function isRegistered(address agent) external view returns (bool)',
   'function isFrozen(address agent) external view returns (bool)',
   'function setFrozen(address agent, bool freeze, bytes32 reason) external',
@@ -59,14 +59,14 @@ const REGISTRY_ABI = parseAbi([
 
 const VALIDATOR_ABI = parseAbi([
   'function recordTransaction(address agent, bytes32 txHash, uint256 amount, uint8 txType, bool success) external',
-  'function getTransactionStats(address agent) external view returns (tuple(uint64 totalCount, uint128 totalVolume, uint64 successCount, uint64 failCount, uint48 lastActivityTimestamp))',
+  'function getTransactionStats(address agent) external view returns ((uint64 totalCount, uint128 totalVolume, uint64 successCount, uint64 failCount, uint48 lastActivityTimestamp))',
   'function getSuccessRate(address agent) external view returns (uint256)',
   'function isProcessed(bytes32 txHash) external view returns (bool)',
 ]);
 
 const ENFORCER_ABI = parseAbi([
   'function checkBudget(address agent, uint128 amount) external view returns (bool)',
-  'function getBudgetStatus(address agent) external view returns (tuple(uint128 dailyRemaining, uint128 monthlyRemaining, uint128 perTxLimit, uint128 dailySpent, uint128 monthlySpent))',
+  'function getBudgetStatus(address agent) external view returns ((uint128 dailyRemaining, uint128 monthlyRemaining, uint128 perTxLimit, uint128 dailySpent, uint128 monthlySpent))',
   'function hasBudget(address agent) external view returns (bool)',
 ]);
 

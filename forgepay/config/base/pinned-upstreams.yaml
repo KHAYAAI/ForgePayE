@@ -41,3 +41,19 @@ forge-wallet-core:
   commit: a63eebebb08547ee2754639dc4e4b239618624e7  # 2026-07 — Phase 0 MVP vendored to forgepay/services/open-privy
   license: Apache-2.0
   note: FORGE Wallet (forgepay/services/forge-wallet) is the FORGE-facing API; this vendored tree provides the NestJS backend, web app, paymaster contracts, AWS/K8s guides.
+
+agent-credit-scoring:
+  source: https://github.com/KHAYAAI/CREDITTIME
+  commit: TBD      # Pin after selective absorption review (Qova v0.0.1, 2026-02-26)
+  license: MIT
+  note: >
+    Selective absorption, not a full vendor. Absorbed into
+    forgepay/services/agent-credit-bureau — Mode 2 operational scoring factors
+    (success 30% / volume 25% / count 20% / budget compliance 15% / age 10%),
+    the AAA–D credit rating scale (src/grade.ts), and the 8-check agent verify
+    + sanctions screen (src/verify.ts) — and into forgepay/packages/integrations
+    as @forge/langgraph, @forge/crewai, @forge/n8n rewired to the bureau HTTP
+    API with $2.80-per-inquiry metering. Intentionally NOT vendored: Chainlink
+    CRE workflows, Base/SKALE contracts, Convex/Clerk dashboard, and Tenderly
+    scaffolding — FORGE scores are computed off the Revenue Ontology, not
+    chain reads. Attribution: Qova by Hausor Labs (Brian Mwai, Joy C. Lang'at).

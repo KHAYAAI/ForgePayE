@@ -97,6 +97,8 @@ export interface CreditReport {
     recommendation: 'approve' | 'approve_with_conditions' | 'decline' | 'manual_review';
     maxRecommendedLimit: number;   // USD
     riskGrade: 'A' | 'B' | 'C' | 'D' | 'F';
+    creditGrade?: import('./grade').CreditGrade;  // AAA–D bureau letter grade
+    inquiryFeeUsd?: number;                       // $2.80 per pull, metered
   };
   zkProofMode: boolean;            // If true, uses ZK proofs instead of raw history
   zkProofs?: ZKProof[];

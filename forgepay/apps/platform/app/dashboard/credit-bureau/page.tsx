@@ -1,144 +1,185 @@
-export default function CreditBureauDashboard() {
-  return (
-    <div>
-      <div style={{ marginBottom: 40 }}>
-        <h1 style={{ marginBottom: 8 }}>📊 Forge Credit Bureau</h1>
-        <p style={{ color: 'var(--text-light)' }}>
-          Dual-mode credit scoring with Mode 1 (FICO) and Mode 2 (On-chain Ops)
-        </p>
-      </div>
+'use client';
 
-      {/* KPIs */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 24, marginBottom: 40 }}>
-        <MetricCard title="Inquiries (24h)" value="487" change="↑ 8% vs yesterday" />
-        <MetricCard title="Avg Mode 1 Score" value="68 pts" change="Traditional FICO" />
-        <MetricCard title="Avg Mode 2 Score" value="72 pts" change="On-chain operational" />
-        <MetricCard title="Variance Alerts" value="12" change="Scores reviewed" />
-      </div>
+import {
+  PageHeader,
+  Stat,
+  StatGrid,
+  Panel,
+  Pill,
+  DataTable,
+  Grid2,
+  LivePill,
+  Mono,
+  Addr,
+} from '@/components/forge/ui';
+import { useForge } from '@/components/forge/useForge';
+import { INQUIRY_FEE_USD, gradeFor, gradeTone } from '@/lib/credit-grade';
 
-      {/* Scoring Modes */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: 24, marginBottom: 40 }}>
-        <Card title="Mode 1: FICO Scoring">
-          <div style={{ paddingBottom: 12 }}>
-            <ScoreFactor label="Payment History" percentage={40} />
-            <ScoreFactor label="Transaction Volume" percentage={30} />
-            <ScoreFactor label="Account Age" percentage={20} />
-            <ScoreFactor label="Risk Profile" percentage={10} />
-          </div>
-        </Card>
+/* ────────────────────────────────────────────────────────────────
+   Credit Bureau — Dual-Mode deep dive.
+   Mode 1 (FORGE FICO, off-chain, authoritative) vs Mode 2
+   (operational, Qova-derived, on-chain settleable), with consensus
+   analysis and settlement receipts. Mirrors the shape of
+   GET /v1/agents/:id/dual-score and /v1/settlement/status.
+   ──────────────────────────────────────────────────────────────── */
 
-        <Card title="Mode 2: On-Chain Scoring">
-          <div>
-            <ScoreFactor label="Success Rate" percentage={35} />
-            <ScoreFactor label="Transaction Volume" percentage={30} />
-            <ScoreFactor label="Compliance Status" percentage={20} />
-            <ScoreFactor label="Account Age" percentage={15} />
-          </div>
-        </Card>
-      </div>
-
-      {/* Recent Scores */}
-      <Card title="Recent Credit Inquiries">
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ borderBottom: '1px solid #eee' }}>
-              <th style={{ textAlign: 'left', padding: 12, fontWeight: 600 }}>Customer</th>
-              <th style={{ textAlign: 'left', padding: 12, fontWeight: 600 }}>Mode 1</th>
-              <th style={{ textAlign: 'left', padding: 12, fontWeight: 600 }}>Mode 2</th>
-              <th style={{ textAlign: 'left', padding: 12, fontWeight: 600 }}>Variance</th>
-              <th style={{ textAlign: 'left', padding: 12, fontWeight: 600 }}>Decision</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr style={{ borderBottom: '1px solid #eee' }}>
-              <td style={{ padding: 12 }}>CUST-001</td>
-              <td style={{ padding: 12 }}>62</td>
-              <td style={{ padding: 12 }}>68</td>
-              <td style={{ padding: 12, color: '#FFA500' }}>+6 pts</td>
-              <td style={{ padding: 12 }}>Approve</td>
-            </tr>
-            <tr style={{ borderBottom: '1px solid #eee' }}>
-              <td style={{ padding: 12 }}>CUST-002</td>
-              <td style={{ padding: 12 }}>75</td>
-              <td style={{ padding: 12 }}>74</td>
-              <td style={{ padding: 12, color: '#4ECB60' }}>-1 pts</td>
-              <td style={{ padding: 12 }}>Approve</td>
-            </tr>
-            <tr>
-              <td style={{ padding: 12 }}>CUST-003</td>
-              <td style={{ padding: 12 }}>45</td>
-              <td style={{ padding: 12 }}>52</td>
-              <td style={{ padding: 12, color: '#FFA500' }}>+7 pts</td>
-              <td style={{ padding: 12 }}>Review</td>
-            </tr>
-          </tbody>
-        </table>
-      </Card>
-
-      {/* Revenue from Inquiries */}
-      <Card title="Revenue from Inquiry Sharing">
-        <div>
-          <p style={{ marginBottom: 12 }}>
-            <strong>Monthly Inquiries:</strong> 14,600 inquiries
-          </p>
-          <p style={{ marginBottom: 12 }}>
-            <strong>Avg Inquiry Value:</strong> R100 per inquiry
-          </p>
-          <p style={{ marginBottom: 12 }}>
-            <strong>Your Share (25%):</strong> <span style={{ fontSize: 20, fontWeight: 700 }}>R36,500/mo</span>
-          </p>
-          <p style={{ color: 'var(--text-light)', fontSize: 13 }}>
-            Plus R8,500/mo base subscription = R45K total monthly revenue
-          </p>
-        </div>
-      </Card>
-    </div>
-  );
+interface BureauStats {
+  stats: {
+    totalAgents: number;
+    avgScore: number;
+    inquiries24h?: number;
+    inquiryFeeUsd?: number;
+    inquiryRevenueUsd?: number;
+  };
 }
 
-function MetricCard({
-  title,
-  value,
-  change,
-}: {
-  title: string;
-  value: string;
-  change: string;
-}) {
-  return (
-    <div style={{ background: 'white', borderRadius: 12, padding: 24, border: '1px solid #eee' }}>
-      <p style={{ color: 'var(--text-light)', fontSize: 14, marginBottom: 8 }}>{title}</p>
-      <div style={{ fontSize: 32, fontWeight: 700, marginBottom: 8 }}>{value}</div>
-      <p style={{ fontSize: 12, color: 'var(--text-light)' }}>{change}</p>
-    </div>
-  );
-}
+const DEMO_STATS: BureauStats = {
+  stats: {
+    totalAgents: 312,
+    avgScore: 710,
+    inquiries24h: 487,
+    inquiryFeeUsd: INQUIRY_FEE_USD,
+    inquiryRevenueUsd: 40_880,
+  },
+};
 
-function ScoreFactor({ label, percentage }: { label: string; percentage: number }) {
+/* Demo dual-score rows — one per GET /v1/agents/:id/dual-score pull. */
+const DUAL_ROWS = [
+  { did: 'did:forge:agent_001', operator: 'Umuntu Group', mode1: 820, mode2: 805, consensus: 'HIGH' as const, decision: 'approve', settled: true },
+  { did: 'did:forge:agent_114', operator: 'SnapPay', mode1: 750, mode2: 772, consensus: 'HIGH' as const, decision: 'approve', settled: true },
+  { did: 'did:forge:agent_231', operator: 'ComputeRent', mode1: 705, mode2: 640, consensus: 'MEDIUM' as const, decision: 'approve_with_conditions', settled: true },
+  { did: 'did:forge:agent_078', operator: 'AfroBiz Lending', mode1: 630, mode2: 498, consensus: 'LOW' as const, decision: 'manual_review', settled: false },
+  { did: 'did:forge:agent_009', operator: 'Umuntu Group', mode1: 340, mode2: 361, consensus: 'HIGH' as const, decision: 'decline', settled: false },
+];
+
+/* Demo settlement receipts — mirrors /v1/settlement/status + receipts. */
+const SETTLEMENTS = [
+  { did: 'did:forge:agent_001', txHash: '0x8c1f…a2e4', block: 18_442_071, chain: 'base', settledAt: '14:02' },
+  { did: 'did:forge:agent_114', txHash: '0x77b0…19dd', block: 18_442_071, chain: 'base', settledAt: '14:02' },
+  { did: 'did:forge:agent_231', txHash: '0x51ac…f003', block: 18_437_990, chain: 'base', settledAt: '08:02' },
+];
+
+const CONSENSUS_TONE: Record<string, 'ok' | 'warn' | 'danger'> = {
+  HIGH: 'ok',
+  MEDIUM: 'warn',
+  LOW: 'danger',
+};
+
+const DECISION_TONE: Record<string, 'ok' | 'warn' | 'danger' | 'accent'> = {
+  approve: 'ok',
+  approve_with_conditions: 'accent',
+  manual_review: 'warn',
+  decline: 'danger',
+};
+
+export default function CreditBureauDualMode() {
+  const { data, live } = useForge<BureauStats>('bureau', DEMO_STATS);
+
+  const feeUsd = data.stats.inquiryFeeUsd ?? INQUIRY_FEE_USD;
+  const variances = DUAL_ROWS.map((r) => Math.abs(r.mode1 - r.mode2));
+  const flagged = DUAL_ROWS.filter((r) => r.consensus !== 'HIGH').length;
+  const avgMode1 = Math.round(DUAL_ROWS.reduce((s, r) => s + r.mode1, 0) / DUAL_ROWS.length);
+  const avgMode2 = Math.round(DUAL_ROWS.reduce((s, r) => s + r.mode2, 0) / DUAL_ROWS.length);
+
   return (
-    <div style={{ marginBottom: 12 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-        <span style={{ fontSize: 13 }}>{label}</span>
-        <span style={{ fontWeight: 600, fontSize: 13 }}>{percentage}%</span>
-      </div>
-      <div style={{ width: '100%', height: 6, background: '#eee', borderRadius: 3, overflow: 'hidden' }}>
-        <div
-          style={{
-            width: `${percentage}%`,
-            height: '100%',
-            background: 'var(--cyan)',
-          }}
+    <>
+      <PageHeader
+        eyebrow="FORGE / Credit Bureau · Dual-Mode"
+        title={
+          <>
+            Two lenses, <em>one decision</em>
+          </>
+        }
+        lede="Every dual-score pull computes Mode 1 (FORGE FICO — the lending decision) and Mode 2 (operational behavior, Qova-derived) side by side. Agreement builds confidence; divergence flags the agent before credit is extended."
+        actions={<LivePill live={live} />}
+      />
+
+      <StatGrid>
+        <Stat label="Inquiries / 24h" value={(data.stats.inquiries24h ?? 0).toLocaleString('en-US')} delta={`$${feeUsd.toFixed(2)} per pull`} />
+        <Stat label="Avg Mode 1 score" value={`${avgMode1}`} delta={`${gradeFor(avgMode1).grade} · FICO lens`} />
+        <Stat label="Avg Mode 2 score" value={`${avgMode2}`} delta={`${gradeFor(avgMode2).grade} · operational lens`} />
+        <Stat label="Variance flags" value={flagged} deltaTone={flagged > 0 ? 'down' : undefined} delta="consensus below HIGH" />
+        <Stat label="Max variance" value={`${Math.max(...variances)} pts`} delta=">100 pts → manual review" />
+        <Stat label="Inquiry revenue" value={`$${Math.round(data.stats.inquiryRevenueUsd ?? 0).toLocaleString('en-US')}`} delta="metered · to date" deltaTone="up" />
+      </StatGrid>
+
+      <Panel title="Dual-Score Register" label="GET /v1/agents/:id/dual-score · Mode 1 is authoritative" style={{ marginBottom: 20 }}>
+        <DataTable
+          columns={['Agent DID', 'Operator', 'Mode 1', 'Grade', 'Mode 2', 'Grade', 'Variance', 'Consensus', 'Decision']}
+          rows={DUAL_ROWS.map((r) => {
+            const g1 = gradeFor(r.mode1);
+            const g2 = gradeFor(r.mode2);
+            const variance = Math.abs(r.mode1 - r.mode2);
+            return [
+              <Addr key="d">{r.did}</Addr>,
+              r.operator,
+              <Mono key="m1">{r.mode1}</Mono>,
+              <Pill key="g1" tone={gradeTone(g1.grade)}>{g1.grade}</Pill>,
+              <Mono key="m2">{r.mode2}</Mono>,
+              <Pill key="g2" tone={gradeTone(g2.grade)}>{g2.grade}</Pill>,
+              <Mono key="v">{variance} pts</Mono>,
+              <Pill key="c" tone={CONSENSUS_TONE[r.consensus]}>{r.consensus.toLowerCase()}</Pill>,
+              <Pill key="dec" tone={DECISION_TONE[r.decision]}>{r.decision.replace(/_/g, ' ')}</Pill>,
+            ];
+          })}
         />
-      </div>
-    </div>
-  );
-}
+        <p className="lede" style={{ fontSize: 13, marginTop: 14 }}>
+          Mode 1 always makes the lending decision. Mode 2 exists to catch what a credit file
+          can't: an agent whose on-book profile looks healthy but whose live operational behavior
+          — failure rates, budget breaches — has deteriorated.
+        </p>
+      </Panel>
 
-function Card({ title, children }: { title?: string; children: React.ReactNode }) {
-  return (
-    <div style={{ background: 'white', borderRadius: 12, padding: 24, border: '1px solid #eee', marginBottom: 24 }}>
-      {title && <h3 style={{ marginBottom: 20, fontSize: 16, fontWeight: 600 }}>{title}</h3>}
-      {children}
-    </div>
+      <Grid2>
+        <Panel title="Consensus Rules" label="variance between the two modes">
+          <DataTable
+            columns={['Level', 'Variance', 'Meaning']}
+            rows={[
+              [<Pill key="l" tone="ok">high</Pill>, <Mono key="v">≤ 50 pts</Mono>, 'Both lenses agree — high confidence in the Mode 1 decision.'],
+              [<Pill key="l" tone="warn">medium</Pill>, <Mono key="v">51–100 pts</Mono>, 'Review recommended before large credit decisions.'],
+              [<Pill key="l" tone="danger">low</Pill>, <Mono key="v">&gt; 100 pts</Mono>, 'Behavior and credit file misaligned — manual review required.'],
+            ]}
+          />
+          <p className="lede" style={{ fontSize: 13, marginTop: 14 }}>
+            When Mode 2 has not yet settled, consensus reports MEDIUM and Mode 1 stands alone as
+            authoritative.
+          </p>
+        </Panel>
+
+        <Panel title="On-Chain Settlement" label="Mode 2 scores settle for external verification" ink>
+          <DataTable
+            columns={['Agent', 'Tx', 'Block', 'Chain', 'Settled']}
+            rows={SETTLEMENTS.map((s) => [
+              <Addr key="d">{s.did}</Addr>,
+              <Mono key="t">{s.txHash}</Mono>,
+              <Mono key="b">{s.block.toLocaleString('en-US')}</Mono>,
+              s.chain,
+              <Mono key="at">{s.settledAt}</Mono>,
+            ])}
+          />
+          <p className="lede" style={{ fontSize: 13, marginTop: 14 }}>
+            Settled Mode 2 scores are readable by any external protocol — the bureau's audit trail
+            without exposing the underlying credit file. Settlement runs on a schedule; the FICO
+            file never leaves FORGE.
+          </p>
+        </Panel>
+      </Grid2>
+
+      <Panel title="Inquiry Economics" label="priced like a traditional bureau">
+        <ol style={{ listStyle: 'none' }}>
+          {[
+            [`$${feeUsd.toFixed(2)}`, 'Per inquiry', 'every score, dual-score or verification pull is metered — no platform fee'],
+            ['~14,600', 'Monthly inquiries', 'across lender pulls and framework-integration gate checks'],
+            ['25%', 'Data-contributor share', 'operators feeding outcome data back earn query credits against their own pulls'],
+          ].map(([v, item, desc]) => (
+            <li key={item} style={{ display: 'flex', gap: 16, padding: '11px 0', borderBottom: '1px solid var(--hair)', alignItems: 'baseline' }}>
+              <span className="mono" style={{ minWidth: 64 }}>{v}</span>
+              <span style={{ fontWeight: 500, minWidth: 170 }}>{item}</span>
+              <span style={{ color: 'var(--steel)', fontSize: 13.5 }}>{desc}</span>
+            </li>
+          ))}
+        </ol>
+      </Panel>
+    </>
   );
 }

@@ -13,6 +13,7 @@ import type {
   DataContributor,
 } from './types';
 import { computeScore } from './scorer';
+import { gradeDistribution, INQUIRY_FEE_USD } from './grade';
 
 // ── Stores ────────────────────────────────────────────────────────────────────
 
@@ -57,6 +58,10 @@ export function bureauStats() {
     SUBPRIME:     all.filter(p => p.currentScore >= 500 && p.currentScore < 580).length,
     DEEP_SUBPRIME:all.filter(p => p.currentScore < 500).length,
   };
+  const allInquiries = all.flatMap(p => p.hardInquiries);
+  const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
+  const inquiries24h = allInquiries.filter(i => new Date(i.timestamp).getTime() > dayAgo).length;
+
   return {
     totalAgents: all.length,
     avgScore,
@@ -65,6 +70,11 @@ export function bureauStats() {
     utilizationRate: totalLimit ? +(totalDebt / totalLimit).toFixed(4) : 0,
     delinquentAgents: delinquent,
     distribution,
+    gradeDistribution: gradeDistribution(all.map(p => p.currentScore)),
+    inquiries24h,
+    inquiriesTotal: allInquiries.length,
+    inquiryFeeUsd: INQUIRY_FEE_USD,
+    inquiryRevenueUsd: +(allInquiries.length * INQUIRY_FEE_USD).toFixed(2),
     openDisputes: Array.from(disputes.values()).filter(d => d.status === 'open' || d.status === 'investigating').length,
     contributors: contributors.size,
   };

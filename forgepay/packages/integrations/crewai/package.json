@@ -1,0 +1,17 @@
+{
+  "name": "@forge/crewai",
+  "version": "0.1.0",
+  "description": "FORGE Agent Credit Bureau delegation for CrewAI — route high-value tasks to higher-graded agents. Metered at $2.80 per score inquiry.",
+  "license": "MIT",
+  "type": "commonjs",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "type-check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.3"
+  }
+}

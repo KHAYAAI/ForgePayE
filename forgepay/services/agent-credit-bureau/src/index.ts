@@ -42,6 +42,8 @@ import {
 import type {
   AgentCreditProfile, CreditReport, Dispute, CreditEvent,
 } from './types';
+import { creditGrade, GRADE_SCALE, INQUIRY_FEE_USD } from './grade';
+import { verifyAgent, sanctionsScreen } from './verify';
 import { getChainClient, didToAddress } from './chain';
 import {
   runSettlement, startSettlementScheduler,
@@ -232,6 +234,7 @@ async function buildApp() {
         agentId:      profile.agentId,
         score:        profile.currentScore,
         tier:         profile.tier,
+        grade:        creditGrade(profile.currentScore),
         factors:      profile.scoreFactors,
         utilization:  profile.utilizationRate,
         paymentRate:  profile.paymentHistoryRate,
@@ -381,6 +384,8 @@ async function buildApp() {
         recommendation:     scoreRecommendation(score),
         maxRecommendedLimit: maxRecommendedLimit(score),
         riskGrade:          score >= 800 ? 'A' : score >= 670 ? 'B' : score >= 580 ? 'C' : score >= 500 ? 'D' : 'F',
+        creditGrade:        creditGrade(score),
+        inquiryFeeUsd:      INQUIRY_FEE_USD,
       },
       zkProofMode,
     };
@@ -629,7 +634,32 @@ async function buildApp() {
       } : undefined,
     );
 
-    return reply.send({ data: dualScore });
+    return reply.send({ data: { ...dualScore, grade: creditGrade(dualScore.mode1.score) } });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Verification — 8-check agent verify + sanctions screen (Qova-derived)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // GET /v1/grade-scale — the published AAA–D rating scale
+  app.get('/v1/grade-scale', async (_req, reply) => {
+    return reply.send({ data: { scale: GRADE_SCALE, inquiryFeeUsd: INQUIRY_FEE_USD } });
+  });
+
+  // POST /v1/agents/:agentId/verify — run all 8 checks
+  app.post<{ Params: { agentId: string } }>('/v1/agents/:agentId/verify', async (req, reply) => {
+    const profile = getProfile(req.params.agentId);
+    if (!profile) return reply.status(404).send({ error: 'NotFound', message: `Agent ${req.params.agentId} not registered` });
+    return reply.send({ data: verifyAgent(profile) });
+  });
+
+  // POST /v1/verify/sanctions — sanctions screen only
+  app.post('/v1/verify/sanctions', async (req, reply) => {
+    const parse = z.object({ agentId: z.string().min(1) }).safeParse(req.body);
+    if (!parse.success) return reply.status(400).send({ error: 'ValidationError', details: parse.error.flatten() });
+    const profile = getProfile(parse.data.agentId);
+    if (!profile) return reply.status(404).send({ error: 'NotFound', message: `Agent ${parse.data.agentId} not registered` });
+    return reply.send({ data: sanctionsScreen(profile) });
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -710,6 +740,8 @@ async function main(): Promise<void> {
 ║                                                                  ║
 ║  Score        →  GET  /v1/agents/:id/score        [Mode 1 FICO]  ║
 ║  Dual Score   →  GET  /v1/agents/:id/dual-score   [Mode 1+2]     ║
+║  Verify       →  POST /v1/agents/:id/verify       [8 checks]     ║
+║  Grade Scale  →  GET  /v1/grade-scale             [AAA–D]        ║
 ║  Profile      →  GET  /v1/agents/:id/profile                     ║
 ║  Report       →  POST /v1/reports                                ║
 ║  Disputes     →  GET  /v1/disputes                               ║

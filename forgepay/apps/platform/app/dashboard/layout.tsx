@@ -64,7 +64,7 @@ export default function DashboardLayout({
                 Merchant Treasury
               </Link>
               <Link href="/dashboard/credit-bureau" className={styles.navItem}>
-                Credit Bureau
+                Credit Bureau<span className={styles.navTag}>Dual</span>
               </Link>
             </div>
 

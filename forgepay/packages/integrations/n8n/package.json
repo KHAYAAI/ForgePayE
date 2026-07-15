@@ -1,0 +1,17 @@
+{
+  "name": "@forge/n8n",
+  "version": "0.1.0",
+  "description": "FORGE Agent Credit Bureau nodes for n8n — Score Check, Verify Agent, and Record Outcome for no-code trust-gated automation. Metered at $2.80 per score inquiry.",
+  "license": "MIT",
+  "type": "commonjs",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "type-check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.3"
+  }
+}
