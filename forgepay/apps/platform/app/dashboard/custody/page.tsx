@@ -15,25 +15,12 @@ import {
 import { useForge } from '@/components/forge/useForge';
 
 /* ────────────────────────────────────────────────────────────────
-   FORGE Custody — institutional custody & threshold signing.
-   (OpenFireblocks, integrated into the FORGE ecosystem.)
+   FORGE Custody — Overview.
    Live-wired to forge-custody GET /api/v1/console/summary via the
    /api/forge/custody proxy; demo fixtures render when offline.
+   Signing queue lives in Signing, policy + signers in Governance,
+   key inventory in Keys, immutable log in Audit.
    ──────────────────────────────────────────────────────────────── */
-
-type SigningRow = {
-  id: string;
-  workspace: string;
-  destination: string;
-  amount_usd: number;
-  blockchain: string;
-  status: string;
-  reason_code: string | null;
-  approvals: number;
-  approvals_required: number;
-  tx_hash: string | null;
-  created_at: string;
-};
 
 interface CustodySummary {
   stats: {
@@ -44,11 +31,19 @@ interface CustodySummary {
     active_keys: number;
     workspaces: number;
   };
-  signing_queue: SigningRow[];
-  keys: Array<{ id: string; blockchain: string; threshold: string; rotation_status: string }>;
-  recent_audit: Array<{ at: string; actor: string; action: string; resource: string | null; status: number | null }>;
-  signers?: Array<{ name: string; role: string; seniority: 'senior' | 'approver'; method: string; status: 'active' | 'pending' | 'standby' }>;
-  policy_matrix?: Array<{ action: string; who: string; required: string; cooldown: string }>;
+  signing_queue: Array<{
+    id: string;
+    workspace: string;
+    destination: string;
+    amount_usd: number;
+    blockchain: string;
+    status: string;
+    reason_code: string | null;
+    approvals: number;
+    approvals_required: number;
+    tx_hash: string | null;
+    created_at: string;
+  }>;
 }
 
 const DEMO: CustodySummary = {
@@ -63,57 +58,15 @@ const DEMO: CustodySummary = {
   signing_queue: [
     { id: 'sig_a1b2', workspace: 'Investec Digital Assets', destination: '0xbridge…4f21', amount_usd: 5_000_000, blockchain: 'ethereum', status: 'pending_approval', reason_code: null, approvals: 1, approvals_required: 2, tx_hash: null, created_at: '' },
     { id: 'sig_a1ae', workspace: 'Umuntu Group Treasury', destination: '0xsupplier…9c03', amount_usd: 50_000, blockchain: 'polygon', status: 'pending_approval', reason_code: null, approvals: 0, approvals_required: 1, tx_hash: null, created_at: '' },
-    { id: 'sig_a19f', workspace: 'Investec Digital Assets', destination: '0xcustody…77aa', amount_usd: 12_400_000, blockchain: 'ethereum', status: 'signing', reason_code: null, approvals: 2, approvals_required: 2, tx_hash: null, created_at: '' },
-    { id: 'sig_a18c', workspace: 'AfroBiz Lending', destination: '0xsettle…10de', amount_usd: 1_800_000, blockchain: 'polygon', status: 'confirmed', reason_code: null, approvals: 2, approvals_required: 2, tx_hash: '0x7f3a…', created_at: '' },
-    { id: 'sig_a17b', workspace: 'Umuntu Group Treasury', destination: '0xunknown…e4d9', amount_usd: 3_200_000, blockchain: 'ethereum', status: 'rejected', reason_code: 'DESTINATION_NOT_WHITELISTED', approvals: 0, approvals_required: 0, tx_hash: null, created_at: '' },
   ],
-  keys: [
-    { id: 'key_settlement_eth', blockchain: 'ethereum', threshold: '4-of-7', rotation_status: 'active' },
-    { id: 'key_settlement_polygon', blockchain: 'polygon', threshold: '4-of-7', rotation_status: 'active' },
-    { id: 'key_treasury_ops', blockchain: 'ethereum', threshold: '3-of-5', rotation_status: 'rotating' },
-  ],
-  recent_audit: [
-    { at: '14:47:12', actor: 'system', action: 'signature.confirmed', resource: 'sig_a18c', status: 200 },
-    { at: '14:31:04', actor: 'cfo@investec', action: 'signing.approve', resource: 'sig_a1b2', status: 200 },
-    { at: '14:29:55', actor: 'policy-engine', action: 'policy.reject', resource: 'sig_a17b', status: 200 },
-    { at: '14:12:38', actor: 'mpc-orchestrator', action: 'shares.collected', resource: 'sig_a19f', status: 200 },
-    { at: '13:58:20', actor: 'treasury@umuntu', action: 'signing.create', resource: 'sig_a1ae', status: 201 },
-  ],
-  signers: [
-    { name: 'S. Mokoena', role: 'CFO', seniority: 'senior', method: 'Hardware key', status: 'active' },
-    { name: 'T. Nkosi', role: 'Ops lead', seniority: 'senior', method: 'Registered device', status: 'active' },
-    { name: 'R. Dlamini', role: 'Treasury lead', seniority: 'senior', method: 'Mobile', status: 'active' },
-    { name: 'B. Khumalo', role: 'Finance manager', seniority: 'approver', method: 'Mobile', status: 'active' },
-    { name: 'FORGE custodian α', role: 'Platform co-signer', seniority: 'approver', method: 'Automated policy check', status: 'active' },
-    { name: 'FORGE custodian β', role: 'Platform co-signer', seniority: 'approver', method: 'Automated policy check', status: 'active' },
-    { name: 'External auditor', role: 'Compliance co-sign', seniority: 'approver', method: 'Mobile', status: 'standby' },
-  ],
-  policy_matrix: [
-    { action: 'Transfer < $100K', who: 'Any approver', required: '2 of 7', cooldown: 'None' },
-    { action: 'Transfer $100K – $1M', who: 'Any approver, ≥1 senior', required: '4 of 7', cooldown: '15 min' },
-    { action: 'Transfer > $1M', who: 'Seniors + external auditor', required: '6 of 7', cooldown: '2 hours' },
-    { action: 'Create / change company wallet', who: 'Senior officers only', required: '2 of 3 seniors', cooldown: 'None' },
-    { action: 'Add or remove a signer', who: 'All current signers vote', required: '4 of 7', cooldown: '24 hours' },
-    { action: 'Change this policy table', who: 'All current signers vote', required: '4 of 7', cooldown: '24 hours' },
-  ],
-};
-
-const STATUS_TONE: Record<string, 'ok' | 'warn' | 'danger' | 'accent'> = {
-  pending_policy: 'warn',
-  pending_approval: 'warn',
-  approved: 'accent',
-  signing: 'accent',
-  broadcast: 'accent',
-  confirmed: 'ok',
-  rejected: 'danger',
-  failed: 'danger',
 };
 
 const usd = (n: number) =>
   n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(1)}M` : `$${Math.round(n / 1000)}K`;
 
-export default function CustodyConsole() {
+export default function CustodyOverview() {
   const { data, live } = useForge<CustodySummary>('custody', DEMO);
+  const pending = data.signing_queue.filter((r) => r.status === 'pending_approval');
 
   return (
     <>
@@ -124,7 +77,7 @@ export default function CustodyConsole() {
             Institutional <em>Custody</em>
           </>
         }
-        lede="Threshold-signed settlement for transfers above $1M. No single keyholder exists — every signature requires 4 of 7 encrypted shares."
+        lede="Threshold-signed settlement for transfers above $1M. No single keyholder exists — every signature requires 4 of 7 encrypted shares, and every policy change is itself a governed vote."
         actions={<LivePill live={live} />}
       />
 
@@ -137,94 +90,56 @@ export default function CustodyConsole() {
         <Stat label="Sanctions screens" value="100%" delta="every signing request" deltaTone="up" />
       </StatGrid>
 
-      <Panel title="Signing Queue" label="policy → approval → 4-of-7 MPC → broadcast" style={{ marginBottom: 20 }}>
+      <Panel title="Waiting on You" label="approvals blocking settlement" ink style={{ marginBottom: 20 }}>
         <DataTable
-          columns={['Request', 'Workspace', 'Destination', 'Amount', 'Chain', 'Approvals', 'Status', 'Tx']}
-          rows={data.signing_queue.map((r) => [
+          columns={['Request', 'Workspace', 'Destination', 'Amount', 'Approvals', 'Status']}
+          rows={pending.map((r) => [
             <Mono key="id">{r.id}</Mono>,
             r.workspace,
             <Addr key="d">{r.destination}</Addr>,
             <Mono key="a">{usd(r.amount_usd)}</Mono>,
-            <Mono key="c">{r.blockchain}</Mono>,
-            <Mono key="ap">{r.approvals_required > 0 ? `${r.approvals} / ${r.approvals_required}` : '—'}</Mono>,
-            <span key="s" style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
-              <Pill tone={STATUS_TONE[r.status]}>{r.status.replace('_', ' ')}</Pill>
-              {r.reason_code && (
-                <span style={{ fontSize: 11.5, color: 'var(--danger)' }}>{r.reason_code}</span>
-              )}
-            </span>,
-            <Addr key="t">{r.tx_hash ?? '—'}</Addr>,
+            <Mono key="ap">{r.approvals} / {r.approvals_required}</Mono>,
+            <Pill key="s" tone="warn">{r.status.replace('_', ' ')}</Pill>,
           ])}
         />
         <p className="lede" style={{ fontSize: 13, marginTop: 14 }}>
-          Approvals are signed API calls (`POST /api/v1/signing/:id/approve`) from registered
-          approver roles — distinct approvers and distinct roles enforced server-side.
-        </p>
-      </Panel>
-
-      <Panel title="Governance Policy" label="what needs how many signatures" style={{ marginBottom: 20 }}>
-        <DataTable
-          columns={['Action', 'Who can sign', 'Required', 'Cooling-off']}
-          rows={(data.policy_matrix ?? DEMO.policy_matrix ?? []).map((p) => [
-            p.action,
-            p.who,
-            <Mono key="r">{p.required}</Mono>,
-            p.cooldown,
-          ])}
-        />
-        <p className="lede" style={{ fontSize: 13, marginTop: 14 }}>
-          Wallet provisioning, signer changes and policy edits are governed changes — they queue
-          exactly like transfers and never take effect on a single keyholder's say-so.
-        </p>
-      </Panel>
-
-      <Panel title="Signer Roster" label="add/remove requires a 4-of-7 vote + 24h cooling-off" style={{ marginBottom: 20 }}>
-        <DataTable
-          columns={['Signer', 'Role', 'Seniority', 'Method', 'Status']}
-          rows={(data.signers ?? DEMO.signers ?? []).map((s) => [
-            s.name,
-            s.role,
-            <Pill key="sen" tone={s.seniority === 'senior' ? 'accent' : undefined}>{s.seniority}</Pill>,
-            s.method,
-            <Pill key="st" tone={s.status === 'active' ? 'ok' : s.status === 'pending' ? 'warn' : undefined}>{s.status}</Pill>,
-          ])}
-        />
-        <p className="lede" style={{ fontSize: 13, marginTop: 14 }}>
-          A newly invited signer stays <strong>pending</strong> until 4 of 7 current signers
-          approve, then serves a 24-hour cooling-off before their first co-signature counts.
+          Approve or reject from the Signing Queue tab — approvals are signed API calls from
+          registered approver roles, distinct approvers enforced server-side.
         </p>
       </Panel>
 
       <Grid2>
-        <Panel title="Key Inventory" label="shares in Vault — metadata only" ink>
-          <DataTable
-            columns={['Key', 'Chain', 'Threshold', 'Rotation']}
-            rows={data.keys.map((k) => [
-              <Mono key="1">{k.id}</Mono>,
-              k.blockchain,
-              <Mono key="t">{k.threshold}</Mono>,
-              <Pill key="r" tone={k.rotation_status === 'active' ? 'ok' : 'warn'}>{k.rotation_status}</Pill>,
-            ])}
-          />
-          <p className="lede" style={{ fontSize: 13, marginTop: 14 }}>
-            Private keys never exist in plaintext. Feldman-VSS share commitments verified at each
-            DKG ceremony; encrypted shares live in HashiCorp Vault behind AWS KMS.
-          </p>
+        <Panel title="How a Transfer Settles" label="policy → approval → MPC → broadcast">
+          <ol style={{ listStyle: 'none' }}>
+            {[
+              ['1', 'Policy engine', 'destination whitelist, sanctions screen, amount tier — rejections are final and logged'],
+              ['2', 'Approvals', 'quorum by amount tier: 2-of-7 under $100K up to 6-of-7 + 2h cooling-off above $1M'],
+              ['3', 'MPC signing', '4-of-7 encrypted shares collected; no plaintext key ever exists'],
+              ['4', 'Broadcast', '12-block confirmation, then one event to the Revenue Ontology'],
+            ].map(([n, step, desc]) => (
+              <li key={step} style={{ display: 'flex', gap: 16, padding: '11px 0', borderBottom: '1px solid var(--hair)', alignItems: 'baseline' }}>
+                <span className="mono" style={{ minWidth: 18 }}>{n}</span>
+                <span style={{ fontWeight: 500, minWidth: 120 }}>{step}</span>
+                <span style={{ color: 'var(--steel)', fontSize: 13.5 }}>{desc}</span>
+              </li>
+            ))}
+          </ol>
         </Panel>
 
-        <Panel title="Immutable Audit Log" label="every access · append-only">
+        <Panel title="Governance at a Glance" label="full matrix in Governance">
           <DataTable
-            columns={['Time', 'Actor', 'Action', 'Object', 'Status']}
-            rows={data.recent_audit.map((e, i) => [
-              <Mono key={`t${i}`}>{e.at.includes('T') ? e.at.slice(11, 19) : e.at}</Mono>,
-              e.actor,
-              <Mono key={`a${i}`}>{e.action}</Mono>,
-              <Mono key={`o${i}`}>{e.resource ?? '—'}</Mono>,
-              <Pill key={`s${i}`} tone={e.action.includes('reject') ? 'danger' : 'ok'}>
-                {e.action.includes('reject') ? 'rejected' : 'ok'}
-              </Pill>,
-            ])}
+            columns={['Action', 'Required', 'Cooling-off']}
+            rows={[
+              ['Transfer > $1M', <Mono key="r">6 of 7</Mono>, '2 hours'],
+              ['Create / change company wallet', <Mono key="r">2 of 3 seniors</Mono>, 'none'],
+              ['Add or remove a signer', <Mono key="r">4 of 7</Mono>, '24 hours'],
+              ['Change the policy table', <Mono key="r">4 of 7</Mono>, '24 hours'],
+            ]}
           />
+          <p className="lede" style={{ fontSize: 13, marginTop: 14 }}>
+            Wallet provisioning, signer changes and policy edits queue exactly like transfers —
+            nothing takes effect on a single keyholder's say-so.
+          </p>
         </Panel>
       </Grid2>
     </>

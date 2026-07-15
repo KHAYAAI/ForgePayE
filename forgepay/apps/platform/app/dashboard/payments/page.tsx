@@ -1,131 +1,113 @@
-import styles from '../dashboard.module.css';
+'use client';
 
-export default function PaymentsDashboard() {
+import {
+  PageHeader,
+  Stat,
+  StatGrid,
+  Panel,
+  Pill,
+  DataTable,
+  Grid2,
+  Meter,
+  Mono,
+} from '@/components/forge/ui';
+
+/* ────────────────────────────────────────────────────────────────
+   FORGE Payments — Overview.
+   Free platform, take-rate pricing: 2.2% + R0.20 fiat,
+   0.8% + gas crypto. Tiered routing: sub-$100K direct,
+   $100K–$1M with fallback chain, >$1M escalates to Custody.
+   ──────────────────────────────────────────────────────────────── */
+
+const VOLUME_BY_HOUR = [42, 38, 31, 28, 24, 30, 44, 61, 78, 92, 104, 118, 122, 116, 109, 121, 134, 128, 112, 95, 84, 71, 58, 47];
+
+export default function PaymentsOverview() {
+  const max = Math.max(...VOLUME_BY_HOUR);
   return (
-    <div>
-      <div style={{ marginBottom: 40 }}>
-        <h1 style={{ marginBottom: 8 }}>💳 Forge Payments</h1>
-        <p style={{ color: 'var(--text-light)' }}>
-          Card and bank transfer processing with intelligent routing
-        </p>
-      </div>
+    <>
+      <PageHeader
+        eyebrow="FORGE / Payments"
+        title={
+          <>
+            Every payment, <em>one rail</em>
+          </>
+        }
+        lede="Card, bank and stablecoin behind a single API. The platform is free — FORGE earns a take rate of 2.2% + R0.20 on fiat and 0.8% + gas on crypto. Every confirmed payment writes one event to the Revenue Ontology."
+      />
 
-      {/* Key Metrics */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 24, marginBottom: 40 }}>
-        <MetricCard
-          title="Transactions (24h)"
-          value="2,847"
-          change="+12% vs yesterday"
-          changePositive={true}
+      <StatGrid>
+        <Stat label="Transactions / 24h" value="2,847" delta="+12% vs yesterday" deltaTone="up" />
+        <Stat label="Volume / 24h" value="R4.2M" delta="R92.4K take-rate revenue" deltaTone="up" />
+        <Stat label="Success rate" value="99.7%" delta="0.1% above target" deltaTone="up" />
+        <Stat label="Fallback usage" value="0.3%" delta="card → ACH → USDC" />
+        <Stat label="Avg settlement" value="2.3s" delta="below 5s SLA" deltaTone="up" />
+        <Stat label="Routed to Custody" value="3" delta="above $1M tier" />
+      </StatGrid>
+
+      <Panel title="Volume by Hour" label="24h · confirmed payments" style={{ marginBottom: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 120 }}>
+          {VOLUME_BY_HOUR.map((v, i) => (
+            <div
+              key={i}
+              title={`${String(i).padStart(2, '0')}:00 — ${v} tx`}
+              style={{
+                flex: 1,
+                height: `${(v / max) * 100}%`,
+                background: i === new Date().getUTCHours() ? 'var(--ink)' : 'var(--hair)',
+                minHeight: 3,
+              }}
+            />
+          ))}
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
+          <span className="mono">00:00 UTC</span>
+          <span className="mono">23:00 UTC</span>
+        </div>
+      </Panel>
+
+      <Grid2>
+        <Panel title="Success by Method" label="trailing 24h">
+          <DataTable
+            columns={['Method', 'Share', '', 'Success', 'Avg fee earned']}
+            rows={[
+              ['Card', <Mono key="s">54%</Mono>, <Meter key="m" pct={54} accent />, <Mono key="r">99.6%</Mono>, <Mono key="f">2.2% + R0.20</Mono>],
+              ['Bank / EFT', <Mono key="s">28%</Mono>, <Meter key="m" pct={28} accent />, <Mono key="r">99.8%</Mono>, <Mono key="f">2.2% + R0.20</Mono>],
+              ['USDC', <Mono key="s">15%</Mono>, <Meter key="m" pct={15} accent />, <Mono key="r">99.9%</Mono>, <Mono key="f">0.8% + gas</Mono>],
+              ['Other crypto', <Mono key="s">3%</Mono>, <Meter key="m" pct={3} />, <Mono key="r">98.9%</Mono>, <Mono key="f">0.8% + gas</Mono>],
+            ]}
+          />
+        </Panel>
+
+        <Panel title="Tier Routing Contract" label="enforced on every payment" ink>
+          <ol style={{ listStyle: 'none' }}>
+            {[
+              ['< $100K', 'Direct via FORGE Wallet — signed server-side, 12-block confirmation.'],
+              ['$100K – $1M', 'FORGE Payments with fallback chain: card → ACH → USDC. No payment dies on a single rail.'],
+              ['> $1M', 'Escalates to FORGE Custody — 4-of-7 MPC signing queue, approvals enforced.'],
+            ].map(([tier, desc]) => (
+              <li key={tier} style={{ display: 'flex', gap: 16, padding: '11px 0', borderBottom: '1px solid rgba(244,242,238,0.14)', alignItems: 'baseline' }}>
+                <span className="mono" style={{ minWidth: 92 }}>{tier}</span>
+                <span style={{ fontSize: 13.5, opacity: 0.8 }}>{desc}</span>
+              </li>
+            ))}
+          </ol>
+          <p className="lede" style={{ fontSize: 13, marginTop: 14 }}>
+            Routing is policy, not code changes — thresholds live in Treasury money-movement rules
+            and apply across every merchant.
+          </p>
+        </Panel>
+      </Grid2>
+
+      <Panel title="Needs Attention" label="items waiting on you">
+        <DataTable
+          columns={['Item', 'Detail', 'Age', 'Where']}
+          rows={[
+            [<Pill key="p" tone="warn">dispute</Pill>, 'R12,400 chargeback — SnapPay order #8841', '6h', <Mono key="w">Disputes</Mono>],
+            [<Pill key="p" tone="warn">dispute</Pill>, 'R3,150 “item not received” — AfroBiz', '1d', <Mono key="w">Disputes</Mono>],
+            [<Pill key="p" tone="accent">routing</Pill>, 'Peach Payments connector degraded — fallback active', '22m', <Mono key="w">Routing</Mono>],
+          ]}
         />
-        <MetricCard
-          title="Success Rate"
-          value="99.7%"
-          change="0.1% above target"
-          changePositive={true}
-        />
-        <MetricCard
-          title="Fallback Usage"
-          value="0.3%"
-          change="Stripe → Circle"
-          changePositive={true}
-        />
-        <MetricCard
-          title="Avg Settlement"
-          value="2.3s"
-          change="Below 5s SLA"
-          changePositive={true}
-        />
-      </div>
-
-      {/* Charts */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: 24, marginBottom: 40 }}>
-        <Card title="Payment Volume (24h)">
-          <div style={{ height: 200, background: 'rgba(0, 240, 255, 0.1)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-light)' }}>
-            Chart placeholder - Integration with Recharts
-          </div>
-        </Card>
-
-        <Card title="Success Rate by Method">
-          <div style={{ height: 200, background: 'rgba(0, 240, 255, 0.1)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-light)' }}>
-            Chart placeholder - Stripe vs Circle
-          </div>
-        </Card>
-      </div>
-
-      {/* Recent Transactions */}
-      <Card title="Recent Transactions">
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ borderBottom: '1px solid #eee' }}>
-              <th style={{ textAlign: 'left', padding: 12, fontWeight: 600 }}>ID</th>
-              <th style={{ textAlign: 'left', padding: 12, fontWeight: 600 }}>Amount</th>
-              <th style={{ textAlign: 'left', padding: 12, fontWeight: 600 }}>Status</th>
-              <th style={{ textAlign: 'left', padding: 12, fontWeight: 600 }}>Method</th>
-              <th style={{ textAlign: 'left', padding: 12, fontWeight: 600 }}>Time</th>
-            </tr>
-          </thead>
-          <tbody>
-            <TransactionRow id="TXN-001" amount="R2,500" status="✅ Completed" method="Card" time="2 min ago" />
-            <TransactionRow id="TXN-002" amount="R5,000" status="✅ Completed" method="Bank" time="5 min ago" />
-            <TransactionRow id="TXN-003" amount="R1,200" status="⏳ Processing" method="Card" time="12 min ago" />
-            <TransactionRow id="TXN-004" amount="R3,800" status="✅ Completed" method="USDC" time="15 min ago" />
-          </tbody>
-        </table>
-      </Card>
-    </div>
-  );
-}
-
-function MetricCard({
-  title,
-  value,
-  change,
-  changePositive,
-}: {
-  title: string;
-  value: string;
-  change: string;
-  changePositive: boolean;
-}) {
-  return (
-    <Card>
-      <p style={{ color: 'var(--text-light)', fontSize: 14, marginBottom: 8 }}>{title}</p>
-      <div style={{ fontSize: 32, fontWeight: 700, marginBottom: 8 }}>{value}</div>
-      <p style={{ fontSize: 12, color: changePositive ? '#4ECB60' : '#FF6B6B' }}>{change}</p>
-    </Card>
-  );
-}
-
-function Card({ title, children }: { title?: string; children: React.ReactNode }) {
-  return (
-    <div style={{ background: 'white', borderRadius: 12, padding: 24, border: '1px solid #eee', boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)' }}>
-      {title && <h3 style={{ marginBottom: 20, fontSize: 16, fontWeight: 600 }}>{title}</h3>}
-      {children}
-    </div>
-  );
-}
-
-function TransactionRow({
-  id,
-  amount,
-  status,
-  method,
-  time,
-}: {
-  id: string;
-  amount: string;
-  status: string;
-  method: string;
-  time: string;
-}) {
-  return (
-    <tr style={{ borderBottom: '1px solid #eee' }}>
-      <td style={{ padding: 12, fontSize: 14 }}>{id}</td>
-      <td style={{ padding: 12, fontSize: 14, fontWeight: 600 }}>{amount}</td>
-      <td style={{ padding: 12, fontSize: 14 }}>{status}</td>
-      <td style={{ padding: 12, fontSize: 14 }}>{method}</td>
-      <td style={{ padding: 12, fontSize: 14, color: 'var(--text-light)' }}>{time}</td>
-    </tr>
+      </Panel>
+    </>
   );
 }
