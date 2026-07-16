@@ -1,0 +1,107 @@
+# ARCH: ForgePay service smoke test
+#
+# Two guards the main CI didn't have:
+#   type-check  → tsc --noEmit across the core Node services (matrix)
+#   boot-smoke  → actually starts a service and probes /health
+#
+# WHY: type-check alone does not catch runtime startup crashes. A real example
+#   caught in this repo was agent-credit-bureau crashing on boot because viem's
+#   parseAbi rejected a Solidity `tuple(...)` signature — the code compiled
+#   cleanly but the process died before serving a request. boot-smoke starts the
+#   service in demo/offline mode (no DATABASE_URL) and fails if /health does not
+#   answer 200 within the timeout, i.e. if the process crashed on startup.
+
+name: "ForgePay Smoke"
+
+on:
+  push:
+    branches: ["claude/forgepay-platform-design-gEkgE", "main"]
+    paths:
+      - "forgepay/services/**"
+      - ".github/workflows/forgepay-smoke.yml"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "forgepay/services/**"
+
+concurrency:
+  group: forgepay-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Type-check the core Node services ───────────────────────────────────────
+  type-check:
+    name: "tsc — ${{ matrix.service }}"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - agent-credit-bureau
+          - forge-custody
+          - forge-wallet
+          - unified-router
+          - enterprise-treasury
+          - agent-identity
+    defaults:
+      run:
+        working-directory: forgepay/services/${{ matrix.service }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: forgepay/services/${{ matrix.service }}/package-lock.json
+      - run: npm ci
+      - run: npm run type-check
+
+  # ── Boot the service and probe /health ──────────────────────────────────────
+  boot-smoke:
+    name: "boot — ${{ matrix.service }}"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Services with an offline/demo fallback that boot with no external deps.
+        # Expand as more services gain a no-DB fallback.
+        include:
+          - service: agent-credit-bureau
+            port: 3018
+    defaults:
+      run:
+        working-directory: forgepay/services/${{ matrix.service }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: forgepay/services/${{ matrix.service }}/package-lock.json
+      - run: npm ci
+      - name: Boot and probe /health
+        env:
+          PORT: ${{ matrix.port }}
+        run: |
+          # Boot in demo mode — explicitly no database configured.
+          env -u DATABASE_URL -u DB_HOST npx tsx src/index.ts &
+          SVC_PID=$!
+          ok=0
+          for i in $(seq 1 20); do
+            if curl -fsS "http://localhost:${PORT}/health" >/tmp/health.json 2>/dev/null; then
+              ok=1; break
+            fi
+            # If the process already died, stop waiting — that's a startup crash.
+            if ! kill -0 "$SVC_PID" 2>/dev/null; then
+              echo "::error::${{ matrix.service }} exited before answering /health (startup crash)"
+              exit 1
+            fi
+            sleep 1
+          done
+          if [ "$ok" != "1" ]; then
+            echo "::error::${{ matrix.service }} /health did not return 200 within 20s"
+            kill "$SVC_PID" 2>/dev/null || true
+            exit 1
+          fi
+          echo "health response:"; cat /tmp/health.json
+          kill "$SVC_PID" 2>/dev/null || true
