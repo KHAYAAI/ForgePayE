@@ -12,6 +12,10 @@ terraform {
       source  = "hashicorp/kubernetes"
       version = "~> 2.25"
     }
+    tls = {
+      source  = "hashicorp/tls"
+      version = "~> 4.0"
+    }
   }
 
   backend "s3" {
@@ -58,16 +62,16 @@ module "vpc" {
 module "eks" {
   source = "./modules/eks"
 
-  environment              = var.environment
-  cluster_name             = "forgepay-${var.environment}"
-  cluster_version          = var.kubernetes_version
-  vpc_id                   = module.vpc.vpc_id
-  subnet_ids               = module.vpc.private_subnet_ids
-  node_desired_size        = var.eks_node_desired_size
-  node_min_size            = var.eks_node_min_size
-  node_max_size            = var.eks_node_max_size
-  node_instance_types      = var.eks_node_instance_types
-  enable_irsa              = true
+  environment         = var.environment
+  cluster_name        = "forgepay-${var.environment}"
+  cluster_version     = var.kubernetes_version
+  vpc_id              = module.vpc.vpc_id
+  subnet_ids          = module.vpc.private_subnet_ids
+  node_desired_size   = var.eks_node_desired_size
+  node_min_size       = var.eks_node_min_size
+  node_max_size       = var.eks_node_max_size
+  node_instance_types = var.eks_node_instance_types
+  enable_irsa         = true
 
   tags = {
     Module = "EKS"
@@ -78,18 +82,18 @@ module "eks" {
 module "rds" {
   source = "./modules/rds"
 
-  environment                 = var.environment
-  db_name                     = "forgepay"
-  db_username                 = var.db_username
-  db_password                 = var.db_password  # Use AWS Secrets Manager in production
-  db_instance_class           = var.db_instance_class
-  db_allocated_storage        = var.db_allocated_storage
-  db_backup_retention_days    = var.db_backup_retention_days
-  db_multi_az                 = var.db_multi_az
-  vpc_security_group_ids      = [module.vpc.rds_security_group_id]
-  db_subnet_group_name        = module.vpc.db_subnet_group_name
-  enable_encryption           = true
-  enable_enhanced_monitoring  = true
+  environment                = var.environment
+  db_name                    = "forgepay"
+  db_username                = var.db_username
+  db_password                = var.db_password # Use AWS Secrets Manager in production
+  db_instance_class          = var.db_instance_class
+  db_allocated_storage       = var.db_allocated_storage
+  db_backup_retention_days   = var.db_backup_retention_days
+  db_multi_az                = var.db_multi_az
+  vpc_security_group_ids     = [module.vpc.rds_security_group_id]
+  db_subnet_group_name       = module.vpc.db_subnet_group_name
+  enable_encryption          = true
+  enable_enhanced_monitoring = true
 
   tags = {
     Module = "RDS"
@@ -100,14 +104,14 @@ module "rds" {
 module "redis" {
   source = "./modules/redis"
 
-  environment              = var.environment
-  engine_version           = var.redis_engine_version
-  node_type                = var.redis_node_type
-  num_cache_nodes          = var.redis_num_nodes
-  parameter_group_name     = var.redis_parameter_group_name
-  vpc_security_group_ids   = [module.vpc.redis_security_group_id]
-  subnet_group_name        = module.vpc.elasticache_subnet_group_name
-  automatic_failover       = var.redis_automatic_failover
+  environment               = var.environment
+  engine_version            = var.redis_engine_version
+  node_type                 = var.redis_node_type
+  num_cache_nodes           = var.redis_num_nodes
+  parameter_group_name      = var.redis_parameter_group_name
+  vpc_security_group_ids    = [module.vpc.redis_security_group_id]
+  subnet_group_name         = module.vpc.elasticache_subnet_group_name
+  automatic_failover        = var.redis_automatic_failover
   enable_encryption_at_rest = true
 
   tags = {
@@ -119,11 +123,11 @@ module "redis" {
 module "vault" {
   source = "./modules/vault"
 
-  environment              = var.environment
-  eks_cluster_name         = module.eks.cluster_name
-  eks_oidc_provider_arn    = module.eks.oidc_provider_arn
-  vault_namespace          = var.vault_namespace
-  vault_addr               = var.vault_addr
+  environment           = var.environment
+  eks_cluster_name      = module.eks.cluster_name
+  eks_oidc_provider_arn = module.eks.oidc_provider_arn
+  vault_namespace       = var.vault_namespace
+  vault_addr            = var.vault_addr
 
   tags = {
     Module = "Vault"
@@ -134,12 +138,12 @@ module "vault" {
 module "s3" {
   source = "./modules/s3"
 
-  environment          = var.environment
-  backup_bucket_name   = "forgepay-backups-${data.aws_caller_identity.current.account_id}"
-  logs_bucket_name     = "forgepay-logs-${data.aws_caller_identity.current.account_id}"
+  environment           = var.environment
+  backup_bucket_name    = "forgepay-backups-${data.aws_caller_identity.current.account_id}"
+  logs_bucket_name      = "forgepay-logs-${data.aws_caller_identity.current.account_id}"
   artifacts_bucket_name = "forgepay-artifacts-${data.aws_caller_identity.current.account_id}"
-  enable_versioning    = true
-  enable_mfa_delete    = var.environment == "production"
+  enable_versioning     = true
+  enable_mfa_delete     = var.environment == "production"
 
   tags = {
     Module = "S3"
@@ -150,10 +154,10 @@ module "s3" {
 module "cloudfront" {
   source = "./modules/cloudfront"
 
-  environment        = var.environment
-  alb_domain_name    = module.vpc.alb_domain_name
-  certificate_arn    = var.acm_certificate_arn
-  allowed_origins    = var.cloudfront_allowed_origins
+  environment     = var.environment
+  alb_domain_name = module.vpc.alb_domain_name
+  certificate_arn = var.acm_certificate_arn
+  allowed_origins = var.cloudfront_allowed_origins
 
   tags = {
     Module = "CloudFront"
@@ -164,12 +168,12 @@ module "cloudfront" {
 module "monitoring" {
   source = "./modules/monitoring"
 
-  environment           = var.environment
-  eks_cluster_name      = module.eks.cluster_name
-  rds_instance_id       = module.rds.db_instance_id
-  redis_cluster_id      = module.redis.cluster_id
-  log_retention_days    = var.log_retention_days
-  alert_email           = var.alert_email
+  environment        = var.environment
+  eks_cluster_name   = module.eks.cluster_name
+  rds_instance_id    = module.rds.db_instance_id
+  redis_cluster_id   = module.redis.cluster_id
+  log_retention_days = var.log_retention_days
+  alert_email        = var.alert_email
 
   tags = {
     Module = "Monitoring"

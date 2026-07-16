@@ -1,0 +1,7 @@
+output "cluster_id" {
+  value = aws_elasticache_replication_group.this.replication_group_id
+}
+
+output "cluster_endpoint" {
+  value = aws_elasticache_replication_group.this.primary_endpoint_address
+}
