@@ -41,15 +41,16 @@ export async function POST(req: NextRequest) {
       [tenantId, company || name]
     );
 
-    // Hash password and create user
+    // Hash password and create user. The account creator owns the tenant.
     const passwordHash = await hashPassword(password);
-    const user = await createUser(email, name, passwordHash, tenantId);
+    const user = await createUser(email, name, passwordHash, tenantId, 'owner');
 
     // Generate token
     const token = generateToken({
       userId: user.id,
       email: user.email,
       tenantId: user.tenant_id,
+      role: user.role ?? 'owner',
     });
 
     // Set auth cookie

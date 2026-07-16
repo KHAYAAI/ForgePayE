@@ -14,6 +14,15 @@ import type {
 } from './types';
 import { computeScore } from './scorer';
 import { gradeDistribution, INQUIRY_FEE_USD } from './grade';
+import {
+  isDbEnabled, runMigrations,
+  upsertProfile, upsertDispute, upsertReport, upsertContributor,
+  loadAllProfiles, loadAllDisputes, loadAllReports, loadAllContributors,
+} from './db';
+
+/** Fire-and-forget persistence error logger — keeps mutators synchronous. */
+const persistErr = (what: string) => (e: unknown) =>
+  console.error(`[credit-bureau] failed to persist ${what}:`, e);
 
 // ── Stores ────────────────────────────────────────────────────────────────────
 
@@ -25,12 +34,13 @@ export const contributors = new Map<string, DataContributor>();
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 export const getProfile  = (id: string) => profiles.get(id);
-export const setProfile  = (p: AgentCreditProfile) => { profiles.set(p.agentId, p); return p; };
+export const setProfile  = (p: AgentCreditProfile) => { profiles.set(p.agentId, p); if (isDbEnabled()) upsertProfile(p).catch(persistErr('profile')); return p; };
 export const getDispute  = (id: string) => disputes.get(id);
-export const setDispute  = (d: Dispute) => { disputes.set(d.id, d); return d; };
+export const setDispute  = (d: Dispute) => { disputes.set(d.id, d); if (isDbEnabled()) upsertDispute(d).catch(persistErr('dispute')); return d; };
 export const getReport   = (id: string) => reports.get(id);
-export const setReport   = (r: CreditReport) => { reports.set(r.reportId, r); return r; };
+export const setReport   = (r: CreditReport) => { reports.set(r.reportId, r); if (isDbEnabled()) upsertReport(r).catch(persistErr('report')); return r; };
 export const getContributor = (id: string) => contributors.get(id);
+export const setContributor = (c: DataContributor) => { contributors.set(c.id, c); if (isDbEnabled()) upsertContributor(c).catch(persistErr('contributor')); return c; };
 
 export function listDisputes(filter?: { status?: string; agentId?: string }) {
   let all = Array.from(disputes.values());
@@ -287,4 +297,44 @@ function scoreTierFromScore(score: number) {
   return 'DEEP_SUBPRIME' as const;
 }
 
-seed();
+// No-DB path: seed the in-memory maps at module load exactly as before.
+// When a database IS configured, seeding is handled by initPersistence()
+// (seed-if-empty, else hydrate) so we don't clobber persisted state.
+if (!isDbEnabled()) seed();
+
+/**
+ * Bring the store online against Postgres when a database is configured.
+ * Called once at service startup (index.ts main). Idempotent.
+ *   • runs migrations
+ *   • hydrates the in-memory read-model from persisted rows
+ *   • on a fresh/empty database, seeds demo data and writes it through
+ * When no database is configured this is a no-op (module load already seeded).
+ */
+export async function initPersistence(): Promise<void> {
+  if (!isDbEnabled()) return;
+
+  await runMigrations();
+
+  const [ps, ds, rs, cs] = await Promise.all([
+    loadAllProfiles(), loadAllDisputes(), loadAllReports(), loadAllContributors(),
+  ]);
+
+  if (ps.length === 0) {
+    // Fresh database — seed in memory, then persist the seed.
+    seed();
+    await Promise.all([
+      ...Array.from(profiles.values()).map((p) => upsertProfile(p).catch(persistErr('profile'))),
+      ...Array.from(disputes.values()).map((d) => upsertDispute(d).catch(persistErr('dispute'))),
+      ...Array.from(reports.values()).map((r) => upsertReport(r).catch(persistErr('report'))),
+      ...Array.from(contributors.values()).map((c) => upsertContributor(c).catch(persistErr('contributor'))),
+    ]);
+    console.log(`[credit-bureau] seeded fresh database with ${profiles.size} agent profiles`);
+  } else {
+    // Existing database — hydrate the read-model from persisted rows.
+    profiles.clear();     ps.forEach((p) => profiles.set(p.agentId, p));
+    disputes.clear();     ds.forEach((d) => disputes.set(d.id, d));
+    reports.clear();      rs.forEach((r) => reports.set(r.reportId, r));
+    contributors.clear(); cs.forEach((c) => contributors.set(c.id, c));
+    console.log(`[credit-bureau] hydrated ${profiles.size} profiles, ${disputes.size} disputes from database`);
+  }
+}

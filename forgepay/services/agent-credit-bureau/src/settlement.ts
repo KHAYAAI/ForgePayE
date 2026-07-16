@@ -31,6 +31,7 @@ import { createHash } from 'crypto';
 import type { Address } from 'viem';
 import { getChainClient, didToAddress } from './chain';
 import { profiles } from './store';
+import { isDbEnabled, upsertSettlement, loadAllSettlements } from './db';
 
 // ── Settlement receipt store (in-memory; survives process restart via re-settle) ──
 
@@ -45,6 +46,24 @@ export interface SettlementReceipt {
 }
 
 const _receipts = new Map<string, SettlementReceipt>();
+
+/** Store a receipt in the read-model and write it through to Postgres when enabled. */
+function saveReceipt(r: SettlementReceipt): void {
+  _receipts.set(r.agentId, r);
+  if (isDbEnabled()) {
+    upsertSettlement(r.agentId, r).catch((e) =>
+      console.error('[credit-bureau] failed to persist settlement receipt:', e),
+    );
+  }
+}
+
+/** Hydrate settlement receipts from Postgres at startup. No-op without a database. */
+export async function hydrateSettlements(): Promise<void> {
+  if (!isDbEnabled()) return;
+  const rows = await loadAllSettlements();
+  for (const r of rows) _receipts.set(r.agentId, r);
+  if (rows.length > 0) console.log(`[credit-bureau] hydrated ${rows.length} settlement receipts`);
+}
 
 export const getSettlementReceipt = (agentId: string) => _receipts.get(agentId);
 export const listSettlementReceipts = () => Array.from(_receipts.values());
@@ -171,7 +190,7 @@ export async function runSettlement(trigger: 'scheduled' | 'manual' = 'scheduled
       const receipt = await chain.waitForReceipt(txHash);
 
       for (const c of chunk) {
-        _receipts.set(c.agentId, {
+        saveReceipt({
           agentId:      c.agentId,
           agentAddress: c.address,
           settledScore: c.score,
@@ -193,7 +212,7 @@ export async function runSettlement(trigger: 'scheduled' | 'manual' = 'scheduled
           const txHash = await chain.batchSettleScores([c.address], [c.score], [reason]);
           const receipt = await chain.waitForReceipt(txHash);
 
-          _receipts.set(c.agentId, {
+          saveReceipt({
             agentId:      c.agentId,
             agentAddress: c.address,
             settledScore: c.score,

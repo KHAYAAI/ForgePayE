@@ -32,6 +32,7 @@ export async function POST(req: NextRequest) {
       userId: user.id,
       email: user.email,
       tenantId: user.tenant_id,
+      role: user.role ?? 'analyst',
     });
 
     await setAuthCookie(token);

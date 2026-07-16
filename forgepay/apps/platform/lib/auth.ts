@@ -3,10 +3,13 @@ import bcrypt from 'bcryptjs';
 import { cookies } from 'next/headers';
 import { query, queryOne } from './db';
 
+import type { Role } from './rbac';
+
 export interface TokenPayload {
   userId: string;
   email: string;
   tenantId: string;
+  role: Role;
   iat?: number;
   exp?: number;
 }
@@ -64,6 +67,7 @@ export interface User {
   password_hash: string;
   tenant_id: string;
   api_key: string;
+  role: Role;
   status: 'active' | 'inactive';
   created_at: Date;
   updated_at: Date;
@@ -87,16 +91,17 @@ export async function createUser(
   email: string,
   name: string,
   passwordHash: string,
-  tenantId: string
+  tenantId: string,
+  role: Role = 'analyst'
 ): Promise<User> {
   const userId = crypto.randomUUID();
   const apiKey = crypto.randomUUID();
 
   const result = await queryOne<User>(
-    `INSERT INTO users (id, email, name, password_hash, tenant_id, api_key, status, created_at, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, 'active', NOW(), NOW())
+    `INSERT INTO users (id, email, name, password_hash, tenant_id, api_key, role, status, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', NOW(), NOW())
      RETURNING *`,
-    [userId, email, name, passwordHash, tenantId, apiKey]
+    [userId, email, name, passwordHash, tenantId, apiKey, role]
   );
 
   if (!result) throw new Error('Failed to create user');

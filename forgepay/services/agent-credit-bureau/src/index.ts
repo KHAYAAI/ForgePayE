@@ -31,8 +31,8 @@ import { randomUUID } from 'crypto';
 
 import {
   getProfile, setProfile, getDispute, setDispute,
-  getReport, setReport, getContributor, listDisputes,
-  listProfiles, bureauStats, profiles, contributors,
+  getReport, setReport, getContributor, setContributor, listDisputes,
+  listProfiles, bureauStats, profiles, contributors, initPersistence,
 } from './store';
 import {
   computeScore, scoreTier, generateZKProof,
@@ -46,7 +46,7 @@ import { creditGrade, GRADE_SCALE, INQUIRY_FEE_USD } from './grade';
 import { verifyAgent, sanctionsScreen } from './verify';
 import { getChainClient, didToAddress } from './chain';
 import {
-  runSettlement, startSettlementScheduler,
+  runSettlement, startSettlementScheduler, hydrateSettlements,
   getLastSettlementRun, getSettlementReceipt, getSettlementRunCount,
 } from './settlement';
 
@@ -520,7 +520,7 @@ async function buildApp() {
       status:                  'pending' as const,
     };
 
-    contributors.set(id, contributor);
+    setContributor(contributor);
     return reply.status(201).send({ data: contributor });
   });
 
@@ -552,7 +552,7 @@ async function buildApp() {
     // Update contributor stats
     contributor.dataRecordsContributed += events.length;
     contributor.queriesAllowed = Math.min(1_000_000, 5000 + contributor.dataRecordsContributed * 0.5);
-    contributors.set(contributor.id, contributor);
+    setContributor(contributor);
 
     // Recompute score
     const { score, factors } = computeScore(profile);
@@ -572,7 +572,7 @@ async function buildApp() {
     const contributor = getContributor(req.params.id);
     if (!contributor) return reply.status(404).send({ error: 'NotFound', message: 'Contributor not found' });
     contributor.queriesUsed += 1; // count this query
-    contributors.set(contributor.id, contributor);
+    setContributor(contributor);
     return reply.send({ data: contributor });
   });
 
@@ -718,6 +718,12 @@ async function buildApp() {
 
 async function main(): Promise<void> {
   const app = await buildApp();
+
+  // Bring the store online against Postgres when configured (migrate + hydrate,
+  // or seed-if-empty). No-op when no database is configured — the in-memory
+  // demo seed already loaded at module import.
+  await initPersistence();
+  await hydrateSettlements();
 
   const shutdown = async () => {
     app.log.info('[credit-bureau] Shutting down...');
