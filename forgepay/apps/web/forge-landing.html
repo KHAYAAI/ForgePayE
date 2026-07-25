@@ -1,0 +1,870 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <title>ForgePay — The Revenue Ontology</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="description" content="ForgePay is the Revenue Ontology — a financial operating system that normalizes cards, stablecoins, crypto, autonomous agents and tokenized real-world assets into one canonical event."/>
+  <style>
+    /* ── ForgePay brand: Navy #0A2540 · Cyan #00F0FF · Inter ─────────────── */
+    :root {
+      --ink: #0A2540; --ink-2: #0F3D5C;
+      --paper: #F6F9FC; --paper-deep: #E9F0F7; --paper-soft: #EFF4F9;
+      --steel: #5A7184; --steel-2: #7C93A6;
+      --hair: #D3DEE8; --hair-dark: #16374F;
+      --cyan: #00F0FF; --cyan-soft: rgba(0,240,255,0.12);
+      --navy-grad: linear-gradient(135deg, #0A2540 0%, #0F3D5C 100%);
+      --on-navy: #F6F9FC; --on-navy-dim: rgba(234,243,251,0.72); --on-navy-faint: rgba(158,231,255,0.55);
+      --pad: clamp(20px, 4vw, 64px); --maxw: 1320px;
+      --sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      --monofont: ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body { background: var(--paper); color: var(--ink); font-family: var(--sans); -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } html { scroll-behavior: auto; } }
+    .mono { font-family: var(--monofont); letter-spacing: 1.4px; text-transform: uppercase; font-size: 11px; color: var(--steel); }
+    .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 var(--pad); }
+    a { color: inherit; text-decoration: none; }
+    :focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; }
+    .eye { display: flex; align-items: center; gap: 12px; }
+    .eye .tick { width: 24px; height: 2px; background: var(--cyan); }
+    .eye-light .tick { background: var(--cyan); }
+    .eye-light .mono { color: var(--on-navy-faint); }
+
+    /* brand mark — matches the ForgePay console */
+    .mark { display: inline-flex; align-items: center; gap: 10px; }
+    .mark .sq { width: 30px; height: 30px; border-radius: 8px; background: var(--navy-grad); border: 1px solid rgba(0,240,255,0.35); display: grid; place-items: center; color: var(--cyan); font-weight: 800; font-size: 14px; }
+    .mark .wd { font-weight: 700; font-size: 17px; letter-spacing: -0.01em; color: var(--ink); }
+    .mark .wd span { color: #00B8CC; }
+    .mark.light .wd { color: var(--on-navy); }
+    .mark.light .wd span { color: var(--cyan); }
+
+    /* NAV */
+    nav.top { position: sticky; top: 0; z-index: 50; background: rgba(246,249,252,0.88); backdrop-filter: saturate(180%) blur(12px); -webkit-backdrop-filter: saturate(180%) blur(12px); border-bottom: 1px solid var(--hair); }
+    nav.top .row { display: flex; align-items: center; justify-content: space-between; height: 64px; gap: 24px; }
+    nav.top ul { display: flex; gap: 26px; list-style: none; padding: 0; margin: 0; align-items: center; }
+    nav.top ul a { font-size: 13.5px; font-weight: 500; color: var(--ink); transition: color .15s; }
+    nav.top ul a:hover { color: #0891A6; }
+    .dropdown { position: relative; }
+    .dropdown > button { background: none; border: 0; padding: 0; font: inherit; cursor: pointer; font-size: 13.5px; font-weight: 500; color: var(--ink); display: inline-flex; align-items: center; gap: 6px; }
+    .dropdown > button::after { content: "↓"; font-family: var(--monofont); font-size: 10px; color: #0891A6; }
+    .dropdown .menu { display: none; position: absolute; top: calc(100% + 16px); left: -16px; background: var(--paper); border: 1px solid var(--hair); border-top: 2px solid var(--cyan); border-radius: 0 0 10px 10px; padding: 18px; min-width: 580px; grid-template-columns: 1fr 1fr; gap: 0 24px; box-shadow: 0 18px 50px rgba(10,37,64,0.14); }
+    .menu-section .menu-section-h { font-family: var(--monofont); font-size: 10px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--steel); padding: 0 12px 12px; border-bottom: 1px solid var(--hair); margin-bottom: 4px; }
+    .dropdown .menu a { display: block; padding: 10px 12px; border-radius: 7px; font-size: 13px; font-weight: 500; transition: background .12s; }
+    .dropdown .menu a:hover { background: var(--cyan-soft); color: var(--ink); }
+    .dropdown .menu a .mn { display: block; font-family: var(--monofont); font-size: 10px; letter-spacing: 1.2px; color: var(--steel); margin-top: 2px; text-transform: uppercase; font-weight: 400; }
+    nav.top .cta { font-family: var(--monofont); font-size: 11px; letter-spacing: 2px; text-transform: uppercase; padding: 11px 18px; border-radius: 8px; background: var(--cyan); color: var(--ink); font-weight: 700; transition: all .15s; }
+    nav.top .cta:hover { background: #66F6FF; box-shadow: 0 6px 18px rgba(0,240,255,0.3); }
+    .navburger { display: none; background: none; border: 1px solid var(--hair); border-radius: 8px; width: 40px; height: 40px; cursor: pointer; color: var(--ink); font-size: 18px; }
+    .mobile-menu { display: none; border-top: 1px solid var(--hair); background: var(--paper); padding: 12px var(--pad) 20px; }
+    .mobile-menu a { display: block; padding: 11px 4px; font-size: 15px; font-weight: 500; border-bottom: 1px solid var(--hair); }
+    .mobile-menu a:last-child { border-bottom: 0; }
+    @media (max-width: 880px) { nav.top ul { display: none; } .navburger { display: block; } .mobile-menu.open { display: block; } }
+
+    /* buttons */
+    .btn-ink, .btn-ghost { font-family: var(--monofont); font-size: 11px; letter-spacing: 2px; text-transform: uppercase; padding: 14px 22px; border-radius: 9px; cursor: pointer; display: inline-block; transition: all .15s; font-weight: 700; }
+    .btn-ink { background: var(--cyan); color: var(--ink); border: 1px solid var(--cyan); }
+    .btn-ink:hover { background: #66F6FF; box-shadow: 0 8px 24px rgba(0,240,255,0.28); transform: translateY(-1px); }
+    .btn-ghost { background: transparent; color: var(--ink); border: 1.5px solid var(--ink); }
+    .btn-ghost:hover { background: var(--ink); color: var(--paper); }
+
+    /* generic */
+    section { padding: clamp(64px, 9vw, 120px) 0; border-bottom: 1px solid var(--hair); }
+    section.ink { background: var(--navy-grad); color: var(--on-navy); border-bottom: 0; }
+    section.deep { background: var(--paper-deep); }
+    .on-ink .mono { color: var(--on-navy-faint); }
+    .lede { font-size: clamp(15px, 1.6vw, 18px); line-height: 1.55; color: var(--steel); max-width: 560px; }
+    .on-ink .lede { color: var(--on-navy-dim); }
+    h1 em, h2 em { font-style: italic; font-weight: 300; }
+    .light-em em { text-decoration: underline; text-decoration-color: var(--cyan); text-decoration-thickness: 4px; text-underline-offset: 8px; }
+    .on-ink h2 em, .cyan-em em { color: var(--cyan); text-decoration: none; }
+
+    /* HERO */
+    .hero { padding: clamp(60px, 9vw, 130px) 0 clamp(56px, 8vw, 110px); position: relative; overflow: hidden; }
+    .hero::before { content: ''; position: absolute; top: -180px; right: -160px; width: 640px; height: 640px; background: radial-gradient(circle, rgba(0,240,255,0.14) 0%, transparent 68%); border-radius: 50%; pointer-events: none; }
+    .hero .wrap { position: relative; z-index: 1; }
+    .hero .meta-top { display: flex; justify-content: space-between; margin-bottom: clamp(40px, 8vw, 90px); flex-wrap: wrap; gap: 16px; }
+    .hero h1 { font-weight: 600; font-size: clamp(52px, 9.6vw, 148px); line-height: 0.92; letter-spacing: -0.035em; margin: 0 0 32px; }
+    .hero .lede { max-width: 680px; margin-bottom: 38px; }
+    .hero .actions { display: flex; gap: 12px; flex-wrap: wrap; }
+    .hero .stamp { margin-top: clamp(48px, 7vw, 88px); padding-top: 24px; border-top: 1px solid var(--hair); display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; }
+    .hero .stamp .k { font-family: var(--monofont); font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--steel); }
+    .hero .stamp .v { font-size: clamp(22px, 2.4vw, 30px); font-weight: 600; margin-top: 6px; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+    @media (max-width: 780px) { .hero .stamp { grid-template-columns: repeat(2, 1fr); } }
+
+    /* STATEMENT band */
+    .statement { background: var(--navy-grad); color: var(--on-navy); border-bottom: 0; }
+    .statement .lab { display: flex; justify-content: space-between; align-items: center; margin-bottom: clamp(36px, 5vw, 56px); flex-wrap: wrap; gap: 16px; }
+    .statement h2 { font-size: clamp(44px, 7.4vw, 116px); font-weight: 600; letter-spacing: -0.03em; line-height: 0.92; margin: 0; max-width: 16ch; }
+    .statement .row2 { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: clamp(28px, 6vw, 96px); margin-top: clamp(40px, 6vw, 72px); align-items: end; }
+    .statement .row2 p { font-size: clamp(15px, 1.6vw, 17px); line-height: 1.55; color: var(--on-navy-dim); max-width: 520px; margin: 0; }
+    .statement .row2 p + p { margin-top: 18px; }
+    .statement .right .item { display: grid; grid-template-columns: 40px 1fr; gap: 16px; padding: 14px 0; border-top: 1px solid rgba(0,240,255,0.18); }
+    .statement .right .item:last-child { border-bottom: 1px solid rgba(0,240,255,0.18); }
+    .statement .right .n { font-family: var(--monofont); font-size: 11px; color: var(--cyan); letter-spacing: 1.5px; }
+    .statement .right .body strong { font-weight: 600; font-size: 15px; display: block; margin-bottom: 4px; }
+    .statement .right .body span { font-size: 13px; color: var(--on-navy-dim); line-height: 1.5; }
+    @media (max-width: 880px) { .statement .row2 { grid-template-columns: 1fr; } }
+
+    /* PILLARS */
+    .head-split { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; align-items: end; margin-bottom: clamp(40px, 6vw, 64px); }
+    @media (max-width: 880px) { .head-split { grid-template-columns: 1fr; } }
+    h2.big { font-size: clamp(36px, 5.4vw, 72px); line-height: 0.98; letter-spacing: -0.025em; font-weight: 600; margin: 16px 0 0; }
+    .pillars { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--hair); border: 1px solid var(--hair); border-radius: 12px; overflow: hidden; }
+    .pillar { background: var(--paper); padding: clamp(22px, 2.4vw, 36px); display: flex; flex-direction: column; gap: 14px; min-height: 280px; transition: background .15s; }
+    .pillar:hover { background: #FDFEFF; }
+    .pillar .pn { font-family: var(--monofont); font-size: 10px; letter-spacing: 1.6px; color: #0891A6; text-transform: uppercase; font-weight: 600; }
+    .pillar h3 { font-size: clamp(20px, 2vw, 26px); font-weight: 600; letter-spacing: -0.015em; margin: 0; line-height: 1.05; }
+    .pillar p { font-size: 13.5px; color: var(--steel); line-height: 1.55; margin: 0; }
+    .pillar .tags { font-family: var(--monofont); font-size: 10px; letter-spacing: 0.6px; color: var(--steel-2); line-height: 1.7; margin-top: auto; }
+    .pillar a.read { font-family: var(--monofont); font-size: 10px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--ink); border-bottom: 2px solid var(--cyan); align-self: flex-start; padding-bottom: 3px; font-weight: 700; transition: color .15s; }
+    .pillar a.read:hover { color: #0891A6; }
+    @media (max-width: 880px) { .pillars { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 520px) { .pillars { grid-template-columns: 1fr; } }
+
+    /* FEATURE GRID on navy */
+    .feature-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: rgba(0,240,255,0.14); border: 1px solid rgba(0,240,255,0.14); border-radius: 12px; overflow: hidden; margin-top: 8px; }
+    .feature-grid .cell { background: #0B2B49; padding: clamp(24px, 2.4vw, 34px); display: flex; flex-direction: column; gap: 10px; min-height: 220px; transition: background .15s; }
+    .feature-grid .cell:hover { background: #0E3254; }
+    .feature-grid .cell .num { width: 34px; height: 34px; border: 1px solid rgba(0,240,255,0.4); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-family: var(--monofont); font-size: 12px; color: var(--cyan); margin-bottom: 4px; }
+    .feature-grid .label { font-family: var(--monofont); font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--on-navy-faint); }
+    .feature-grid .cell h3 { font-size: clamp(17px, 1.9vw, 21px); font-weight: 600; letter-spacing: -0.01em; margin: 0; color: var(--on-navy); }
+    .feature-grid .cell p { font-size: 13.5px; line-height: 1.55; color: var(--on-navy-dim); margin: 0; }
+    @media (max-width: 880px) { .feature-grid { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 520px) { .feature-grid { grid-template-columns: 1fr; } }
+    .products-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 1px; background: var(--hair); border: 1px solid var(--hair); border-radius: 12px; overflow: hidden; }
+    .products-grid .pillar { grid-column: span 2; }
+    .products-grid .pillar:nth-child(4), .products-grid .pillar:nth-child(5) { grid-column: span 3; }
+    @media (max-width: 880px) { .products-grid { grid-template-columns: repeat(2, 1fr); } .products-grid .pillar, .products-grid .pillar:nth-child(4), .products-grid .pillar:nth-child(5) { grid-column: span 1; } }
+    @media (max-width: 520px) { .products-grid { grid-template-columns: 1fr; } }
+
+    /* DIAGRAM */
+    .diagram { display: flex; flex-direction: column; }
+    .row-cells { display: grid; gap: 10px; }
+    .cell-box { background: var(--paper); border: 1.5px solid var(--ink); border-radius: 10px; padding: 18px; display: flex; flex-direction: column; justify-content: space-between; min-height: 92px; }
+    .cell-box.ink { background: var(--navy-grad); color: var(--on-navy); border-color: var(--ink); }
+    .cell-box.ghost { background: repeating-linear-gradient(45deg, var(--paper-soft), var(--paper-soft) 4px, var(--paper-deep) 4px, var(--paper-deep) 8px); border: 1.5px dashed var(--steel-2); }
+    .cell-box .name { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
+    .cell-box .desc { font-size: 12px; color: var(--steel); line-height: 1.5; margin-top: 6px; }
+    .cell-box.ink .desc { color: var(--on-navy-dim); }
+    .cell-box .tag { font-family: var(--monofont); font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: #0891A6; margin-bottom: 4px; font-weight: 600; }
+    .cell-box.ink .tag { color: var(--cyan); }
+    .cell-box .pill { display: inline-block; margin-top: 8px; padding: 3px 10px; background: var(--cyan); color: var(--ink); border-radius: 999px; font-family: var(--monofont); font-size: 9px; letter-spacing: 1.4px; text-transform: uppercase; font-weight: 700; align-self: flex-start; }
+    .arrow { display: flex; align-items: center; justify-content: center; color: #0891A6; font-family: var(--monofont); font-size: 11px; letter-spacing: 1.5px; gap: 8px; padding: 14px 0; }
+    .arrow::before, .arrow::after { content: ""; flex: 1; height: 2px; background: linear-gradient(90deg, transparent, var(--cyan)); max-width: 100px; }
+    .arrow::after { background: linear-gradient(90deg, var(--cyan), transparent); }
+    .row-a { grid-template-columns: 1fr; max-width: 360px; margin: 0 auto; width: 100%; }
+    .row-b { grid-template-columns: repeat(5, 1fr); }
+    .row-c { grid-template-columns: 1fr; max-width: 520px; margin: 0 auto; width: 100%; }
+    .row-e { grid-template-columns: 1fr; max-width: 380px; margin: 0 auto; width: 100%; }
+    @media (max-width: 880px) { .row-b { grid-template-columns: repeat(2, 1fr); } }
+
+    /* DEV cards */
+    .dev-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: rgba(0,240,255,0.14); border: 1px solid rgba(0,240,255,0.14); border-radius: 12px; overflow: hidden; }
+    .dev-card { background: #0B2B49; color: var(--on-navy); padding: clamp(22px, 2.4vw, 32px); display: flex; flex-direction: column; gap: 16px; }
+    .dev-card .dl { font-family: var(--monofont); font-size: 10px; letter-spacing: 1.6px; text-transform: uppercase; color: var(--on-navy-faint); }
+    .dev-card h3 { font-size: clamp(20px, 2vw, 26px); font-weight: 600; letter-spacing: -0.015em; margin: 0; line-height: 1.05; }
+    .dev-card h3 em { color: var(--cyan); font-style: italic; font-weight: 300; }
+    .dev-card pre { font-family: var(--monofont); font-size: 12px; line-height: 1.8; margin: 0; background: rgba(3,18,32,0.55); border: 1px solid rgba(0,240,255,0.16); border-radius: 9px; padding: 16px; overflow-x: auto; color: #C7E3F5; }
+    .dev-card pre .c { color: rgba(158,231,255,0.45); }
+    .dev-card pre .k { color: var(--cyan); }
+    .dev-card pre b { font-weight: 700; color: #fff; }
+    @media (max-width: 880px) { .dev-grid { grid-template-columns: 1fr; } }
+
+    /* STATS */
+    .stats { background: var(--navy-grad); color: var(--on-navy); border-bottom: 0; }
+    .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid rgba(0,240,255,0.2); }
+    .stat-cell { padding: clamp(28px, 4vw, 48px) 24px clamp(28px, 4vw, 48px) 0; border-right: 1px solid rgba(0,240,255,0.2); }
+    .stat-cell:last-child { border-right: 0; }
+    .stat-cell .v { font-weight: 300; font-size: clamp(64px, 9vw, 132px); line-height: 0.82; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+    .stat-cell .v span { font-weight: 200; color: var(--cyan); }
+    .stat-cell .k { font-family: var(--monofont); font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--on-navy-faint); margin-top: 16px; }
+    .stat-cell p { font-size: 13.5px; color: var(--on-navy-dim); margin: 10px 0 0; line-height: 1.5; max-width: 280px; }
+    @media (max-width: 880px) { .stat-grid { grid-template-columns: 1fr; } .stat-cell { border-right: 0; border-bottom: 1px solid rgba(0,240,255,0.2); padding-right: 0; } .stat-cell:last-child { border-bottom: 0; } }
+
+    /* OS LAYERS */
+    .os-layers { display: flex; flex-direction: column; }
+    .os-layer { display: grid; grid-template-columns: 130px 1fr; gap: 24px; padding: 18px 0; border-top: 1px solid var(--hair); align-items: baseline; }
+    .os-layer:last-child { border-bottom: 1px solid var(--hair); }
+    .os-layer .ln { font-family: var(--monofont); font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: #0891A6; font-weight: 600; }
+    .os-layer .ld { font-size: clamp(16px, 1.8vw, 21px); font-weight: 600; letter-spacing: -0.01em; }
+    .os-layer .ld span { color: var(--steel); font-weight: 400; font-size: 14px; }
+
+    /* PRICING */
+    .plans { display: grid; grid-template-columns: 1fr 1fr; border: 1.5px solid var(--ink); border-radius: 14px; overflow: hidden; }
+    .plan { padding: clamp(28px, 4vw, 48px); border-right: 1.5px solid var(--ink); display: flex; flex-direction: column; gap: 20px; background: var(--paper); }
+    .plan:last-child { border-right: 0; background: var(--navy-grad); color: var(--on-navy); position: relative; }
+    .plan:last-child::before { content: ''; position: absolute; inset: 0 0 auto 0; height: 3px; background: var(--cyan); }
+    .plan .tier { font-family: var(--monofont); font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: var(--steel); }
+    .plan:last-child .tier { color: var(--cyan); }
+    .plan h3 { font-size: clamp(36px, 5vw, 56px); font-weight: 600; letter-spacing: -0.02em; margin: 0; }
+    .plan h3 em { font-style: italic; font-weight: 300; }
+    .plan:last-child h3 em { color: var(--cyan); }
+    .plan .price { display: flex; align-items: baseline; gap: 8px; padding-bottom: 16px; border-bottom: 1px solid var(--hair); }
+    .plan:last-child .price { border-bottom-color: rgba(0,240,255,0.2); }
+    .plan .price .num { font-size: 48px; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+    .plan .price .per { font-family: var(--monofont); font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--steel); }
+    .plan:last-child .price .per { color: var(--on-navy-faint); }
+    .plan ul { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; }
+    .plan ul li { display: grid; grid-template-columns: 120px 1fr; gap: 12px; font-size: 14px; padding: 11px 0; border-bottom: 1px solid var(--hair); }
+    .plan:last-child ul li { border-bottom-color: rgba(0,240,255,0.14); }
+    .plan ul li:last-child { border-bottom: 0; }
+    .plan ul li .k { font-family: var(--monofont); font-size: 10px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--steel); padding-top: 3px; }
+    .plan:last-child ul li .k { color: var(--on-navy-faint); }
+    .plan ul li .v { font-variant-numeric: tabular-nums; }
+    .plan ul li .v.no { color: var(--steel-2); }
+    .plan:last-child ul li .v.no { color: rgba(234,243,251,0.5); }
+    .plan .foot { margin-top: auto; padding-top: 8px; }
+    @media (max-width: 720px) { .plans { grid-template-columns: 1fr; } .plan { border-right: 0; border-bottom: 1.5px solid var(--ink); } .plan:last-child { border-bottom: 0; } }
+
+    /* ZK band */
+    .zk { background: var(--navy-grad); color: var(--on-navy); border-bottom: 0; }
+    .zk .lab { display: flex; justify-content: space-between; margin-bottom: clamp(36px, 5vw, 56px); flex-wrap: wrap; gap: 16px; align-items: center; }
+    .zk h2 { font-size: clamp(48px, 8.4vw, 128px); font-weight: 600; letter-spacing: -0.03em; line-height: 0.9; margin: 0; max-width: 14ch; }
+    .zk .grid { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(28px, 5vw, 64px); align-items: stretch; margin-top: 40px; }
+    .zk p { font-size: 15px; line-height: 1.55; color: var(--on-navy-dim); max-width: 460px; }
+    .cipher { background: rgba(3,18,32,0.55); border: 1px solid rgba(0,240,255,0.2); border-radius: 10px; padding: 24px; font-family: var(--monofont); font-size: 11px; line-height: 1.7; letter-spacing: 1px; min-height: 260px; position: relative; overflow: hidden; }
+    .cipher::after { content: "TRANSMISSION INTERRUPTED"; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(5,21,35,0.6); color: #FF6B6E; font-size: 12px; letter-spacing: 4px; animation: scan 2.4s linear infinite; }
+    @keyframes scan { 0%,45% { opacity: 0; } 50% { opacity: 1; } 55%,100% { opacity: 0; } }
+    .cipher .h { display: flex; justify-content: space-between; padding-bottom: 12px; border-bottom: 1px solid rgba(0,240,255,0.18); margin-bottom: 12px; }
+    .cipher .h span { color: var(--on-navy-faint); }
+    .cipher .body { color: rgba(158,231,255,0.55); }
+    @media (max-width: 880px) { .zk .grid { grid-template-columns: 1fr; } }
+    .soon-badge { display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px; background: var(--cyan); color: var(--ink); border-radius: 999px; font-family: var(--monofont); font-size: 11px; letter-spacing: 1.6px; text-transform: uppercase; font-weight: 700; vertical-align: middle; margin-left: 12px; }
+    .soon-badge::before { content: "●"; color: var(--ink); font-size: 9px; animation: pulse 1.6s infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+    /* glitch */
+    .glitch { position: relative; display: inline-block; }
+    .glitch::before, .glitch::after { content: attr(data-text); position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+    .glitch.on-ink::before { color: #FF6B6E; mix-blend-mode: screen; animation: g1 3.2s infinite linear alternate-reverse; transform: translate(-2px,0); clip-path: polygon(0 0,100% 0,100% 45%,0 45%); }
+    .glitch.on-ink::after { color: var(--cyan); mix-blend-mode: screen; animation: g2 2.4s infinite linear alternate-reverse; transform: translate(2px,0); clip-path: polygon(0 55%,100% 55%,100% 100%,0 100%); }
+    @keyframes g1 { 0%{clip-path:polygon(0 0,100% 0,100% 8%,0 8%);transform:translate(-3px,0);} 50%{clip-path:polygon(0 30%,100% 30%,100% 38%,0 38%);} 100%{clip-path:polygon(0 18%,100% 18%,100% 42%,0 42%);transform:translate(2px,0);} }
+    @keyframes g2 { 0%{clip-path:polygon(0 60%,100% 60%,100% 66%,0 66%);transform:translate(3px,0);} 50%{clip-path:polygon(0 72%,100% 72%,100% 88%,0 88%);} 100%{clip-path:polygon(0 80%,100% 80%,100% 95%,0 95%);transform:translate(-2px,0);} }
+
+    /* CTA */
+    .closer { padding: clamp(80px, 12vw, 160px) 0 clamp(60px, 8vw, 100px); position: relative; overflow: hidden; }
+    .closer::before { content: ''; position: absolute; bottom: -220px; left: -140px; width: 560px; height: 560px; background: radial-gradient(circle, rgba(0,240,255,0.12) 0%, transparent 68%); border-radius: 50%; pointer-events: none; }
+    .closer .wrap { position: relative; }
+    .closer .lab { display: flex; justify-content: space-between; margin-bottom: clamp(40px, 6vw, 72px); flex-wrap: wrap; gap: 16px; }
+    .closer h2 { font-size: clamp(56px, 9vw, 132px); font-weight: 600; line-height: 0.9; letter-spacing: -0.03em; margin: 0 0 24px; }
+    .closer .keybox { display: flex; align-items: stretch; border: 1.5px solid var(--ink); border-radius: 12px; overflow: hidden; margin-top: 44px; max-width: 640px; background: #fff; }
+    .closer .keybox input { flex: 1; min-width: 0; border: 0; padding: 18px 22px; font-family: var(--monofont); font-size: 13px; color: var(--ink); letter-spacing: 0.5px; background: transparent; outline: none; }
+    .closer .keybox input::placeholder { color: var(--steel-2); }
+    .closer .keybox .btn { background: var(--cyan); color: var(--ink); padding: 18px 26px; font-family: var(--monofont); font-size: 12px; letter-spacing: 2px; text-transform: uppercase; font-weight: 700; cursor: pointer; border: 0; transition: background .15s; }
+    .closer .keybox .btn:hover { background: #66F6FF; }
+    .key-note { font-family: var(--monofont); font-size: 11px; letter-spacing: 1px; color: #0891A6; margin-top: 14px; min-height: 16px; }
+
+    /* FOOTER */
+    footer { background: var(--navy-grad); color: var(--on-navy); padding: clamp(48px, 6vw, 80px) 0 32px; }
+    footer .grid { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr 1fr; gap: 32px; margin-bottom: 48px; }
+    footer h4 { font-family: var(--monofont); font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--cyan); margin: 0 0 16px; font-weight: 600; }
+    footer ul { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; }
+    footer ul a { font-size: 13px; color: rgba(234,243,251,0.8); transition: color .15s; }
+    footer ul a:hover { color: var(--cyan); }
+    footer .brand p { color: var(--on-navy-dim); font-size: 13px; line-height: 1.55; max-width: 320px; margin: 16px 0 0; }
+    footer .meta { display: flex; justify-content: space-between; align-items: center; padding-top: 24px; border-top: 1px solid rgba(0,240,255,0.18); flex-wrap: wrap; gap: 16px; }
+    footer .meta .mono { color: var(--on-navy-faint); }
+    @media (max-width: 880px) { footer .grid { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 480px) { footer .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+
+  <!-- NAV -->
+  <nav class="top">
+    <div class="wrap row">
+      <a href="#top" class="mark" aria-label="ForgePay home">
+        <span class="sq">F</span><span class="wd">Forge<span>Pay</span></span>
+      </a>
+      <ul>
+        <li class="dropdown">
+          <button type="button">Products</button>
+          <div class="menu">
+            <div class="menu-section">
+              <div class="menu-section-h">Five SKUs</div>
+              <a href="products/credit-bureau.html">FORGE Credit Bureau<span class="mn">AI agent identity &amp; credit</span></a>
+              <a href="products/payments.html">FORGE Payments<span class="mn">Card · Bank · Stablecoin checkout</span></a>
+              <a href="products/treasury.html">FORGE Treasury<span class="mn">Enterprise cash management</span></a>
+              <a href="products/custody.html">FORGE Custody<span class="mn">Institutional threshold signing</span></a>
+              <a href="products/wallet.html">FORGE Wallet<span class="mn">Keyless wallets &amp; agent identity</span></a>
+              <a href="features/ontology.html">Revenue Ontology<span class="mn">The unified foundation</span></a>
+            </div>
+            <div class="menu-section">
+              <div class="menu-section-h">Deep dive</div>
+              <a href="features/ontology.html">Revenue Ontology<span class="mn">The unified ledger</span></a>
+              <a href="features/agents.html">Agentic Commerce<span class="mn">Six-part stack for AI</span></a>
+              <a href="features/mor.html">Global Tax &amp; MoR<span class="mn">200+ countries automated</span></a>
+              <a href="features/privacy.html">Privacy &amp; ZK<span class="mn">Coming soon</span></a>
+            </div>
+          </div>
+        </li>
+        <li><a href="#how">How it works</a></li>
+        <li><a href="#pricing">Pricing</a></li>
+        <li><a href="#developers">Developers</a></li>
+      </ul>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <a href="#cta" class="cta">Claim Key →</a>
+        <button class="navburger" aria-label="Menu" aria-expanded="false" id="burger">☰</button>
+      </div>
+    </div>
+    <div class="mobile-menu" id="mobileMenu">
+      <a href="#products">Products</a>
+      <a href="#how">How it works</a>
+      <a href="#pricing">Pricing</a>
+      <a href="#developers">Developers</a>
+      <a href="#cta">Claim a test key →</a>
+    </div>
+  </nav>
+
+  <!-- HERO -->
+  <section class="hero" id="top">
+    <div class="wrap">
+      <div class="meta-top">
+        <div class="eye"><span class="mono">MMXXVI</span></div>
+        <span class="mono">The Revenue Ontology</span>
+      </div>
+      <h1 class="light-em">Every form<br/>of <em>value.</em><br/>One platform.</h1>
+      <p class="lede">The Revenue Ontology.<br/>The asset becomes a parameter.<br/>The financial infrastructure company for the agentic age.</p>
+      <div class="actions">
+        <a class="btn-ink" href="#cta">Claim test key →</a>
+        <a class="btn-ghost" href="#how">See how it works</a>
+      </div>
+      <div class="stamp">
+        <div><div class="k">Rails unified</div><div class="v">5</div></div>
+        <div><div class="k">Jurisdictions · MoR</div><div class="v">200+</div></div>
+        <div><div class="k">Coins accepted</div><div class="v">50+</div></div>
+        <div><div class="k">Canonical event</div><div class="v">One</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- AGENTIC COMMERCE STACK -->
+  <section class="ink on-ink">
+    <div class="wrap">
+      <div class="head-split">
+        <div>
+          <div class="eye eye-light"><span class="mono">I</span><span class="tick"></span><span class="mono">Financial infrastructure for autonomous agents</span></div>
+          <h2 class="big">The credit bureau<br/>for <em>AI agents</em>.</h2>
+        </div>
+        <p class="lede">ForgePay computes verifiable reputation scores from on-chain transaction data. Any protocol can read an agent's trustworthiness before extending credit, insurance, or access. Agents transact with identity, earn reputation, and borrow autonomously — no human approval required.</p>
+      </div>
+
+      <div class="feature-grid">
+        <div class="cell">
+          <div class="num">01</div>
+          <span class="label">Agent Identity</span>
+          <h3>DID Registry</h3>
+          <p>A unique, verifiable digital identifier — every agent's passport in the digital economy.</p>
+        </div>
+        <div class="cell">
+          <div class="num">02</div>
+          <span class="label">Reputation &amp; Trust</span>
+          <h3>Transparent scoring</h3>
+          <p>Transactions build a live score. Agents climb from "New" to "Premium," unlocking better terms.</p>
+        </div>
+        <div class="cell">
+          <div class="num">03</div>
+          <span class="label">Decision Framework</span>
+          <h3>Real-time risk engine</h3>
+          <p>Every transaction is checked against your rules and auto-approved, flagged, or declined instantly.</p>
+        </div>
+        <div class="cell">
+          <div class="num">04</div>
+          <span class="label">Negotiation &amp; Escrow</span>
+          <h3>Agent-to-agent deals</h3>
+          <p>Agents quote, agree terms, and lock funds in escrow — released only when both sides fulfill.</p>
+        </div>
+        <div class="cell">
+          <div class="num">05</div>
+          <span class="label">Liquidity Manager</span>
+          <h3>Automatic rebalancing</h3>
+          <p>Multi-asset holdings rebalance on their own, so an agent always holds the right token.</p>
+        </div>
+        <div class="cell">
+          <div class="num">06</div>
+          <span class="label">Agent Credit Lines</span>
+          <h3>Autonomous borrowing</h3>
+          <p>Reputation earns a credit line. Agents spend on net terms, becoming true financial participants.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PRODUCT SKUs -->
+  <section id="products">
+    <div class="wrap">
+      <div class="head-split">
+        <div>
+          <div class="eye"><span class="mono">II</span><span class="tick"></span><span class="mono">Five products · one platform</span></div>
+          <h2 class="big light-em">Pick your<br/><em>entry point</em>.</h2>
+        </div>
+        <p class="lede">Start with agent credit, add payments, layer in treasury, custody and wallets. Each product is self-contained but shares the same Revenue Ontology underneath.</p>
+      </div>
+      <div class="products-grid">
+        <div class="pillar">
+          <span class="pn">01</span>
+          <h3>FORGE Credit</h3>
+          <p>Verifiable reputation scores from on-chain data. DID identity, autonomous credit lines, agent-to-agent escrow. Any protocol can read an agent's trustworthiness before extending credit.</p>
+          <div class="tags">DID · REPUTATION · CREDIT<br/>ESCROW · LIQUIDITY</div>
+          <a class="read" href="products/credit-bureau.html">Explore →</a>
+        </div>
+        <div class="pillar">
+          <span class="pn">02</span>
+          <h3>FORGE Payments</h3>
+          <p>Accept card, bank transfer, stablecoin and x402 AI micropayments. One API, one dashboard, one settlement account. Real-time reconciliation, tax-ready reporting.</p>
+          <div class="tags">CARD · BANK · STABLECOIN<br/>x402 · INVOICING · WEBHOOKS</div>
+          <a class="read" href="products/payments.html">Explore →</a>
+        </div>
+        <div class="pillar">
+          <span class="pn">03</span>
+          <h3>FORGE Treasury</h3>
+          <p>Consolidate incoming payments across all rails into one account. Auto-reconcile, net across currencies, sweep idle cash to yield. One ledger. One source of truth.</p>
+          <div class="tags">CONSOLIDATION · NETTING<br/>YIELD SWEEP · COMPLIANCE</div>
+          <a class="read" href="products/treasury.html">Explore →</a>
+        </div>
+        <div class="pillar">
+          <span class="pn">04</span>
+          <h3>FORGE Custody</h3>
+          <p>Institutional 4-of-7 threshold signing for large transfers. Policy engine, multi-approver sign-off and an immutable audit trail — no single point of key control.</p>
+          <div class="tags">THRESHOLD SIGNING · POLICY<br/>MULTI-APPROVAL · AUDIT LOG</div>
+          <a class="read" href="products/custody.html">Explore →</a>
+        </div>
+        <div class="pillar">
+          <span class="pn">05</span>
+          <h3>FORGE Wallet</h3>
+          <p>Keyless wallets for people and AI agents alike. Every wallet carries a verifiable digital identity the rest of ForgePay builds reputation and credit on top of.</p>
+          <div class="tags">NO SEED PHRASE · did:forge<br/>SOCIAL RECOVERY · AGENT-READY</div>
+          <a class="read" href="products/wallet.html">Explore →</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- STATEMENT -->
+  <section class="statement on-ink">
+    <div class="wrap">
+      <div class="lab">
+        <div class="eye eye-light"><span class="mono">III</span><span class="tick"></span><span class="mono">The thesis</span></div>
+        <span class="mono">A new category</span>
+      </div>
+      <h2>The log<br/>is the <em>moat.</em></h2>
+      <div class="row2">
+        <div>
+          <p>Most businesses run payments out of five systems that don't speak to each other — a card processor, a tax tool, a billing engine, a crypto wallet, and a spreadsheet holding it together. Each integration is a tax you pay forever.</p>
+          <p>ForgePay inverts the stack. Every payment, on every rail, appends to one immutable, signed event log — the <strong style="color: var(--cyan); font-weight: 600;">Revenue Ontology</strong>. We define the schema; the underlying networks become interchangeable. Routing intelligence, agent reputation and tax classification all compound on top of it.</p>
+        </div>
+        <div class="right">
+          <div class="item"><div class="n">01</div><div class="body"><strong>One canonical event</strong><span>Cards, USDC, Bitcoin, renewals, refunds and tax all speak the same signed schema.</span></div></div>
+          <div class="item"><div class="n">02</div><div class="body"><strong>One source of truth</strong><span>Replace dozens of vendor webhooks with a single deduplicated, replayable delivery.</span></div></div>
+          <div class="item"><div class="n">03</div><div class="body"><strong>Compounding network effect</strong><span>Day 30: 2.6M events. Year 1: 36.5B. The data is the engine — and the moat.</span></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FOUR PILLARS -->
+  <section id="solutions">
+    <div class="wrap">
+      <div class="head-split">
+        <div>
+          <div class="eye"><span class="mono">IV</span><span class="tick"></span><span class="mono">Four pillars · one ontology</span></div>
+          <h2 class="big light-em">However value<br/>moves — we <em>route</em> it.</h2>
+        </div>
+        <p class="lede">Four product surfaces, one canonical event stream underneath. Everything below the seam is interchangeable; the ontology above it is the contract.</p>
+      </div>
+      <div class="pillars">
+        <div class="pillar">
+          <span class="pn">Pillar · 01</span>
+          <h3>Traditional Finance</h3>
+          <p>Card acquiring smart-routed across 100+ processors, bank rails, subscriptions and global tax — at the lowest cost and highest approval.</p>
+          <div class="tags">CARDS · ACH · SEPA<br/>SUBSCRIPTIONS · MoR · FX</div>
+          <a class="read" href="features/traditional-finance.html">Explore →</a>
+        </div>
+        <div class="pillar">
+          <span class="pn">Pillar · 02</span>
+          <h3>Crypto &amp; Stablecoins</h3>
+          <p>USDC and USDT settled in seconds, non-custodial. Bitcoin and 50+ coins with rate locked at checkout. Direct-to-wallet, zero float.</p>
+          <div class="tags">USDC · USDT · BTC · ETH<br/>4 NETWORKS · 50+ COINS</div>
+          <a class="read" href="features/crypto-stablecoins.html">Explore →</a>
+        </div>
+        <div class="pillar">
+          <span class="pn">Pillar · 03</span>
+          <h3>Agentic Economy</h3>
+          <p>HTTP 402 made real. Autonomous agents quote, pay and settle in milliseconds. Agent identity, reputation, credit lines and escrow built in.</p>
+          <div class="tags">x402 · AGENT KYC<br/>CREDIT LINES · ESCROW</div>
+          <a class="read" href="features/agentic-economy.html">Explore →</a>
+        </div>
+        <div class="pillar">
+          <span class="pn">Pillar · 04</span>
+          <h3>Real-World Assets</h3>
+          <p>Accept tokenized treasuries, gold and equities as payment — settled atomically, with tax handled. An asset is a parameter, not a product.</p>
+          <div class="tags">BUIDL · PAXG · USDY<br/>ATOMIC SETTLEMENT</div>
+          <a class="read" href="features/rwas.html">Explore →</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- HOW IT WORKS -->
+  <section id="how" class="deep">
+    <div class="wrap">
+      <div class="head-split">
+        <div>
+          <div class="eye"><span class="mono">V</span><span class="tick"></span><span class="mono">FORGE Payments · how it works</span></div>
+          <h2 class="big light-em">One request in.<br/>One <em>event</em> out.</h2>
+        </div>
+        <p class="lede">You integrate once. Underneath, ForgePay routes through processors, chains, tax and a billing engine — all collapsing back into a single canonical event you can trust.</p>
+      </div>
+
+      <div class="diagram">
+        <div class="row-cells row-a">
+          <div class="cell-box ink"><div><div class="tag">Step 01 · You</div><div class="name">Your application</div><div class="desc">One call: <code style="opacity:.85;">forge.payments.create()</code>. JS · PY · RS · GO.</div></div></div>
+        </div>
+        <div class="arrow">SDK · REST · WEBHOOK</div>
+        <div class="row-cells row-b">
+          <div class="cell-box"><div><div class="tag">Rail · 01</div><div class="name">Card &amp; Bank</div><div class="desc">100+ processors, auto-routed.</div></div></div>
+          <div class="cell-box"><div><div class="tag">Rail · 02</div><div class="name">Stablecoin</div><div class="desc">USDC · USDT, ~30s on L2.</div></div></div>
+          <div class="cell-box"><div><div class="tag">Rail · 03</div><div class="name">Crypto</div><div class="desc">BTC · ETH · 50+ coins.</div></div></div>
+          <div class="cell-box"><div><div class="tag">Rail · 04</div><div class="name">RWA &amp; Subs</div><div class="desc">Tokenized assets · renewals.</div></div></div>
+          <div class="cell-box ghost"><div><div class="tag">Rail · 05</div><div class="name"><span class="glitch" data-text="Private">Private</span></div><div class="desc" style="font-family:var(--monofont);font-size:11px;letter-spacing:.06em;">[REDACTED] — shielded settlement</div></div><span class="pill">Coming soon</span></div>
+        </div>
+        <div class="arrow">NORMALIZED · SIGNED · DEDUPED</div>
+        <div class="row-cells row-c">
+          <div class="cell-box"><div><div class="tag">Step 02 · Tax handled</div><div class="name">Merchant of Record</div><div class="desc">Jurisdiction detection, VAT/GST/sales tax, quarterly filings — 200+ countries. We're on the invoice, not you.</div></div></div>
+        </div>
+        <div class="arrow">→ ONE CANONICAL EVENT</div>
+        <div class="row-cells row-e">
+          <div class="cell-box ink"><div><div class="tag">Step 03 · Your backend</div><div class="name">One ForgePayEvent</div><div class="desc">HMAC-signed, idempotent, replayable. Fulfil the order. Done.</div></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- DEVELOPERS -->
+  <section id="developers" class="ink on-ink">
+    <div class="wrap">
+      <div class="head-split">
+        <div>
+          <div class="eye eye-light"><span class="mono">VI</span><span class="tick"></span><span class="mono">For developers</span></div>
+          <h2 class="big">Five lines.<br/>Any <em>rail</em>.</h2>
+        </div>
+        <p class="lede">Typed SDKs for the languages you already use. Idempotent by default. Signed webhooks with replay protection. OpenAPI 3.1 published.</p>
+      </div>
+      <div class="dev-grid">
+        <div class="dev-card">
+          <span class="dl">01 · Get started</span>
+          <h3>From install<br/>to <em>first dollar</em>.</h3>
+          <pre><span class="c">$ npm i @forgepay/sdk</span>
+<span class="k">import</span> { Forge } <span class="k">from</span> '@forgepay/sdk'
+<span class="k">const</span> f = <span class="k">new</span> Forge(key)
+<span class="k">await</span> f.payments.create({
+  amount: <b>4900</b>, rail: 'auto'
+})</pre>
+        </div>
+        <div class="dev-card">
+          <span class="dl">02 · Auto-routing</span>
+          <h3>One field.<br/>Optimal <em>route</em>.</h3>
+          <pre><span class="c">// cheapest, highest-approval route</span>
+<span class="k">await</span> f.payments.create({
+  amount: <b>4900</b>,
+  currency: 'usd',
+  rail: <b>'auto'</b>
+})
+<span class="c">// → card · ach · usdc · btc</span></pre>
+        </div>
+        <div class="dev-card">
+          <span class="dl">03 · Machine payments</span>
+          <h3>Charge what<br/>you <em>serve</em>.</h3>
+          <pre><span class="c">GET /api/analysis</span>
+<b>402 PAYMENT REQUIRED</b>
+x-forge-amount: 0.0042 USDC
+<span class="c">→ agent.pay() ✓ 142ms</span>
+<span class="c">→ settled on Base</span></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- STATS -->
+  <section class="stats on-ink">
+    <div class="wrap">
+      <div class="eye eye-light" style="margin-bottom: clamp(36px,5vw,56px);"><span class="mono">VII</span><span class="tick"></span><span class="mono">The opportunity</span></div>
+      <div class="stat-grid">
+        <div class="stat-cell">
+          <div class="v">$16<span>T</span></div>
+          <div class="k">Tokenized assets on-chain · 2030</div>
+          <p>Gold, treasuries and equities moving on-chain — acceptable as payment, same checkout, same tax engine.</p>
+        </div>
+        <div class="stat-cell">
+          <div class="v">$5<span>T</span></div>
+          <div class="k">Agentic transaction flows · 2030</div>
+          <p>AI agents transacting at machine speed. ForgePay runs the identity, credit and settlement layer underneath.</p>
+        </div>
+        <div class="stat-cell">
+          <div class="v">200<span>+</span></div>
+          <div class="k">Jurisdictions · merchant of record</div>
+          <p>VAT, GST and sales tax calculated, filed and remitted. You ship product; we handle the paperwork.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- OS LAYERS -->
+  <section>
+    <div class="wrap">
+      <div class="head-split">
+        <div>
+          <div class="eye"><span class="mono">VIII</span><span class="tick"></span><span class="mono">The architecture · Revenue Ontology</span></div>
+          <h2 class="big light-em">Not a processor.<br/>An <em>operating system</em>.</h2>
+        </div>
+        <p class="lede">Five layers, one canonical event. The same ontology that books a customer card payment books an agent credit draw and an intercompany cash sweep.</p>
+      </div>
+      <div class="os-layers">
+        <div class="os-layer"><div class="ln">Kernel</div><div class="ld">Revenue Ontology <span>— the canonical ForgePayEvent</span></div></div>
+        <div class="os-layer"><div class="ln">Rails</div><div class="ld">Card · Bank · Stablecoin · Crypto · RWA</div></div>
+        <div class="os-layer"><div class="ln">Agents</div><div class="ld">Identity · Decision · Credit · Liquidity</div></div>
+        <div class="os-layer"><div class="ln">Enterprise</div><div class="ld">Treasury · Netting · Reporting <span>— cost center to profit center</span></div></div>
+        <div class="os-layer"><div class="ln">Application</div><div class="ld">SDK · Dashboard · Forge Agent</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ENTERPRISE TREASURY -->
+  <section class="ink on-ink" id="treasury">
+    <div class="wrap">
+      <div class="head-split">
+        <div>
+          <div class="eye eye-light"><span class="mono">IX</span><span class="tick"></span><span class="mono">FORGE Treasury · enterprise cash</span></div>
+          <h2 class="big">Cash that<br/><em>works</em> itself.</h2>
+        </div>
+        <p class="lede">Corporate cash sits idle across dozens of accounts in different currencies and countries, while wire fees and FX spreads quietly bleed margin. ForgePay turns the sprawl into one command centre — consolidated, netted, routed and earning.</p>
+      </div>
+      <div class="feature-grid" style="grid-template-columns: repeat(4, 1fr);">
+        <div class="cell">
+          <span class="label">01 · Consolidation</span>
+          <h3>One global view</h3>
+          <p>Real-time balances pulled from 50+ banks, wallets and gateways, normalized into a single dashboard in your base currency.</p>
+        </div>
+        <div class="cell">
+          <span class="label">02 · Netting</span>
+          <h3>Fewer wires</h3>
+          <p>Internal payables and receivables offset automatically, settling one net payment between entities instead of dozens.</p>
+        </div>
+        <div class="cell">
+          <span class="label">03 · Routing</span>
+          <h3>Cheapest rail</h3>
+          <p>Every transfer weighs bank networks, local rails and stablecoins, then routes the cheapest, fastest option in real time.</p>
+        </div>
+        <div class="cell">
+          <span class="label">04 · Yield sweeping</span>
+          <h3>Idle cash, earning</h3>
+          <p>Set a buffer; surplus sweeps into tokenized treasuries at 4–5% and redeems the instant you need it back.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PRICING -->
+  <section id="pricing" class="deep">
+    <div class="wrap">
+      <div class="head-split">
+        <div>
+          <div class="eye"><span class="mono">X</span><span class="tick"></span><span class="mono">FORGE Payments · Simple pricing</span></div>
+          <h2 class="big light-em">Start free.<br/>Grow when <em>ready</em>.</h2>
+        </div>
+        <p class="lede">No quotes, no sales calls, no hidden monthly minimum. Free up to $25,000/mo — then one plan that includes global tax, subscriptions and every rail.</p>
+      </div>
+      <div class="plans">
+        <div class="plan">
+          <span class="tier">Free</span>
+          <h3>Free</h3>
+          <div class="price"><span class="num">$0</span><span class="per">/ month</span></div>
+          <ul>
+            <li><span class="k">Card fee</span><span class="v">2.8% + $0.24</span></li>
+            <li><span class="k">Stablecoin</span><span class="v">1.8%</span></li>
+            <li><span class="k">Crypto</span><span class="v">1.8%</span></li>
+            <li><span class="k">Volume</span><span class="v">Up to $25k / mo</span></li>
+            <li><span class="k">Global tax</span><span class="v no">Self-managed</span></li>
+            <li><span class="k">Support</span><span class="v">Community</span></li>
+          </ul>
+          <div class="foot"><a class="btn-ghost" href="#cta">Start free →</a></div>
+        </div>
+        <div class="plan">
+          <span class="tier">Standard · recommended</span>
+          <h3><em>Standard</em></h3>
+          <div class="price"><span class="num">$28</span><span class="per">/ month</span></div>
+          <ul>
+            <li><span class="k">Card fee</span><span class="v">2.4% + $0.24</span></li>
+            <li><span class="k">Stablecoin</span><span class="v">1.4%</span></li>
+            <li><span class="k">Crypto</span><span class="v">1.4%</span></li>
+            <li><span class="k">Volume</span><span class="v">Unlimited</span></li>
+            <li><span class="k">Global tax</span><span class="v">Included · 200+ countries</span></li>
+            <li><span class="k">Support</span><span class="v">Priority · 2-hour</span></li>
+          </ul>
+          <div class="foot"><a class="btn-ink" href="#cta">Go Standard →</a></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ZK -->
+  <section class="zk on-ink" id="privacy">
+    <div class="wrap">
+      <div class="lab">
+        <div class="eye eye-light"><span class="mono">XI</span><span class="tick"></span><span class="mono">Private payments</span></div>
+        <span class="mono">Coming soon</span>
+      </div>
+      <h2><span class="glitch on-ink" data-text="Private.">Private.</span><br/><em>And</em> still compliant.<span class="soon-badge">Coming soon</span></h2>
+      <div class="grid">
+        <div>
+          <p style="color:rgba(158,231,255,0.8);margin-bottom:18px;font-family:var(--monofont);font-size:14px;line-height:1.7;">▓▓▓ Take payments p̷r̷i̷v̷a̷t̷e̷l̷y̷ — amounts hidden on the public record — while still passing every tax check ▓▓▓</p>
+          <p>Zero-knowledge shielded settlement with auditor key escrow. Private to the world, visible to your auditor. In development — we'd rather ship late than ship fragile.</p>
+          <div style="margin-top:28px;display:flex;gap:12px;flex-wrap:wrap;">
+            <a class="btn-ghost" style="border-color:var(--cyan);color:var(--cyan);" href="features/privacy.html">Learn more →</a>
+            <a class="btn-ink" href="#cta">Join waitlist →</a>
+          </div>
+        </div>
+        <div class="cipher">
+          <div class="h"><span>0x · PROOF</span><span>STATUS: ▓▓▓▓</span></div>
+          <div class="body" id="cipher-body"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section class="closer" id="cta">
+    <div class="wrap">
+      <div class="lab">
+        <div class="eye"><span class="mono">XII</span><span class="tick"></span><span class="mono">General availability</span></div>
+        <span class="mono">2026</span>
+      </div>
+      <h2 class="light-em">Build today.<br/><em>Charge</em> tomorrow.</h2>
+      <p class="lede">Open beta. Claim a test key and start taking payments in five minutes — free up to $25,000 a month, no card required.</p>
+      <form class="keybox" id="keyForm">
+        <input type="email" required placeholder="you@company.com" aria-label="Work email" id="keyEmail"/>
+        <button class="btn" type="submit">Claim Key →</button>
+      </form>
+      <div class="key-note" id="keyNote"></div>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer>
+    <div class="wrap">
+      <div class="grid">
+        <div class="brand">
+          <a href="#top" class="mark light" aria-label="ForgePay home">
+            <span class="sq">F</span><span class="wd">Forge<span>Pay</span></span>
+          </a>
+          <p>The Revenue Ontology. Financial and value orchestration for traditional finance, crypto, autonomous agents and tokenized real-world assets — across 200+ countries.</p>
+        </div>
+        <div>
+          <h4>Products</h4>
+          <ul>
+            <li><a href="products/credit-bureau.html">FORGE Credit</a></li>
+            <li><a href="products/payments.html">FORGE Payments</a></li>
+            <li><a href="products/treasury.html">FORGE Treasury</a></li>
+            <li><a href="products/custody.html">FORGE Custody</a></li>
+            <li><a href="products/wallet.html">FORGE Wallet</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4>Platform</h4>
+          <ul>
+            <li><a href="features/ontology.html">Revenue Ontology</a></li>
+            <li><a href="features/traditional-finance.html">Traditional Finance</a></li>
+            <li><a href="features/crypto-stablecoins.html">Crypto &amp; Stablecoins</a></li>
+            <li><a href="features/agentic-economy.html">Agentic Economy</a></li>
+            <li><a href="features/rwas.html">Real-World Assets</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4>Developers</h4>
+          <ul>
+            <li><a href="features/mor.html">Global Tax &amp; MoR</a></li>
+            <li><a href="features/billing.html">Subscriptions</a></li>
+            <li><a href="features/agents.html">Forge Agent</a></li>
+            <li><a href="features/privacy.html">Private Payments</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4>Company</h4>
+          <ul>
+            <li><a href="about.html">About</a></li>
+            <li><a href="thesis.html">Thesis</a></li>
+            <li><a href="about.html#careers">Careers</a></li>
+            <li><a href="about.html#press">Press</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="meta">
+        <span class="mono">© MMXXVI ForgePay (Pty) Ltd. — Johannesburg, ZA</span>
+        <span class="mono">All systems nominal · v1.0.0</span>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    // cipher block
+    (function () {
+      var t = document.getElementById('cipher-body');
+      if (!t) return;
+      var chars = '0123456789ABCDEF', out = [];
+      for (var i = 0; i < 13; i++) {
+        var line = '';
+        for (var j = 0; j < 32; j++) line += chars[(i * 7 + j * 13) % 16];
+        line = line.replace(/(.{4})/g, '$1 ').trim();
+        out.push('<div>' + line + '</div>');
+      }
+      t.innerHTML = out.join('');
+    })();
+
+    // dropdown
+    (function () {
+      var dropdown = document.querySelector('.dropdown');
+      if (!dropdown) return;
+      var button = dropdown.querySelector('button');
+      var menu = dropdown.querySelector('.menu');
+      var hoverTimeout;
+      button.addEventListener('click', function (e) { e.preventDefault(); menu.style.display = menu.style.display === 'grid' ? 'none' : 'grid'; });
+      dropdown.addEventListener('mouseenter', function () { clearTimeout(hoverTimeout); menu.style.display = 'grid'; });
+      dropdown.addEventListener('mouseleave', function () { hoverTimeout = setTimeout(function () { menu.style.display = 'none'; }, 120); });
+      menu.querySelectorAll('a').forEach(function (link) { link.addEventListener('click', function () { menu.style.display = 'none'; }); });
+      document.addEventListener('keydown', function (e) { if (e.key === 'Escape') menu.style.display = 'none'; });
+    })();
+
+    // mobile menu
+    (function () {
+      var burger = document.getElementById('burger');
+      var menu = document.getElementById('mobileMenu');
+      if (!burger || !menu) return;
+      burger.addEventListener('click', function () {
+        var open = menu.classList.toggle('open');
+        burger.setAttribute('aria-expanded', open ? 'true' : 'false');
+        burger.textContent = open ? '✕' : '☰';
+      });
+      menu.querySelectorAll('a').forEach(function (a) {
+        a.addEventListener('click', function () { menu.classList.remove('open'); burger.textContent = '☰'; burger.setAttribute('aria-expanded', 'false'); });
+      });
+    })();
+
+    // claim-key form
+    (function () {
+      var form = document.getElementById('keyForm');
+      var note = document.getElementById('keyNote');
+      if (!form) return;
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        var email = document.getElementById('keyEmail').value.trim();
+        if (!email) return;
+        note.textContent = '✓ Test key requested for ' + email + ' — check your inbox. Sandbox docs: forgepay.io/docs';
+        form.reset();
+      });
+    })();
+  </script>
+</body>
+</html>
