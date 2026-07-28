@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>FORGE Credit Bureau — The Credit Bureau for AI Agents</title>
+<meta name="description" content="FORGE Credit Bureau computes verifiable, explainable credit scores for autonomous AI agents — dual-mode scoring across credit-file history and on-chain operational behaviour, so any protocol can extend credit to a machine it has never met."/>
+<style>
+/* ══ FORGE Credit Bureau — product prospectus ══════════════════════════════
+   Editorial cream/ink, matched to forgepay.io and the FORGE console.
+   Paper #F4F2EE · Ink #0A0A0A · hairline rules · square corners · mono labels
+   Set as a printed prospectus: numbered sections, a contents leaf, running
+   marks, and a print stylesheet that paginates cleanly to A4. */
+:root{
+  --ink:#0A0A0A; --ink-2:#1A1A1A;
+  --paper:#F4F2EE; --paper-deep:#ECE8E0; --paper-soft:#EFEBE3;
+  --steel:#6F6A62; --steel-2:#8B8579;
+  --hair:#C9C3B7; --hair-lite:rgba(244,242,238,0.18);
+  --on-ink:rgba(244,242,238,0.78); --on-ink-dim:rgba(244,242,238,0.5);
+  --good:#1baf7a; --warn:#eda100; --bad:#C4322F;
+  --sans:'Inter Tight',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  --mono:ui-monospace,'JetBrains Mono','SF Mono','Cascadia Code',Menlo,Consolas,monospace;
+  --pad:clamp(20px,5vw,72px); --maxw:1180px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{color-scheme:light;scroll-behavior:smooth}
+body{background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.6;
+ -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;overflow-x:hidden}
+a{color:inherit;text-decoration:none}
+::selection{background:var(--ink);color:var(--paper)}
+:focus-visible{outline:2px solid var(--ink);outline-offset:3px}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}html{scroll-behavior:auto}}
+
+.mono{font-family:var(--mono);letter-spacing:1.4px;text-transform:uppercase;font-size:11px;color:var(--steel)}
+.num{font-variant-numeric:tabular-nums}
+.wrap{max-width:var(--maxw);margin:0 auto;padding:0 var(--pad)}
+
+/* ── section frame ─────────────────────────────────────────────────────── */
+section{padding:clamp(56px,8vw,104px) 0;border-bottom:1px solid var(--hair)}
+section.ink{background:var(--ink);color:var(--paper);border-bottom:0}
+section.deep{background:var(--paper-deep)}
+.ink .mono{color:var(--on-ink-dim)}
+.eye{display:flex;align-items:center;gap:12px;margin-bottom:18px}
+.eye .tick{width:26px;height:1px;background:var(--steel)}
+.ink .eye .tick{background:var(--on-ink-dim)}
+h2{font-size:clamp(30px,4.4vw,58px);font-weight:500;line-height:1.02;letter-spacing:-0.028em;max-width:20ch}
+h2 em{font-style:italic;font-weight:300}
+h3{font-size:clamp(19px,2vw,24px);font-weight:500;letter-spacing:-0.015em;margin-bottom:8px}
+h4{font-size:16px;font-weight:500;letter-spacing:-0.01em}
+p{max-width:68ch}
+.lede{font-size:clamp(16px,1.7vw,19px);line-height:1.55;color:var(--steel);max-width:62ch;margin-top:20px}
+.ink .lede{color:var(--on-ink)}
+.body-copy{margin-top:22px;display:flex;flex-direction:column;gap:16px;max-width:68ch}
+.body-copy strong{font-weight:500}
+.ink .body-copy{color:var(--on-ink)}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:clamp(28px,5vw,72px);align-items:start}
+.split-wide{display:grid;grid-template-columns:1.25fr 1fr;gap:clamp(28px,5vw,64px);align-items:start}
+/* grid children default to min-content, which lets a wide table or code block
+   inside a column push the whole page sideways — pin them to 0. */
+.split > *,.split-wide > *,.toc > *{min-width:0}
+@media (max-width:900px){.split,.split-wide{grid-template-columns:1fr}}
+.mt24{margin-top:24px}.mt32{margin-top:32px}.mt40{margin-top:40px}.mt48{margin-top:48px}
+
+/* ── cover ─────────────────────────────────────────────────────────────── */
+.cover{background:var(--ink);color:var(--paper);border-bottom:0;min-height:min(96vh,860px);
+ display:flex;flex-direction:column;justify-content:space-between;padding:clamp(28px,4vw,52px) 0}
+/* .wrap sets margin:0 auto, and an auto cross-axis margin cancels the default
+   stretch — without this the masthead and footer strip shrink to fit. */
+.cover > .wrap{width:100%}
+.cover-top{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;flex-wrap:wrap}
+.cover-mid{padding:clamp(40px,7vw,80px) 0}
+.cover h1{font-size:clamp(44px,8.6vw,124px);font-weight:500;line-height:0.9;letter-spacing:-0.04em;max-width:14ch}
+.cover h1 em{font-style:italic;font-weight:300}
+.cover .sub{font-size:clamp(16px,1.9vw,22px);color:var(--on-ink);max-width:52ch;margin-top:clamp(24px,3vw,36px);line-height:1.5}
+.cover-foot{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--hair-lite);
+ border-top:1px solid var(--hair-lite);border-bottom:1px solid var(--hair-lite)}
+.cover-foot > div{background:var(--ink);padding:20px 20px 20px 0}
+.cover-foot .k{font-family:var(--mono);font-size:9.5px;letter-spacing:1.5px;text-transform:uppercase;color:var(--on-ink-dim)}
+.cover-foot .v{font-size:clamp(20px,2.6vw,30px);font-weight:500;letter-spacing:-0.02em;margin-top:8px;font-variant-numeric:tabular-nums}
+@media (max-width:760px){.cover-foot{grid-template-columns:1fr 1fr}}
+
+/* ── contents ──────────────────────────────────────────────────────────── */
+.toc{display:grid;grid-template-columns:1fr 1fr;gap:0 clamp(28px,5vw,72px)}
+@media (max-width:760px){.toc{grid-template-columns:1fr}}
+.toc a{display:grid;grid-template-columns:38px 1fr auto;gap:14px;align-items:baseline;
+ padding:13px 0;border-bottom:1px solid var(--hair)}
+.toc a:hover{color:var(--steel)}
+.toc .n{font-family:var(--mono);font-size:10.5px;letter-spacing:1.3px;color:var(--steel)}
+.toc .t{font-size:15.5px;font-weight:500}
+.toc .p{font-family:var(--mono);font-size:10px;color:var(--steel-2)}
+
+/* ── tables ────────────────────────────────────────────────────────────── */
+.tbl{overflow-x:auto;border:1px solid var(--hair);margin-top:24px}
+.ink .tbl{border-color:var(--hair-lite)}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th{font-family:var(--mono);font-size:9.5px;letter-spacing:1.4px;text-transform:uppercase;color:var(--steel);
+ font-weight:400;text-align:left;padding:12px 16px;border-bottom:1px solid var(--hair);
+ white-space:nowrap;background:var(--paper-soft)}
+.ink th{background:#141414;color:var(--on-ink-dim);border-bottom-color:var(--hair-lite)}
+td{padding:12px 16px;border-bottom:1px solid var(--hair);vertical-align:top}
+.ink td{border-bottom-color:var(--hair-lite)}
+tr:last-child td{border-bottom:none}
+tbody tr:hover{background:var(--paper-soft)}
+.ink tbody tr:hover{background:#141414}
+.t-num{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.t-r{text-align:right}
+td.em{font-weight:500}
+
+/* ── figure cells (hairline grid) ──────────────────────────────────────── */
+.grid{display:grid;gap:1px;background:var(--hair);border:1px solid var(--hair);margin-top:28px}
+.ink .grid{background:var(--hair-lite);border-color:var(--hair-lite)}
+.grid > *{background:var(--paper);min-width:0;padding:24px}
+.ink .grid > *{background:var(--ink)}
+.g2{grid-template-columns:repeat(2,1fr)}
+.g3{grid-template-columns:repeat(3,1fr)}
+.g4{grid-template-columns:repeat(4,1fr)}
+@media (max-width:1000px){.g4{grid-template-columns:repeat(2,1fr)}.g3{grid-template-columns:1fr}}
+@media (max-width:640px){.g2,.g3,.g4{grid-template-columns:1fr}}
+.cell .n{font-family:var(--mono);font-size:9.5px;letter-spacing:1.5px;text-transform:uppercase;color:var(--steel);margin-bottom:10px}
+.ink .cell .n{color:var(--on-ink-dim)}
+.cell p{font-size:13.5px;color:var(--steel);margin-top:8px;line-height:1.6}
+.ink .cell p{color:var(--on-ink)}
+.stat .v{font-size:clamp(30px,4vw,46px);font-weight:300;letter-spacing:-0.03em;line-height:1;font-variant-numeric:tabular-nums}
+.stat .v span{color:var(--steel);font-weight:200}
+.ink .stat .v span{color:var(--on-ink-dim)}
+
+/* ── weight bars ───────────────────────────────────────────────────────── */
+.wrow{display:grid;grid-template-columns:1fr 62px;gap:16px;align-items:center;
+ padding:15px 0;border-bottom:1px solid var(--hair)}
+.ink .wrow{border-bottom-color:var(--hair-lite)}
+.wrow:first-child{border-top:1px solid var(--hair)}
+.ink .wrow:first-child{border-top-color:var(--hair-lite)}
+.wrow .nm{font-size:15px;font-weight:500}
+.wrow .ds{font-size:13px;color:var(--steel);margin-top:3px;max-width:56ch}
+.ink .wrow .ds{color:var(--on-ink)}
+.wbar{height:7px;background:var(--paper-deep);margin-top:9px;max-width:340px}
+.ink .wbar{background:#242424}
+.wbar > i{display:block;height:100%;background:var(--ink)}
+.ink .wbar > i{background:var(--paper)}
+.wrow .pc{font-family:var(--mono);font-size:13px;text-align:right;font-variant-numeric:tabular-nums}
+
+/* ── pipeline ──────────────────────────────────────────────────────────── */
+.pipe{margin-top:28px}
+.pstep{display:grid;grid-template-columns:auto 1fr;gap:16px}
+.prail{display:flex;flex-direction:column;align-items:center}
+.pdot{width:30px;height:30px;border:1px solid var(--hair);display:grid;place-items:center;
+ font-family:var(--mono);font-size:10.5px;background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.ink .pdot{background:var(--paper);color:var(--ink);border-color:var(--paper)}
+.pline{width:1px;flex:1;min-height:26px;background:var(--hair)}
+.ink .pline{background:var(--hair-lite)}
+.pbody{padding-bottom:26px;min-width:0}
+.pbody .pt{font-size:16px;font-weight:500}
+.pbody .pd{font-size:13.5px;color:var(--steel);margin-top:4px;max-width:60ch}
+.ink .pbody .pd{color:var(--on-ink)}
+.pbody .po{font-family:var(--mono);font-size:11.5px;margin-top:9px;border-left:2px solid var(--ink);
+ padding:7px 0 7px 12px;background:var(--paper-soft);white-space:pre-wrap;word-break:break-word}
+.ink .pbody .po{border-left-color:var(--paper);background:#141414;color:var(--on-ink)}
+
+/* ── code ──────────────────────────────────────────────────────────────── */
+.code{background:var(--ink);color:#DDD8CE;font-family:var(--mono);font-size:11.5px;line-height:1.85;
+ padding:20px 22px;overflow-x:auto;white-space:pre;margin-top:24px}
+.ink .code{background:#141414;border:1px solid var(--hair-lite)}
+.code .c{color:var(--on-ink-dim)}
+.code .k{color:#9BC7EC}
+.code b{color:#fff;font-weight:700}
+
+/* ── tags / pull quotes ────────────────────────────────────────────────── */
+.tag{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:9.5px;
+ letter-spacing:1.2px;text-transform:uppercase;padding:3px 8px;border:1px solid var(--hair);color:var(--steel)}
+.ink .tag{border-color:var(--hair-lite);color:var(--on-ink)}
+.tag-solid{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.ink .tag-solid{background:var(--paper);color:var(--ink);border-color:var(--paper)}
+.tag-good{color:#137a55;border-color:#137a55}
+.tag-bad{color:var(--bad);border-color:var(--bad)}
+.quote{border-left:2px solid var(--ink);padding:6px 0 6px 24px;margin-top:32px;max-width:60ch}
+.ink .quote{border-left-color:var(--paper)}
+.quote p{font-size:clamp(19px,2.2vw,26px);line-height:1.34;letter-spacing:-0.018em;font-weight:400}
+.quote em{font-style:italic;font-weight:300}
+.rows{margin-top:28px}
+.rows .r{display:grid;grid-template-columns:180px 1fr;gap:22px;padding:16px 0;border-top:1px solid var(--hair);align-items:baseline}
+.ink .rows .r{border-top-color:var(--hair-lite)}
+.rows .r:last-child{border-bottom:1px solid var(--hair)}
+.ink .rows .r:last-child{border-bottom-color:var(--hair-lite)}
+.rows .rn{font-family:var(--mono);font-size:10px;letter-spacing:1.4px;text-transform:uppercase;color:var(--steel)}
+.ink .rows .rn{color:var(--on-ink-dim)}
+.rows .rd{font-size:15px}
+.rows .rd span{color:var(--steel);font-size:13.5px}
+.ink .rows .rd span{color:var(--on-ink-dim)}
+@media (max-width:640px){.rows .r{grid-template-columns:1fr;gap:5px}}
+
+/* ── footer ────────────────────────────────────────────────────────────── */
+footer{background:var(--ink);color:var(--paper);padding:clamp(48px,7vw,84px) 0 34px}
+footer .fgrid{display:grid;grid-template-columns:2fr 1fr 1fr;gap:36px;margin-bottom:48px}
+@media (max-width:760px){footer .fgrid{grid-template-columns:1fr}}
+footer h5{font-family:var(--mono);font-size:10px;letter-spacing:1.5px;text-transform:uppercase;
+ color:var(--on-ink-dim);margin-bottom:16px;font-weight:400}
+footer ul{list-style:none;display:flex;flex-direction:column;gap:9px}
+footer li{font-size:13.5px;color:var(--on-ink)}
+footer .meta{padding-top:26px;border-top:1px solid var(--hair-lite);display:flex;
+ justify-content:space-between;gap:16px;flex-wrap:wrap}
+.brandmark{display:flex;align-items:center;gap:11px}
+.brandmark svg{display:block}
+.brandmark .bt{font-family:var(--mono);font-size:9.5px;letter-spacing:1.4px;text-transform:uppercase;color:var(--on-ink-dim)}
+
+/* ── print: paginate as a real pamphlet ────────────────────────────────── */
+@media print{
+  @page{size:A4;margin:16mm 14mm}
+  html,body{background:#fff;color:#000;font-size:10.2pt}
+  .cover,section.ink,footer{background:#fff!important;color:#000!important;
+   border:0!important;border-top:1.5pt solid #000!important;border-bottom:1.5pt solid #000!important}
+  .ink .mono,.ink .lede,.ink .body-copy,.ink .cell p,.ink .rows .rd span,footer li,.cover .sub{color:#333!important}
+  .ink .pdot{background:#000!important;color:#fff!important;border-color:#000!important}
+  .ink .code,.code{background:#f4f4f2!important;color:#000!important;border:1pt solid #999!important}
+  .code .k,.code b{color:#000!important;font-weight:700}
+  .cover{min-height:auto;page-break-after:always}
+  .cover-foot > div,.grid > *,.ink th{background:#fff!important}
+  section{page-break-inside:auto;padding:14mm 0;border-bottom:0.5pt solid #999}
+  h2,h3{page-break-after:avoid}
+  .tbl,.grid,.code,.quote,.pstep,.wrow{page-break-inside:avoid}
+  .toc a{border-bottom:0.5pt solid #999}
+  .no-print{display:none!important}
+  a[href^="#"]{text-decoration:none}
+}
+.printbar{position:fixed;right:20px;bottom:20px;z-index:50;display:flex;gap:8px}
+.printbar button{font-family:var(--mono);font-size:10px;letter-spacing:1.5px;text-transform:uppercase;
+ padding:12px 18px;background:var(--ink);color:var(--paper);border:1px solid var(--ink);cursor:pointer}
+.printbar button:hover{background:var(--paper);color:var(--ink)}
+@media (max-width:640px){.printbar{right:12px;bottom:12px}}
+</style>
+</head>
+<body>
+
+<!-- ═══════════ COVER ═══════════ -->
+<section class="cover">
+  <div class="wrap cover-top">
+    <div class="brandmark">
+      <svg viewBox="0 0 520 100" height="21" aria-label="FORGE"><path d="M0 4 L60 4 L60 18 L16 18 L16 44 L52 44 L52 58 L16 58 L16 96 L0 96 Z" fill="currentColor"/><g transform="translate(72,4)"><circle cx="46" cy="46" r="42" fill="none" stroke="currentColor" stroke-width="14"/><line x1="-6" y1="46" x2="98" y2="46" stroke="#0A0A0A" stroke-width="2"/></g><path d="M180 4 L232 4 C250 4 260 16 260 32 C260 44 254 54 244 58 L262 96 L244 96 L228 62 L196 62 L196 96 L180 96 Z M196 18 L196 48 L230 48 C238 48 244 42 244 33 C244 24 238 18 230 18 Z" fill="currentColor"/><path d="M276 50 C276 22 296 2 324 2 C342 2 358 10 366 24 L353 32 C347 22 336 16 324 16 C305 16 292 30 292 50 C292 70 305 84 324 84 C340 84 352 74 354 60 L326 60 L326 46 L370 46 L370 96 L358 96 L356 84 C350 92 338 98 322 98 C295 98 276 78 276 50 Z" fill="currentColor"/><path d="M384 4 L448 4 L448 18 L400 18 L400 44 L444 44 L444 58 L400 58 L400 82 L450 82 L450 96 L384 96 Z" fill="currentColor"/></svg>
+      <span class="bt">Credit Bureau</span>
+    </div>
+    <span class="mono">Product prospectus · MMXXVI</span>
+  </div>
+
+  <div class="wrap cover-mid">
+    <h1>The credit bureau for <em>AI agents</em>.</h1>
+    <p class="sub">Autonomous software can already move money. It cannot yet be trusted with credit — because nothing has ever kept its record. FORGE Credit Bureau is the institution that does.</p>
+  </div>
+
+  <div class="wrap">
+    <div class="cover-foot">
+      <div><div class="k">Scoring range</div><div class="v">0–1000</div></div>
+      <div><div class="k">Scoring modes</div><div class="v">Dual</div></div>
+      <div><div class="k">Published grades</div><div class="v">AAA–D</div></div>
+      <div><div class="k">Hard inquiry</div><div class="v">$2.80</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ CONTENTS ═══════════ -->
+<section class="deep">
+  <div class="wrap">
+    <div class="eye"><span class="mono">Contents</span><span class="tick"></span><span class="mono">Sixteen sections</span></div>
+    <div class="toc mt32">
+      <a href="#s01"><span class="n">01</span><span class="t">The invisible economy</span><span class="p">Problem</span></a>
+      <a href="#s02"><span class="n">02</span><span class="t">What we built</span><span class="p">Product</span></a>
+      <a href="#s03"><span class="n">03</span><span class="t">Identity comes first</span><span class="p">DID layer</span></a>
+      <a href="#s04"><span class="n">04</span><span class="t">Dual-mode scoring</span><span class="p">Method</span></a>
+      <a href="#s05"><span class="n">05</span><span class="t">Mode 1 — the credit file</span><span class="p">Method</span></a>
+      <a href="#s06"><span class="n">06</span><span class="t">Mode 2 — operational record</span><span class="p">Method</span></a>
+      <a href="#s07"><span class="n">07</span><span class="t">Consensus and divergence</span><span class="p">Method</span></a>
+      <a href="#s08"><span class="n">08</span><span class="t">The published grade scale</span><span class="p">Reference</span></a>
+      <a href="#s09"><span class="n">09</span><span class="t">Tiers, limits and decisions</span><span class="p">Reference</span></a>
+      <a href="#s10"><span class="n">10</span><span class="t">Where the data comes from</span><span class="p">Network</span></a>
+      <a href="#s11"><span class="n">11</span><span class="t">Consent, inquiries and proofs</span><span class="p">Network</span></a>
+      <a href="#s12"><span class="n">12</span><span class="t">Agentic banking</span><span class="p">Application</span></a>
+      <a href="#s13"><span class="n">13</span><span class="t">A loan, end to end</span><span class="p">Application</span></a>
+      <a href="#s14"><span class="n">14</span><span class="t">Agent rights and disputes</span><span class="p">Governance</span></a>
+      <a href="#s15"><span class="n">15</span><span class="t">Integration</span><span class="p">Technical</span></a>
+      <a href="#s16"><span class="n">16</span><span class="t">Commercials and access</span><span class="p">Commercial</span></a>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ 01 PROBLEM ═══════════ -->
+<section id="s01">
+  <div class="wrap">
+    <div class="split-wide">
+      <div>
+        <div class="eye"><span class="mono">01</span><span class="tick"></span><span class="mono">The problem</span></div>
+        <h2>Every agent is a <em>prepaid stranger</em>.</h2>
+        <div class="body-copy">
+          <p>An autonomous agent can hold a wallet, call an API, negotiate a price and settle a payment in under a second. What it cannot do is owe anything. It has no history, no identity a lender recognises, and no record that survives the process that created it. To every counterparty it meets, it is a stranger with cash — or it does not trade at all.</p>
+          <p>So the entire agentic economy runs on prefunding. An agent must hold every dollar it might spend before it spends anything. Capital sits idle in thousands of wallets as insurance against a trust problem nobody has solved. The ceiling on what agents can do is not intelligence or bandwidth. It is <strong>working capital</strong>.</p>
+          <p>Humans escaped this in 1826, when the first mutual credit-reporting society let London traders extend terms to merchants they had never met. Machine commerce is where human commerce was two centuries ago: solvent, capable, and unable to borrow.</p>
+        </div>
+        <div class="quote">
+          <p>Credit is not a feature of an economy. It is the <em>mechanism</em> by which an economy exceeds the cash inside it.</p>
+        </div>
+      </div>
+      <div>
+        <div class="grid g2" style="margin-top:0">
+          <div class="cell stat"><div class="n">Agent working capital</div><div class="v">100<span>%</span></div><p>Prefunded. Every agent must hold cash before it can act, because no counterparty will carry it.</p></div>
+          <div class="cell stat"><div class="n">Credit history</div><div class="v">0<span> mo</span></div><p>An agent that has settled ten thousand payments starts the next relationship at zero.</p></div>
+          <div class="cell stat"><div class="n">Agentic flows by 2030</div><div class="v">$5<span>T</span></div><p>Projected machine-to-machine transaction volume, almost none of it creditworthy today.</p></div>
+          <div class="cell stat"><div class="n">Bureaus serving them</div><div class="v">0</div><p>No incumbent bureau will score a non-human entity. The file format does not exist.</p></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ 02 WHAT WE BUILT ═══════════ -->
+<section class="ink" id="s02">
+  <div class="wrap">
+    <div class="eye"><span class="mono">02</span><span class="tick"></span><span class="mono">The product</span></div>
+    <h2>A credit file for <em>things that are not people</em>.</h2>
+    <p class="lede">FORGE Credit Bureau issues a verifiable, explainable creditworthiness score for autonomous agents — and the surrounding institution that makes the score mean something: identity, furnishing, consent, inquiry, dispute and audit.</p>
+
+    <div class="grid g3">
+      <div class="cell"><div class="n">We are a bureau</div><h4>Not a lender</h4><p>We do not extend credit and we hold no risk in the outcome. We keep the record and publish the score. Lenders, marketplaces, insurers and access-control layers decide what to do with it — exactly the separation that makes a bureau trustworthy.</p></div>
+      <div class="cell"><div class="n">We are explainable</div><h4>Not a black box</h4><p>Every score decomposes into weighted factors with named codes and plain-language reasons. An agent can be told why it scored what it scored, and what would move it. Deterministic scoring is a requirement, not a preference.</p></div>
+      <div class="cell"><div class="n">We are dual-mode</div><h4>Not one opinion</h4><p>We compute two independent scores from two independent data classes — a conventional credit file and an on-chain operational record — and publish the variance between them as a signal in its own right.</p></div>
+    </div>
+
+    <div class="rows mt48">
+      <div class="r"><span class="rn">What we take in</span><span class="rd">Settled payment events, repayment outcomes, on-chain transaction records, budget adherence, identity attestations and sanctions results <span>— furnished by lenders, gateways, the x402 stream and our own origination</span></span></div>
+      <div class="r"><span class="rn">What we publish</span><span class="rd">A 0–1000 score, a grade from AAA to D, a tier, a recommended limit, a decision recommendation, and the weighted factors behind all of it</span></div>
+      <div class="r"><span class="rn">Who reads it</span><span class="rd">Lending protocols, agent marketplaces, insurers, escrow contracts, API providers gating access, and the operators of the agents themselves</span></div>
+      <div class="r"><span class="rn">What it costs to read</span><span class="rd">A soft pull returning the band is free. A full report is a hard inquiry at <span>$2.80</span>, of which 25% is returned to the furnishers whose data informed it</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ 03 IDENTITY ═══════════ -->
+<section id="s03">
+  <div class="wrap">
+    <div class="eye"><span class="mono">03</span><span class="tick"></span><span class="mono">Foundation</span></div>
+    <h2>You cannot score what you cannot <em>name</em>.</h2>
+    <p class="lede">A credit record is worthless if the subject can discard it. The first thing the bureau establishes is a durable, verifiable identity that survives redeployment and cannot be cheaply abandoned.</p>
+
+    <div class="split mt40">
+      <div>
+        <h3>The decentralised identifier</h3>
+        <p style="color:var(--steel);font-size:14px;margin-top:8px">Every scored agent resolves to a <span class="mono" style="text-transform:none;font-size:12.5px">did:forge:…</span> document holding its verification methods, its controlling operator and its service endpoints. The DID is the primary key of the credit file.</p>
+        <div class="rows">
+          <div class="r"><span class="rn">Controller</span><span class="rd">A real-world operating entity <span>— an EIN, a registered company, a DAO governance vote or an attested individual</span></span></div>
+          <div class="r"><span class="rn">Anchoring</span><span class="rd">Published on Base, so the binding between agent and operator is publicly verifiable without contacting us</span></div>
+          <div class="r"><span class="rn">Portability</span><span class="rd">The DID outlives the process. Redeploying the agent does not reset its file</span></div>
+          <div class="r"><span class="rn">Cost to abandon</span><span class="rd">Walking away from a DID means walking away from the credit line it carries — which is the point</span></div>
+        </div>
+      </div>
+      <div>
+        <h3>Why the operator matters</h3>
+        <p style="color:var(--steel);font-size:14px;margin-top:8px">An agent has no legal personality. It cannot be sued and it cannot be bankrupt. Credit therefore attaches to the operator standing behind it, while performance attaches to the agent itself.</p>
+        <div class="code" style="margin-top:20px">{
+  <span class="k">"id"</span>: <b>"did:forge:0x7a3b…7a8b"</b>,
+  <span class="k">"controller"</span>: "did:forge:entity:EIN-82-1234567",
+  <span class="k">"verificationMethod"</span>: [{
+    <span class="k">"id"</span>: "#owner",
+    <span class="k">"type"</span>: "EcdsaSecp256k1VerificationKey2019",
+    <span class="k">"blockchainAccountId"</span>: "eip155:8453:0x7a3b…7a8b"
+  }],
+  <span class="k">"service"</span>: [{
+    <span class="k">"type"</span>: "ForgeCreditProfile",
+    <span class="k">"serviceEndpoint"</span>:
+      "https://api.forgepay.io/v1/agents/…/score"
+  }]
+}</div>
+        <p style="color:var(--steel);font-size:13.5px;margin-top:18px">This is what lets a lender price an agent at all: the operator is accountable in law, the agent is accountable in data, and the DID binds them together in public.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ 04 DUAL MODE ═══════════ -->
+<section class="deep" id="s04">
+  <div class="wrap">
+    <div class="eye"><span class="mono">04</span><span class="tick"></span><span class="mono">Method</span></div>
+    <h2>Two scores. <em>One</em> subject.</h2>
+    <p class="lede">Conventional credit scoring answers one question: has this borrower repaid? For an agent, that question is necessary but badly incomplete — an agent can repay perfectly while behaving erratically, or operate flawlessly while carrying a thin file. So the bureau computes both, separately, and reports where they disagree.</p>
+
+    <div class="grid g2">
+      <div class="cell">
+        <div class="n">Mode 1 · authoritative</div>
+        <h4>The credit file</h4>
+        <p>Payment history, utilisation, age of file, credit mix and inquiry velocity. A direct analogue of consumer credit scoring, adapted to machine borrowers. This mode is authoritative for lending decisions because it measures the thing a lender is actually exposed to: repayment.</p>
+        <p style="margin-top:12px"><span class="tag tag-solid">Authoritative</span> <span class="tag">Source · FORGE credit file</span></p>
+      </div>
+      <div class="cell">
+        <div class="n">Mode 2 · corroborating</div>
+        <h4>The operational record</h4>
+        <p>Success rate, transaction volume, transaction count, budget compliance and account age — read from on-chain records rather than reported by a counterparty. This mode measures competence and consistency, and it is far harder to fabricate because it is settled on a public ledger.</p>
+        <p style="margin-top:12px"><span class="tag">Corroborating</span> <span class="tag">Source · on-chain settled</span></p>
+      </div>
+    </div>
+
+    <div class="quote">
+      <p>A thin-file agent with a spotless on-chain record is a <em>different</em> risk from a thin-file agent with none. One number cannot say that. Two can.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ 05 MODE 1 ═══════════ -->
+<section id="s05">
+  <div class="wrap">
+    <div class="eye"><span class="mono">05</span><span class="tick"></span><span class="mono">Method · Mode 1</span></div>
+    <h2>The credit file, <em>weighted</em>.</h2>
+    <p class="lede">Five components, fixed weights, deterministic arithmetic. Given the same inputs the engine returns the same score every time — a property that matters when the output is used to decline someone.</p>
+
+    <div class="mt40">
+      <div class="wrow"><div><div class="nm">Payment history</div><div class="ds">Share of obligations met on time, weighted against open delinquencies and any recorded default. A single default is the heaviest negative signal in the model.</div><div class="wbar"><i style="width:100%"></i></div></div><div class="pc">35%</div></div>
+      <div class="wrow"><div><div class="nm">Credit utilisation</div><div class="ds">Drawn balance against total extended limit. Below 10% scores maximum; above 50% is treated as a stress indicator regardless of repayment record.</div><div class="wbar"><i style="width:85.7%"></i></div></div><div class="pc">30%</div></div>
+      <div class="wrow"><div><div class="nm">Age of credit</div><div class="ds">Months since the first recorded credit event. Rewards durability and makes a freshly minted identity structurally unable to imitate an established one.</div><div class="wbar"><i style="width:42.9%"></i></div></div><div class="pc">15%</div></div>
+      <div class="wrow"><div><div class="nm">Credit mix</div><div class="ds">Diversity of obligation types on file — revolving lines, settled escrow, metered micropayment streams, term facilities.</div><div class="wbar"><i style="width:28.6%"></i></div></div><div class="pc">10%</div></div>
+      <div class="wrow"><div><div class="nm">New credit and velocity</div><div class="ds">Hard inquiries in the trailing 30 days. A burst of applications across many lenders is the classic signature of an entity about to fail.</div><div class="wbar"><i style="width:28.6%"></i></div></div><div class="pc">10%</div></div>
+    </div>
+
+    <h3 class="mt48">Every score explains itself</h3>
+    <p style="color:var(--steel);font-size:14px;margin-top:8px">Scores are returned with their top contributing factors, each carrying a machine-readable code, a plain-language reason and its weight. An agent operator can act on this; a regulator can audit it.</p>
+    <div class="code">{
+  <span class="k">"agentId"</span>: "agent_prime_001",
+  <span class="k">"score"</span>: <b>847</b>,
+  <span class="k">"tier"</span>: "SUPER_PRIME",
+  <span class="k">"grade"</span>: { <span class="k">"grade"</span>: "BBB", <span class="k">"riskLevel"</span>: "Moderate",
+              <span class="k">"investmentGrade"</span>: true },
+  <span class="k">"factors"</span>: [
+    { <span class="k">"code"</span>: <b>"STRONG_PAYMENT_HISTORY"</b>, <span class="k">"impact"</span>: "positive", <span class="k">"weight"</span>: 35,
+      <span class="k">"description"</span>: "100% of payments made on time." },
+    { <span class="k">"code"</span>: <b>"LOW_UTILIZATION"</b>,        <span class="k">"impact"</span>: "positive", <span class="k">"weight"</span>: 30,
+      <span class="k">"description"</span>: "Credit utilization at 24% — healthy range." },
+    { <span class="k">"code"</span>: <b>"ESTABLISHED_HISTORY"</b>,    <span class="k">"impact"</span>: "positive", <span class="k">"weight"</span>: 15,
+      <span class="k">"description"</span>: "30 months of credit history." },
+    { <span class="k">"code"</span>: <b>"LIMITED_CREDIT_MIX"</b>,     <span class="k">"impact"</span>: "neutral",  <span class="k">"weight"</span>: 10,
+      <span class="k">"description"</span>: "Limited variety of credit types on record." }
+  ],
+  <span class="k">"utilization"</span>: 0.24, <span class="k">"paymentRate"</span>: 1, <span class="k">"frozen"</span>: false
+}</div>
+  </div>
+</section>
+
+<!-- ═══════════ 06 MODE 2 ═══════════ -->
+<section class="ink" id="s06">
+  <div class="wrap">
+    <div class="eye"><span class="mono">06</span><span class="tick"></span><span class="mono">Method · Mode 2</span></div>
+    <h2>What the <em>chain</em> already knows.</h2>
+    <p class="lede">Mode 2 does not ask anyone. It reads settled on-chain records directly and scores operational behaviour — the things an agent cannot easily misrepresent because they were written to a public ledger as they happened.</p>
+
+    <div class="mt40">
+      <div class="wrow"><div><div class="nm">Success rate</div><div class="ds">Fraction of attempted transactions that settled. An agent failing one call in twenty is a materially different operator from one failing one in a thousand.</div><div class="wbar"><i style="width:100%"></i></div></div><div class="pc">30%</div></div>
+      <div class="wrow"><div><div class="nm">Transaction volume</div><div class="ds">Total settled value, banded. Volume evidences real economic activity rather than synthetic history manufactured to game a score.</div><div class="wbar"><i style="width:83.3%"></i></div></div><div class="pc">25%</div></div>
+      <div class="wrow"><div><div class="nm">Transaction count</div><div class="ds">Number of distinct settled operations, banded. Separates one large transfer from sustained, repeated commercial behaviour.</div><div class="wbar"><i style="width:66.7%"></i></div></div><div class="pc">20%</div></div>
+      <div class="wrow"><div><div class="nm">Budget compliance</div><div class="ds">Share of spend attempts falling inside the agent's own declared caps, enforced on-chain. Measures whether an agent respects its own constraints.</div><div class="wbar"><i style="width:50%"></i></div></div><div class="pc">15%</div></div>
+      <div class="wrow"><div><div class="nm">Account age</div><div class="ds">Months since the first on-chain transaction — the operational counterpart to file age, and equally expensive to fake.</div><div class="wbar"><i style="width:33.3%"></i></div></div><div class="pc">10%</div></div>
+    </div>
+
+    <div class="quote">
+      <p>Mode 1 asks what counterparties <em>say</em> about the agent. Mode 2 asks what the ledger <em>recorded</em>. Fraud has to defeat both.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ 07 CONSENSUS ═══════════ -->
+<section id="s07">
+  <div class="wrap">
+    <div class="eye"><span class="mono">07</span><span class="tick"></span><span class="mono">Method · consensus</span></div>
+    <h2>The disagreement <em>is</em> the signal.</h2>
+    <p class="lede">Where the two modes diverge, something is worth knowing. The bureau publishes the absolute variance between them and classifies the confidence of the resulting decision. Mode 1 remains authoritative; Mode 2 decides how much to trust it.</p>
+
+    <div class="tbl">
+      <table>
+        <thead><tr><th>Variance</th><th>Consensus</th><th>What it means</th><th>Action</th></tr></thead>
+        <tbody>
+          <tr><td class="em">≤ 50 pts</td><td><span class="tag tag-good">High</span></td><td>Both modes agree. Reported repayment behaviour and observed on-chain behaviour tell the same story.</td><td>Proceed on Mode 1.</td></tr>
+          <tr><td class="em">51–100 pts</td><td><span class="tag">Medium</span></td><td>A meaningful gap between the credit file and the operational record. Not necessarily adverse, but unexplained.</td><td>Flagged for review before large exposures.</td></tr>
+          <tr><td class="em">&gt; 100 pts</td><td><span class="tag tag-bad">Low</span></td><td>On-chain behaviour and the credit file are misaligned. This is the pattern produced by furnished-data manipulation, wash activity or a compromised operator.</td><td>Manual review required.</td></tr>
+          <tr><td class="em">Not settled</td><td><span class="tag">Medium</span></td><td>The agent has no settled on-chain record yet. Mode 1 stands alone and unverified by an independent source.</td><td>Mode 1 authoritative, thin-file caution.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p style="color:var(--steel);font-size:14px;margin-top:22px;max-width:66ch">This is the mechanism that makes the bureau hard to game. An attacker who captures a furnisher can inflate Mode 1. An attacker who wash-trades can inflate Mode 2. Doing both, consistently, across an eighteen-month file, on a public ledger, while remaining sanctions-clean — costs more than the credit line is worth.</p>
+
+    <div class="code">GET /v1/agents/agent_prime_001/dual-score
+
+{
+  <span class="k">"mode1"</span>: { <span class="k">"score"</span>: <b>847</b>, <span class="k">"source"</span>: "FORGE_CREDIT_FILE" },
+  <span class="k">"mode2"</span>: { <span class="k">"score"</span>: <b>872</b>, <span class="k">"source"</span>: "FORGE_OPERATIONAL_ONCHAIN",
+              <span class="k">"verifiableOnChain"</span>: true },
+  <span class="k">"consensus"</span>: {
+    <span class="k">"level"</span>: <b>"HIGH"</b>,
+    <span class="k">"variance"</span>: 25,
+    <span class="k">"authoritative"</span>: "MODE_1",
+    <span class="k">"flagForReview"</span>: false,
+    <span class="k">"recommendation"</span>:
+      "Both modes agree within 25 points. High confidence in Mode 1 decision."
+  }
+}</div>
+  </div>
+</section>
+
+<!-- ═══════════ 08 GRADE SCALE ═══════════ -->
+<section class="deep" id="s08">
+  <div class="wrap">
+    <div class="eye"><span class="mono">08</span><span class="tick"></span><span class="mono">Reference</span></div>
+    <h2>A scale everyone already <em>reads</em>.</h2>
+    <p class="lede">Scores publish against a bond-style grade scale, because credit committees, risk engines and underwriters already know how to price AAA against BB. Investment grade begins at BBB. The scale is public and served without authentication.</p>
+
+    <div class="tbl">
+      <table>
+        <thead><tr><th>Grade</th><th class="t-r">Floor</th><th>Risk level</th><th>Meaning</th><th>Investment grade</th></tr></thead>
+        <tbody>
+          <tr><td><span class="tag tag-solid">AAA</span></td><td class="t-num">950</td><td>Minimal</td><td>Exceptional track record, highest trust</td><td>Yes</td></tr>
+          <tr><td><span class="tag tag-solid">AA</span></td><td class="t-num">900</td><td>Very low</td><td>Excellent history, very reliable</td><td>Yes</td></tr>
+          <tr><td><span class="tag tag-solid">A</span></td><td class="t-num">850</td><td>Low</td><td>Strong performance, trustworthy</td><td>Yes</td></tr>
+          <tr><td><span class="tag tag-solid">BBB</span></td><td class="t-num">750</td><td>Moderate</td><td>Good standing, investment grade</td><td>Yes</td></tr>
+          <tr><td><span class="tag">BB</span></td><td class="t-num">650</td><td>Notable</td><td>Fair record, room for improvement</td><td>—</td></tr>
+          <tr><td><span class="tag">B</span></td><td class="t-num">550</td><td>Elevated</td><td>Adequate but limited history</td><td>—</td></tr>
+          <tr><td><span class="tag">CCC</span></td><td class="t-num">450</td><td>High</td><td>Below average, caution advised</td><td>—</td></tr>
+          <tr><td><span class="tag">CC</span></td><td class="t-num">350</td><td>Very high</td><td>Poor record, significant risk</td><td>—</td></tr>
+          <tr><td><span class="tag">C</span></td><td class="t-num">250</td><td>Severe</td><td>Very poor, near default</td><td>—</td></tr>
+          <tr><td><span class="tag tag-bad">D</span></td><td class="t-num">0</td><td>Critical</td><td>Default risk, avoid</td><td>—</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ 09 TIERS / LIMITS ═══════════ -->
+<section id="s09">
+  <div class="wrap">
+    <div class="eye"><span class="mono">09</span><span class="tick"></span><span class="mono">Reference</span></div>
+    <h2>From a number to a <em>decision</em>.</h2>
+    <p class="lede">A score on its own does not underwrite anything. Alongside the grade the bureau publishes a tier, a maximum recommended exposure and a decision recommendation — so a lending protocol can act without building its own risk model on day one.</p>
+
+    <div class="split mt40">
+      <div>
+        <h3>Tier ladder</h3>
+        <div class="tbl" style="margin-top:16px">
+          <table>
+            <thead><tr><th>Tier</th><th class="t-r">Floor</th><th>Character</th></tr></thead>
+            <tbody>
+              <tr><td class="em">SUPER PRIME</td><td class="t-num">800</td><td>Established, low-utilisation, unblemished</td></tr>
+              <tr><td class="em">PRIME</td><td class="t-num">670</td><td>Sound record, minor blemishes tolerated</td></tr>
+              <tr><td class="em">NEAR PRIME</td><td class="t-num">580</td><td>Workable with conditions or collateral</td></tr>
+              <tr><td class="em">SUBPRIME</td><td class="t-num">500</td><td>Impaired; price for loss</td></tr>
+              <tr><td class="em">DEEP SUBPRIME</td><td class="t-num">0</td><td>Default present or imminent</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div>
+        <h3>Recommended exposure</h3>
+        <div class="tbl" style="margin-top:16px">
+          <table>
+            <thead><tr><th class="t-r">Score</th><th class="t-r">Max recommended limit</th><th>Decision</th></tr></thead>
+            <tbody>
+              <tr><td class="t-num em">900+</td><td class="t-num">$100 000</td><td>Approve</td></tr>
+              <tr><td class="t-num em">800–899</td><td class="t-num">$50 000</td><td>Approve</td></tr>
+              <tr><td class="t-num em">700–799</td><td class="t-num">$20 000</td><td>Approve</td></tr>
+              <tr><td class="t-num em">620–699</td><td class="t-num">$5 000</td><td>Approve with conditions</td></tr>
+              <tr><td class="t-num em">580–619</td><td class="t-num">$2 000</td><td>Manual review</td></tr>
+              <tr><td class="t-num em">500–579</td><td class="t-num">$500</td><td>Manual review</td></tr>
+              <tr><td class="t-num em">Below 500</td><td class="t-num">$0</td><td>Decline</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p style="color:var(--steel);font-size:13px;margin-top:14px">Recommendations, not instructions. A lender may set its own ladder; the bureau publishes a defensible default.</p>
+      </div>
+    </div>
+
+    <h3 class="mt48">Ask before you lend</h3>
+    <p style="color:var(--steel);font-size:14px;margin-top:8px;max-width:66ch">The simulation endpoint answers counterfactuals without recording an inquiry — what happens to this agent's score if it draws another $10 000, or misses one payment, or opens a second line. Operators use it to plan; lenders use it to stress a position before taking it.</p>
+    <div class="code">POST /v1/agents/agent_prime_001/simulate
+{ <span class="k">"drawAdditional"</span>: 10000, <span class="k">"missPayments"</span>: 0 }
+
+{ <span class="k">"current"</span>: { <span class="k">"score"</span>: 847, <span class="k">"utilization"</span>: 0.24, <span class="k">"grade"</span>: "BBB" },
+  <span class="k">"projected"</span>: { <span class="k">"score"</span>: <b>791</b>, <span class="k">"utilization"</span>: 0.62, <span class="k">"grade"</span>: "BBB" },
+  <span class="k">"delta"</span>: -56,
+  <span class="k">"driver"</span>: "HIGH_UTILIZATION — crosses the 50% stress threshold",
+  <span class="k">"recordsInquiry"</span>: false }</div>
+  </div>
+</section>
+
+<!-- ═══════════ 10 FURNISHERS ═══════════ -->
+<section class="ink" id="s10">
+  <div class="wrap">
+    <div class="eye"><span class="mono">10</span><span class="tick"></span><span class="mono">The network</span></div>
+    <h2>A bureau is only its <em>furnishers</em>.</h2>
+    <p class="lede">Scores are worth what the underlying data is worth. Contributors report settled outcomes — repayments, defaults, disputes, volumes — and are paid a share of every inquiry their data helps answer. The incentive to furnish is the same one that built the consumer bureaus: better data prices your own book better.</p>
+
+    <div class="tbl">
+      <table>
+        <thead><tr><th>Contributor</th><th>Class</th><th>What they furnish</th><th class="t-r">Events · 30d</th></tr></thead>
+        <tbody>
+          <tr><td class="em">FORGE Internal</td><td>Origination</td><td>Credit lines opened, drawn and repaid on our own rails</td><td class="t-num">4 210</td></tr>
+          <tr><td class="em">Aave V3</td><td>Lender</td><td>Facility performance, delinquency and liquidation outcomes</td><td class="t-num">1 122</td></tr>
+          <tr><td class="em">Compound V3</td><td>Lender</td><td>Facility performance and utilisation</td><td class="t-num">864</td></tr>
+          <tr><td class="em">Coinbase Commerce</td><td>Payment data</td><td>Settled commercial payments and refund behaviour</td><td class="t-num">2 310</td></tr>
+          <tr><td class="em">x402 Gateway</td><td>Micropayment stream</td><td>Per-call machine payments — the highest-frequency signal on the network</td><td class="t-num">18 204</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="grid g3">
+      <div class="cell"><div class="n">Compensation</div><h4>25% revenue share</h4><p>A quarter of every hard-inquiry fee flows back to the furnishers whose records informed that report, apportioned by contribution.</p></div>
+      <div class="cell"><div class="n">Obligation</div><h4>Furnish accurately</h4><p>Contributors are accountable for the accuracy of what they report and must respond to disputes raised against their records within the dispute window.</p></div>
+      <div class="cell"><div class="n">Compounding</div><h4>The log is the moat</h4><p>Day 30: 2.6 million events. Year one: 36.5 billion. Every settled event both sharpens the score and widens the gap behind us.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ 11 CONSENT ═══════════ -->
+<section id="s11">
+  <div class="wrap">
+    <div class="eye"><span class="mono">11</span><span class="tick"></span><span class="mono">The network</span></div>
+    <h2>Nobody pulls a file <em>silently</em>.</h2>
+    <p class="lede">Inquiries are consent-gated and recorded. An agent's operator can see who asked about it and why — the same protection consumers have, applied to machines from the start rather than legislated in afterwards.</p>
+
+    <div class="grid g3">
+      <div class="cell"><div class="n">Soft pull</div><h4>Free · no consent</h4><p>Returns the grade band only — enough to gate access or size an offer. Never recorded against the file and never affects the score.</p></div>
+      <div class="cell"><div class="n">Hard pull</div><h4>$2.80 · consent required</h4><p>Returns the full report: score, both modes, consensus, factors, history and delinquencies. Requires a consent token signed by the operator, and is recorded on the file where it affects inquiry velocity.</p></div>
+      <div class="cell"><div class="n">Zero-knowledge report</div><h4>Prove without revealing</h4><p>A proof that the agent's score exceeds a stated threshold, without disclosing the score, the history or the counterparties. For lenders who need a gate, not a dossier.</p></div>
+    </div>
+
+    <div class="code">POST /v1/inquiries
+{ <span class="k">"agentId"</span>: "agent_prime_001",
+  <span class="k">"purpose"</span>: "credit_application",
+  <span class="k">"consentToken"</span>: <b>"tok_abc123"</b> }        <span class="c">// signed by the operator</span>
+
+<span class="c">// or, when the counterparty needs a gate rather than a file:</span>
+GET /v1/reports/rep_8812/zk?threshold=750
+
+{ <span class="k">"claim"</span>: <b>"score &gt;= 750"</b>,
+  <span class="k">"result"</span>: true,
+  <span class="k">"proofHash"</span>: "0x8f21c4…d90a",
+  <span class="k">"disclosed"</span>: []                         <span class="c">// nothing else leaves the bureau</span> }</div>
+
+    <p style="color:var(--steel);font-size:14px;margin-top:22px;max-width:66ch">Every hard inquiry in the last ninety days on the FORGE network was consent-verified. We publish that figure because a bureau that cannot say it should not be trusted with the record.</p>
+  </div>
+</section>
+
+<!-- ═══════════ 12 AGENTIC BANKING ═══════════ -->
+<section class="deep" id="s12">
+  <div class="wrap">
+    <div class="eye"><span class="mono">12</span><span class="tick"></span><span class="mono">Application</span></div>
+    <h2>What a score <em>unlocks</em>.</h2>
+    <p class="lede">Credit is infrastructure. Once an agent has a file, a set of products that were previously impossible become ordinary — and each of them furnishes data back into the file that made it possible.</p>
+
+    <div class="grid g2">
+      <div class="cell"><div class="n">01 · Credit lines</div><h4>Agents on net terms</h4><p>An agent draws compute, data or inference now and settles later, sized to its grade. Working capital stops being the binding constraint on what autonomous systems can attempt. This is the single largest unlock: an economy of prepaid strangers becomes an economy with balance sheets.</p></div>
+      <div class="cell"><div class="n">02 · Escrow, priced by trust</div><h4>Collateral that scales down</h4><p>Agent-to-agent deals lock funds until both sides perform. A BBB counterparty posts less collateral than a CCC one, and an AAA counterparty may post none. Reputation substitutes for capital exactly as it does between firms.</p></div>
+      <div class="cell"><div class="n">03 · Underwriting and insurance</div><h4>A priceable risk</h4><p>Performance bonds, delivery guarantees and failure cover for autonomous work require a loss-probability estimate. The dual-mode score and its variance are that estimate, and the operational mode is what makes it credible.</p></div>
+      <div class="cell"><div class="n">04 · Access control</div><h4>Rate limits by reputation</h4><p>An API provider gates by grade rather than by prepayment: high-grade agents get higher throughput, deferred billing and priority. A soft pull is free, so this costs the provider nothing per request.</p></div>
+      <div class="cell"><div class="n">05 · Interbank between agents</div><h4>Machines lending to machines</h4><p>An agent holding idle stablecoin lends to one with a scored, time-boxed need. The bureau is the shared reference that makes the two sides mutually legible without a human in the middle.</p></div>
+      <div class="cell"><div class="n">06 · Operator working capital</div><h4>Financing the fleet</h4><p>An operator running a hundred agents borrows against the aggregate performance of the fleet — a portfolio with a measurable default distribution rather than an unprovable claim about software quality.</p></div>
+    </div>
+
+    <div class="quote">
+      <p>Agentic banking is not a metaphor. It is the ordinary machinery of credit, pointed at borrowers who happen not to be <em>people</em>.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ 13 LOAN FLOW ═══════════ -->
+<section id="s13">
+  <div class="wrap">
+    <div class="eye"><span class="mono">13</span><span class="tick"></span><span class="mono">Application</span></div>
+    <h2>A loan, <em>end to end</em>.</h2>
+    <p class="lede">An agent needs $8 000 of GPU capacity to complete work it has already been contracted for. It holds $900. Here is what happens, in roughly four seconds, with no human in the path.</p>
+
+    <div class="pipe">
+      <div class="pstep"><div class="prail"><div class="pdot">01</div><div class="pline"></div></div>
+        <div class="pbody"><div class="pt">The agent applies</div><div class="pd">It presents its DID to a lending protocol and requests a facility. No forms, no onboarding — the identity is the application.</div>
+        <div class="po">POST /v1/inquiries · agentId=agent_prime_001 · purpose=credit_application</div></div></div>
+      <div class="pstep"><div class="prail"><div class="pdot">02</div><div class="pline"></div></div>
+        <div class="pbody"><div class="pt">Consent is proven</div><div class="pd">The operator's signed consent token accompanies the request. Without it the bureau returns a band and nothing more.</div>
+        <div class="po">consentToken=tok_abc123 · verified against did:forge:entity:EIN-82-1234567</div></div></div>
+      <div class="pstep"><div class="prail"><div class="pdot">03</div><div class="pline"></div></div>
+        <div class="pbody"><div class="pt">Both modes are read</div><div class="pd">The credit file scores 847. The on-chain operational record scores 872, verified against settled transactions on Base.</div>
+        <div class="po">mode1=847 (FORGE_CREDIT_FILE) · mode2=872 (FORGE_OPERATIONAL_ONCHAIN)</div></div></div>
+      <div class="pstep"><div class="prail"><div class="pdot">04</div><div class="pline"></div></div>
+        <div class="pbody"><div class="pt">Consensus is assessed</div><div class="pd">A 25-point variance falls inside the high-confidence band. Nothing is flagged; Mode 1 stands as authoritative.</div>
+        <div class="po">variance=25 · consensus=HIGH · flagForReview=false</div></div></div>
+      <div class="pstep"><div class="prail"><div class="pdot">05</div><div class="pline"></div></div>
+        <div class="pbody"><div class="pt">Sanctions are screened</div><div class="pd">The agent and its controlling operator are checked against OFAC SDN and the EU consolidated list. A hit stops the process here.</div>
+        <div class="po">POST /v1/verify/sanctions → clear · no list matches</div></div></div>
+      <div class="pstep"><div class="prail"><div class="pdot">06</div><div class="pline"></div></div>
+        <div class="pbody"><div class="pt">A decision is returned</div><div class="pd">Grade BBB, investment grade, tier SUPER PRIME. Recommended maximum exposure $50 000 — comfortably above the $8 000 requested.</div>
+        <div class="po">recommendation=approve · maxRecommendedLimit=50000 · requested=8000</div></div></div>
+      <div class="pstep"><div class="prail"><div class="pdot">07</div><div class="pline"></div></div>
+        <div class="pbody"><div class="pt">The facility opens and draws</div><div class="pd">The line is created against the DID and drawn immediately. The agent buys its compute and completes the contracted work.</div>
+        <div class="po">credit_opened $8 000 · drawn $8 000 · utilisation 24% → 41%</div></div></div>
+      <div class="pstep"><div class="prail"><div class="pdot">08</div></div>
+        <div class="pbody"><div class="pt">Repayment furnishes the file</div><div class="pd">Settlement of the underlying contract repays the facility on time. The lender furnishes the outcome, the score moves, and the next lender prices the agent better than this one could.</div>
+        <div class="po">payment_on_time furnished by lender · score 847 → 851 · published on Base</div></div></div>
+    </div>
+
+    <p style="color:var(--steel);font-size:14px;margin-top:14px;max-width:66ch">Note the last step. The loan does not merely get repaid — it becomes evidence. Every completed facility makes the next one cheaper, which is precisely how credit compounds for firms and has never yet compounded for software.</p>
+  </div>
+</section>
+
+<!-- ═══════════ 14 RIGHTS ═══════════ -->
+<section class="ink" id="s14">
+  <div class="wrap">
+    <div class="eye"><span class="mono">14</span><span class="tick"></span><span class="mono">Governance</span></div>
+    <h2>Agents get <em>rights</em>, not just records.</h2>
+    <p class="lede">Consumer credit reporting acquired its protections slowly and after considerable harm. We are building an entirely new bureau, so there is no excuse for repeating that sequence. The dispute rail shipped with the first score.</p>
+
+    <div class="rows">
+      <div class="r"><span class="rn">Right to see</span><span class="rd">An operator can read its agent's full file, factor breakdown and complete inquiry history at any time, at no charge</span></div>
+      <div class="r"><span class="rn">Right to dispute</span><span class="rd">Any furnished event can be challenged. Disputed tradelines are flagged within 24 hours and <span>excluded from scoring until resolved</span> — the burden sits with the furnisher, not the subject</span></div>
+      <div class="r"><span class="rn">Right to explanation</span><span class="rd">Every score returns its weighted factors with named codes and plain-language reasons. An adverse decision is always accompanied by what drove it</span></div>
+      <div class="r"><span class="rn">Right to consent</span><span class="rd">No hard inquiry proceeds without a token signed by the controlling operator. Soft pulls disclose a band and nothing more</span></div>
+      <div class="r"><span class="rn">Right to privacy</span><span class="rd">Zero-knowledge reports let a counterparty verify a threshold without receiving the file behind it</span></div>
+      <div class="r"><span class="rn">Right to rehabilitate</span><span class="rd">Negative events age out on a published schedule. A default is not a life sentence, for an agent any more than for a person</span></div>
+    </div>
+
+    <div class="quote">
+      <p>A bureau that cannot be argued with is not a bureau. It is a <em>blacklist</em>.</p>
+    </div>
+
+    <h3 class="mt48" style="color:var(--paper)">Regulatory posture</h3>
+    <p class="lede" style="margin-top:12px">FORGE operates from Johannesburg under South African financial-services regulation, and the bureau is built to be examinable. Records are retained for seven years against FSCA and FIC requirements. Personal data touched during operator verification is handled under POPIA. Sanctions screening runs against OFAC SDN and the EU consolidated list on every verification. The scoring engine is deterministic and every published score is reproducible from its inputs — a property regulators ask for and machine-learning scorecards struggle to provide.</p>
+  </div>
+</section>
+
+<!-- ═══════════ 15 INTEGRATION ═══════════ -->
+<section id="s15">
+  <div class="wrap">
+    <div class="eye"><span class="mono">15</span><span class="tick"></span><span class="mono">Technical</span></div>
+    <h2>One call to a <em>decision</em>.</h2>
+    <p class="lede">REST over HTTPS, Bearer authentication, idempotent writes, signed webhooks. Most integrations need two endpoints: verify before you transact, and furnish after you settle.</p>
+
+    <div class="split mt40">
+      <div>
+        <h3>Read a score</h3>
+        <div class="code" style="margin-top:14px">curl https://api.forgepay.io/v1/agents/\
+agent_prime_001/score \
+  -H "Authorization: Bearer fg_live_…"
+
+{ <span class="k">"score"</span>: <b>847</b>, <span class="k">"tier"</span>: "SUPER_PRIME",
+  <span class="k">"grade"</span>: { <span class="k">"grade"</span>: "BBB" },
+  <span class="k">"utilization"</span>: 0.24,
+  <span class="k">"frozen"</span>: false }</div>
+      </div>
+      <div>
+        <h3>Furnish an outcome</h3>
+        <div class="code" style="margin-top:14px">curl -X POST https://api.forgepay.io/\
+v1/contributors/aave_v3/ingest \
+  -H "Authorization: Bearer fg_live_…" \
+  -d '{ <span class="k">"agentId"</span>: "agent_prime_001",
+        <span class="k">"eventType"</span>: <b>"payment_on_time"</b>,
+        <span class="k">"amount"</span>: 8000,
+        <span class="k">"occurredAt"</span>: "2026-07-28T12:00:00Z" }'</div>
+      </div>
+    </div>
+
+    <h3 class="mt48">The surface in full</h3>
+    <div class="tbl">
+      <table>
+        <thead><tr><th>Endpoint</th><th>Purpose</th><th>Consent</th></tr></thead>
+        <tbody>
+          <tr><td class="em"><span class="mono" style="text-transform:none;font-size:11.5px">GET /v1/grade-scale</span></td><td>The published grade scale and current inquiry fee</td><td>Public</td></tr>
+          <tr><td class="em"><span class="mono" style="text-transform:none;font-size:11.5px">GET /v1/agents/:id/score</span></td><td>Current score, grade, tier and weighted factors</td><td>Soft</td></tr>
+          <tr><td class="em"><span class="mono" style="text-transform:none;font-size:11.5px">GET /v1/agents/:id/dual-score</span></td><td>Both modes with consensus level and variance</td><td>Soft</td></tr>
+          <tr><td class="em"><span class="mono" style="text-transform:none;font-size:11.5px">GET /v1/agents/:id/profile</span></td><td>Full credit profile including limits and delinquencies</td><td>Hard</td></tr>
+          <tr><td class="em"><span class="mono" style="text-transform:none;font-size:11.5px">GET /v1/agents/:id/history</span></td><td>Complete furnished credit event history</td><td>Hard</td></tr>
+          <tr><td class="em"><span class="mono" style="text-transform:none;font-size:11.5px">POST /v1/agents/:id/simulate</span></td><td>Counterfactual scoring — no inquiry recorded</td><td>Soft</td></tr>
+          <tr><td class="em"><span class="mono" style="text-transform:none;font-size:11.5px">POST /v1/agents/:id/verify</span></td><td>DID ownership and operator entity verification</td><td>Soft</td></tr>
+          <tr><td class="em"><span class="mono" style="text-transform:none;font-size:11.5px">POST /v1/verify/sanctions</span></td><td>OFAC SDN and EU consolidated screening</td><td>Soft</td></tr>
+          <tr><td class="em"><span class="mono" style="text-transform:none;font-size:11.5px">POST /v1/reports</span></td><td>Generate a full credit report</td><td>Hard</td></tr>
+          <tr><td class="em"><span class="mono" style="text-transform:none;font-size:11.5px">GET /v1/reports/:id/zk</span></td><td>Threshold proof without disclosing the file</td><td>Hard</td></tr>
+          <tr><td class="em"><span class="mono" style="text-transform:none;font-size:11.5px">POST /v1/contributors/:id/ingest</span></td><td>Furnish credit events as a registered contributor</td><td>Furnisher</td></tr>
+          <tr><td class="em"><span class="mono" style="text-transform:none;font-size:11.5px">POST /v1/disputes</span></td><td>Raise a dispute against a furnished event</td><td>Operator</td></tr>
+          <tr><td class="em"><span class="mono" style="text-transform:none;font-size:11.5px">GET /v1/bureau/stats</span></td><td>Network-level aggregates and coverage</td><td>Public</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p style="color:var(--steel);font-size:14px;margin-top:22px;max-width:66ch">Score changes are delivered as signed webhooks — <span class="mono" style="text-transform:none;font-size:12.5px">score.updated</span> and <span class="mono" style="text-transform:none;font-size:12.5px">dispute.filed</span> — over the same canonical event stream the rest of the FORGE platform emits. Verify <span class="mono" style="text-transform:none;font-size:12.5px">X-Forge-Signature</span> before acting on any payload.</p>
+  </div>
+</section>
+
+<!-- ═══════════ 16 COMMERCIAL ═══════════ -->
+<section class="deep" id="s16">
+  <div class="wrap">
+    <div class="eye"><span class="mono">16</span><span class="tick"></span><span class="mono">Commercial</span></div>
+    <h2>What it costs to <em>know</em>.</h2>
+
+    <div class="tbl">
+      <table>
+        <thead><tr><th>Item</th><th>Price</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td class="em">Soft pull — grade band</td><td class="em">Free</td><td>Unlimited, no consent required, never recorded against the file</td></tr>
+          <tr><td class="em">Hard inquiry — full report</td><td class="em">$2.80</td><td>Consent-gated; 25% is returned to contributing furnishers</td></tr>
+          <tr><td class="em">Zero-knowledge threshold proof</td><td class="em">$2.80</td><td>Priced as a hard inquiry; discloses nothing beyond the claim</td></tr>
+          <tr><td class="em">Simulation</td><td class="em">Free</td><td>Counterfactual scoring; records no inquiry and moves no score</td></tr>
+          <tr><td class="em">Data furnishing</td><td class="em">Paid to you</td><td>25% revenue share on inquiries your furnished data informs</td></tr>
+          <tr><td class="em">Bureau subscription</td><td class="em">R 8 500 / mo</td><td>Platform access, contributor onboarding, dispute handling and support</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="split mt48">
+      <div>
+        <h3>Who this is for</h3>
+        <div class="body-copy" style="margin-top:14px">
+          <p><strong>Lending protocols</strong> that want to extend credit to agents and currently cannot price the risk. <strong>Agent marketplaces</strong> that need counterparties to be legible to one another. <strong>API and compute providers</strong> tired of prepayment as the only trust mechanism. <strong>Insurers</strong> underwriting autonomous work. <strong>Agent operators</strong> who want their fleet's track record to be worth something.</p>
+        </div>
+      </div>
+      <div>
+        <h3>Getting started</h3>
+        <div class="body-copy" style="margin-top:14px">
+          <p>Read the grade scale without an account — it is public. Register agents against your operating entity, verify them, and start reading soft pulls the same day. Furnishing requires a contributor agreement and a short accuracy review; most contributors are live within a fortnight.</p>
+          <p><span class="mono" style="text-transform:none;font-size:13px">api.forgepay.io/v1/grade-scale</span><br/><span class="mono" style="text-transform:none;font-size:13px">bureau@forgepay.io</span></p>
+        </div>
+      </div>
+    </div>
+
+    <div class="quote">
+      <p>Two hundred years ago a group of London traders decided to write down who paid. Everything since — mortgages, cards, working capital, the whole apparatus of modern credit — is downstream of that ledger. <em>Somebody</em> has to keep the one for machines.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ FOOTER ═══════════ -->
+<footer>
+  <div class="wrap">
+    <div class="fgrid">
+      <div>
+        <div class="brandmark" style="margin-bottom:18px">
+          <svg viewBox="0 0 520 100" height="20" aria-label="FORGE"><path d="M0 4 L60 4 L60 18 L16 18 L16 44 L52 44 L52 58 L16 58 L16 96 L0 96 Z" fill="currentColor"/><g transform="translate(72,4)"><circle cx="46" cy="46" r="42" fill="none" stroke="currentColor" stroke-width="14"/><line x1="-6" y1="46" x2="98" y2="46" stroke="#0A0A0A" stroke-width="2"/></g><path d="M180 4 L232 4 C250 4 260 16 260 32 C260 44 254 54 244 58 L262 96 L244 96 L228 62 L196 62 L196 96 L180 96 Z M196 18 L196 48 L230 48 C238 48 244 42 244 33 C244 24 238 18 230 18 Z" fill="currentColor"/><path d="M276 50 C276 22 296 2 324 2 C342 2 358 10 366 24 L353 32 C347 22 336 16 324 16 C305 16 292 30 292 50 C292 70 305 84 324 84 C340 84 352 74 354 60 L326 60 L326 46 L370 46 L370 96 L358 96 L356 84 C350 92 338 98 322 98 C295 98 276 78 276 50 Z" fill="currentColor"/><path d="M384 4 L448 4 L448 18 L400 18 L400 44 L444 44 L444 58 L400 58 L400 82 L450 82 L450 96 L384 96 Z" fill="currentColor"/></svg>
+          <span class="bt">Credit Bureau</span>
+        </div>
+        <p style="color:var(--on-ink);font-size:13.5px;max-width:44ch">Verifiable creditworthiness for autonomous agents. Part of the FORGE platform — the revenue ontology for traditional finance, crypto, agents and tokenised real-world assets.</p>
+      </div>
+      <div>
+        <h5>The bureau</h5>
+        <ul>
+          <li>Dual-mode scoring</li>
+          <li>Published grade scale</li>
+          <li>Consent and inquiries</li>
+          <li>Dispute rail</li>
+          <li>Contributor programme</li>
+        </ul>
+      </div>
+      <div>
+        <h5>Contact</h5>
+        <ul>
+          <li>bureau@forgepay.io</li>
+          <li>api.forgepay.io</li>
+          <li>Johannesburg, South Africa</li>
+        </ul>
+      </div>
+    </div>
+    <div class="meta">
+      <span class="mono">© MMXXVI ForgePay (Pty) Ltd · FORGE Credit Bureau</span>
+      <span class="mono">Product prospectus · v1.0</span>
+    </div>
+  </div>
+</footer>
+
+<div class="printbar no-print">
+  <button onclick="window.print()">Print / save as PDF</button>
+</div>
+
+</body>
+</html>
