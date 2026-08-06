@@ -7,7 +7,7 @@ import { EthereumService } from '../blockchain/ethereum.service';
 import { SolanaService } from '../blockchain/solana.service';
 import { PolygonService } from '../blockchain/polygon.service';
 import { logger } from '../../common/logger';
-import * as crypto from 'crypto';
+import { encryptPrivateKey } from '../../common/crypto/private-key-crypto';
 
 @Injectable()
 export class WalletService {
@@ -57,17 +57,11 @@ export class WalletService {
           throw new BadRequestException(`Unsupported chain: ${chain}`);
       }
 
-      // Encrypt private key (simple encryption; use KMS in production)
-      const encryptionKey = process.env.ENCRYPTION_KEY || 'dev-secret-key';
-      const iv = crypto.randomBytes(16);
-      const cipher = crypto.createCipheriv(
-        'aes-256-cbc',
-        Buffer.from(encryptionKey.padEnd(32).substring(0, 32)),
-        iv,
-      );
-      let encrypted = cipher.update(privateKey, 'utf8', 'hex');
-      encrypted += cipher.final('hex');
-      const encryptedPrivateKey = iv.toString('hex') + ':' + encrypted;
+      // Authenticated encryption with a scrypt-derived per-wallet key.
+      // Refuses to run in production without a real ENCRYPTION_KEY — see
+      // common/crypto/private-key-crypto.ts for why the previous inline
+      // AES-256-CBC block was unsafe.
+      const encryptedPrivateKey = encryptPrivateKey(privateKey);
 
       // Create wallet record
       const wallet = this.walletRepository.create({

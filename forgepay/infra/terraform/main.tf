@@ -164,6 +164,37 @@ module "cloudfront" {
   }
 }
 
+# WAF Module — managed rules, rate limiting and bot control on the front door.
+# REGIONAL scope by default (attaches to the ALB). To front CloudFront instead,
+# set scope = "CLOUDFRONT" and pass a provider aliased to us-east-1, then set
+# web_acl_id on the distribution from module.waf.web_acl_arn.
+module "waf" {
+  source = "./modules/waf"
+
+  environment           = var.environment
+  scope                 = "REGIONAL"
+  rate_limit_per_5min   = var.waf_rate_limit_per_5min
+  blocked_country_codes = var.waf_blocked_country_codes
+  log_retention_days    = var.log_retention_days
+
+  tags = {
+    Module = "WAF"
+  }
+}
+
+# Secrets Module — Secrets Manager containers, KMS key and the IRSA role pods
+# use to read them. Secret VALUES are written out-of-band, never via Terraform.
+module "secrets" {
+  source = "./modules/secrets"
+
+  environment           = var.environment
+  eks_oidc_provider_arn = module.eks.oidc_provider_arn
+
+  tags = {
+    Module = "Secrets"
+  }
+}
+
 # Monitoring & Logging Module
 module "monitoring" {
   source = "./modules/monitoring"

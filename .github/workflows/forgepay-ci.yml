@@ -62,6 +62,30 @@ jobs:
       - run: npm test
 
   # ── FORGE Custody (TypeScript) ──────────────────────────────────────────────
+  # ── Agent Credit Bureau (TypeScript) ────────────────────────────────────────
+  # The flagship product. It previously appeared only in forgepay-smoke.yml as a
+  # boot probe — a health check, not a correctness gate — which is how a scoring
+  # inconsistency between /score and /dual-score reached the running service.
+  agent-credit-bureau:
+    name: "agent-credit-bureau — type-check + test"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: forgepay/services/agent-credit-bureau
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: forgepay/services/agent-credit-bureau/package-lock.json
+
+      - run: npm ci
+      - run: npm run type-check
+      - run: npm test
+
+  # ── FORGE Custody (TypeScript) ──────────────────────────────────────────────
   forge-custody:
     name: "forge-custody — type-check + test"
     runs-on: ubuntu-latest

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { jwtVerify } from 'jose';
 import { can, requiredPermissionFor } from '@/lib/rbac';
+import { getJwtSecret } from '@/lib/jwt-secret';
 
 /**
  * Console route guard.
@@ -14,7 +15,7 @@ import { can, requiredPermissionFor } from '@/lib/rbac';
  * `jsonwebtoken` used server-side) — both verify the same HS256 signature.
  */
 
-const secret = new TextEncoder().encode(process.env.JWT_SECRET || 'dev-secret-key');
+const secret = new TextEncoder().encode(getJwtSecret());
 
 async function readSession(req: NextRequest): Promise<{ role?: string } | null> {
   const token = req.cookies.get('auth-token')?.value;

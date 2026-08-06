@@ -92,16 +92,44 @@ export function bureauStats() {
 
 // ── Seed data ─────────────────────────────────────────────────────────────────
 
+/**
+ * Derive the score-bearing fields of a profile from its underlying credit data.
+ *
+ * `computeScore` is the single source of truth for a score. Anything that
+ * mutates the inputs to a score (payments, delinquencies, utilisation, new
+ * inquiries) must route the result through here, so that `currentScore`,
+ * `tier` and `scoreFactors` can never drift out of agreement with each other
+ * or with what the scorer would return on a live recompute.
+ *
+ * Regression this guards: `/score` used to serve a stored `currentScore` while
+ * `/dual-score` recomputed on the fly, so the same agent could be reported at
+ * two different scores — by up to 102 points, wide enough to cross grade
+ * boundaries and flip a lending decision.
+ */
+export function deriveScoreFields(
+  raw: Omit<AgentCreditProfile, 'scoreFactors' | 'tier' | 'currentScore'>,
+): AgentCreditProfile {
+  const { score, factors } = computeScore(raw);
+  return {
+    ...raw,
+    currentScore: score,
+    tier:         scoreTierFromScore(score),
+    scoreFactors: factors,
+  };
+}
+
 function seed() {
   const now = new Date().toISOString();
 
-  const agents: Omit<AgentCreditProfile, 'scoreFactors' | 'tier'>[] = [
+  // NOTE: no `currentScore` here — it is derived by `deriveScoreFields` below.
+  // The type deliberately omits it so a hand-written score cannot be
+  // reintroduced and silently disagree with the scorer.
+  const agents: Omit<AgentCreditProfile, 'scoreFactors' | 'tier' | 'currentScore'>[] = [
     {
       agentId: 'agent_prime_001',
       did: 'did:fp:0x7a3b9c2d1e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b',
       operatorEntityId: 'EIN-82-1234567',
       operatorEntityType: 'llc',
-      currentScore: 847,
       creditHistory: [
         { id: 'evt_001', agentId: 'agent_prime_001', eventType: 'credit_opened', amount: 10000, creditorId: 'fp_internal', description: 'Initial credit line opened', timestamp: '2024-01-15T00:00:00Z' },
         { id: 'evt_002', agentId: 'agent_prime_001', eventType: 'payment_on_time', amount: 1200, creditorId: 'fp_internal', description: 'Monthly repayment — on time', timestamp: '2024-02-01T00:00:00Z' },
@@ -124,7 +152,6 @@ function seed() {
       did: 'did:fp:0x1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b',
       operatorEntityId: 'EIN-45-9876543',
       operatorEntityType: 'corp',
-      currentScore: 712,
       creditHistory: [
         { id: 'evt_010', agentId: 'agent_prime_002', eventType: 'credit_opened', amount: 5000, creditorId: 'fp_internal', description: 'Tier-3 credit line', timestamp: '2024-03-01T00:00:00Z' },
         { id: 'evt_011', agentId: 'agent_prime_002', eventType: 'payment_on_time', amount: 800, creditorId: 'fp_internal', description: 'On-time payment', timestamp: '2024-04-01T00:00:00Z' },
@@ -145,16 +172,19 @@ function seed() {
       did: 'did:fp:0x9f8e7d6c5b4a3928172605040302010e0f1a2b3c',
       operatorEntityId: 'EIN-11-2233445',
       operatorEntityType: 'individual',
-      currentScore: 541,
       creditHistory: [
         { id: 'evt_020', agentId: 'agent_subprime_001', eventType: 'credit_opened', amount: 2000, creditorId: 'fp_internal', description: 'Tier-1 credit line', timestamp: '2024-04-01T00:00:00Z' },
         { id: 'evt_021', agentId: 'agent_subprime_001', eventType: 'payment_late_60', amount: 300, creditorId: 'fp_internal', description: '62 days late', timestamp: '2024-05-15T00:00:00Z' },
         { id: 'evt_022', agentId: 'agent_subprime_001', eventType: 'payment_late_30', amount: 300, creditorId: 'fp_internal', description: '35 days late', timestamp: '2024-06-10T00:00:00Z' },
+        { id: 'evt_023', agentId: 'agent_subprime_001', eventType: 'payment_on_time', amount: 300, creditorId: 'fp_internal', description: 'Recovered — on-time payment', timestamp: '2024-07-08T00:00:00Z' },
+        { id: 'evt_024', agentId: 'agent_subprime_001', eventType: 'payment_on_time', amount: 300, creditorId: 'fp_internal', description: 'Recovered — on-time payment', timestamp: '2024-08-06T00:00:00Z' },
       ],
       totalDebt: 1800,
       totalCreditLimit: 2000,
       utilizationRate: 0.90,
-      paymentHistoryRate: 0.33,
+      // Recovering: 3 of 5 obligations met, but the 62-day delinquency is still
+      // open and utilisation is at 90% — a genuine subprime, not a defaulter.
+      paymentHistoryRate: 0.55,
       delinquencies: [
         { id: 'del_001', creditorId: 'fp_internal', amount: 300, daysLate: 62, openedAt: '2024-05-15T00:00:00Z', status: 'open' },
       ],
@@ -170,16 +200,17 @@ function seed() {
       did: 'did:fp:0xdeadbeef1234567890abcdef1234567890abcdef',
       operatorEntityId: 'EIN-99-1111111',
       operatorEntityType: 'dao',
-      currentScore: 921,
       creditHistory: [
         { id: 'evt_030', agentId: 'agent_super_001', eventType: 'credit_opened', amount: 50000, creditorId: 'fp_internal', description: 'Enterprise credit line', timestamp: '2023-06-01T00:00:00Z' },
         { id: 'evt_031', agentId: 'agent_super_001', eventType: 'payment_on_time', amount: 5000, creditorId: 'fp_internal', description: 'Monthly repayment', timestamp: '2023-07-01T00:00:00Z' },
         { id: 'evt_032', agentId: 'agent_super_001', eventType: 'payment_on_time', amount: 5000, creditorId: 'fp_internal', description: 'Monthly repayment', timestamp: '2023-08-01T00:00:00Z' },
         { id: 'evt_033', agentId: 'agent_super_001', eventType: 'identity_verified', description: 'On-chain DAO vote verified', timestamp: '2023-05-28T00:00:00Z', onChainTxHash: '0xabc123def456' },
       ],
-      totalDebt: 12000,
+      // Draws 10% of a 50k enterprise line — the disciplined-treasury profile
+      // that separates this agent from agent_prime_001 on utilisation alone.
+      totalDebt: 5000,
       totalCreditLimit: 50000,
-      utilizationRate: 0.24,
+      utilizationRate: 0.10,
       paymentHistoryRate: 1.0,
       delinquencies: [],
       hardInquiries: [],
@@ -191,7 +222,6 @@ function seed() {
       did: 'did:fp:0x000000000000000000000000000000000000dead',
       operatorEntityId: 'EIN-00-0000001',
       operatorEntityType: 'individual',
-      currentScore: 423,
       creditHistory: [
         { id: 'evt_040', agentId: 'agent_deep_001', eventType: 'credit_opened', amount: 500, creditorId: 'fp_internal', description: 'Tier-1 credit line', timestamp: '2024-05-01T00:00:00Z' },
         { id: 'evt_041', agentId: 'agent_deep_001', eventType: 'default', amount: 500, creditorId: 'fp_internal', description: 'Failed to repay — defaulted', timestamp: '2024-06-15T00:00:00Z' },
@@ -212,13 +242,7 @@ function seed() {
   ];
 
   for (const raw of agents) {
-    const { score, factors } = computeScore(raw);
-    const profile: AgentCreditProfile = {
-      ...raw,
-      currentScore: raw.currentScore, // use seeded score for consistency
-      scoreFactors: factors,
-      tier: scoreTierFromScore(raw.currentScore),
-    };
+    const profile = deriveScoreFields(raw);
     profiles.set(profile.agentId, profile);
   }
 

@@ -172,3 +172,17 @@ variable "tf_locks_table" {
   type        = string
   default     = "forgepay-terraform-locks"
 }
+
+# ── WAF ───────────────────────────────────────────────────────────────────────
+
+variable "waf_rate_limit_per_5min" {
+  type        = number
+  default     = 2000
+  description = "Requests per source IP per 5-minute window before WAF blocks."
+}
+
+variable "waf_blocked_country_codes" {
+  type        = list(string)
+  default     = []
+  description = "ISO 3166-1 alpha-2 codes to block at the edge. Empty by default — a sanctions/compliance decision, not a default."
+}

@@ -14,7 +14,9 @@ export interface TokenPayload {
   exp?: number;
 }
 
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-key';
+import { getJwtSecret } from './jwt-secret';
+
+const JWT_SECRET = getJwtSecret();
 const JWT_EXPIRY = '7d';
 
 export async function hashPassword(password: string): Promise<string> {

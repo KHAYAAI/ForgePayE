@@ -6,7 +6,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/index';
-import { computeSignature } from '../src/auth';
+import { computeSignature, __resetReplayCache } from '../src/auth';
 import { evaluatePolicies } from '../src/policy';
 import {
   auditLog,
@@ -42,6 +42,7 @@ function baseTx(overrides: Partial<SigningRequest['transaction']> = {}) {
 
 beforeEach(async () => {
   resetStore();
+  __resetReplayCache();
   const ws = createWorkspace('Test Bank', 'bank');
   workspaceId = ws.id;
   rawKey = issueApiKey(ws.id, 'test').rawKey;
@@ -156,7 +157,7 @@ describe('HMAC authentication', () => {
     expect(res.json().reason).toBe('bad_signature');
   });
 
-  it('rejects a replayed (stale) timestamp', async () => {
+  it('rejects a stale timestamp', async () => {
     const stale = (Math.floor(Date.now() / 1000) - 3600).toString();
     const headers = {
       'x-api-key': rawKey,
@@ -175,6 +176,69 @@ describe('HMAC authentication', () => {
       headers: signedHeaders('GET', '/api/v1/policies', undefined),
     });
     expect(res.statusCode).toBe(200);
+  });
+
+  // A fresh timestamp bounds how long a captured request stays usable; it does
+  // not stop the same request being submitted twice inside that window. These
+  // cover the actual replay case — previously untested, and exploitable for a
+  // full 5 minutes against endpoints that create policies and approve signings.
+  it('rejects a replayed signature inside the timestamp window', async () => {
+    const headers = signedHeaders('GET', '/api/v1/policies', undefined);
+
+    const first = await app.inject({ method: 'GET', url: '/api/v1/policies', headers });
+    expect(first.statusCode).toBe(200);
+
+    const replay = await app.inject({ method: 'GET', url: '/api/v1/policies', headers });
+    expect(replay.statusCode).toBe(401);
+    expect(replay.json().reason).toBe('replayed_signature');
+  });
+
+  it('does not let a replayed state-changing request execute twice', async () => {
+    const body = { name: 'Replay probe', rules: { dailyLimitUsd: 1000 } };
+    const headers = signedHeaders('POST', '/api/v1/policies', body);
+
+    const first = await app.inject({ method: 'POST', url: '/api/v1/policies', headers, payload: body });
+    expect(first.statusCode).toBe(201);
+
+    const replay = await app.inject({ method: 'POST', url: '/api/v1/policies', headers, payload: body });
+    expect(replay.statusCode).toBe(401);
+
+    // Exactly one policy was created, not two.
+    const list = await app.inject({
+      method: 'GET',
+      url: '/api/v1/policies',
+      headers: signedHeaders('GET', '/api/v1/policies', undefined),
+    });
+    expect(list.json().filter((p: { name: string }) => p.name === 'Replay probe')).toHaveLength(1);
+  });
+
+  it('still accepts distinct requests signed in the same second', async () => {
+    const a = { name: 'Policy A', rules: { dailyLimitUsd: 1000 } };
+    const b = { name: 'Policy B', rules: { dailyLimitUsd: 2000 } };
+
+    const resA = await app.inject({
+      method: 'POST', url: '/api/v1/policies',
+      headers: signedHeaders('POST', '/api/v1/policies', a), payload: a,
+    });
+    const resB = await app.inject({
+      method: 'POST', url: '/api/v1/policies',
+      headers: signedHeaders('POST', '/api/v1/policies', b), payload: b,
+    });
+
+    expect(resA.statusCode).toBe(201);
+    expect(resB.statusCode).toBe(201);
+  });
+
+  it('does not let a forged signature evict a legitimate one from the replay cache', async () => {
+    const headers = signedHeaders('GET', '/api/v1/policies', undefined);
+
+    const forged = { ...headers, 'x-signature': 'f'.repeat(64) };
+    const bad = await app.inject({ method: 'GET', url: '/api/v1/policies', headers: forged });
+    expect(bad.json().reason).toBe('bad_signature');
+
+    // The genuine request with the same timestamp must still succeed.
+    const good = await app.inject({ method: 'GET', url: '/api/v1/policies', headers });
+    expect(good.statusCode).toBe(200);
   });
 });
 

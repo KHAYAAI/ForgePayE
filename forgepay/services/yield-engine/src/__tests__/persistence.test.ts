@@ -104,7 +104,19 @@ async function cleanupDb(): Promise<void> {
 
 // ── Suite ─────────────────────────────────────────────────────────────────────
 
-describe('Yield Engine Position Persistence — PostgreSQL', () => {
+/**
+ * These tests need a real PostgreSQL instance. Without one they used to fail
+ * the whole suite with ECONNREFUSED, which meant `npm test` could never pass
+ * on a machine (or a CI runner) that had no database service attached — an
+ * integration gap reported as a code failure.
+ *
+ * Gate on the same signal the service itself uses to decide whether
+ * persistence is active, so the suite runs when a database is configured and
+ * is honestly skipped when it is not.
+ */
+const hasDatabase = !!(process.env['DATABASE_URL'] || process.env['DB_HOST']);
+
+describe.skipIf(!hasDatabase)('Yield Engine Position Persistence — PostgreSQL', () => {
   beforeAll(async () => {
     await initDb();
     setUseDb(true);

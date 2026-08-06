@@ -7,9 +7,36 @@
  * 1. Try Stripe ACH (primary)
  * 2. Fallback to Circle USDC (if customer has wallet)
  * 3. Manual payment request (if both fail)
+ *
+ * ⚠️ STATUS: the orchestration below is complete and correct, but NEITHER
+ * PROVIDER IS WIRED. `processViaStripe` and `processViaCircle` throw
+ * `NotWiredError` until real connector calls replace them.
+ *
+ * They previously returned `{ success: true }` with a fabricated transaction
+ * hash (`stripe_${Date.now()}`) without contacting any provider. Nothing
+ * imports this module today, so no live payment was ever affected — but had it
+ * been wired in that state it would have marked payments settled that never
+ * moved money. Throwing is the safe failure mode: the chain below catches
+ * provider errors and degrades to `createManualPaymentRequest`, which returns
+ * `success: false` and hands off to a human. An unimplemented integration must
+ * never be able to report success.
+ *
+ * To wire: replace each throw with the real call and return the provider's own
+ * transaction identifier — never a synthesised one.
  */
 
 import type { Address } from 'viem';
+
+/** Thrown by a provider path that has no real integration behind it yet. */
+export class NotWiredError extends Error {
+  constructor(public readonly method: string, integration: string) {
+    super(
+      `Payment method "${method}" is not wired: ${integration} has no live ` +
+      `integration. Refusing to report success for a payment that was never made.`,
+    );
+    this.name = 'NotWiredError';
+  }
+}
 
 export interface PaymentRequest {
   customerId: string;
@@ -81,13 +108,7 @@ async function processViaStripe(request: PaymentRequest): Promise<Omit<PaymentRe
     throw new Error('No payment method provided');
   }
 
-  // TODO: Actual Stripe API call
-  return {
-    success: true,
-    txHash: `stripe_${Date.now()}`,
-    method: 'stripe_ach',
-    status: 'completed',
-  };
+  throw new NotWiredError('stripe_ach', 'Hyperswitch → Stripe connector');
 }
 
 async function processViaCircle(request: PaymentRequest): Promise<Omit<PaymentResult, 'fallbackUsed'>> {
@@ -96,16 +117,7 @@ async function processViaCircle(request: PaymentRequest): Promise<Omit<PaymentRe
     throw new Error('Wallet address required for Circle payment');
   }
 
-  // Convert to USDC (1:1 for USD)
-  const usdcAmount = request.amount;
-
-  // TODO: Actual Circle API call
-  return {
-    success: true,
-    txHash: `circle_usdc_${Date.now()}`,
-    method: 'circle_usdc',
-    status: 'completed',
-  };
+  throw new NotWiredError('circle_usdc', 'Circle Payouts API');
 }
 
 async function createManualPaymentRequest(request: PaymentRequest): Promise<Omit<PaymentResult, 'fallbackUsed'>> {
