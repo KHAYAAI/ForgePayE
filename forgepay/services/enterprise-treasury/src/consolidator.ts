@@ -38,6 +38,8 @@ const STATIC_FX_RATES: Record<string, number> = {
 interface FxCache {
   rates: Record<string, number>;
   fetchedAt: number;
+  /** Whether these rates came from the provider or the static placeholder table. */
+  source: 'live' | 'static';
 }
 
 let fxCache: FxCache | null = null;
@@ -45,9 +47,20 @@ const FX_CACHE_TTL_MS = 3_600_000; // 1 hour
 
 export async function refreshFxRates(): Promise<Record<string, number>> {
   const url = process.env['FX_RATES_URL'];
+  const isProduction = process.env['NODE_ENV'] === 'production';
+
   if (!url) {
-    // No external provider configured — use static rates
-    fxCache = { rates: { ...STATIC_FX_RATES }, fetchedAt: Date.now() };
+    // STATIC_FX_RATES is a hand-written table (EUR 1.08, GBP 1.27, WETH 3200…).
+    // Serving it as the FX book means every consolidated position, exposure
+    // figure and netting decision is valued at a placeholder rate. Fine in
+    // development; in production it silently misstates the treasury.
+    if (isProduction) {
+      throw new Error(
+        'FX_RATES_URL is not configured. Refusing to value treasury positions ' +
+        'with the static placeholder rate table in production.',
+      );
+    }
+    fxCache = { rates: { ...STATIC_FX_RATES }, fetchedAt: Date.now(), source: 'static' };
     return fxCache.rates;
   }
 
@@ -63,12 +76,25 @@ export async function refreshFxRates(): Promise<Record<string, number>> {
     fxCache = {
       rates: { ...STATIC_FX_RATES, ...liveRates },
       fetchedAt: Date.now(),
+      source: 'live',
     };
     console.info('[enterprise-treasury] FX rates refreshed from', url);
   } catch (err) {
-    console.warn('[enterprise-treasury] FX rate refresh failed, using cached/static:', (err as Error).message);
-    if (!fxCache) {
-      fxCache = { rates: { ...STATIC_FX_RATES }, fetchedAt: Date.now() };
+    console.warn('[enterprise-treasury] FX rate refresh failed:', (err as Error).message);
+
+    // A transient provider failure should not take the service down when we
+    // still hold rates that were genuinely live — serve those and let
+    // `fetchedAt` expose how old they are. But falling back to the static
+    // table would quietly replace real rates with placeholders, so in
+    // production that is refused.
+    if (!fxCache || fxCache.source === 'static') {
+      if (isProduction) {
+        throw new Error(
+          `FX rate refresh failed and no live rates are cached: ${(err as Error).message}. ` +
+          'Refusing to fall back to the static placeholder table in production.',
+        );
+      }
+      fxCache = { rates: { ...STATIC_FX_RATES }, fetchedAt: Date.now(), source: 'static' };
     }
   }
   return fxCache.rates;
@@ -214,9 +240,18 @@ export function getLastRefreshAttempt(): string | null {
   return lastRefreshAttempt;
 }
 
-export function getFxRateSnapshot(): { rates: Record<string, number>; fetchedAt: string | null } {
+export function getFxRateSnapshot(): {
+  rates: Record<string, number>;
+  fetchedAt: string | null;
+  source: 'live' | 'static';
+  stale: boolean;
+} {
+  // `source` is surfaced so a caller can tell a real FX book from the static
+  // placeholder table rather than having to assume.
   return {
     rates:     fxCache?.rates ?? STATIC_FX_RATES,
     fetchedAt: fxCache ? new Date(fxCache.fetchedAt).toISOString() : null,
+    source:    fxCache?.source ?? 'static',
+    stale:     fxCache ? Date.now() - fxCache.fetchedAt > FX_CACHE_TTL_MS : true,
   };
 }

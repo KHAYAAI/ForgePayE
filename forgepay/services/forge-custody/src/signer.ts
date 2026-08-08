@@ -162,6 +162,18 @@ async function broadcast(request: SigningRequest, signature: string): Promise<Br
   const rpcUrl = process.env.BLOCKCHAIN_RPC_URL;
   if (!rpcUrl) {
     // Simulated settlement for dev/test environments.
+    //
+    // Fails closed in production: without an RPC endpoint this returns a hash
+    // derived from the request id and a random block number in the 18.5M range,
+    // and the caller goes on to mark the signing request `confirmed`. A custody
+    // service reporting a settled transfer that was never broadcast is worse
+    // than one that errors.
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error(
+        'BLOCKCHAIN_RPC_URL is not configured. Refusing to simulate a broadcast in ' +
+        'production — a simulated transaction would be recorded as confirmed settlement.',
+      );
+    }
     const txHash = `0x${sha256(`${request.id}:${signature}`).slice(0, 64)}`;
     return { txHash, blockNumber: 18_500_000 + Math.floor(Math.random() * 100_000) };
   }

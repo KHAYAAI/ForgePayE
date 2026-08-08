@@ -30,6 +30,7 @@ import { config } from '../config';
 import type { YieldPosition, YieldTransaction, SweepConfig } from '../types';
 import { AaveAdapter } from '../adapters/aave';
 import { CompoundAdapter } from '../adapters/compound';
+import { refuseSimulationInProduction } from '../lib/simulation-guard';
 
 const logger = pino({ name: 'sweep-service' });
 
@@ -72,7 +73,10 @@ async function executeOnChainDeposit(
   if (!vault) return null;
 
   if (!config.signerPrivateKey) {
-    logger.warn('No SIGNER_PRIVATE_KEY configured — simulating deposit');
+    refuseSimulationInProduction(
+      'on-chain deposit',
+      'SIGNER_PRIVATE_KEY is not configured, so no transaction can be signed',
+    );
     return `0xsimulated_${Date.now().toString(16)}`;
   }
 
@@ -342,8 +346,15 @@ export async function scheduleWithdrawal(
 
   logger.info({ merchantId, positionId, withdrawAmount }, 'Withdrawal scheduled');
 
-  // In production: push to a job queue (BullMQ / SQS) so the withdrawal is
-  // processed asynchronously with retry logic.  Here we simulate confirmation.
+  // Withdrawal has no execution path at all: `AaveAdapter.withdraw` and
+  // `CompoundAdapter.withdraw` are implemented but never called, so this
+  // fabricates a hash and marks the transaction confirmed regardless of
+  // whether a signer is configured. Until it is wired to a job queue and the
+  // adapters, production must not record a withdrawal that did not happen.
+  refuseSimulationInProduction(
+    'vault withdrawal',
+    'no execution path is wired — the adapter withdraw methods have no callers',
+  );
   const simTxHash = `0xwd_${Date.now().toString(16)}`;
   const confirmed: YieldTransaction = {
     ...tx,
