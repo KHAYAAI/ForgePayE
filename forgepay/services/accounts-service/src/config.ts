@@ -46,9 +46,18 @@ export const config = {
   },
 
   // KYC/AML
+  //
+  // Both of these are AML controls, so both fail closed in production. The
+  // identity-verification key was previously `optSecret`, and KycAmlManager
+  // auto-approved every applicant when it was absent — an unset variable
+  // silently turned KYC off. Sanctions screening likewise defaulted to off.
   kyc: {
-    onfidoApiKey:        optSecret('ONFIDO_API_KEY'),
-    ofacScreeningEnabled: opt('OFAC_SCREENING_ENABLED', 'false') === 'true',
+    onfidoApiKey: process.env['NODE_ENV'] === 'production'
+      ? req('ONFIDO_API_KEY')
+      : optSecret('ONFIDO_API_KEY'),
+    ofacScreeningEnabled: process.env['NODE_ENV'] === 'production'
+      ? opt('OFAC_SCREENING_ENABLED', 'true') === 'true'
+      : opt('OFAC_SCREENING_ENABLED', 'false') === 'true',
   },
 
   // EVM RPC endpoints

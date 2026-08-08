@@ -90,7 +90,22 @@ export class KycAmlManager {
     let completedAt: string | undefined;
 
     if (!this.onfidoApiKey) {
-      // Dev mode: auto-approve
+      // Fail closed in production. config.ts already requires ONFIDO_API_KEY
+      // there, but the check is repeated at the decision point because this is
+      // where an applicant is actually granted approved status — a
+      // misconfiguration must never be able to express itself as a verified
+      // identity. Verification cannot be skipped simply because the verifier
+      // is missing.
+      if (process.env['NODE_ENV'] === 'production') {
+        throw new Error(
+          'ONFIDO_API_KEY is not configured. Refusing to approve KYC without ' +
+          'identity verification — an unverified applicant must not be recorded ' +
+          'as approved.',
+        );
+      }
+
+      // Development only: no verification provider, so approve and say so
+      // loudly. Never reachable in production because of the throw above.
       console.warn('[kyc] ONFIDO_API_KEY not set — auto-approving KYC in dev mode');
       status      = 'approved';
       completedAt = new Date().toISOString();
