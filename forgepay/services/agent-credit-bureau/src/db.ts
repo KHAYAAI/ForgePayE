@@ -238,7 +238,9 @@ export async function upsertContributor(c: DataContributor): Promise<void> {
        api_key = EXCLUDED.api_key,
        data = EXCLUDED.data,
        updated_at = NOW()`,
-    [c.id, c.name, c.type, c.apiKey, JSON.stringify(c)],
+    // `api_key` stores the sha256 of the issued key, never the key itself.
+    // Column name kept to avoid a migration on an existing table.
+    [c.id, c.name, c.type, c.apiKeyHash, JSON.stringify(c)],
   );
 }
 

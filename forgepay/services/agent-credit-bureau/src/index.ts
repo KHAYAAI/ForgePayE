@@ -27,12 +27,13 @@ import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import helmet from '@fastify/helmet';
 import { z } from 'zod';
-import { randomUUID } from 'crypto';
+import { randomUUID, randomBytes } from 'crypto';
+import { registerAuth, hashApiKey, redactContributor } from './auth';
 
 import {
   getProfile, setProfile, getDispute, setDispute,
   getReport, setReport, getContributor, setContributor, listDisputes,
-  listProfiles, bureauStats, profiles, contributors, initPersistence,
+  listProfiles, bureauStats, profiles, contributors, initPersistence, deriveScoreFields,
 } from './store';
 import {
   computeScore, scoreTier, generateZKProof,
@@ -144,6 +145,12 @@ async function buildApp() {
       message:    `Rate limit exceeded. Retry in ${Math.ceil(ctx.ttl / 1000)}s`,
     }),
   });
+
+  // Authorisation — registered after the rate limiter, so a flood of
+  // unauthenticated requests is shed before it reaches key comparison, and
+  // ahead of every route, so nothing is served without a credential.
+  // Deny-by-default: a route absent from the scope table requires `admin`.
+  registerAuth(app);
 
   // ── Health probe ───────────────────────────────────────────────────────────
   app.get('/health', async () => ({
@@ -507,11 +514,16 @@ async function buildApp() {
     if (!parse.success) return reply.status(400).send({ error: 'ValidationError', details: parse.error.flatten() });
 
     const id: string = randomUUID();
+
+    // Issued once, here, and never stored. Only the digest is persisted, so a
+    // dump of the store or the database yields no usable credential.
+    const rawApiKey = `ck_${randomBytes(24).toString('base64url')}`;
+
     const contributor = {
       id,
       name:                    parse.data.name,
       type:                    parse.data.type,
-      apiKey:                  `ck_${Buffer.from(randomUUID()).toString('base64').slice(0, 24)}`,
+      apiKeyHash:              hashApiKey(rawApiKey),
       permissions:             parse.data.permissions,
       queriesUsed:             0,
       queriesAllowed:          5000, // default; grows as they contribute data
@@ -521,7 +533,15 @@ async function buildApp() {
     };
 
     setContributor(contributor);
-    return reply.status(201).send({ data: contributor });
+
+    // `apiKey` appears in this response and nowhere else, ever.
+    return reply.status(201).send({
+      data: {
+        ...redactContributor(contributor),
+        apiKey: rawApiKey,
+        note: 'Store this key now — it cannot be retrieved again. The contributor is `pending` until an operator activates it.',
+      },
+    });
   });
 
   // POST /v1/contributors/:id/ingest — bulk event ingestion
@@ -554,16 +574,14 @@ async function buildApp() {
     contributor.queriesAllowed = Math.min(1_000_000, 5000 + contributor.dataRecordsContributed * 0.5);
     setContributor(contributor);
 
-    // Recompute score
-    const { score, factors } = computeScore(profile);
-    profile.currentScore  = score;
-    profile.tier          = scoreTier(score);
-    profile.scoreFactors  = factors;
+    // Re-derive through the single source of truth rather than recomputing
+    // inline, so score, tier and factors cannot drift apart here.
     profile.lastUpdatedAt = new Date().toISOString();
-    setProfile(profile);
+    const updated = deriveScoreFields(profile);
+    setProfile(updated);
 
     return reply.status(201).send({
-      data: { ingestedCount: ingested.length, newScore: score, events: ingested },
+      data: { ingestedCount: ingested.length, newScore: updated.currentScore, events: ingested },
     });
   });
 
@@ -573,7 +591,7 @@ async function buildApp() {
     if (!contributor) return reply.status(404).send({ error: 'NotFound', message: 'Contributor not found' });
     contributor.queriesUsed += 1; // count this query
     setContributor(contributor);
-    return reply.send({ data: contributor });
+    return reply.send({ data: redactContributor(contributor) });
   });
 
   // ═══════════════════════════════════════════════════════════════════════════

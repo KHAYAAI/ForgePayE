@@ -13,6 +13,7 @@ import type {
   DataContributor,
 } from './types';
 import { computeScore } from './scorer';
+import { hashApiKey } from './hash';
 import { gradeDistribution, INQUIRY_FEE_USD } from './grade';
 import {
   isDbEnabled, runMigrations,
@@ -271,13 +272,17 @@ function seed() {
   ];
   for (const d of seedDisputes) disputes.set(d.id, d);
 
-  // Seed contributors
+  // Seed contributors.
+  // Only the sha256 of each key is stored — the raw values below are the
+  // development credentials for the demo furnishers and are documented in
+  // .env.example. They authenticate in dev exactly as before; nothing is
+  // persisted in plaintext.
   const seedContributors: DataContributor[] = [
     {
       id: 'contrib_aave',
       name: 'Aave V3 Protocol',
       type: 'defi_protocol',
-      apiKey: 'ck_aave_live_xxx',
+      apiKeyHash: hashApiKey('ck_aave_live_xxx'),
       permissions: ['ingest_events', 'pull_scores'],
       queriesUsed: 12450,
       queriesAllowed: 50000,
@@ -289,7 +294,7 @@ function seed() {
       id: 'contrib_compound',
       name: 'Compound V3',
       type: 'defi_protocol',
-      apiKey: 'ck_compound_live_yyy',
+      apiKeyHash: hashApiKey('ck_compound_live_yyy'),
       permissions: ['ingest_events'],
       queriesUsed: 5200,
       queriesAllowed: 20000,
@@ -301,7 +306,7 @@ function seed() {
       id: 'contrib_openai',
       name: 'OpenAI Platform',
       type: 'saas_platform',
-      apiKey: 'ck_oai_live_zzz',
+      apiKeyHash: hashApiKey('ck_oai_live_zzz'),
       permissions: ['ingest_events', 'pull_scores'],
       queriesUsed: 890,
       queriesAllowed: 5000,

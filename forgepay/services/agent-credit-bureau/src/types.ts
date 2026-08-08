@@ -162,7 +162,12 @@ export interface DataContributor {
   id: string;
   name: string;
   type: DataContributorType;
-  apiKey: string;
+  /**
+   * sha256 of the issued API key. The raw key is returned once at registration
+   * and never stored — it was previously kept in plaintext here, in Postgres,
+   * and served to unauthenticated callers by `GET /v1/contributors/:id/stats`.
+   */
+  apiKeyHash: string;
   permissions: string[];
   queriesUsed: number;
   queriesAllowed: number;          // Based on data contributed
