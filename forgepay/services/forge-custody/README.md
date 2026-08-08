@@ -2,14 +2,44 @@
 
 **FORGE Custody is OpenFireblocks integrated into the FORGE ecosystem** — an
 institutional-grade digital-asset custody and signing platform. It is the
-custody backbone of FORGE: every transfer above **$1M** is routed here by
-FORGE Payments for policy evaluation, multi-party approval, and **4-of-7
-threshold (MPC) signing**.
+custody backbone of FORGE: transfers above **$1M** are routed here for policy
+evaluation, multi-party approval, and signing.
 
-The core insight: traditional custody fails because one person with the master
-key can steal everything. FORGE Custody splits the private key into 7
-encrypted shares; **any 4 of the 7** must cooperate to produce a signature.
-The full private key never exists anywhere — not at rest, not in memory.
+The intended design: traditional custody fails because one person with the
+master key can steal everything, so the private key is split into 7 encrypted
+shares and any 4 must cooperate to produce a signature — the full key never
+existing anywhere, at rest or in memory.
+
+> ### ⚠️ Threshold signing is not implemented yet
+>
+> **Neither signing path performs 4-of-7 threshold signing today.** This section
+> previously described the target design as though it were shipped; it is not.
+>
+> | Path | What it actually does |
+> |---|---|
+> | `DevSigner` (`src/signer.ts`) | Returns `0xdev<hash>` — not a valid signature on any chain. Fabricates `sharesUsed` by slicing holder names. Throws if `NODE_ENV=production`. |
+> | `MpcCoordinatorSigner` (`src/signer.ts`) | The production path. Calls `${MPC_COORDINATOR_URL}/sign` — but the coordinator (`openfireblocks/services/mpc-signer`) signs every transaction with **one shared Vault-backed ECDSA key**, and returns a single share contribution. |
+>
+> A genuine k-of-n threshold ECDSA implementation exists at
+> `openfireblocks/services/mpc-signer/tss/tss.go` (bnb-chain/tss-lib, key never
+> reconstructed), but it is gated behind `//go:build tss`, has no importers, and
+> routes its parties as in-process goroutines with no authenticated transport.
+> It proves the cryptography; it is not wired to anything.
+>
+> Reaching real threshold signing requires per-party process and host isolation
+> with authenticated transport, per-share Vault paths, a per-customer DKG
+> ceremony, and wiring `tss` into the coordinator's `/sign` handler. Note that
+> the security property depends on the parties sitting in **separate failure
+> domains** — running all N on one operator's infrastructure yields the
+> complexity of MPC with none of its benefit.
+>
+> **Do not custody real customer assets on this service until that work lands.**
+> See `forgepay/PLATFORM_READINESS.md` for the sequencing.
+
+**What is production-grade today:** the policy engine (whitelists, daily limits,
+time windows, chain allow-lists, and approval thresholds that correctly
+distinguish *blocking* from *requiring approval*), HMAC request signing with
+replay protection, and the hash-linked audit log.
 
 ## Pipeline
 
@@ -23,10 +53,11 @@ Policy engine ──✗──▶ rejected (reason code)
 Approval gate (amounts ≥ threshold need N distinct-role approvals, e.g. CFO+CEO)
       │
       ▼
-4-of-7 threshold signing (MPC coordinator; shares in HashiCorp Vault)
+Signing via MPC coordinator  ⚠️ single shared Vault key today, not 4-of-7
       │
       ▼
-Broadcast → 12-block confirmation
+Broadcast  ⚠️ simulated without BLOCKCHAIN_RPC_URL (refused in production);
+           confirmation is assumed, not polled
       │
       ▼
 `custody.signature.confirmed` → Revenue Ontology (HMAC-signed webhook)
@@ -98,12 +129,20 @@ confirmed` (terminal: `rejected`, `failed`).
 
 ## MPC boundary
 
-The actual multi-round MPC ceremony runs in the external coordinator (Go
-service from the OpenFireblocks stack), configured via `MPC_COORDINATOR_URL`.
-**In production this variable is required — the service refuses to boot
-without it.** In dev/test, a `DevSigner` simulates share collection (4 share
-contribution hashes recorded in `signing_shares`) and emits a deterministic
-mock signature that is never valid on a real chain.
+Signing is delegated to the external coordinator (Go service from the
+OpenFireblocks stack), configured via `MPC_COORDINATOR_URL`. **In production
+this variable is required — the service refuses to boot without it.**
+
+⚠️ The coordinator does **not** currently run a multi-round MPC ceremony: it
+signs with a single shared Vault-backed key and returns one share contribution
+(see the warning at the top of this file).
+
+In dev/test a `DevSigner` writes 4 fabricated share-contribution hashes into
+`signing_shares` — derived by slicing holder names, not by any cryptography —
+and emits a deterministic mock signature that is never valid on a real chain.
+Those rows look like a 4-of-7 ceremony in the audit trail but record nothing
+that happened; treat `signing_shares` as meaningful only once real threshold
+signing lands.
 
 ## Storage
 
