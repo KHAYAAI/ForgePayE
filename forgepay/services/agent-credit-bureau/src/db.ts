@@ -134,10 +134,18 @@ export async function runMigrations(): Promise<void> {
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         type TEXT NOT NULL,
+        -- Holds the sha256 of the issued key, never the key itself.
         api_key TEXT NOT NULL,
         data JSONB NOT NULL,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
+
+      -- Added with the activation lifecycle; idempotent so redeploys are safe.
+      -- A queryable column so an operator can list who is pending approval
+      -- without scanning the JSONB blob.
+      ALTER TABLE data_contributors ADD COLUMN IF NOT EXISTS status TEXT;
+      CREATE INDEX IF NOT EXISTS idx_data_contributors_status
+        ON data_contributors(status);
 
       CREATE TABLE IF NOT EXISTS settlement_receipts (
         agent_id TEXT PRIMARY KEY,
@@ -239,17 +247,18 @@ export async function loadAllReports(): Promise<CreditReport[]> {
 
 export async function upsertContributor(c: DataContributor): Promise<void> {
   await pool.query(
-    `INSERT INTO data_contributors (id, name, type, api_key, data, updated_at)
-     VALUES ($1, $2, $3, $4, $5, NOW())
+    `INSERT INTO data_contributors (id, name, type, api_key, status, data, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, NOW())
      ON CONFLICT (id) DO UPDATE SET
        name = EXCLUDED.name,
        type = EXCLUDED.type,
        api_key = EXCLUDED.api_key,
+       status = EXCLUDED.status,
        data = EXCLUDED.data,
        updated_at = NOW()`,
     // `api_key` stores the sha256 of the issued key, never the key itself.
     // Column name kept to avoid a migration on an existing table.
-    [c.id, c.name, c.type, c.apiKeyHash, JSON.stringify(c)],
+    [c.id, c.name, c.type, c.apiKeyHash, c.status, JSON.stringify(c)],
   );
 }
 

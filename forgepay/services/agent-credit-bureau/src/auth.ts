@@ -124,6 +124,37 @@ export function redactContributor<T extends { apiKeyHash?: string }>(c: T): Omit
   return rest;
 }
 
+/**
+ * Per-resource authorisation: does the caller own the contributor in the path?
+ *
+ * The scope table answers "may this principal ingest at all"; it cannot answer
+ * "may this principal ingest *as contributor X*". Nothing did — `req.auth` was
+ * never read in any handler, and both contributor routes trusted
+ * `req.params.id` alone. Any active furnisher could therefore write credit
+ * events attributed to a competitor and read a competitor's volume and quota.
+ *
+ * Admin acts on any contributor; a furnisher acts only on itself.
+ *
+ * @returns null when authorised, or an error body to send with 403. A mismatch
+ *          is 403 rather than 404: the caller authenticated fine, it simply may
+ *          not act on that resource.
+ */
+export function contributorAccessError(
+  auth: AuthContext | undefined,
+  contributorId: string,
+): { error: string; message: string } | null {
+  if (!auth) {
+    return { error: 'Unauthorized', message: 'Missing authentication context.' };
+  }
+  if (auth.kind === 'admin') return null;
+  if (auth.principalId === contributorId) return null;
+
+  return {
+    error: 'Forbidden',
+    message: 'This key belongs to a different contributor. A furnisher may only act on its own records.',
+  };
+}
+
 // ── Route → required scope ────────────────────────────────────────────────────
 
 /** Routes served without credentials: liveness and the Prometheus scrape. */

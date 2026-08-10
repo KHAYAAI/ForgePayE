@@ -71,11 +71,34 @@ export interface CreditEvent {
   agentId: string;
   eventType: CreditEventType;
   amount?: number;
+  /**
+   * Who extended the credit. Server-set from the authenticated furnisher on
+   * ingest — a furnisher may only report credit it extended itself, so this is
+   * never trusted from the request body.
+   */
   creditorId?: string;
   description: string;
   timestamp: string;
   onChainTxHash?: string;
-  proofId?: string;                 // ZK proof ID if privacy mode
+
+  /**
+   * Which furnisher supplied this record. Server-set from the authenticated
+   * principal; a furnisher cannot attribute a record to anyone else.
+   *
+   * Without this the 25% revenue share the product promises ("apportioned by
+   * contribution") is not computable, and a dispute cannot identify the
+   * furnisher that has to be notified.
+   */
+  contributorId?: string;
+
+  /**
+   * The furnisher's own identifier for this event, unique per furnisher.
+   *
+   * Makes ingest idempotent: a retried batch is recognised rather than written
+   * twice. Replaces a `proofId: randomUUID()` that was generated server-side on
+   * every ingest and therefore identified nothing.
+   */
+  externalId?: string;
 }
 
 export interface Delinquency {
@@ -187,6 +210,19 @@ export interface DataContributor {
   dataRecordsContributed: number;
   createdAt: string;
   status: 'active' | 'suspended' | 'pending';
+
+  /** Why the status was last changed, and by whom. Set by the admin route. */
+  statusReason?: string;
+  statusChangedAt?: string;
+
+  /**
+   * Rolling ingest window. `dataRecordsContributed` raises this furnisher's own
+   * quota (and, per the published revenue share, its own payout), so growth is
+   * capped per window rather than being unbounded and self-reported. The
+   * counters also make a captured-furnisher spike visible.
+   */
+  windowStartedAt?: string;
+  recordsThisWindow?: number;
 }
 
 // ── Dual-Mode Scoring Types ───────────────────────────────────────────────────

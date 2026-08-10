@@ -28,7 +28,7 @@ import rateLimit from '@fastify/rate-limit';
 import helmet from '@fastify/helmet';
 import { z } from 'zod';
 import { randomUUID, randomBytes } from 'crypto';
-import { registerAuth, hashApiKey, redactContributor } from './auth';
+import { registerAuth, hashApiKey, redactContributor, contributorAccessError } from './auth';
 import { isValidDid, isAddressBody, addressFromDid, toChecksumAddress, sameAddress } from './did';
 
 import {
@@ -113,15 +113,33 @@ const UpdateDisputeSchema = z.object({
   resolution: z.string().optional(),
 });
 
+/**
+ * Ingest requires an `externalId` per event — the furnisher's own identifier,
+ * unique to that furnisher. It makes a retried batch idempotent, replacing a
+ * server-generated `proofId: randomUUID()` that identified nothing.
+ */
+const IngestEventSchema = RecordEventSchema.extend({
+  externalId: z.string().min(1).max(200),
+});
+
 const IngestEventsSchema = z.object({
   agentId: z.string().min(1),
-  events:  z.array(RecordEventSchema).min(1).max(500),
+  events:  z.array(IngestEventSchema).min(1).max(500),
 });
+
+/** Rolling window for contribution-driven quota growth. */
+const INGEST_WINDOW_MS  = 24 * 60 * 60 * 1000;
+const INGEST_WINDOW_CAP = parseInt(process.env['INGEST_WINDOW_CAP'] ?? '10000', 10);
 
 const RegisterContributorSchema = z.object({
   name:        z.string().min(1),
   type:        z.enum(['defi_protocol', 'cefi_lender', 'saas_platform', 'bank', 'forgepay_internal']),
   permissions: z.array(z.string()).default(['ingest_events']),
+});
+
+const ContributorStatusSchema = z.object({
+  status: z.enum(['active', 'suspended', 'pending']),
+  reason: z.string().min(1).max(500),
 });
 
 const ZKProofRequestSchema = z.object({
@@ -573,8 +591,52 @@ async function buildApp() {
     });
   });
 
+  // PUT /v1/contributors/:id/status — activate, suspend or re-hold a furnisher
+  //
+  // The missing half of the lifecycle. Registration created every contributor
+  // as `pending`, and both the auth layer and the ingest route reject anything
+  // not `active` — but nothing anywhere could set that, so a real furnisher
+  // registered, received a key and was permanently locked out. Only the three
+  // seeded demo contributors could ever ingest.
+  //
+  // Admin-only. Deliberately absent from ROUTE_SCOPES: auth.ts is
+  // deny-by-default, so an unlisted route already requires `admin`.
+  app.put<{ Params: { id: string } }>('/v1/contributors/:id/status', async (req, reply) => {
+    const parse = ContributorStatusSchema.safeParse(req.body);
+    if (!parse.success) {
+      return reply.status(400).send({ error: 'ValidationError', details: parse.error.flatten() });
+    }
+
+    const contributor = getContributor(req.params.id);
+    if (!contributor) {
+      return reply.status(404).send({ error: 'NotFound', message: 'Contributor not found' });
+    }
+
+    const previous = contributor.status;
+    contributor.status          = parse.data.status;
+    contributor.statusReason    = parse.data.reason;
+    contributor.statusChangedAt = new Date().toISOString();
+    setContributor(contributor);
+
+    // A suspension takes effect on the next request: resolvePrincipal in
+    // auth.ts resolves a non-active contributor's key to no principal at all.
+    req.log.info(
+      { contributorId: contributor.id, from: previous, to: contributor.status, reason: parse.data.reason },
+      'contributor status changed',
+    );
+
+    return reply.send({
+      data: { ...redactContributor(contributor), previousStatus: previous },
+    });
+  });
+
   // POST /v1/contributors/:id/ingest — bulk event ingestion
   app.post<{ Params: { id: string } }>('/v1/contributors/:id/ingest', async (req, reply) => {
+    // A furnisher may only ingest as itself. The scope table proves the caller
+    // may ingest at all; it cannot prove it may ingest *as this contributor*.
+    const denied = contributorAccessError(req.auth, req.params.id);
+    if (denied) return reply.status(403).send(denied);
+
     const contributor = getContributor(req.params.id);
     if (!contributor) return reply.status(404).send({ error: 'NotFound', message: 'Contributor not found' });
     if (contributor.status !== 'active') return reply.status(403).send({ error: 'Forbidden', message: 'Contributor not yet active' });
@@ -583,24 +645,90 @@ async function buildApp() {
     if (!parse.success) return reply.status(400).send({ error: 'ValidationError', details: parse.error.flatten() });
 
     const { agentId, events } = parse.data;
-    let profile = getProfile(agentId);
+    const profile = getProfile(agentId);
     if (!profile) {
       return reply.status(404).send({ error: 'NotFound', message: `Agent ${agentId} not registered — register the agent first` });
     }
 
-    const ingested: CreditEvent[] = events.map(e => ({
-      id:        randomUUID(),
-      agentId,
-      timestamp: new Date().toISOString(),
-      proofId:   randomUUID(),
-      ...e,
-    }));
+    // A furnisher may only report credit it extended itself. `creditorId` used
+    // to be trusted straight from the payload, so any furnisher could attribute
+    // lending to anyone. Events with no creditor concept (identity_verified,
+    // sanctions_hit) are still attributed via contributorId below.
+    const impostor = events.find(
+      e => e.creditorId !== undefined && e.creditorId !== contributor.id,
+    );
+    if (impostor) {
+      return reply.status(400).send({
+        error: 'ValidationError',
+        message:
+          `creditorId "${impostor.creditorId}" does not match the authenticated contributor ` +
+          `"${contributor.id}". A furnisher may only report credit it extended itself; ` +
+          `omit creditorId and it will be set for you.`,
+      });
+    }
+
+    // Quota. queriesUsed and queriesAllowed both existed but were never once
+    // compared, so the limit was decorative.
+    if (contributor.queriesUsed >= contributor.queriesAllowed) {
+      return reply.status(429).send({
+        error:   'Too Many Requests',
+        message: `Ingest quota exhausted (${contributor.queriesUsed}/${contributor.queriesAllowed}). ` +
+                 `Quota grows as you contribute data, up to the per-window cap.`,
+      });
+    }
+
+    // Rolling window for the growth cap and for anomaly visibility.
+    const nowMs = Date.now();
+    const windowStart = contributor.windowStartedAt ? Date.parse(contributor.windowStartedAt) : 0;
+    if (!contributor.windowStartedAt || nowMs - windowStart > INGEST_WINDOW_MS) {
+      contributor.windowStartedAt   = new Date(nowMs).toISOString();
+      contributor.recordsThisWindow = 0;
+    }
+
+    // Idempotency: (contributorId, externalId) identifies an event uniquely, so
+    // a retried batch is recognised rather than written twice — which would
+    // otherwise double-count the furnisher's contribution and, per the
+    // published revenue share, its payout.
+    const seen = new Set(
+      profile.creditHistory
+        .filter(e => e.contributorId === contributor.id && e.externalId)
+        .map(e => e.externalId as string),
+    );
+
+    const ingested: CreditEvent[] = [];
+    const duplicates: string[] = [];
+
+    for (const e of events) {
+      if (seen.has(e.externalId)) {
+        duplicates.push(e.externalId);
+        continue;
+      }
+      seen.add(e.externalId);
+      ingested.push({
+        ...e,
+        id:            randomUUID(),
+        agentId,
+        timestamp:     new Date().toISOString(),
+        // Provenance is server-set — a furnisher cannot attribute a record to
+        // anyone else, by construction.
+        contributorId: contributor.id,
+        creditorId:    e.creditorId ?? contributor.id,
+      });
+    }
 
     profile.creditHistory.push(...ingested);
 
-    // Update contributor stats
-    contributor.dataRecordsContributed += events.length;
+    // Contribution counters. The window cap stops a furnisher minting unlimited
+    // quota (and revenue share) by ingesting junk — the "captured furnisher"
+    // case. Duplicates are excluded: a retry must not inflate anything.
+    const creditable = Math.min(
+      ingested.length,
+      Math.max(0, INGEST_WINDOW_CAP - (contributor.recordsThisWindow ?? 0)),
+    );
+    contributor.recordsThisWindow      = (contributor.recordsThisWindow ?? 0) + ingested.length;
+    contributor.dataRecordsContributed += creditable;
     contributor.queriesAllowed = Math.min(1_000_000, 5000 + contributor.dataRecordsContributed * 0.5);
+    contributor.queriesUsed   += 1;
     setContributor(contributor);
 
     // Re-derive through the single source of truth rather than recomputing
@@ -610,12 +738,23 @@ async function buildApp() {
     setProfile(updated);
 
     return reply.status(201).send({
-      data: { ingestedCount: ingested.length, newScore: updated.currentScore, events: ingested },
+      data: {
+        ingestedCount:     ingested.length,
+        duplicatesIgnored: duplicates.length,
+        creditedToQuota:   creditable,
+        windowCapped:      creditable < ingested.length,
+        newScore:          updated.currentScore,
+        events:            ingested,
+      },
     });
   });
 
   // GET /v1/contributors/:id/stats
   app.get<{ Params: { id: string } }>('/v1/contributors/:id/stats', async (req, reply) => {
+    // Volume and quota are commercially sensitive; a furnisher reads only its own.
+    const denied = contributorAccessError(req.auth, req.params.id);
+    if (denied) return reply.status(403).send(denied);
+
     const contributor = getContributor(req.params.id);
     if (!contributor) return reply.status(404).send({ error: 'NotFound', message: 'Contributor not found' });
     contributor.queriesUsed += 1; // count this query
