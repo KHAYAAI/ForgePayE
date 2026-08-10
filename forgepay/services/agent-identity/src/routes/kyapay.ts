@@ -12,6 +12,7 @@
 import type { FastifyInstance } from 'fastify';
 import { SignJWT, jwtVerify, createRemoteJWKSet } from 'jose';
 import { v4 as uuidv4 } from 'uuid';
+import { mintAgentDid } from '../did';
 import { getKeySet, buildJwks } from '../lib/kyapay-keys.js';
 import { getAgent, setAgent, getAgentByKyapaySub } from '../store.js';
 import type { AgentIdentity } from '../types.js';
@@ -116,7 +117,7 @@ export async function buildKYAPayRoutes(app: FastifyInstance) {
     const id = uuidv4();
     const agent: AgentIdentity = {
       id,
-      did:                   `did:forgepay:${id}`,
+      did:                   mintAgentDid(id),
       name:                  businessName ?? `KYAPay Agent ${sub.slice(0, 8)}`,
       framework:             'custom',
       ownerMerchantId:       body['ownerMerchantId'] as string,

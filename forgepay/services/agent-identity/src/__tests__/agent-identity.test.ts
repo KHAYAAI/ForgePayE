@@ -72,7 +72,9 @@ describe('Agent Identity Registry', () => {
     expect(body.data['reputationScore']).toBe(500);
     expect(body.data['status']).toBe('active');
     expect(typeof body.data['id']).toBe('string');
-    expect((body.data['did'] as string).startsWith('did:forgepay:')).toBe(true);
+    // Canonical form. `did:forgepay:` is still accepted on read for rows
+    // written before the change, but is no longer minted.
+    expect((body.data['did'] as string).startsWith('did:forge:agent_')).toBe(true);
   });
 
   it('POST /v1/agents with missing name returns 400', async () => {

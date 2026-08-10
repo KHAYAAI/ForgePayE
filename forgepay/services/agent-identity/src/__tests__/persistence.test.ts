@@ -68,7 +68,16 @@ function createTestAgent(id: string, merchantId: string): AgentIdentity {
 
 // ── Suite ─────────────────────────────────────────────────────────────────────
 
-describe('Agent Identity Persistence — PostgreSQL', () => {
+/**
+ * Needs a real PostgreSQL instance. Without one these previously failed the
+ * whole suite with ECONNREFUSED, which went unnoticed because agent-identity
+ * has no job in forgepay-ci.yml. Gate on the same signal the store itself uses,
+ * so the suite runs when a database is configured and is honestly skipped
+ * otherwise.
+ */
+const hasDatabase = !!process.env['DATABASE_URL'];
+
+describe.skipIf(!hasDatabase)('Agent Identity Persistence — PostgreSQL', () => {
   beforeAll(async () => {
     await initStore();
     await cleanupDb();

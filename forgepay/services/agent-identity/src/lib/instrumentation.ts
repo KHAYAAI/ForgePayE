@@ -10,7 +10,7 @@ import { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import { recordHttpRequest } from './metrics';
 
 const UUID_REGEX = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
-const DID_REGEX = /did:[a-z]+:[a-zA-Z0-9-]+/gi;
+const DID_REGEX = /did:[a-z]+:[a-zA-Z0-9._-]+/gi;
 
 /**
  * Normalize route path by replacing dynamic segments

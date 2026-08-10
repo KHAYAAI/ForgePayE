@@ -206,8 +206,21 @@ export function getEncryptedKey(keyId: string): EncryptedKey | undefined {
 }
 
 export function lookupDidByAddress(address: string): { did: string; type: DidType } | undefined {
-  const walletId = walletsByAddress.get(address);
-  if (!walletId) return undefined;
+  // Case-insensitive: this was an exact-string match on the index, so the same
+  // account written in a different case (checksummed vs lowercase — both valid
+  // and both common) missed and returned 404. The bureau resolves addresses in
+  // EIP-55 checksummed form, so an exact match would rarely have hit.
+  const walletId = walletsByAddress.get(address) ?? walletsByAddress.get(address.toLowerCase());
+  if (!walletId) {
+    const wanted = address.toLowerCase();
+    for (const [addr, id] of walletsByAddress) {
+      if (addr.toLowerCase() === wanted) {
+        const w = wallets.get(id);
+        return w ? { did: w.did, type: w.ownerType } : undefined;
+      }
+    }
+    return undefined;
+  }
   const wallet = wallets.get(walletId)!;
   return { did: wallet.did, type: wallet.ownerType };
 }

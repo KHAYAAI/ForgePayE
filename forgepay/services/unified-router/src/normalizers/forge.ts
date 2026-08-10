@@ -9,6 +9,8 @@
  * events downstream — one record, every platform reads it.
  */
 
+import { parseDid } from '../lib/did';
+
 import { randomUUID } from 'node:crypto';
 import type { ForgePayEvent } from '../types/events.js';
 
@@ -29,6 +31,23 @@ interface ForgeCustodyPayload {
     credit_line_id?: string;
     [key: string]: unknown;
   };
+}
+
+/**
+ * Is this DID an autonomous agent rather than a human user?
+ *
+ * Previously `startsWith('did:forge:agent_')`, which recognised only the DIDs
+ * forge-wallet mints. Agents registered through agent-identity carried
+ * `did:forgepay:<uuid>` and were classified as human, so their events were
+ * routed and reported as user activity.
+ *
+ * An agent is either an `agent_`-prefixed registry id under any method, or any
+ * `did:forgepay:` identifier — that method was only ever issued to agents.
+ */
+function isAgentDid(actorId: unknown): boolean {
+  const parsed = parseDid(actorId);
+  if (!parsed || parsed.form !== 'registry') return false;
+  return parsed.id.startsWith('agent_') || parsed.method === 'forgepay';
 }
 
 export function normalizeForgeCustodyEvent(
@@ -94,7 +113,7 @@ export function normalizeForgeWalletEvent(
     data: {
       walletTransactionId: meta.wallet_transaction_id ?? '',
       actorDid: payload.actor_id ?? '',
-      isAgent: (payload.actor_id ?? '').startsWith('did:forge:agent_'),
+      isAgent: isAgentDid(payload.actor_id),
       amount: { value: String(payload.amount ?? 0), currency: payload.currency ?? 'USDC', chain: payload.blockchain },
       fromAddress: payload.from_address ?? '',
       toAddress: payload.to_address ?? '',

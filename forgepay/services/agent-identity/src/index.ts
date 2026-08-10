@@ -26,6 +26,7 @@ import helmet from '@fastify/helmet';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import { v4 as uuidv4 } from 'uuid';
+import { mintAgentDid } from './did';
 import { createVerify } from 'crypto';
 import apiKeyAuth from './plugins/api-key-auth';
 
@@ -165,7 +166,7 @@ async function buildApp() {
 
     const agent: AgentIdentity = {
       id,
-      did: `did:forgepay:${id}`,
+      did: mintAgentDid(id),
       name: body['name'] as string,
       framework: body['framework'] as AgentIdentity['framework'],
       ownerMerchantId: body['ownerMerchantId'] as string,

@@ -11,6 +11,7 @@
  */
 
 import { pool } from './db';
+import { parseDid } from './did';
 import type { AgentIdentity, ReputationEvent, Attestation } from './types';
 
 // ── In-memory cache (always used for fast reads) ─────────────────────────────
@@ -115,24 +116,31 @@ export interface AgentFilter {
 }
 
 /**
- * Get agent by ID or DID (with or without "did:forgepay:" prefix).
+ * Get agent by bare ID or by DID in any accepted method
+ * (did:forge:, did:forgepay: or did:fp:).
  * Reads from in-memory cache for speed.
  */
 export async function getAgent(id: string): Promise<AgentIdentity | undefined> {
   // Try cache first
   if (agentMap.has(id)) return agentMap.get(id);
 
-  // Normalize DID format and try again
-  const normalized = id.startsWith('did:forgepay:') ? id.replace('did:forgepay:', '') : id;
+  // Strip whichever DID method was supplied and retry on the bare id.
+  //
+  // This previously handled only `did:forgepay:`, so a caller holding the
+  // canonical `did:forge:` form — which this service now mints — would miss the
+  // cache and then miss the DB lookup too. The agentMap is keyed by bare id.
+  const parsed = parseDid(id);
+  const normalized = parsed ? parsed.id : id;
   if (agentMap.has(normalized)) return agentMap.get(normalized);
 
   // Fall through to DB if not in cache (stale data case)
   if (!useDb) return undefined;
 
-  const did = normalized.startsWith('did:forgepay:') ? normalized : `did:forgepay:${normalized}`;
+  // Rows written before the canonical form still carry `did:forgepay:`, and
+  // rows written since carry `did:forge:`. Match either, plus the bare id.
   const res = await pool.query(
-    `SELECT * FROM agent_identities WHERE id = $1 OR did = $2 LIMIT 1`,
-    [normalized, did]
+    `SELECT * FROM agent_identities WHERE id = $1 OR did = ANY($2::text[]) LIMIT 1`,
+    [normalized, [`did:forge:${normalized}`, `did:forgepay:${normalized}`, id]]
   );
   return res.rows[0] ? rowToAgent(res.rows[0]) : undefined;
 }
@@ -198,7 +206,11 @@ export interface KYAPayFields {
 
 /**
  * Upsert agent: update cache + write to DB (best-effort).
- * Uses ON CONFLICT (did) DO UPDATE for idempotent upserts.
+ * Upserts on the primary key `id`, not on `did` — the comment previously said
+ * (did), which does not match the SQL below. `did` is deliberately excluded
+ * from the DO UPDATE set: it is UNIQUE, and rewriting it on every upsert would
+ * make a legacy-to-canonical rename collide with itself. Existing rows keep the
+ * DID they were written with and resolve through the compat shim in getAgent().
  *
  * Also maintains kyapayIndex for fast KYAPay lookups (N+1 fix #2).
  */
