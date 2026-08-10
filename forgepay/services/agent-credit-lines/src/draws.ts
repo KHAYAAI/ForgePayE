@@ -33,6 +33,7 @@ import {
 } from './store';
 
 const AGENT_IDENTITY_URL       = process.env['AGENT_IDENTITY_URL']       ?? 'http://localhost:3010';
+const AGENT_IDENTITY_API_KEY   = process.env['AGENT_IDENTITY_API_KEY']   ?? '';
 const ENTERPRISE_TREASURY_URL  = process.env['ENTERPRISE_TREASURY_URL']  ?? 'http://localhost:3012';
 const DEFAULT_GRACE_DAYS       = 14;
 const MS_PER_DAY               = 86_400_000;
@@ -199,16 +200,25 @@ export interface OverdueSweepResult {
 async function firePenaltyWebhook(agentId: string, lossUsd: number): Promise<void> {
   for (let attempt = 0; attempt < PENALTY_MAX_RETRIES; attempt++) {
     try {
+      // Posts to /reputation, not /penalty — the latter does not exist in
+      // agent-identity, so every default 404'd. A 404 is non-5xx, so the retry
+      // loop treated it as terminal success and no penalty was ever recorded.
       const resp = await fetch(
-        `${AGENT_IDENTITY_URL}/v1/agents/${encodeURIComponent(agentId)}/penalty`,
+        `${AGENT_IDENTITY_URL}/v1/agents/${encodeURIComponent(agentId)}/reputation`,
         {
           method:  'POST',
           signal:  AbortSignal.timeout(5_000),
           headers: {
             'Content-Type': 'application/json',
             'x-source':     'agent-credit-lines',
+            // Without a key this 401s in production — also non-5xx, so also
+            // swallowed as terminal.
+            ...(AGENT_IDENTITY_API_KEY ? { 'X-Api-Key': AGENT_IDENTITY_API_KEY } : {}),
           },
-          body: JSON.stringify({ reasonCode: 'default', amount: lossUsd }),
+          body: JSON.stringify({
+            eventType:   'late_payment',
+            description: `Credit line default — unrecovered loss of $${lossUsd.toFixed(2)}`,
+          }),
         },
       );
       if (resp.ok || resp.status < 500) return; // success or non-retryable error

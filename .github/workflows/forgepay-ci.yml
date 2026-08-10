@@ -85,6 +85,29 @@ jobs:
       - run: npm run type-check
       - run: npm test
 
+  # ── Agent Identity (TypeScript) ─────────────────────────────────────────────
+  # Had no job here despite 3 test files and 40+ cases. That is why its
+  # persistence suite could fail with ECONNREFUSED indefinitely without anyone
+  # noticing, and why a DID-format assertion drifted from the minter.
+  agent-identity:
+    name: "agent-identity — type-check + test"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: forgepay/services/agent-identity
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: forgepay/services/agent-identity/package-lock.json
+
+      - run: npm ci
+      - run: npm run type-check
+      - run: npm test
+
   # ── FORGE Custody (TypeScript) ──────────────────────────────────────────────
   forge-custody:
     name: "forge-custody — type-check + test"

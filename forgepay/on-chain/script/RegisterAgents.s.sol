@@ -23,13 +23,18 @@ contract RegisterAgents is Script {
 
         ForgeReputationRegistry registry = ForgeReputationRegistry(registryAddr);
 
-        // Seeded demo agents — addresses extracted from their DID (did:fp:0x...)
+        // Seeded demo agents. These are the `evmAddress` values on the bureau's
+        // seed profiles (services/agent-credit-bureau/src/store.ts), which now
+        // carry the address explicitly rather than encoding it in the DID.
         address[] memory agents = new address[](5);
         agents[0] = 0x7a3b9C2D1e4F5A6b7C8D9e0F1A2b3c4d5E6f7A8b; // agent_prime_001
         agents[1] = 0x1a2B3C4d5e6F7a8B9c0D1e2F3a4b5c6D7e8f9a0b; // agent_prime_002
         agents[2] = 0x9F8e7d6c5b4a3928172605040302010e0f1a2b3C; // agent_subprime_001
         agents[3] = 0xDeaDbeeF1234567890AbcDef1234567890abcdef; // agent_super_001
-        agents[4] = 0x0000000000000000000000000000000000000000; // agent_deep_001 — skip (zero)
+        // Was hardcoded to address(0) and skipped by the loop below — the DID
+        // did:fp:0x000…dead was mis-transcribed as the zero address, so this
+        // agent was silently never registered on-chain.
+        agents[4] = 0x000000000000000000000000000000000000dEaD; // agent_deep_001
 
         vm.startBroadcast(deployerKey);
 

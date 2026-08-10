@@ -28,6 +28,8 @@ import {
   VelocityWindow,
 } from './types';
 
+const AGENT_IDENTITY_API_KEY = process.env['AGENT_IDENTITY_API_KEY'] ?? '';
+
 export interface ReputationFetcher {
   (counterpartyAgentId: string): Promise<number | null>;
 }
@@ -165,15 +167,28 @@ export async function fetchReputation(
   counterpartyAgentId: string,
 ): Promise<number> {
   try {
-    const res = await fetch(`${baseUrl}/v1/agents/${encodeURIComponent(counterpartyAgentId)}/reputation`, {
+    // `/reputation` returns the raw event list (`{ data: events[], total }`),
+    // not a summary — this used to read `reputation`/`score` off that body,
+    // find neither, and silently return the neutral 50 for every agent. The
+    // summary lives on the agent record.
+    const res = await fetch(`${baseUrl}/v1/agents/${encodeURIComponent(counterpartyAgentId)}`, {
       signal: AbortSignal.timeout(5_000),
+      headers: {
+        'Accept': 'application/json',
+        // agent-identity requires a key on this route; sending none 401s in
+        // production, which also silently degraded to 50.
+        ...(AGENT_IDENTITY_API_KEY ? { 'X-Api-Key': AGENT_IDENTITY_API_KEY } : {}),
+      },
     });
     if (!res.ok) return 50;
-    const json = await res.json() as { reputation?: number; score?: number };
-    const value = typeof json.reputation === 'number' ? json.reputation
-                : typeof json.score      === 'number' ? json.score
-                : 50;
-    return clamp(value, 0, 100);
+
+    const json = await res.json() as { data?: { reputationScore?: number } };
+    const raw = json.data?.reputationScore;
+    if (typeof raw !== 'number') return 50;
+
+    // agent-identity scores 0–1000 (default 500); this scorer works in 0–100,
+    // so a raw 500 would previously have clamped to 100 rather than 50.
+    return clamp(Math.round(raw / 10), 0, 100);
   } catch {
     return 50;
   }

@@ -1,11 +1,20 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { assessAgent } from '../assessor';
 
+/**
+ * `body` is the agent record; it is wrapped in the `{ data: … }` envelope that
+ * agent-identity actually returns from GET /v1/agents/:id.
+ *
+ * These mocks previously returned the record bare, which matched what the
+ * assessor wrongly expected — it was reading summary fields off
+ * GET /v1/agents/:id/reputation, a route that returns `{ data: events[], total }`.
+ * The tests passed while the real call always fell back to zero.
+ */
 function mockFetch(body: unknown, ok = true, status = 200): void {
   vi.stubGlobal('fetch', vi.fn(async () => ({
     ok,
     status,
-    json: async () => body,
+    json: async () => ({ data: body }),
   })));
 }
 

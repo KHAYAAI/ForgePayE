@@ -19,6 +19,7 @@
 import { CreditAssessment, CreditTerms } from './types';
 
 const AGENT_IDENTITY_URL = process.env['AGENT_IDENTITY_URL'] ?? 'http://localhost:3010';
+const AGENT_IDENTITY_API_KEY = process.env['AGENT_IDENTITY_API_KEY'] ?? '';
 const FETCH_TIMEOUT_MS   = 5_000;
 const CACHE_TTL_MS       = 5 * 60_000; // 5-minute TTL
 
@@ -30,9 +31,17 @@ interface CachedReputation {
 
 const reputationCache = new Map<string, CachedReputation>();
 
+/**
+ * Shape of the agent record from `GET /v1/agents/:id`.
+ *
+ * `reputationScore` and `totalTransactions` are what agent-identity actually
+ * returns (types.ts); the other names are kept as tolerated aliases so a
+ * differently-shaped upstream does not silently read as zero.
+ */
 interface ReputationResponse {
   reputationScore?: number;
   score?: number;
+  totalTransactions?: number;
   transactionCount?: number;
   txCount?: number;
 }
@@ -43,21 +52,31 @@ async function fetchReputation(agentId: string): Promise<{ reputation: number; t
     return { reputation: cached.reputation, txCount: cached.txCount };
   }
 
+  // The agent record, not /reputation — that route returns the raw event list
+  // (`{ data: events[], total }`), so reading reputationScore/transactionCount
+  // off it always found neither and silently fell back to 0.
   const resp = await fetch(
-    `${AGENT_IDENTITY_URL}/v1/agents/${encodeURIComponent(agentId)}/reputation`,
+    `${AGENT_IDENTITY_URL}/v1/agents/${encodeURIComponent(agentId)}`,
     {
       signal:  AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      headers: { 'Accept': 'application/json', 'x-source': 'agent-credit-lines' },
+      headers: {
+        'Accept': 'application/json',
+        'x-source': 'agent-credit-lines',
+        // Required by agent-identity; without it this 401s in production.
+        ...(AGENT_IDENTITY_API_KEY ? { 'X-Api-Key': AGENT_IDENTITY_API_KEY } : {}),
+      },
     },
   );
   if (!resp.ok) throw new Error(`agent-identity returned ${resp.status}`);
-  const body = (await resp.json()) as ReputationResponse;
+  const body = ((await resp.json()) as { data?: ReputationResponse }).data ?? {} as ReputationResponse;
   const reputation = typeof body.reputationScore === 'number'
     ? body.reputationScore
     : (typeof body.score === 'number' ? body.score : 0);
-  const txCount = typeof body.transactionCount === 'number'
-    ? body.transactionCount
-    : (typeof body.txCount === 'number' ? body.txCount : 0);
+  const txCount = typeof body.totalTransactions === 'number'
+    ? body.totalTransactions
+    : (typeof body.transactionCount === 'number'
+        ? body.transactionCount
+        : (typeof body.txCount === 'number' ? body.txCount : 0));
 
   reputationCache.set(agentId, { reputation, txCount, fetchedAt: Date.now() });
   return { reputation, txCount };
