@@ -41,6 +41,7 @@ import {
   type Address, type Account,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
+import { addressFromDid } from './did';
 import { baseSepolia, base } from 'viem/chains';
 import type { Mode2Inputs } from './types';
 
@@ -359,12 +360,16 @@ export function getChainClient(): ForgeChainClient | null {
 }
 
 /**
- * Derive an Ethereum address from an agent DID.
- * DID format: did:fp:0x<hex>  — the hex portion is the on-chain address.
- * Returns null if the DID doesn't contain a valid EVM address.
+ * The EVM address a DID self-certifies, or null when it does not carry one.
+ *
+ * Now a thin wrapper over the canonical parser in `./did`, which accepts
+ * `did:forge:0x…` plus the legacy `did:fp:0x…`, anchors its match, and EIP-55
+ * checksums the result.
+ *
+ * A registry-form DID returning null is the correct answer, not a failure —
+ * that agent's address lives on `AgentCreditProfile.evmAddress`. Prefer
+ * `settlementEligibility()` in `./settlement` over calling this directly.
  */
 export function didToAddress(did: string): Address | null {
-  const match = did.match(/did:fp:(0x[0-9a-fA-F]{40})/);
-  if (!match?.[1]) return null;
-  return match[1] as Address;
+  return addressFromDid(did) as Address | null;
 }

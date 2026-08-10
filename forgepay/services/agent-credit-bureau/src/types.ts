@@ -14,6 +14,19 @@ export type CreditTier =
 export interface AgentCreditProfile {
   agentId: string;
   did: string;
+  /**
+   * The EVM account this agent settles from, EIP-55 checksummed.
+   *
+   * Held explicitly rather than string-sliced out of `did`. An address is a
+   * capability (which on-chain account) and a DID is an identifier (who) —
+   * conflating them is why only one hand-written DID format ever resolved and
+   * why every real agent was silently skipped at settlement.
+   *
+   * Auto-populated when `did` is the self-certifying `did:forge:0x…` form;
+   * otherwise supplied by the caller. Undefined means this agent cannot settle
+   * on-chain yet, which `settlementEligibility()` reports explicitly.
+   */
+  evmAddress?: string;
   operatorEntityId: string;         // Legal entity (EIN/VAT/TRN) bound to this agent
   operatorEntityType: 'individual' | 'llc' | 'corp' | 'dao';
   currentScore: number;             // 0–1000

@@ -29,9 +29,61 @@
 
 import { createHash } from 'crypto';
 import type { Address } from 'viem';
-import { getChainClient, didToAddress } from './chain';
+import { getChainClient } from './chain';
 import { profiles } from './store';
+import { addressFromDid } from './did';
+import type { AgentCreditProfile } from './types';
 import { isDbEnabled, upsertSettlement, loadAllSettlements } from './db';
+
+// ── Settlement eligibility ────────────────────────────────────────────────────
+
+/** Why an agent cannot be settled on-chain. */
+export type IneligibilityReason = 'no_evm_address' | 'frozen';
+
+export interface SettlementEligibility {
+  eligible: boolean;
+  /** Present when an address resolved, even if settlement is blocked. */
+  address?: string;
+  reason?: IneligibilityReason;
+  /** Human-readable explanation, safe to surface in an API response. */
+  detail?: string;
+}
+
+/**
+ * Decide whether an agent can be settled on-chain, and say why not.
+ *
+ * Previously this logic was inline in `runSettlement`, so an agent whose DID
+ * did not parse was skipped on every run forever with the only trace a string
+ * pushed into `run.errors`. Callers now get a structured answer they can
+ * surface: the settlement run, `/v1/settlement/status` and the dual-score
+ * endpoint all resolve eligibility through here.
+ */
+export function settlementEligibility(profile: AgentCreditProfile): SettlementEligibility {
+  // Explicit address first; a self-certifying DID is the fallback.
+  const address = profile.evmAddress ?? addressFromDid(profile.did) ?? undefined;
+
+  if (!address) {
+    return {
+      eligible: false,
+      reason: 'no_evm_address',
+      detail:
+        `DID ${profile.did} does not carry an EVM address and no evmAddress is set on ` +
+        `the profile. Supply one via POST /v1/agents/${profile.agentId}/profile, or use ` +
+        `a did:forge:0x… identifier.`,
+    };
+  }
+
+  if (profile.frozenAt) {
+    return {
+      eligible: false,
+      address,
+      reason: 'frozen',
+      detail: `Credit frozen at ${profile.frozenAt}; scores are not settled while frozen.`,
+    };
+  }
+
+  return { eligible: true, address };
+}
 
 // ── Settlement receipt store (in-memory; survives process restart via re-settle) ──
 
@@ -134,13 +186,13 @@ export async function runSettlement(trigger: 'scheduled' | 'manual' = 'scheduled
   const candidates: { agentId: string; address: Address; score: number }[] = [];
 
   for (const p of allProfiles) {
-    const addr = didToAddress(p.did);
-    if (!addr) {
+    const eligibility = settlementEligibility(p);
+    if (!eligibility.eligible) {
       run.agentsSkipped++;
-      run.errors.push(`${p.agentId}: DID ${p.did} has no EVM address — skipped`);
+      run.errors.push(`${p.agentId}: ${eligibility.detail} — skipped`);
       continue;
     }
-    candidates.push({ agentId: p.agentId, address: addr, score: p.currentScore });
+    candidates.push({ agentId: p.agentId, address: eligibility.address as Address, score: p.currentScore });
   }
 
   // ── Step 2: register any unregistered agents (one at a time, awaited) ────────

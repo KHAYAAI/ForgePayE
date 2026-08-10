@@ -29,6 +29,7 @@ import helmet from '@fastify/helmet';
 import { z } from 'zod';
 import { randomUUID, randomBytes } from 'crypto';
 import { registerAuth, hashApiKey, redactContributor } from './auth';
+import { isValidDid, isAddressBody, addressFromDid, toChecksumAddress, sameAddress } from './did';
 
 import {
   getProfile, setProfile, getDispute, setDispute,
@@ -49,6 +50,7 @@ import { getChainClient, didToAddress } from './chain';
 import {
   runSettlement, startSettlementScheduler, hydrateSettlements,
   getLastSettlementRun, getSettlementReceipt, getSettlementRunCount,
+  settlementEligibility,
 } from './settlement';
 
 // ── Configuration ─────────────────────────────────────────────────────────────
@@ -61,7 +63,18 @@ const RATE_LIMIT_PER_MIN = parseInt(process.env['RATE_LIMIT_PER_MIN'] ?? '100', 
 
 const CreateProfileSchema = z.object({
   agentId:             z.string().min(1),
-  did:                 z.string().min(1),
+  // Was `z.string().min(1)`, so `"x"` was accepted and the profile created
+  // silently un-settleable — the format only failed later, inside a settlement
+  // run's error array. Reject at the boundary instead.
+  did:                 z.string().refine(isValidDid, {
+    message: 'Must be a DID of the form did:forge:0x<40 hex> or did:forge:agent_<id> ' +
+             '(did:fp: and did:forgepay: are accepted as legacy aliases)',
+  }),
+  // Optional because a registry-form DID carries no address. Required in
+  // practice for an agent that intends to settle on-chain.
+  evmAddress:          z.string().refine(isAddressBody, {
+    message: 'Must be a 20-byte hex EVM address (0x + 40 hex characters)',
+  }).optional(),
   operatorEntityId:    z.string().min(1),
   operatorEntityType:  z.enum(['individual', 'llc', 'corp', 'dao']),
 });
@@ -203,10 +216,26 @@ async function buildApp() {
       return reply.status(409).send({ error: 'Conflict', message: `Agent ${req.params.agentId} already has a profile` });
     }
 
+    // An explicit address wins; otherwise fall back to a self-certifying DID.
+    // A registry-form DID with no address is allowed through — the profile is
+    // simply not settlement-eligible, and says so rather than failing silently.
+    const derivedAddress = addressFromDid(parse.data.did);
+    const evmAddress = parse.data.evmAddress
+      ? toChecksumAddress(parse.data.evmAddress)
+      : derivedAddress ?? undefined;
+
+    if (parse.data.evmAddress && derivedAddress && !sameAddress(parse.data.evmAddress, derivedAddress)) {
+      return reply.status(400).send({
+        error: 'ValidationError',
+        message: `evmAddress ${evmAddress} contradicts the address in the DID (${derivedAddress}).`,
+      });
+    }
+
     const now = new Date().toISOString();
     const profile: AgentCreditProfile = {
       agentId:             req.params.agentId,
       did:                 parse.data.did,
+      evmAddress,
       operatorEntityId:    parse.data.operatorEntityId,
       operatorEntityType:  parse.data.operatorEntityType,
       currentScore:        650, // initial neutral score
@@ -627,8 +656,18 @@ async function buildApp() {
     const chain   = getChainClient();
     const receipt = getSettlementReceipt(req.params.agentId);
 
-    // Resolve on-chain address from DID
-    const agentAddress = didToAddress(profile.did);
+    // Explicit address first, self-certifying DID as fallback.
+    const eligibility  = settlementEligibility(profile);
+    const agentAddress = eligibility.address as `0x${string}` | undefined;
+
+    // Why Mode 2 may be absent. Previously the response carried a bare
+    // `mode2: null` with no way for a caller to tell an unconfigured chain from
+    // an agent that can never settle.
+    const mode2Unavailable =
+      chain === null          ? { reason: 'chain_unconfigured', detail: 'The bureau has no on-chain client configured; Mode 1 is authoritative.' }
+      : !agentAddress         ? { reason: eligibility.reason, detail: eligibility.detail }
+      : receipt === undefined ? { reason: 'not_yet_settled', detail: 'This agent has no settlement receipt yet; the next settlement run will publish one.' }
+      : null;
 
     // Compute account age in months from profile.createdAt
     const ageMonths = Math.max(0,
@@ -652,7 +691,18 @@ async function buildApp() {
       } : undefined,
     );
 
-    return reply.send({ data: { ...dualScore, grade: creditGrade(dualScore.mode1.score) } });
+    return reply.send({
+      data: {
+        ...dualScore,
+        grade: creditGrade(dualScore.mode1.score),
+        settlement: {
+          eligible: eligibility.eligible,
+          address:  eligibility.address ?? null,
+          ...(eligibility.reason ? { reason: eligibility.reason, detail: eligibility.detail } : {}),
+        },
+        ...(mode2Unavailable ? { mode2Unavailable } : {}),
+      },
+    });
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -701,6 +751,15 @@ async function buildApp() {
         pendingAgents: profiles.size > 0
           ? Array.from(profiles.keys()).filter(id => getSettlementReceipt(id) === undefined).length
           : 0,
+
+        // Agents that can never settle as configured. Previously invisible: an
+        // unresolvable DID was skipped on every run with the only trace a
+        // string in the run's error array, so an operator had no way to ask
+        // "who is stuck, and why".
+        ineligibleAgents: Array.from(profiles.values())
+          .map(p => ({ agentId: p.agentId, ...settlementEligibility(p) }))
+          .filter(e => !e.eligible)
+          .map(e => ({ agentId: e.agentId, reason: e.reason, detail: e.detail })),
       },
     });
   });

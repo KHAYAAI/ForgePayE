@@ -128,7 +128,8 @@ function seed() {
   const agents: Omit<AgentCreditProfile, 'scoreFactors' | 'tier' | 'currentScore'>[] = [
     {
       agentId: 'agent_prime_001',
-      did: 'did:fp:0x7a3b9c2d1e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b',
+      did: 'did:forge:0x7a3b9c2d1e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b',
+      evmAddress: '0x7a3b9c2d1e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b',
       operatorEntityId: 'EIN-82-1234567',
       operatorEntityType: 'llc',
       creditHistory: [
@@ -150,7 +151,8 @@ function seed() {
     },
     {
       agentId: 'agent_prime_002',
-      did: 'did:fp:0x1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b',
+      did: 'did:forge:0x1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b',
+      evmAddress: '0x1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b',
       operatorEntityId: 'EIN-45-9876543',
       operatorEntityType: 'corp',
       creditHistory: [
@@ -170,7 +172,8 @@ function seed() {
     },
     {
       agentId: 'agent_subprime_001',
-      did: 'did:fp:0x9f8e7d6c5b4a3928172605040302010e0f1a2b3c',
+      did: 'did:forge:0x9f8e7d6c5b4a3928172605040302010e0f1a2b3c',
+      evmAddress: '0x9f8e7d6c5b4a3928172605040302010e0f1a2b3c',
       operatorEntityId: 'EIN-11-2233445',
       operatorEntityType: 'individual',
       creditHistory: [
@@ -198,7 +201,8 @@ function seed() {
     },
     {
       agentId: 'agent_super_001',
-      did: 'did:fp:0xdeadbeef1234567890abcdef1234567890abcdef',
+      did: 'did:forge:0xdeadbeef1234567890abcdef1234567890abcdef',
+      evmAddress: '0xdeadbeef1234567890abcdef1234567890abcdef',
       operatorEntityId: 'EIN-99-1111111',
       operatorEntityType: 'dao',
       creditHistory: [
@@ -220,7 +224,8 @@ function seed() {
     },
     {
       agentId: 'agent_deep_001',
-      did: 'did:fp:0x000000000000000000000000000000000000dead',
+      did: 'did:forge:0x000000000000000000000000000000000000dead',
+      evmAddress: '0x000000000000000000000000000000000000dead',
       operatorEntityId: 'EIN-00-0000001',
       operatorEntityType: 'individual',
       creditHistory: [

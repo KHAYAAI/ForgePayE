@@ -85,6 +85,10 @@ export async function runMigrations(): Promise<void> {
       CREATE TABLE IF NOT EXISTS agent_credit_profiles (
         agent_id TEXT PRIMARY KEY,
         did TEXT NOT NULL,
+        -- The EVM account this agent settles from, EIP-55 checksummed. Held as
+        -- a column (not only inside the JSONB blob) so operators can query
+        -- "which agents cannot settle" without scanning JSON.
+        evm_address TEXT,
         operator_entity_id TEXT NOT NULL,
         operator_entity_type TEXT NOT NULL,
         current_score INT NOT NULL DEFAULT 0,
@@ -93,6 +97,9 @@ export async function runMigrations(): Promise<void> {
         profile JSONB NOT NULL,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
+
+      -- Added after the initial schema; idempotent so redeploys are safe.
+      ALTER TABLE agent_credit_profiles ADD COLUMN IF NOT EXISTS evm_address TEXT;
 
       CREATE INDEX IF NOT EXISTS idx_credit_profiles_current_score
         ON agent_credit_profiles(current_score);
@@ -152,11 +159,12 @@ export async function runMigrations(): Promise<void> {
 export async function upsertProfile(p: AgentCreditProfile): Promise<void> {
   await pool.query(
     `INSERT INTO agent_credit_profiles
-       (agent_id, did, operator_entity_id, operator_entity_type,
+       (agent_id, did, evm_address, operator_entity_id, operator_entity_type,
         current_score, tier, frozen_at, profile, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
      ON CONFLICT (agent_id) DO UPDATE SET
        did = EXCLUDED.did,
+       evm_address = EXCLUDED.evm_address,
        operator_entity_id = EXCLUDED.operator_entity_id,
        operator_entity_type = EXCLUDED.operator_entity_type,
        current_score = EXCLUDED.current_score,
@@ -167,6 +175,7 @@ export async function upsertProfile(p: AgentCreditProfile): Promise<void> {
     [
       p.agentId,
       p.did,
+      p.evmAddress ?? null,
       p.operatorEntityId,
       p.operatorEntityType,
       p.currentScore,
