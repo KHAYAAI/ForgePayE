@@ -31,6 +31,7 @@ import { randomUUID, randomBytes } from 'crypto';
 import { registerAuth, hashApiKey, redactContributor, contributorAccessError } from './auth';
 import { isValidDid, isAddressBody, addressFromDid, toChecksumAddress, sameAddress } from './did';
 import { issueConsent, verifyConsent, revokeConsent, type ConsentPurpose } from './consent';
+import { resolveDispute, withEscalationCheck, furnisherForEvent, type DisputeCorrection } from './disputes';
 
 import {
   getProfile, setProfile, getDispute, setDispute,
@@ -106,12 +107,27 @@ const FileDisputeSchema = z.object({
   eventId:     z.string().min(1),
   description: z.string().min(10),
   evidence:    z.string().optional(),
+  // Accepted for backward compatibility, but not authoritative — the handler
+  // derives the true furnisher from the disputed event's contributorId and
+  // rejects a value that contradicts it, the same rule ingest applies to
+  // creditorId. A filer should not be able to name who they're accusing.
   furnisherId: z.string().optional(),
+});
+
+const DisputeCorrectionSchema = z.object({
+  eventType:   RecordEventSchema.shape.eventType.optional(),
+  amount:      z.number().nonnegative().optional(),
+  description: z.string().min(1).optional(),
 });
 
 const UpdateDisputeSchema = z.object({
   status:     z.enum(['investigating', 'resolved_upheld', 'resolved_corrected', 'resolved_deleted']),
-  resolution: z.string().optional(),
+  resolution: z.string().min(1).max(2000).optional(),
+  // Required by the handler when status is resolved_corrected — an arbitrator
+  // must state what the correct facts are, not just that the original record
+  // was wrong. Validated here as optional so the more specific error from
+  // resolveDispute() (correction_required) fires instead of a generic 400.
+  correction: DisputeCorrectionSchema.optional(),
 });
 
 /**
@@ -583,9 +599,18 @@ async function buildApp() {
   // Disputes — FCRA-compliant 30-day resolution
   // ═══════════════════════════════════════════════════════════════════════════
 
+  // A dispute past its 30-day deadline gets escalatedAt stamped on read and
+  // persisted, so escalation is a durable fact discovered once rather than
+  // recomputed (and silently lost) on every subsequent read.
+  const persistEscalationIfDue = (d: Dispute): Dispute => {
+    const checked = withEscalationCheck(d);
+    if (checked !== d) setDispute(checked);
+    return checked;
+  };
+
   // GET /v1/agents/:agentId/disputes
   app.get<{ Params: { agentId: string } }>('/v1/agents/:agentId/disputes', async (req, reply) => {
-    const data = listDisputes({ agentId: req.params.agentId });
+    const data = listDisputes({ agentId: req.params.agentId }).map(persistEscalationIfDue);
     return reply.send({ data, total: data.length });
   });
 
@@ -597,19 +622,51 @@ async function buildApp() {
     const parse = FileDisputeSchema.safeParse(req.body);
     if (!parse.success) return reply.status(400).send({ error: 'ValidationError', details: parse.error.flatten() });
 
+    const disputedEvent = profile.creditHistory.find(e => e.id === parse.data.eventId);
+    if (!disputedEvent) {
+      return reply.status(400).send({
+        error:   'ValidationError',
+        message: `eventId ${parse.data.eventId} is not on agent ${req.params.agentId}'s credit history.`,
+      });
+    }
+
+    // The furnisher is the event's own provenance, not whatever the filer
+    // claims — a dispute has to accurately identify who furnished the data it
+    // disputes, both so resolution can notify the right party and so a filer
+    // cannot name an arbitrary furnisher. Events written before the 1b
+    // furnisher pipeline carry no contributorId, so this can be undefined.
+    const derivedFurnisherId = furnisherForEvent(disputedEvent);
+    if (parse.data.furnisherId && derivedFurnisherId && parse.data.furnisherId !== derivedFurnisherId) {
+      return reply.status(400).send({
+        error:   'ValidationError',
+        message: `furnisherId "${parse.data.furnisherId}" does not match the furnisher on record for this event ` +
+                  `("${derivedFurnisherId}").`,
+      });
+    }
+
     const dispute: Dispute = {
       id:          randomUUID(),
       agentId:     req.params.agentId,
+      eventId:     parse.data.eventId,
+      description: parse.data.description,
+      evidence:    parse.data.evidence,
+      furnisherId: derivedFurnisherId ?? parse.data.furnisherId,
       status:      'open',
       filedAt:     new Date().toISOString(),
-      ...parse.data,
     };
 
     setDispute(dispute);
     return reply.status(201).send({ data: dispute });
   });
 
-  // PUT /v1/disputes/:disputeId — update status
+  // PUT /v1/disputes/:disputeId — resolve (or advance) a dispute
+  //
+  // A resolved_corrected or resolved_deleted outcome previously updated only
+  // this record — the disputed event stayed on the agent's creditHistory and
+  // the score was never recomputed, so the disputed data survived its own
+  // deletion. resolveDispute() (src/disputes.ts) now mutates the record it
+  // resolves and re-derives the score through the same single source of truth
+  // used everywhere else in the bureau.
   app.put<{ Params: { disputeId: string } }>('/v1/disputes/:disputeId', async (req, reply) => {
     const dispute = getDispute(req.params.disputeId);
     if (!dispute) return reply.status(404).send({ error: 'NotFound', message: 'Dispute not found' });
@@ -617,22 +674,47 @@ async function buildApp() {
     const parse = UpdateDisputeSchema.safeParse(req.body);
     if (!parse.success) return reply.status(400).send({ error: 'ValidationError', details: parse.error.flatten() });
 
-    const updated: Dispute = {
-      ...dispute,
+    const profile = getProfile(dispute.agentId);
+    if (!profile) return reply.status(404).send({ error: 'NotFound', message: `Agent ${dispute.agentId} not found` });
+
+    const result = resolveDispute({
+      profile,
+      dispute,
       status:     parse.data.status,
       resolution: parse.data.resolution,
-      resolvedAt: parse.data.status.startsWith('resolved') ? new Date().toISOString() : undefined,
-    };
+      correction: parse.data.correction as DisputeCorrection | undefined,
+    });
 
-    setDispute(updated);
-    return reply.send({ data: updated });
+    if (!result.ok) {
+      const statusCode = result.error === 'already_resolved' ? 409
+                        : result.error === 'event_not_found'  ? 404
+                        : 400;
+      return reply.status(statusCode).send({ error: 'DisputeResolutionError', reason: result.error, message: result.message });
+    }
+
+    setDispute(result.dispute);
+    if (result.historyChanged) {
+      setProfile(result.profile);
+
+      // The information a furnisher notification needs — no delivery
+      // transport exists yet, so this is the audit trail for when one does.
+      if (dispute.furnisherId) {
+        req.log.info(
+          { disputeId: dispute.id, agentId: dispute.agentId, furnisherId: dispute.furnisherId,
+            eventId: dispute.eventId, outcome: result.dispute.status },
+          'furnisher data corrected by dispute resolution — notification pending (no delivery transport wired)',
+        );
+      }
+    }
+
+    return reply.send({ data: result.dispute });
   });
 
   // GET /v1/disputes — list all disputes (for compliance officers)
   app.get<{ Querystring: { status?: string; limit?: string } }>('/v1/disputes', async (req, reply) => {
     const q = req.query as { status?: string; limit?: string };
     const limit  = Math.min(parseInt(q.limit ?? '50', 10), 500);
-    const data   = listDisputes(q.status ? { status: q.status } : undefined).slice(0, limit);
+    const data   = listDisputes(q.status ? { status: q.status } : undefined).slice(0, limit).map(persistEscalationIfDue);
     return reply.send({ data, total: data.length });
   });
 
