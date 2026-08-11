@@ -117,7 +117,12 @@ export interface Inquiry {
   requestorName: string;
   purpose: 'credit_application' | 'account_review' | 'employment' | 'insurance';
   timestamp: string;
-  consentToken: string;            // Signed consent from agent
+  /**
+   * The `jti` of the consent token that authorised this pull — not the token
+   * itself, which is a bearer credential. This is the durable, non-replayable
+   * reference tying the inquiry to the authorisation that permitted it.
+   */
+  consentToken: string;
 }
 
 export interface CreditReport {

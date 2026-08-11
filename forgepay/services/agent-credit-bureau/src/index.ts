@@ -30,6 +30,7 @@ import { z } from 'zod';
 import { randomUUID, randomBytes } from 'crypto';
 import { registerAuth, hashApiKey, redactContributor, contributorAccessError } from './auth';
 import { isValidDid, isAddressBody, addressFromDid, toChecksumAddress, sameAddress } from './did';
+import { issueConsent, verifyConsent, revokeConsent, type ConsentPurpose } from './consent';
 
 import {
   getProfile, setProfile, getDispute, setDispute,
@@ -140,6 +141,18 @@ const RegisterContributorSchema = z.object({
 const ContributorStatusSchema = z.object({
   status: z.enum(['active', 'suspended', 'pending']),
   reason: z.string().min(1).max(500),
+});
+
+const IssueConsentSchema = z.object({
+  agentId:     z.string().min(1),
+  requestorId: z.string().min(1),
+  purpose:     z.enum(['credit_application', 'account_review', 'employment', 'insurance']),
+  ttlSeconds:  z.number().int().positive().max(86_400).optional(),
+});
+
+const RevokeConsentSchema = z.object({
+  jti: z.string().min(1),
+  exp: z.number().int().positive(),
 });
 
 const ZKProofRequestSchema = z.object({
@@ -395,6 +408,55 @@ async function buildApp() {
   // ═══════════════════════════════════════════════════════════════════════════
 
   // POST /v1/reports — pull a credit report
+  // POST /v1/consent — issue a consent token authorising one credit pull.
+  //
+  // Admin-only for now, which is deliberate and worth being explicit about:
+  // consent should be granted by the agent's operator, but there is no
+  // agent-authentication path yet — the wallet/DID auth that would let an
+  // operator authenticate directly lands in a later phase. Until then the
+  // bureau issues on an operator's behalf, and the audit trail records that.
+  app.post('/v1/consent', async (req, reply) => {
+    const parse = IssueConsentSchema.safeParse(req.body);
+    if (!parse.success) return reply.status(400).send({ error: 'ValidationError', details: parse.error.flatten() });
+
+    if (!getProfile(parse.data.agentId)) {
+      return reply.status(404).send({ error: 'NotFound', message: `Agent ${parse.data.agentId} not found` });
+    }
+
+    const { token, payload } = issueConsent({
+      agentId:     parse.data.agentId,
+      requestorId: parse.data.requestorId,
+      purpose:     parse.data.purpose as ConsentPurpose,
+      ttlSeconds:  parse.data.ttlSeconds,
+    });
+
+    req.log.info(
+      { agentId: payload.sub, requestorId: payload.aud, purpose: payload.purpose, jti: payload.jti },
+      'consent issued',
+    );
+
+    // The token appears here and nowhere else — it is a bearer credential.
+    return reply.status(201).send({
+      data: {
+        consentToken: token,
+        jti:          payload.jti,
+        expiresAt:    new Date(payload.exp * 1000).toISOString(),
+        scope: { agentId: payload.sub, requestorId: payload.aud, purpose: payload.purpose },
+        note: 'Single-use. Bound to this agent, this requestor and this purpose.',
+      },
+    });
+  });
+
+  // POST /v1/consent/revoke — withdraw an outstanding authorisation.
+  app.post('/v1/consent/revoke', async (req, reply) => {
+    const parse = RevokeConsentSchema.safeParse(req.body);
+    if (!parse.success) return reply.status(400).send({ error: 'ValidationError', details: parse.error.flatten() });
+
+    revokeConsent(parse.data.jti, parse.data.exp);
+    req.log.info({ jti: parse.data.jti }, 'consent revoked');
+    return reply.send({ data: { jti: parse.data.jti, revoked: true } });
+  });
+
   app.post('/v1/reports', async (req, reply) => {
     const parse = PullReportSchema.safeParse(req.body);
     if (!parse.success) return reply.status(400).send({ error: 'ValidationError', details: parse.error.flatten() });
@@ -404,6 +466,26 @@ async function buildApp() {
     if (!profile) return reply.status(404).send({ error: 'NotFound', message: `Agent ${agentId} not found` });
     if (profile.frozenAt) return reply.status(403).send({ error: 'Frozen', message: 'Agent credit profile is frozen due to sanctions or legal hold' });
 
+    // The consent token is the evidence that this agent authorised this lender
+    // to make this kind of pull. It was previously accepted as any non-empty
+    // string and stored verbatim, so `"x"` released a full credit file.
+    //
+    // Verified before the inquiry is recorded and before any data is assembled:
+    // a refused pull must leave no trace on the agent's file, because a
+    // recorded hard inquiry is itself a small penalty to the score.
+    const consent = verifyConsent({ token: consentToken, agentId, requestorId, purpose });
+    if (!consent.valid) {
+      req.log.warn(
+        { agentId, requestorId, purpose, reason: consent.reason },
+        'credit report refused — consent did not verify',
+      );
+      return reply.status(403).send({
+        error:   'ConsentInvalid',
+        reason:  consent.reason,
+        message: consent.detail,
+      });
+    }
+
     // Record hard inquiry
     profile.hardInquiries.push({
       id:            randomUUID(),
@@ -411,7 +493,10 @@ async function buildApp() {
       requestorName,
       purpose,
       timestamp:     new Date().toISOString(),
-      consentToken,
+      // The jti, not the token itself. The token is a bearer credential; the
+      // jti is the durable, non-replayable reference that ties this inquiry to
+      // the authorisation that permitted it.
+      consentToken:  consent.payload!.jti,
     });
 
     // Recompute score after inquiry (may slightly reduce it)
