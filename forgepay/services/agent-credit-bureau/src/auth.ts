@@ -191,6 +191,17 @@ const ROUTE_SCOPES: Record<string, Scope> = {
   'GET /v1/reports/:reportId':               SCOPES.PULL_SCORES,
   'POST /v1/reports/:reportId/zk':           SCOPES.PULL_SCORES,
 
+  // Lender reports — the underwriting packet. Same scope as the credit file:
+  // both release the agent's credit data and both record a hard inquiry.
+  // Retrieval is additionally narrowed per-resource in the handler, so a
+  // furnisher sees only the reports it requested.
+  'POST /v1/lender-reports':                 SCOPES.PULL_SCORES,
+  'GET /v1/lender-reports':                  SCOPES.PULL_SCORES,
+  'GET /v1/lender-reports/:reportId':        SCOPES.PULL_SCORES,
+  // The reason-code dictionary carries no agent data — it is the vocabulary an
+  // autonomous underwriter needs to interpret any report it holds.
+  'GET /v1/lender-reports/schema':           SCOPES.PULL_SCORES,
+
   // Disputes — the agent/operator side files, the bureau side resolves.
   'GET /v1/agents/:agentId/disputes':        SCOPES.READ_PROFILE,
   'POST /v1/agents/:agentId/disputes':       SCOPES.READ_PROFILE,

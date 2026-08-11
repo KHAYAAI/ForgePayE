@@ -15,10 +15,11 @@ import type {
 import { computeScore } from './scorer';
 import { hashApiKey } from './hash';
 import { gradeDistribution, INQUIRY_FEE_USD } from './grade';
+import type { LenderReport } from './lender-report';
 import {
   isDbEnabled, runMigrations,
-  upsertProfile, upsertDispute, upsertReport, upsertContributor,
-  loadAllProfiles, loadAllDisputes, loadAllReports, loadAllContributors,
+  upsertProfile, upsertDispute, upsertReport, upsertContributor, upsertLenderReport,
+  loadAllProfiles, loadAllDisputes, loadAllReports, loadAllContributors, loadAllLenderReports,
 } from './db';
 
 /** Fire-and-forget persistence error logger — keeps mutators synchronous. */
@@ -32,6 +33,14 @@ export const disputes  = new Map<string, Dispute>();
 export const reports   = new Map<string, CreditReport>();
 export const contributors = new Map<string, DataContributor>();
 
+/**
+ * Underwriting packets issued to third-party lenders. Kept apart from
+ * `reports` (the raw credit file) because a lender must be able to retrieve the
+ * exact document it made a credit decision on — the profile it scored against
+ * will have moved by the time anyone asks.
+ */
+export const lenderReports = new Map<string, LenderReport>();
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 export const getProfile  = (id: string) => profiles.get(id);
@@ -40,6 +49,14 @@ export const getDispute  = (id: string) => disputes.get(id);
 export const setDispute  = (d: Dispute) => { disputes.set(d.id, d); if (isDbEnabled()) upsertDispute(d).catch(persistErr('dispute')); return d; };
 export const getReport   = (id: string) => reports.get(id);
 export const setReport   = (r: CreditReport) => { reports.set(r.reportId, r); if (isDbEnabled()) upsertReport(r).catch(persistErr('report')); return r; };
+export const getLenderReport = (id: string) => lenderReports.get(id);
+export const setLenderReport = (r: LenderReport) => { lenderReports.set(r.reportId, r); if (isDbEnabled()) upsertLenderReport(r).catch(persistErr('lender report')); return r; };
+export const listLenderReports = (filter?: { agentId?: string; requestorId?: string }) => {
+  let all = Array.from(lenderReports.values());
+  if (filter?.agentId)     all = all.filter(r => r.agentId === filter.agentId);
+  if (filter?.requestorId) all = all.filter(r => r.requestorId === filter.requestorId);
+  return all.sort((a, b) => b.generatedAt.localeCompare(a.generatedAt));
+};
 export const getContributor = (id: string) => contributors.get(id);
 export const setContributor = (c: DataContributor) => { contributors.set(c.id, c); if (isDbEnabled()) upsertContributor(c).catch(persistErr('contributor')); return c; };
 
@@ -349,8 +366,9 @@ export async function initPersistence(): Promise<void> {
 
   await runMigrations();
 
-  const [ps, ds, rs, cs] = await Promise.all([
+  const [ps, ds, rs, cs, ls] = await Promise.all([
     loadAllProfiles(), loadAllDisputes(), loadAllReports(), loadAllContributors(),
+    loadAllLenderReports(),
   ]);
 
   if (ps.length === 0) {
@@ -369,6 +387,7 @@ export async function initPersistence(): Promise<void> {
     disputes.clear();     ds.forEach((d) => disputes.set(d.id, d));
     reports.clear();      rs.forEach((r) => reports.set(r.reportId, r));
     contributors.clear(); cs.forEach((c) => contributors.set(c.id, c));
+    lenderReports.clear(); ls.forEach((r) => lenderReports.set(r.reportId, r));
     console.log(`[credit-bureau] hydrated ${profiles.size} profiles, ${disputes.size} disputes from database`);
   }
 }

@@ -37,7 +37,13 @@ import {
   getProfile, setProfile, getDispute, setDispute,
   getReport, setReport, getContributor, setContributor, listDisputes,
   listProfiles, bureauStats, profiles, contributors, initPersistence, deriveScoreFields,
+  getLenderReport, setLenderReport, listLenderReports,
 } from './store';
+import {
+  buildLenderReport, renderLenderReportMarkdown,
+  REASON_CODE_CATALOG, LENDER_REPORT_SCHEMA_VERSION,
+  type LenderReportPurpose,
+} from './lender-report';
 import {
   computeScore, scoreTier, generateZKProof,
   maxRecommendedLimit, scoreRecommendation, simulateScore,
@@ -105,6 +111,21 @@ const PullReportSchema = z.object({
   purpose:       z.enum(['credit_application', 'account_review', 'employment', 'insurance']),
   consentToken:  z.string().min(1),
   zkProofMode:   z.boolean().default(false),
+});
+
+/**
+ * A lender report pull. Same authorisation contract as `PullReportSchema` —
+ * consent-gated, records a hard inquiry — because it releases the same
+ * underlying credit data in a different shape. `zkProofMode` is deliberately
+ * absent: an underwriting packet whose whole purpose is to be auditable by a
+ * credit committee cannot also be a privacy-redacted proof bundle.
+ */
+const LenderReportSchema = z.object({
+  agentId:       z.string().min(1),
+  requestorId:   z.string().min(1),
+  requestorName: z.string().min(1),
+  purpose:       z.enum(['credit_application', 'account_review', 'employment', 'insurance']),
+  consentToken:  z.string().min(1),
 });
 
 const FileDisputeSchema = z.object({
@@ -478,36 +499,65 @@ async function buildApp() {
     return reply.send({ data: { jti: parse.data.jti, revoked: true } });
   });
 
-  app.post('/v1/reports', async (req, reply) => {
-    const parse = PullReportSchema.safeParse(req.body);
-    if (!parse.success) return reply.status(400).send({ error: 'ValidationError', details: parse.error.flatten() });
+  /**
+   * Authorise a lender pull, then record it.
+   *
+   * Shared by `POST /v1/reports` (the raw credit file) and
+   * `POST /v1/lender-reports` (the underwriting packet). The two are different
+   * products over the same data, and the rule that must never differ between
+   * them is this one: nothing is released without verified consent, and every
+   * release that succeeds is recorded as a hard inquiry against the agent.
+   * Duplicating that logic per route is how one of them eventually stops
+   * checking.
+   *
+   * Consent is verified *before* the inquiry is recorded — a refused pull must
+   * leave no trace on the file, because a recorded hard inquiry is itself a
+   * small penalty to the score.
+   */
+  type PullDenial = { ok: false; status: number; body: Record<string, unknown> };
+  type PullGrant  = { ok: true; profile: AgentCreditProfile };
 
-    const { agentId, requestorId, requestorName, purpose, consentToken, zkProofMode } = parse.data;
+  const authoriseAndRecordPull = (input: {
+    agentId: string;
+    requestorId: string;
+    requestorName: string;
+    purpose: ConsentPurpose;
+    consentToken: string;
+    log: { warn: (obj: object, msg: string) => void };
+  }): PullDenial | PullGrant => {
+    const { agentId, requestorId, requestorName, purpose, consentToken } = input;
+
     const profile = getProfile(agentId);
-    if (!profile) return reply.status(404).send({ error: 'NotFound', message: `Agent ${agentId} not found` });
-    if (profile.frozenAt) return reply.status(403).send({ error: 'Frozen', message: 'Agent credit profile is frozen due to sanctions or legal hold' });
+    if (!profile) {
+      return { ok: false, status: 404, body: { error: 'NotFound', message: `Agent ${agentId} not found` } };
+    }
+    if (profile.frozenAt) {
+      // Deliberately an error rather than a "declined" report: a frozen profile
+      // is under a sanctions or legal hold, and the correct response is to
+      // release nothing about it, not to release an assessment of it.
+      return {
+        ok: false,
+        status: 403,
+        body: { error: 'Frozen', message: 'Agent credit profile is frozen due to sanctions or legal hold' },
+      };
+    }
 
     // The consent token is the evidence that this agent authorised this lender
     // to make this kind of pull. It was previously accepted as any non-empty
     // string and stored verbatim, so `"x"` released a full credit file.
-    //
-    // Verified before the inquiry is recorded and before any data is assembled:
-    // a refused pull must leave no trace on the agent's file, because a
-    // recorded hard inquiry is itself a small penalty to the score.
     const consent = verifyConsent({ token: consentToken, agentId, requestorId, purpose });
     if (!consent.valid) {
-      req.log.warn(
+      input.log.warn(
         { agentId, requestorId, purpose, reason: consent.reason },
         'credit report refused — consent did not verify',
       );
-      return reply.status(403).send({
-        error:   'ConsentInvalid',
-        reason:  consent.reason,
-        message: consent.detail,
-      });
+      return {
+        ok: false,
+        status: 403,
+        body: { error: 'ConsentInvalid', reason: consent.reason, message: consent.detail },
+      };
     }
 
-    // Record hard inquiry
     profile.hardInquiries.push({
       id:            randomUUID(),
       requestorId,
@@ -527,6 +577,20 @@ async function buildApp() {
     profile.scoreFactors  = factors;
     profile.lastUpdatedAt = new Date().toISOString();
     setProfile(profile);
+
+    return { ok: true, profile };
+  };
+
+  app.post('/v1/reports', async (req, reply) => {
+    const parse = PullReportSchema.safeParse(req.body);
+    if (!parse.success) return reply.status(400).send({ error: 'ValidationError', details: parse.error.flatten() });
+
+    const { agentId, requestorId, requestorName, purpose, consentToken, zkProofMode } = parse.data;
+
+    const pull = authoriseAndRecordPull({ agentId, requestorId, requestorName, purpose, consentToken, log: req.log });
+    if (!pull.ok) return reply.status(pull.status).send(pull.body);
+    const { profile } = pull;
+    const score = profile.currentScore;
 
     const now    = new Date();
     const expiry = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
@@ -599,6 +663,203 @@ async function buildApp() {
       },
     });
   });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Lender reports — the underwriting packet, readable by humans and agents
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Which representation the caller wants.
+   *
+   * `Accept: text/markdown` is the correct HTTP mechanism, but `?format=`
+   * is honoured too — a loan officer pasting a URL into a browser cannot set
+   * headers, and browsers send `Accept: text/html,...` which would otherwise
+   * silently win. An explicit query parameter always beats the header.
+   */
+  const wantsMarkdown = (req: { headers: Record<string, unknown>; query: unknown }): boolean => {
+    const format = (req.query as { format?: string } | undefined)?.format;
+    if (format) return format === 'markdown' || format === 'md' || format === 'text';
+    const accept = req.headers['accept'];
+    return typeof accept === 'string' && accept.includes('text/markdown');
+  };
+
+  /** Contributor display names, so the report attributes furnishers by name. */
+  const furnisherNames = (): Map<string, string> =>
+    new Map(Array.from(contributors.values()).map(c => [c.id, c.name]));
+
+  /**
+   * GET /v1/lender-reports/schema — the machine-readable vocabulary.
+   *
+   * Registered before the `:reportId` route for readability; Fastify's router
+   * prefers static segments over parametric ones regardless of order.
+   *
+   * This is what makes the report genuinely consumable by an autonomous
+   * underwriter rather than merely being JSON: an agent can resolve any reason
+   * code it encounters — including codes introduced after that agent was
+   * written — instead of carrying a hardcoded copy that silently goes stale.
+   */
+  app.get('/v1/lender-reports/schema', async (_req, reply) => {
+    return reply.send({
+      data: {
+        schemaVersion: LENDER_REPORT_SCHEMA_VERSION,
+        scoreScale: { min: 0, max: 1000 },
+        outcomes: {
+          approve:                 'Lend on the requested terms.',
+          approve_with_conditions: 'Lend subject to the conditions listed on the report.',
+          manual_review:           'Do not decide automatically — route to a human underwriter.',
+          decline:                 'Do not lend.',
+        },
+        confidence: {
+          high:     'Thick file, corroborated by more than one furnisher.',
+          moderate: 'Usable but limited — thin file, single furnisher, or stale records.',
+          low:      'Too little data to rely on; the outcome will be manual_review or decline.',
+        },
+        sufficiencyLevels: {
+          thick_file:   'Twelve or more records over six or more months.',
+          thin_file:    'On file, but below the thick-file threshold.',
+          insufficient: 'Under three records — cannot support an automated approval.',
+        },
+        activityTrends: {
+          increasing:        'Last 90 days materially busier than the 90 before.',
+          stable:            'Comparable activity across both 90-day halves.',
+          decreasing:        'Last 90 days materially quieter than the 90 before.',
+          dormant:           'No activity for over 180 days.',
+          insufficient_data: 'Fewer than three events in the last 180 days — no trend claimed.',
+        },
+        reasonCodes: REASON_CODE_CATALOG,
+        notes: {
+          adverseAction:
+            'Only codes with adverseAction=true may be cited in a decline notice. ' +
+            'Compliance and data-sufficiency codes are excluded by design: an incomplete ' +
+            'sanctions screen is a data-quality problem, not a lawful reason to decline a borrower.',
+          narrative:
+            'Every sentence under `narrative` is generated from the structured fields in the ' +
+            'same report, so the human and machine views cannot disagree. Request ' +
+            '`Accept: text/markdown` (or `?format=markdown`) on any report route for the human rendering.',
+        },
+      },
+    });
+  });
+
+  /**
+   * POST /v1/lender-reports — issue an underwriting packet.
+   *
+   * Consent-gated and records a hard inquiry, exactly as `POST /v1/reports`
+   * does, via the shared `authoriseAndRecordPull`.
+   */
+  app.post('/v1/lender-reports', async (req, reply) => {
+    const parse = LenderReportSchema.safeParse(req.body);
+    if (!parse.success) return reply.status(400).send({ error: 'ValidationError', details: parse.error.flatten() });
+
+    const { agentId, requestorId, requestorName, purpose, consentToken } = parse.data;
+
+    const pull = authoriseAndRecordPull({ agentId, requestorId, requestorName, purpose, consentToken, log: req.log });
+    if (!pull.ok) return reply.status(pull.status).send(pull.body);
+
+    // Screened at report time rather than read from the profile: a lender is
+    // entitled to a compliance check as of this pull, not as of whenever the
+    // agent last happened to be screened. Fails closed — an unreachable
+    // screening service produces a decline, never a silent pass.
+    const sanctions = await sanctionsScreen(pull.profile);
+
+    const report = buildLenderReport({
+      reportId:      randomUUID(),
+      profile:       pull.profile,
+      requestorId,
+      requestorName,
+      purpose:       purpose as LenderReportPurpose,
+      sanctions,
+      furnisherNames: furnisherNames(),
+      inquiryRecorded: true,
+    });
+
+    setLenderReport(report);
+
+    if (wantsMarkdown(req)) {
+      return reply.status(201).type('text/markdown; charset=utf-8').send(renderLenderReportMarkdown(report));
+    }
+    return reply.status(201).send({ data: report });
+  });
+
+  /**
+   * GET /v1/lender-reports/:reportId — retrieve a previously issued packet.
+   *
+   * Returns the document as issued, not a fresh assessment. A lender that
+   * extended credit on a report must be able to produce that exact report in an
+   * audit; re-deriving it would score against a profile that has since moved.
+   */
+  app.get<{ Params: { reportId: string }; Querystring: { format?: string } }>(
+    '/v1/lender-reports/:reportId',
+    async (req, reply) => {
+      const report = getLenderReport(req.params.reportId);
+      if (!report) return reply.status(404).send({ error: 'NotFound', message: 'Lender report not found' });
+
+      // A stale underwriting packet is worse than none — it looks authoritative
+      // while describing an agent that has since changed.
+      if (new Date(report.expiresAt) < new Date()) {
+        return reply.status(410).send({
+          error: 'Gone',
+          message: `Lender report expired at ${report.expiresAt}. Pull a fresh report.`,
+        });
+      }
+
+      // A furnisher may retrieve only the reports it requested; admin sees any.
+      // Without this, any key with pull_scores could read a competitor's
+      // underwriting decisions — the same cross-tenant read closed on the
+      // contributor routes.
+      const denied = contributorAccessError(req.auth, report.requestorId);
+      if (denied) return reply.status(403).send(denied);
+
+      if (wantsMarkdown(req)) {
+        return reply.type('text/markdown; charset=utf-8').send(renderLenderReportMarkdown(report));
+      }
+      return reply.send({ data: report });
+    },
+  );
+
+  /**
+   * GET /v1/lender-reports — a lender's own issued-report history.
+   *
+   * Scoped to the calling principal for the same reason as the route above;
+   * admin may filter by `requestorId`.
+   */
+  app.get<{ Querystring: { agentId?: string; requestorId?: string; limit?: string } }>(
+    '/v1/lender-reports',
+    async (req, reply) => {
+      const isAdmin = req.auth?.kind === 'admin';
+      const requestorId = isAdmin ? req.query.requestorId : req.auth?.principalId;
+
+      // A non-admin key with no resolvable principal must not fall through to
+      // an unfiltered list.
+      if (!isAdmin && !requestorId) {
+        return reply.status(403).send({ error: 'Forbidden', message: 'Cannot resolve the calling principal.' });
+      }
+
+      const filter: { agentId?: string; requestorId?: string } = {};
+      if (req.query.agentId) filter.agentId = req.query.agentId;
+      if (requestorId) filter.requestorId = requestorId;
+
+      const limit = Math.min(200, Math.max(1, parseInt(req.query.limit ?? '50', 10) || 50));
+      const all = listLenderReports(filter);
+
+      // Summaries, not full documents — a history listing that inlined every
+      // report would return megabytes and re-disclose whole credit files.
+      const data = all.slice(0, limit).map(r => ({
+        reportId:    r.reportId,
+        agentId:     r.agentId,
+        requestorId: r.requestorId,
+        purpose:     r.purpose,
+        outcome:     r.decision.outcome,
+        score:       r.decision.score,
+        grade:       r.decision.grade,
+        confidence:  r.decision.confidence,
+        generatedAt: r.generatedAt,
+        expiresAt:   r.expiresAt,
+      }));
+
+      return reply.send({ data, total: all.length });
+    },
+  );
 
   // ═══════════════════════════════════════════════════════════════════════════
   // Disputes — FCRA-compliant 30-day resolution

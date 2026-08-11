@@ -26,6 +26,7 @@ import type {
   DataContributor,
 } from './types';
 import type { SettlementReceipt } from './settlement';
+import type { LenderReport } from './lender-report';
 
 // ── Enablement ────────────────────────────────────────────────────────────────
 
@@ -129,6 +130,30 @@ export async function runMigrations(): Promise<void> {
 
       CREATE INDEX IF NOT EXISTS idx_credit_reports_agent_id
         ON credit_reports(agent_id);
+
+      -- Lender reports are the underwriting packets issued to third-party
+      -- lenders. Held separately from credit_reports because they are a
+      -- different product with a different shape, and because a lender that
+      -- made a credit decision on one must be able to retrieve exactly the
+      -- document it decided on — regenerating it later would score against a
+      -- profile that has since moved.
+      CREATE TABLE IF NOT EXISTS lender_reports (
+        report_id TEXT PRIMARY KEY,
+        agent_id TEXT NOT NULL,
+        requestor_id TEXT NOT NULL,
+        outcome TEXT,
+        generated_at TIMESTAMPTZ,
+        expires_at TIMESTAMPTZ,
+        report JSONB NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_lender_reports_agent_id
+        ON lender_reports(agent_id);
+
+      -- A lender pulling its own issued-report history is the common query.
+      CREATE INDEX IF NOT EXISTS idx_lender_reports_requestor_id
+        ON lender_reports(requestor_id);
 
       CREATE TABLE IF NOT EXISTS data_contributors (
         id TEXT PRIMARY KEY,
@@ -240,6 +265,33 @@ export async function upsertReport(r: CreditReport): Promise<void> {
 
 export async function loadAllReports(): Promise<CreditReport[]> {
   const res = await pool.query<{ report: CreditReport }>(`SELECT report FROM credit_reports`);
+  return res.rows.map((r) => r.report);
+}
+
+// ── Repository: lender reports ─────────────────────────────────────────────────
+
+export async function upsertLenderReport(r: LenderReport): Promise<void> {
+  await pool.query(
+    `INSERT INTO lender_reports
+       (report_id, agent_id, requestor_id, outcome, generated_at, expires_at, report, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+     ON CONFLICT (report_id) DO UPDATE SET
+       agent_id = EXCLUDED.agent_id,
+       requestor_id = EXCLUDED.requestor_id,
+       outcome = EXCLUDED.outcome,
+       generated_at = EXCLUDED.generated_at,
+       expires_at = EXCLUDED.expires_at,
+       report = EXCLUDED.report,
+       updated_at = NOW()`,
+    [
+      r.reportId, r.agentId, r.requestorId, r.decision.outcome,
+      r.generatedAt ?? null, r.expiresAt ?? null, JSON.stringify(r),
+    ],
+  );
+}
+
+export async function loadAllLenderReports(): Promise<LenderReport[]> {
+  const res = await pool.query<{ report: LenderReport }>(`SELECT report FROM lender_reports`);
   return res.rows.map((r) => r.report);
 }
 
