@@ -19,6 +19,7 @@
 
 import type { AgentCreditProfile } from './types';
 import { creditGrade, type CreditGrade } from './grade';
+import { screenAddress, screenEntity, type ScreenOutcome } from './sanctions';
 
 export type VerificationStatus =
   | 'VERIFIED'
@@ -51,31 +52,87 @@ export interface SanctionsResult {
   frozen: boolean;
   detail: string;
   screenedAt: string;
+  /**
+   * What was actually checked. `local` (recorded events + frozen status) runs
+   * unconditionally. `address`/`entity` are real compliance-monitor checks
+   * against the OFAC/EU lists, present only when the profile carries the data
+   * they need (evmAddress / operatorLegalName) and the service is configured.
+   * A caller reading only `clear` cannot tell a real screen from an absent
+   * one — this says which happened.
+   */
+  checked: Array<'local' | 'address' | 'entity'>;
+  addressScreen?: ScreenOutcome;
+  entityScreen?: ScreenOutcome;
 }
 
 const MIN_SCORE       = 500;
 const MIN_AGE_MONTHS  = 3;
 const MIN_EVENTS      = 5;
 
-export function sanctionsScreen(profile: AgentCreditProfile): SanctionsResult {
+export async function sanctionsScreen(profile: AgentCreditProfile): Promise<SanctionsResult> {
+  // Local signal — self-reported/ops-recorded, not a list check. Kept because
+  // it is still real evidence (e.g. an operator manually confirming a hit),
+  // just never sufficient on its own; that was the entire bug.
   const hits = profile.creditHistory.filter(e => e.eventType === 'sanctions_hit').length;
   const frozen = !!profile.frozenAt;
-  const clear = hits === 0 && !frozen;
+  const checked: Array<'local' | 'address' | 'entity'> = ['local'];
+
+  // Real checks — only run against data the profile actually carries.
+  const addressScreen = profile.evmAddress
+    ? await screenAddress(profile.evmAddress)
+    : undefined;
+  if (addressScreen) checked.push('address');
+
+  const entityScreen = profile.operatorLegalName
+    ? await screenEntity(
+        profile.agentId,
+        profile.operatorEntityType === 'individual' ? 'person' : 'business',
+        profile.operatorLegalName,
+      )
+    : undefined;
+  if (entityScreen) checked.push('entity');
+
+  // Clear only if every signal checked is clear. A `not_configured_prod` or
+  // `call_failed` outcome is not clear — an unreachable screening service is
+  // not evidence of a clean agent.
+  const clear =
+    hits === 0 && !frozen &&
+    (addressScreen ? addressScreen.clear : true) &&
+    (entityScreen ? entityScreen.clear : true);
+
+  const parts: string[] = [];
+  if (hits > 0) parts.push(`${hits} sanctions hit(s) recorded in credit history`);
+  if (frozen) parts.push(`profile frozen since ${profile.frozenAt}`);
+  if (addressScreen && !addressScreen.clear) {
+    parts.push(addressScreen.checked
+      ? `on-chain address flagged (${addressScreen.result.result}, ${addressScreen.result.recommended_action})`
+      : `address screen unavailable (${addressScreen.reason})`);
+  }
+  if (entityScreen && !entityScreen.clear) {
+    parts.push(entityScreen.checked
+      ? `operator entity flagged (${entityScreen.result.result}, ${entityScreen.result.recommended_action})`
+      : `entity screen unavailable (${entityScreen.reason})`);
+  }
+  const uncheckedNote = checked.length === 1
+    ? ' No evmAddress or operatorLegalName on file — only the local record was checked.'
+    : '';
+
   return {
     agentId: profile.agentId,
     clear,
     hits,
     frozen,
+    checked,
+    addressScreen,
+    entityScreen,
     detail: clear
-      ? 'No sanctions hits on record; profile active.'
-      : frozen
-        ? `Profile frozen since ${profile.frozenAt} — legal hold or sanctions exposure.`
-        : `${hits} sanctions hit(s) recorded in credit history.`,
+      ? `Clear on all ${checked.length} check(s) performed (${checked.join(', ')}).${uncheckedNote}`
+      : parts.join('; ') + '.',
     screenedAt: new Date().toISOString(),
   };
 }
 
-export function verifyAgent(profile: AgentCreditProfile): VerificationResult {
+export async function verifyAgent(profile: AgentCreditProfile): Promise<VerificationResult> {
   const ageMonths = Math.max(0,
     (Date.now() - new Date(profile.createdAt).getTime()) / (1000 * 60 * 60 * 24 * 30.44),
   );
@@ -83,7 +140,7 @@ export function verifyAgent(profile: AgentCreditProfile): VerificationResult {
   const hasDefault = profile.creditHistory.some(e => e.eventType === 'default');
   const identityVerified = profile.operatorEntityId.length > 0 &&
     (profile.creditHistory.some(e => e.eventType === 'identity_verified') || profile.did.startsWith('did:'));
-  const sanctions = sanctionsScreen(profile);
+  const sanctions = await sanctionsScreen(profile);
 
   const checks: VerificationCheck[] = [
     {

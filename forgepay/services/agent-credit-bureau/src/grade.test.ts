@@ -74,27 +74,27 @@ function makeProfile(overrides: Partial<AgentCreditProfile> = {}): AgentCreditPr
 }
 
 describe('verifyAgent — 8 checks', () => {
-  it('returns VERIFIED when all checks pass', () => {
-    const result = verifyAgent(makeProfile());
+  it('returns VERIFIED when all checks pass', async () => {
+    const result = await verifyAgent(makeProfile());
     expect(result.checksTotal).toBe(8);
     expect(result.checksPassed).toBe(8);
     expect(result.status).toBe('VERIFIED');
     expect(result.grade.grade).toBe('BBB');
   });
 
-  it('returns SUSPICIOUS on sanctions exposure regardless of other checks', () => {
-    const result = verifyAgent(makeProfile({ frozenAt: '2026-06-28' }));
+  it('returns SUSPICIOUS on sanctions exposure regardless of other checks', async () => {
+    const result = await verifyAgent(makeProfile({ frozenAt: '2026-06-28' }));
     expect(result.status).toBe('SUSPICIOUS');
   });
 
-  it('returns PARTIALLY_VERIFIED when a minor check fails', () => {
-    const result = verifyAgent(makeProfile({ currentScore: 480, creditHistory: [] }));
+  it('returns PARTIALLY_VERIFIED when a minor check fails', async () => {
+    const result = await verifyAgent(makeProfile({ currentScore: 480, creditHistory: [] }));
     // fails minimum_score + activity_level → 6 of 8
     expect(result.checksPassed).toBe(6);
     expect(result.status).toBe('PARTIALLY_VERIFIED');
   });
 
-  it('sanctions screen flags recorded hits', () => {
+  it('sanctions screen flags recorded hits', async () => {
     const profile = makeProfile();
     profile.creditHistory.push({
       id: 'evt_sx',
@@ -103,7 +103,7 @@ describe('verifyAgent — 8 checks', () => {
       description: 'OFAC list match',
       timestamp: new Date().toISOString(),
     });
-    const screen = sanctionsScreen(profile);
+    const screen = await sanctionsScreen(profile);
     expect(screen.clear).toBe(false);
     expect(screen.hits).toBe(1);
   });

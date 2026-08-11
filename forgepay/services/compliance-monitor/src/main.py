@@ -164,6 +164,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.info("transaction_screening_engine.initialized")
 
     # Attach to app state so routers can access via request.app.state
+    #
+    # `transaction_screening_engine` used to be assigned to this same
+    # `screening_engine` attribute below, silently clobbering the ScreeningEngine
+    # set two lines up — the only one `routers/screening.py::_engine()` (used by
+    # POST /api/v1/screening/{entity,address}, the routes agent-credit-bureau
+    # and forge-custody call) ever reads. Since `ofac_feed_manager` — and
+    # therefore `transaction_screening_engine` — requires Redis, this made
+    # entity/address screening crash with a None engine whenever Redis was
+    # unavailable, even though Redis is documented as optional. Given its own
+    # attribute name, it no longer collides; it is otherwise unused today.
     app.state.ofac_manager = ofac_manager
     app.state.eu_manager = eu_manager
     app.state.screening_engine = screening_engine
@@ -171,7 +181,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.kyc_manager = kyc_manager
     app.state.sar_manager = sar_manager
     app.state.ofac_feed_manager = ofac_feed_manager
-    app.state.screening_engine = transaction_screening_engine
+    app.state.transaction_screening_engine = transaction_screening_engine
     app.state.redis_client = redis_client
 
     # ── Initial list load (best-effort) ───────────────────────────────────────

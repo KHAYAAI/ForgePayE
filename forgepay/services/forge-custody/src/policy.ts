@@ -21,10 +21,26 @@ export interface PolicyInput {
   metadata: SigningMetadata;
 }
 
+// compliance-monitor's real response contract (src/models.py::ScreeningResult
+// in the compliance-monitor service) — mirrored here rather than imported
+// since the two services don't share a package.
+interface ScreeningResult {
+  result: 'clear' | 'potential_match' | 'confirmed_match' | 'error';
+  recommended_action: 'allow' | 'review' | 'block';
+}
+
 /**
  * Sanctions screening hook. Delegates to the compliance-monitor service when
  * COMPLIANCE_MONITOR_URL is configured; otherwise passes with a logged
  * warning (never silently).
+ *
+ * Previously called a nonexistent endpoint (`/api/v1/screen/address` — the
+ * real route is `/api/v1/screening/address`) with no auth header and parsed
+ * a `{status: 'flagged'}` shape the service has never returned. Every call
+ * therefore 404'd/401'd or parsed `undefined`, and fell through to 'error' —
+ * fail-closed, so no unsafe transaction went through, but every transfer was
+ * being rejected whenever COMPLIANCE_MONITOR_URL was set. Fixed to match the
+ * service's actual route, auth, and `ScreeningResult` response shape.
  */
 export async function checkSanctions(address: string): Promise<'clear' | 'hit' | 'error'> {
   const baseUrl = process.env.COMPLIANCE_MONITOR_URL;
@@ -38,16 +54,24 @@ export async function checkSanctions(address: string): Promise<'clear' | 'hit' |
     logger.warn({ address }, '[custody] COMPLIANCE_MONITOR_URL not set — sanctions screen SKIPPED (dev only)');
     return 'clear';
   }
+  const apiKey = process.env.COMPLIANCE_MONITOR_API_KEY;
   try {
-    const res = await fetch(`${baseUrl.replace(/\/$/, '')}/api/v1/screen/address`, {
+    const res = await fetch(`${baseUrl.replace(/\/$/, '')}/api/v1/screening/address`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        ...(apiKey ? { 'X-Compliance-API-Key': apiKey } : {}),
+      },
       body: JSON.stringify({ address }),
       signal: AbortSignal.timeout(5000),
     });
-    if (!res.ok) return 'error';
-    const body = (await res.json()) as { status?: string };
-    return body.status === 'flagged' ? 'hit' : 'clear';
+    if (!res.ok) {
+      logger.error({ address, status: res.status }, '[custody] sanctions screen returned non-2xx');
+      return 'error';
+    }
+    const body = (await res.json()) as ScreeningResult;
+    const clear = body.result === 'clear' && body.recommended_action === 'allow';
+    return clear ? 'clear' : 'hit';
   } catch (err) {
     logger.error({ err, address }, '[custody] sanctions screening call failed');
     return 'error';

@@ -29,6 +29,14 @@ export interface AgentCreditProfile {
   evmAddress?: string;
   operatorEntityId: string;         // Legal entity (EIN/VAT/TRN) bound to this agent
   operatorEntityType: 'individual' | 'llc' | 'corp' | 'dao';
+  /**
+   * The operator's legal name — a person's or a business's. Optional: an EIN
+   * or VAT number is not itself matchable against a sanctions list, which
+   * screens by name. Without this, real entity screening cannot run for this
+   * agent and sanctionsScreen() falls back to address-only (or local-only)
+   * checking, which it reports honestly rather than silently.
+   */
+  operatorLegalName?: string;
   currentScore: number;             // 0–1000
   tier: CreditTier;
   scoreFactors: ScoreFactor[];      // Top 4 reasons for score

@@ -79,6 +79,10 @@ const CreateProfileSchema = z.object({
   }).optional(),
   operatorEntityId:    z.string().min(1),
   operatorEntityType:  z.enum(['individual', 'llc', 'corp', 'dao']),
+  // Optional: an EIN/VAT/TRN isn't itself matchable against a sanctions list,
+  // which screens by name. Without this, sanctionsScreen() can only run its
+  // address check (if evmAddress is set) or falls back to local-only.
+  operatorLegalName:   z.string().min(1).max(300).optional(),
 });
 
 const RecordEventSchema = z.object({
@@ -285,6 +289,7 @@ async function buildApp() {
       evmAddress,
       operatorEntityId:    parse.data.operatorEntityId,
       operatorEntityType:  parse.data.operatorEntityType,
+      operatorLegalName:   parse.data.operatorLegalName,
       currentScore:        650, // initial neutral score
       tier:                'PRIME',
       scoreFactors:        [],
@@ -1024,7 +1029,7 @@ async function buildApp() {
   app.post<{ Params: { agentId: string } }>('/v1/agents/:agentId/verify', async (req, reply) => {
     const profile = getProfile(req.params.agentId);
     if (!profile) return reply.status(404).send({ error: 'NotFound', message: `Agent ${req.params.agentId} not registered` });
-    return reply.send({ data: verifyAgent(profile) });
+    return reply.send({ data: await verifyAgent(profile) });
   });
 
   // POST /v1/verify/sanctions — sanctions screen only
@@ -1033,7 +1038,7 @@ async function buildApp() {
     if (!parse.success) return reply.status(400).send({ error: 'ValidationError', details: parse.error.flatten() });
     const profile = getProfile(parse.data.agentId);
     if (!profile) return reply.status(404).send({ error: 'NotFound', message: `Agent ${parse.data.agentId} not registered` });
-    return reply.send({ data: sanctionsScreen(profile) });
+    return reply.send({ data: await sanctionsScreen(profile) });
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
