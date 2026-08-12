@@ -12,9 +12,39 @@
  */
 
 import type {
-  AgentCreditProfile, CreditTier, ScoreFactor,
+  AgentCreditProfile, CreditEvent, CreditTier, ScoreFactor,
   Mode1Score, Mode2Score, Mode2Inputs, DualModeScore, ConsensusLevel,
 } from './types';
+
+/**
+ * Fraction of payment obligations paid on time.
+ *
+ * A `default` is a fully failed obligation — worse than late, never repaid —
+ * so it belongs in the denominator alongside on-time and late payments, not
+ * left out of the calculation entirely. Every caller that mutates
+ * `creditHistory` (event ingest, furnisher ingest, dispute resolution) must
+ * recompute `paymentHistoryRate` through this function rather than inline,
+ * the same "one function owns this" rule `deriveScoreFields` applies to the
+ * score itself.
+ *
+ * Deliberately NOT called from inside `computeScore`: `paymentHistoryRate` is
+ * a stored field the caller supplies, verified independently by
+ * `scorer.test.ts` fixtures that set it to values a live recompute over their
+ * own `creditHistory` would not reproduce. Folding this in there would make
+ * `computeScore` silently override an input several tests deliberately choose
+ * by hand.
+ */
+export function computePaymentHistoryRate(history: CreditEvent[]): number {
+  const onTime = history.filter(e => e.eventType === 'payment_on_time').length;
+  const obligations = history.filter(e =>
+    e.eventType === 'payment_on_time' ||
+    e.eventType === 'payment_late_30' ||
+    e.eventType === 'payment_late_60' ||
+    e.eventType === 'payment_late_90' ||
+    e.eventType === 'default',
+  ).length;
+  return obligations > 0 ? onTime / obligations : 1;
+}
 
 // ── Tier thresholds ───────────────────────────────────────────────────────────
 
@@ -62,18 +92,23 @@ export function computeScore(profile: Partial<AgentCreditProfile>): {
   // ── 1. Payment History (35%) ─────────────────────────────────────────────
   const payRate    = profile.paymentHistoryRate ?? 1.0;
   const delinqCount = (profile.delinquencies ?? []).filter(d => d.status === 'open').length;
-  const hasDefault  = (profile.creditHistory ?? []).some(e => e.eventType === 'default');
+  // Was a boolean: a single default and ten defaults both subtracted the same
+  // flat 120, so an agent could rack up repeat defaults for free once the
+  // first one landed. Scaled per default, matching the per-delinquency
+  // pattern immediately above it.
+  const defaultCount = (profile.creditHistory ?? []).filter(e => e.eventType === 'default').length;
+  const hasDefault  = defaultCount > 0;
 
   let payScore = payRate * 350;
-  if (delinqCount > 0) payScore -= delinqCount * 40;
-  if (hasDefault)      payScore -= 120;
+  if (delinqCount > 0)  payScore -= delinqCount * 40;
+  if (defaultCount > 0) payScore -= defaultCount * 120;
   payScore = Math.max(0, Math.min(350, payScore));
 
   if (payRate < 0.8 || hasDefault) {
     factors.push({
       code: hasDefault ? 'RECENT_DEFAULT' : 'LATE_PAYMENTS',
       description: hasDefault
-        ? 'One or more accounts in default significantly impact the score.'
+        ? `${defaultCount} account${defaultCount === 1 ? '' : 's'} in default severely impact${defaultCount === 1 ? 's' : ''} the score.`
         : `Payment history shows ${Math.round((1 - payRate) * 100)}% late payments.`,
       impact: 'negative',
       weight: 35,

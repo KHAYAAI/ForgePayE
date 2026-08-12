@@ -13,7 +13,10 @@
  * except where a component is genuinely time-independent.
  */
 import { describe, expect, it } from 'vitest';
-import { computeScore, scoreTier, maxRecommendedLimit, computeMode2Score, computeDualModeScore } from './scorer';
+import {
+  computeScore, scoreTier, maxRecommendedLimit, computeMode2Score, computeDualModeScore,
+  computePaymentHistoryRate,
+} from './scorer';
 import { profiles } from './store';
 import type { AgentCreditProfile, Mode2Inputs } from './types';
 
@@ -124,6 +127,29 @@ describe('computeScore — component behaviour', () => {
     expect(factors.some(f => f.code === 'RECENT_DEFAULT')).toBe(true);
   });
 
+  it('penalises each additional default — was a flat penalty regardless of count', () => {
+    const mk = (n: number) => Array.from({ length: n }, (_, i) => ({
+      id: `def${i}`, agentId: 'a', eventType: 'default' as const, amount: 500,
+      creditorId: 'c', description: '', timestamp: '2024-06-01T00:00:00Z',
+    }));
+    const one   = computeScore(baseProfile({ creditHistory: mk(1) })).score;
+    const three = computeScore(baseProfile({ creditHistory: mk(3) })).score;
+    expect(three).toBeLessThan(one);
+  });
+
+  it('names the default count in the factor description', () => {
+    const mk = (n: number) => Array.from({ length: n }, (_, i) => ({
+      id: `def${i}`, agentId: 'a', eventType: 'default' as const, amount: 500,
+      creditorId: 'c', description: '', timestamp: '2024-06-01T00:00:00Z',
+    }));
+    const single = computeScore(baseProfile({ creditHistory: mk(1) })).factors
+      .find(f => f.code === 'RECENT_DEFAULT');
+    const multiple = computeScore(baseProfile({ creditHistory: mk(4) })).factors
+      .find(f => f.code === 'RECENT_DEFAULT');
+    expect(single?.description).toContain('1 account');
+    expect(multiple?.description).toContain('4 accounts');
+  });
+
   it('penalises inquiry velocity only for inquiries inside the 30-day window', () => {
     const recent = (n: number) => Array.from({ length: n }, (_, i) => ({
       id: `i${i}`, requestorId: 'r', requestorName: 'R',
@@ -141,6 +167,35 @@ describe('computeScore — component behaviour', () => {
 
     expect(staleOnly).toBe(none);          // outside the window — no penalty
     expect(threeNew).toBeLessThan(none);   // inside the window — penalised
+  });
+});
+
+describe('computePaymentHistoryRate', () => {
+  const ev = (eventType: string) =>
+    ({ id: `e_${Math.random()}`, agentId: 'a', eventType, creditorId: 'c', description: '', timestamp: '2024-01-01T00:00:00Z' }) as never;
+
+  it('counts a default as a fully failed obligation, not an absence', () => {
+    // Regression: a `default` doesn't start with "payment", so the old
+    // `eventType.startsWith('payment')` denominator excluded it entirely —
+    // an agent with six defaults and zero recorded late payments computed a
+    // perfect 1.0 rate, because there was nothing in the denominator at all.
+    const sixDefaults = Array.from({ length: 6 }, () => ev('default'));
+    expect(computePaymentHistoryRate(sixDefaults)).toBe(0);
+  });
+
+  it('mixes on-time, late, and default correctly', () => {
+    const history = [ev('payment_on_time'), ev('payment_on_time'), ev('payment_late_30'), ev('default')];
+    expect(computePaymentHistoryRate(history)).toBe(0.5); // 2 of 4 obligations honoured on time
+  });
+
+  it('defaults to a clean 1.0 with no payment obligations on file', () => {
+    expect(computePaymentHistoryRate([])).toBe(1);
+    expect(computePaymentHistoryRate([ev('credit_opened'), ev('hard_inquiry')])).toBe(1);
+  });
+
+  it('ignores non-payment event types in both numerator and denominator', () => {
+    const history = [ev('payment_on_time'), ev('credit_opened'), ev('identity_verified'), ev('sanctions_hit')];
+    expect(computePaymentHistoryRate(history)).toBe(1);
   });
 });
 

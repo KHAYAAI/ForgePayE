@@ -26,6 +26,7 @@
 
 import type { AgentCreditProfile, CreditEvent, CreditEventType, Dispute, DisputeStatus } from './types';
 import { deriveScoreFields } from './store';
+import { computePaymentHistoryRate } from './scorer';
 
 // ── Escalation ────────────────────────────────────────────────────────────────
 
@@ -168,6 +169,11 @@ export function resolveDispute(input: ResolveDisputeInput): ResolveDisputeResult
   const rederived = deriveScoreFields({
     ...profile,
     creditHistory: newHistory,
+    // Deleting or correcting a disputed payment/default event moves the
+    // history but not, until this, paymentHistoryRate — an agent who won a
+    // dispute over a fabricated default kept that default's drag on 35% of
+    // the score even after the event itself was gone.
+    paymentHistoryRate: computePaymentHistoryRate(newHistory),
     lastUpdatedAt: nowIso,
   });
 

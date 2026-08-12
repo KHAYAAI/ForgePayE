@@ -47,7 +47,7 @@ import {
 import {
   computeScore, scoreTier, generateZKProof,
   maxRecommendedLimit, scoreRecommendation, simulateScore,
-  computeDualModeScore,
+  computeDualModeScore, computePaymentHistoryRate,
 } from './scorer';
 import type {
   AgentCreditProfile, CreditReport, Dispute, CreditEvent,
@@ -430,9 +430,11 @@ async function buildApp() {
     if (profile.totalCreditLimit > 0) {
       profile.utilizationRate = profile.totalDebt / profile.totalCreditLimit;
     }
-    const onTime = profile.creditHistory.filter(e => e.eventType === 'payment_on_time').length;
-    const allPayments = profile.creditHistory.filter(e => e.eventType.startsWith('payment')).length;
-    profile.paymentHistoryRate = allPayments > 0 ? onTime / allPayments : 1;
+    // A default is a fully failed obligation, not merely absent from the
+    // "payment" prefix it doesn't share — computePaymentHistoryRate counts it
+    // in the denominator so it actually moves this rate instead of leaving an
+    // agent with six defaults and zero recorded late payments at a perfect 1.0.
+    profile.paymentHistoryRate = computePaymentHistoryRate(profile.creditHistory);
 
     // Recompute score
     const { score, factors } = computeScore(profile);
@@ -1163,6 +1165,12 @@ async function buildApp() {
     contributor.queriesAllowed = Math.min(1_000_000, 5000 + contributor.dataRecordsContributed * 0.5);
     contributor.queriesUsed   += 1;
     setContributor(contributor);
+
+    // paymentHistoryRate does not move on its own — it must be recomputed
+    // whenever creditHistory changes, exactly like score/tier/factors below.
+    // Without this, ingesting a batch of defaults through the real furnisher
+    // pipeline left the rate (and 35% of the score) untouched entirely.
+    profile.paymentHistoryRate = computePaymentHistoryRate(profile.creditHistory);
 
     // Re-derive through the single source of truth rather than recomputing
     // inline, so score, tier and factors cannot drift apart here.
