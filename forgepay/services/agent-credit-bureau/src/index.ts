@@ -11,15 +11,18 @@
  *   4. Credit Report API                — Lender-facing, consent-gated
  *   5. ZK Proof Generation              — Privacy-preserving claims
  *   6. Data Contributor Onboarding      — External protocol data ingestion
+ *   7. Billing                          — prepaid ledger, x402 USDC top-up
  *
  * Port: 3018
  *
  * Env vars:
- *   AGENT_IDENTITY_URL   — default http://localhost:3010
- *   AGENT_DECISION_URL   — default http://localhost:3013
- *   CORS_ORIGIN          — default *
- *   RATE_LIMIT_PER_MIN   — default 100
- *   LOG_LEVEL            — default info
+ *   AGENT_IDENTITY_URL     — default http://localhost:3010
+ *   AGENT_DECISION_URL     — default http://localhost:3013
+ *   CORS_ORIGIN            — default *
+ *   RATE_LIMIT_PER_MIN     — default 100
+ *   LOG_LEVEL              — default info
+ *   STABLECOIN_GATEWAY_URL — x402 top-up rail; unset disables top-ups (see billing.ts)
+ *   BUREAU_X402_MERCHANT_ID — default forgepay-credit-bureau
  */
 
 import Fastify, { FastifyError } from 'fastify';
@@ -30,8 +33,12 @@ import { z } from 'zod';
 import { randomUUID, randomBytes } from 'crypto';
 import { registerAuth, hashApiKey, redactContributor, contributorAccessError } from './auth';
 import { isValidDid, isAddressBody, addressFromDid, toChecksumAddress, sameAddress } from './did';
-import { issueConsent, verifyConsent, revokeConsent, type ConsentPurpose } from './consent';
+import { issueConsent, verifyConsent, revokeConsent, consumeConsent, type ConsentPurpose } from './consent';
 import { resolveDispute, withEscalationCheck, furnisherForEvent, type DisputeCorrection } from './disputes';
+import {
+  getAccountSummary, creditAccount, chargeInquiryFee, billingHistory,
+  requestTopUp, confirmTopUp, centsToUsd, usdToCents,
+} from './billing';
 
 import {
   getProfile, setProfile, getDispute, setDispute,
@@ -194,6 +201,15 @@ const IssueConsentSchema = z.object({
 const RevokeConsentSchema = z.object({
   jti: z.string().min(1),
   exp: z.number().int().positive(),
+});
+
+const TopUpSchema = z.object({
+  amountUsd: z.number().positive().max(10_000),
+});
+
+const AdminCreditSchema = z.object({
+  amountUsd: z.number().positive().max(1_000_000),
+  reason:    z.string().min(1).max(300),
 });
 
 const ZKProofRequestSchema = z.object({
@@ -514,7 +530,12 @@ async function buildApp() {
    *
    * Consent is verified *before* the inquiry is recorded — a refused pull must
    * leave no trace on the file, because a recorded hard inquiry is itself a
-   * small penalty to the score.
+   * small penalty to the score. The same rule now extends to billing: consent
+   * is checked *without being consumed* (`consume: false`) so that a pull
+   * refused for insufficient balance does not burn the agent's one-time
+   * authorisation — the requestor can top up and retry with the same
+   * still-valid token. It is only spent, via `consumeConsent`, once the charge
+   * has actually cleared.
    */
   type PullDenial = { ok: false; status: number; body: Record<string, unknown> };
   type PullGrant  = { ok: true; profile: AgentCreditProfile };
@@ -547,7 +568,7 @@ async function buildApp() {
     // The consent token is the evidence that this agent authorised this lender
     // to make this kind of pull. It was previously accepted as any non-empty
     // string and stored verbatim, so `"x"` released a full credit file.
-    const consent = verifyConsent({ token: consentToken, agentId, requestorId, purpose });
+    const consent = verifyConsent({ token: consentToken, agentId, requestorId, purpose, consume: false });
     if (!consent.valid) {
       input.log.warn(
         { agentId, requestorId, purpose, reason: consent.reason },
@@ -560,6 +581,36 @@ async function buildApp() {
       };
     }
 
+    // Charged before the inquiry is recorded, for the same reason consent is
+    // checked first: a declined charge must leave no trace on the file.
+    const charge = chargeInquiryFee(requestorId, `inquiry_fee:${agentId}:${purpose}`);
+    if (!charge.ok) {
+      input.log.warn(
+        {
+          agentId, requestorId, purpose,
+          balanceUsd: centsToUsd(charge.balanceUsdCents),
+          requiredUsd: centsToUsd(charge.requiredUsdCents),
+        },
+        'credit report refused — insufficient prepaid balance',
+      );
+      return {
+        ok: false,
+        status: 402,
+        body: {
+          error:       'PaymentRequired',
+          message:     `Insufficient prepaid balance: $${centsToUsd(charge.balanceUsdCents)} available, ` +
+                       `$${centsToUsd(charge.requiredUsdCents)} required per pull.`,
+          balanceUsd:  centsToUsd(charge.balanceUsdCents),
+          requiredUsd: centsToUsd(charge.requiredUsdCents),
+          topUpHint:   'POST /v1/billing/:requestorId/topup to fund this account via x402 USDC, ' +
+                       'or contact the bureau operator for a manual credit.',
+        },
+      };
+    }
+
+    // The charge cleared — now, and only now, spend the single-use token.
+    consumeConsent(consent.payload!.jti, consent.payload!.exp);
+
     profile.hardInquiries.push({
       id:            randomUUID(),
       requestorId,
@@ -570,6 +621,7 @@ async function buildApp() {
       // jti is the durable, non-replayable reference that ties this inquiry to
       // the authorisation that permitted it.
       consentToken:  consent.payload!.jti,
+      billingTransactionId: charge.transaction.id,
     });
 
     // Recompute score after inquiry (may slightly reduce it)
@@ -588,6 +640,13 @@ async function buildApp() {
     if (!parse.success) return reply.status(400).send({ error: 'ValidationError', details: parse.error.flatten() });
 
     const { agentId, requestorId, requestorName, purpose, consentToken, zkProofMode } = parse.data;
+
+    // `requestorId` is now a billing identity, not just a label — it is who
+    // gets charged. Without this check any pull_scores-scoped caller could
+    // name an arbitrary requestorId and debit a stranger's prepaid balance for
+    // its own pulls.
+    const requestorDenied = contributorAccessError(req.auth, requestorId);
+    if (requestorDenied) return reply.status(403).send(requestorDenied);
 
     const pull = authoriseAndRecordPull({ agentId, requestorId, requestorName, purpose, consentToken, log: req.log });
     if (!pull.ok) return reply.status(pull.status).send(pull.body);
@@ -755,6 +814,10 @@ async function buildApp() {
 
     const { agentId, requestorId, requestorName, purpose, consentToken } = parse.data;
 
+    // Same billing-identity check as POST /v1/reports — see the comment there.
+    const requestorDenied = contributorAccessError(req.auth, requestorId);
+    if (requestorDenied) return reply.status(403).send(requestorDenied);
+
     const pull = authoriseAndRecordPull({ agentId, requestorId, requestorName, purpose, consentToken, log: req.log });
     if (!pull.ok) return reply.status(pull.status).send(pull.body);
 
@@ -862,6 +925,124 @@ async function buildApp() {
       return reply.send({ data, total: all.length });
     },
   );
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Billing — the prepaid ledger that INQUIRY_FEE_USD is actually charged
+  // against. See billing.ts for the ledger and x402 top-up logic.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // GET /v1/billing/:requestorId/account
+  app.get<{ Params: { requestorId: string } }>('/v1/billing/:requestorId/account', async (req, reply) => {
+    const denied = contributorAccessError(req.auth, req.params.requestorId);
+    if (denied) return reply.status(403).send(denied);
+
+    const account = getAccountSummary(req.params.requestorId);
+    return reply.send({
+      data: {
+        requestorId:      account.requestorId,
+        balanceUsd:       centsToUsd(account.balanceUsdCents),
+        inquiryFeeUsd:    INQUIRY_FEE_USD,
+        pullsRemaining:   Math.floor(account.balanceUsdCents / usdToCents(INQUIRY_FEE_USD)),
+        createdAt:        account.createdAt,
+        updatedAt:        account.updatedAt,
+      },
+    });
+  });
+
+  // GET /v1/billing/:requestorId/transactions — the ledger, most recent first
+  app.get<{ Params: { requestorId: string }; Querystring: { limit?: string } }>(
+    '/v1/billing/:requestorId/transactions', async (req, reply) => {
+      const denied = contributorAccessError(req.auth, req.params.requestorId);
+      if (denied) return reply.status(403).send(denied);
+
+      const all   = billingHistory(req.params.requestorId);
+      const limit = Math.min(200, Math.max(1, parseInt(req.query.limit ?? '50', 10) || 50));
+      const data  = all.slice(0, limit).map(t => ({
+        id:              t.id,
+        type:            t.type,
+        amountUsd:       centsToUsd(t.amountUsdCents),
+        balanceAfterUsd: centsToUsd(t.balanceAfterUsdCents),
+        reason:          t.reason,
+        createdAt:       t.createdAt,
+      }));
+      return reply.send({ data, total: all.length });
+    },
+  );
+
+  // POST /v1/billing/:requestorId/topup — open an x402 USDC top-up
+  app.post<{ Params: { requestorId: string } }>('/v1/billing/:requestorId/topup', async (req, reply) => {
+    const denied = contributorAccessError(req.auth, req.params.requestorId);
+    if (denied) return reply.status(403).send(denied);
+
+    const parse = TopUpSchema.safeParse(req.body);
+    if (!parse.success) return reply.status(400).send({ error: 'ValidationError', details: parse.error.flatten() });
+
+    const outcome = await requestTopUp(req.params.requestorId, parse.data.amountUsd);
+    if (!outcome.ok) {
+      const status = outcome.reason === 'not_configured' ? 503
+        : outcome.reason === 'amount_invalid' ? 400
+        : 502;
+      return reply.status(status).send({ error: 'TopUpFailed', reason: outcome.reason, message: outcome.message });
+    }
+
+    return reply.status(201).send({
+      data: {
+        receiptId: outcome.receipt.receiptId,
+        amountUsd: outcome.receipt.amountUsd,
+        status:    outcome.receipt.status,
+        gateway:   outcome.gateway,
+        note:
+          'Send USDC on Base for this amount to the vault address published at ' +
+          'GET {STABLECOIN_GATEWAY_URL}/x402/payment-required, then confirm with ' +
+          'POST /v1/billing/:requestorId/topup/:receiptId/confirm once the transfer has settled.',
+      },
+    });
+  });
+
+  // POST /v1/billing/:requestorId/topup/:receiptId/confirm
+  app.post<{ Params: { requestorId: string; receiptId: string } }>(
+    '/v1/billing/:requestorId/topup/:receiptId/confirm', async (req, reply) => {
+      const denied = contributorAccessError(req.auth, req.params.requestorId);
+      if (denied) return reply.status(403).send(denied);
+
+      const outcome = await confirmTopUp(req.params.receiptId, req.params.requestorId);
+      if (!outcome.ok) {
+        const status = outcome.reason === 'not_found'          ? 404
+          : outcome.reason === 'requestor_mismatch' ? 403
+          : outcome.reason === 'not_yet_paid'        ? 409
+          : outcome.reason === 'not_configured'      ? 503
+          : 502;
+        return reply.status(status).send({ error: 'TopUpNotConfirmed', reason: outcome.reason, message: outcome.message });
+      }
+
+      return reply.send({
+        data: {
+          confirmed:        true,
+          alreadyConfirmed: outcome.alreadyConfirmed,
+          balanceUsd:       centsToUsd(outcome.account.balanceUsdCents),
+        },
+      });
+    },
+  );
+
+  // POST /v1/billing/:requestorId/credit — admin-only manual credit, for wire
+  // transfers, invoiced customers, and support adjustments outside the x402
+  // flow. Deliberately absent from ROUTE_SCOPES: deny-by-default already
+  // requires `admin` for anything unlisted.
+  app.post<{ Params: { requestorId: string } }>('/v1/billing/:requestorId/credit', async (req, reply) => {
+    const parse = AdminCreditSchema.safeParse(req.body);
+    if (!parse.success) return reply.status(400).send({ error: 'ValidationError', details: parse.error.flatten() });
+
+    const { account, transaction } = creditAccount(
+      req.params.requestorId, parse.data.amountUsd, `manual:${parse.data.reason}`,
+    );
+    return reply.status(201).send({
+      data: {
+        balanceUsd: centsToUsd(account.balanceUsdCents),
+        transaction: { ...transaction, amountUsd: centsToUsd(transaction.amountUsdCents) },
+      },
+    });
+  });
 
   // ═══════════════════════════════════════════════════════════════════════════
   // Disputes — FCRA-compliant 30-day resolution
@@ -1407,6 +1588,7 @@ async function main(): Promise<void> {
 ║  Grade Scale  →  GET  /v1/grade-scale             [AAA–D]        ║
 ║  Profile      →  GET  /v1/agents/:id/profile                     ║
 ║  Report       →  POST /v1/reports                                ║
+║  Billing      →  GET  /v1/billing/:id/account     [$2.80/pull]   ║
 ║  Disputes     →  GET  /v1/disputes                               ║
 ║  Bureau Stats →  GET  /v1/bureau/stats                           ║
 ║  Settlement   →  GET  /v1/settlement/status                      ║

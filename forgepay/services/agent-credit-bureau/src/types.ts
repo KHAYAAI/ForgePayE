@@ -131,6 +131,13 @@ export interface Inquiry {
    * reference tying the inquiry to the authorisation that permitted it.
    */
   consentToken: string;
+  /**
+   * The billing ledger entry that charged INQUIRY_FEE_USD for this pull.
+   * Every recorded inquiry was successfully charged — billing runs before the
+   * inquiry is recorded, and a declined charge never reaches this far — so
+   * this ties revenue accounting back to the specific pull that earned it.
+   */
+  billingTransactionId?: string;
 }
 
 export interface CreditReport {
@@ -308,4 +315,47 @@ export interface Mode2Inputs {
   accountAgeMonths: number;
   onChainSettled: boolean;         // whether ForgeReputationRegistry has a score
   onChainScore?: number;           // the settled on-chain score (0-1000) if available
+}
+
+// ── Billing ───────────────────────────────────────────────────────────────────
+
+/**
+ * A requestor's (lender's, furnisher's, or agent operator's) prepaid USD
+ * balance. Funded via x402 USDC top-ups or a manual admin credit; debited
+ * synchronously at INQUIRY_FEE_USD per credit-file pull.
+ */
+export interface BillingAccount {
+  requestorId: string;
+  balanceUsdCents: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type BillingTransactionType = 'credit' | 'debit';
+
+/** An append-only ledger entry. Never mutated once written. */
+export interface BillingTransaction {
+  id: string;
+  requestorId: string;
+  type: BillingTransactionType;
+  amountUsdCents: number;
+  /** Account balance immediately after this transaction, for a self-checking ledger. */
+  balanceAfterUsdCents: number;
+  reason: string;
+  createdAt: string;
+}
+
+/**
+ * An x402 USDC top-up in flight against stablecoin-gateway's `/x402` routes.
+ * Tracked locally so a top-up can only ever be credited to the ledger once,
+ * even if `POST /v1/billing/:requestorId/topup/:receiptId/confirm` is called
+ * more than once (retries, double-clicks).
+ */
+export interface TopUpReceipt {
+  receiptId: string;
+  requestorId: string;
+  amountUsd: number;
+  status: 'pending' | 'confirmed';
+  createdAt: string;
+  confirmedAt?: string;
 }

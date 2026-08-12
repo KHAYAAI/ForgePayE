@@ -146,6 +146,18 @@ export function isSpent(jti: string): boolean {
   return spentTokens.has(jti);
 }
 
+/**
+ * Spend a token that was verified with `consume: false`.
+ *
+ * Lets a caller validate consent, do other fallible work (e.g. charge a fee),
+ * and only burn the single use once that work actually succeeds — otherwise a
+ * pull refused for an unrelated reason (insufficient balance, a downstream
+ * error) would silently consume the agent's one-time authorisation anyway.
+ */
+export function consumeConsent(jti: string, exp: number): void {
+  spentTokens.set(jti, exp);
+}
+
 /** Test helper — clears single-use and revocation state. */
 export function __resetConsentState(): void {
   spentTokens.clear();

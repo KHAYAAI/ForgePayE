@@ -24,6 +24,9 @@ import type {
   Dispute,
   CreditReport,
   DataContributor,
+  BillingAccount,
+  BillingTransaction,
+  TopUpReceipt,
 } from './types';
 import type { SettlementReceipt } from './settlement';
 import type { LenderReport } from './lender-report';
@@ -181,6 +184,45 @@ export async function runMigrations(): Promise<void> {
         receipt JSONB NOT NULL,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
+
+      -- Prepaid billing ledger. Balances are held in integer USD cents
+      -- (balance_usd_cents) to avoid floating-point drift on money.
+      CREATE TABLE IF NOT EXISTS billing_accounts (
+        requestor_id TEXT PRIMARY KEY,
+        balance_usd_cents BIGINT NOT NULL DEFAULT 0,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
+      -- Append-only. Every credit and debit against a billing account,
+      -- including the running balance immediately after, so the ledger can
+      -- be reconciled independently of the account row.
+      CREATE TABLE IF NOT EXISTS billing_transactions (
+        id TEXT PRIMARY KEY,
+        requestor_id TEXT NOT NULL,
+        type TEXT NOT NULL,
+        amount_usd_cents BIGINT NOT NULL,
+        balance_after_usd_cents BIGINT NOT NULL,
+        reason TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_billing_transactions_requestor_id
+        ON billing_transactions(requestor_id);
+
+      -- x402 USDC top-ups in flight against stablecoin-gateway. Persisted so a
+      -- confirm call is idempotent across restarts, not just within a process.
+      CREATE TABLE IF NOT EXISTS billing_topups (
+        receipt_id TEXT PRIMARY KEY,
+        requestor_id TEXT NOT NULL,
+        amount_usd_cents BIGINT NOT NULL,
+        status TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        confirmed_at TIMESTAMPTZ
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_billing_topups_requestor_id
+        ON billing_topups(requestor_id);
     `);
   } finally {
     client.release();
@@ -352,4 +394,88 @@ export async function loadAllSettlements(): Promise<SettlementReceipt[]> {
     `SELECT receipt FROM settlement_receipts`,
   );
   return res.rows.map((r) => r.receipt);
+}
+
+// ── Repository: billing ────────────────────────────────────────────────────────
+
+export async function upsertBillingAccount(a: BillingAccount): Promise<void> {
+  await pool.query(
+    `INSERT INTO billing_accounts (requestor_id, balance_usd_cents, created_at, updated_at)
+     VALUES ($1, $2, $3, NOW())
+     ON CONFLICT (requestor_id) DO UPDATE SET
+       balance_usd_cents = EXCLUDED.balance_usd_cents,
+       updated_at = NOW()`,
+    [a.requestorId, a.balanceUsdCents, a.createdAt],
+  );
+}
+
+export async function loadAllBillingAccounts(): Promise<BillingAccount[]> {
+  const res = await pool.query<{
+    requestor_id: string; balance_usd_cents: string; created_at: Date; updated_at: Date;
+  }>(`SELECT requestor_id, balance_usd_cents, created_at, updated_at FROM billing_accounts`);
+  return res.rows.map((r) => ({
+    requestorId:     r.requestor_id,
+    balanceUsdCents: Number(r.balance_usd_cents),
+    createdAt:       r.created_at.toISOString(),
+    updatedAt:       r.updated_at.toISOString(),
+  }));
+}
+
+// Append-only — no ON CONFLICT DO UPDATE. A transaction id is a random UUID
+// minted once per credit/debit, so a conflict here would mean the same
+// ledger entry was written twice, which should surface as an error rather
+// than silently overwrite.
+export async function upsertBillingTransaction(t: BillingTransaction): Promise<void> {
+  await pool.query(
+    `INSERT INTO billing_transactions
+       (id, requestor_id, type, amount_usd_cents, balance_after_usd_cents, reason, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT (id) DO NOTHING`,
+    [t.id, t.requestorId, t.type, t.amountUsdCents, t.balanceAfterUsdCents, t.reason, t.createdAt],
+  );
+}
+
+export async function loadAllBillingTransactions(): Promise<BillingTransaction[]> {
+  const res = await pool.query<{
+    id: string; requestor_id: string; type: string; amount_usd_cents: string;
+    balance_after_usd_cents: string; reason: string; created_at: Date;
+  }>(`SELECT id, requestor_id, type, amount_usd_cents, balance_after_usd_cents, reason, created_at
+        FROM billing_transactions`);
+  return res.rows.map((r) => ({
+    id:                    r.id,
+    requestorId:           r.requestor_id,
+    type:                  r.type as BillingTransaction['type'],
+    amountUsdCents:        Number(r.amount_usd_cents),
+    balanceAfterUsdCents:  Number(r.balance_after_usd_cents),
+    reason:                r.reason,
+    createdAt:             r.created_at.toISOString(),
+  }));
+}
+
+export async function upsertTopUpReceipt(r: TopUpReceipt): Promise<void> {
+  await pool.query(
+    `INSERT INTO billing_topups
+       (receipt_id, requestor_id, amount_usd_cents, status, created_at, confirmed_at)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     ON CONFLICT (receipt_id) DO UPDATE SET
+       status = EXCLUDED.status,
+       confirmed_at = EXCLUDED.confirmed_at`,
+    [r.receiptId, r.requestorId, Math.round(r.amountUsd * 100), r.status, r.createdAt, r.confirmedAt ?? null],
+  );
+}
+
+export async function loadAllTopUpReceipts(): Promise<TopUpReceipt[]> {
+  const res = await pool.query<{
+    receipt_id: string; requestor_id: string; amount_usd_cents: string;
+    status: string; created_at: Date; confirmed_at: Date | null;
+  }>(`SELECT receipt_id, requestor_id, amount_usd_cents, status, created_at, confirmed_at
+        FROM billing_topups`);
+  return res.rows.map((r) => ({
+    receiptId:   r.receipt_id,
+    requestorId: r.requestor_id,
+    amountUsd:   Number(r.amount_usd_cents) / 100,
+    status:      r.status as TopUpReceipt['status'],
+    createdAt:   r.created_at.toISOString(),
+    confirmedAt: r.confirmed_at ? r.confirmed_at.toISOString() : undefined,
+  }));
 }

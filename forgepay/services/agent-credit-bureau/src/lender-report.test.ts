@@ -494,7 +494,18 @@ describe('lender report API', () => {
     return res.json().data.consentToken;
   }
 
+  // Every successful pull now debits INQUIRY_FEE_USD from the requestor's
+  // prepaid balance, so a fresh requestorId (every test below uses one) needs
+  // funding first or the pull is refused with 402, not issued.
+  async function fund(requestorId: string, amountUsd = 1_000): Promise<void> {
+    await app.inject({
+      method: 'POST', url: `/v1/billing/${requestorId}/credit`, headers: bearer(ADMIN),
+      payload: { amountUsd, reason: 'test fixture funding' },
+    });
+  }
+
   async function pull(requestorId: string, over: Record<string, unknown> = {}) {
+    await fund(requestorId);
     const consentToken = await consentFor(requestorId);
     return app.inject({
       method: 'POST', url: '/v1/lender-reports', headers: bearer(ADMIN),

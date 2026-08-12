@@ -208,6 +208,17 @@ const ROUTE_SCOPES: Record<string, Scope> = {
   'GET /v1/disputes':                        SCOPES.MANAGE_DISPUTES,
   'PUT /v1/disputes/:disputeId':             SCOPES.MANAGE_DISPUTES,
 
+  // Billing — self-serve for whoever holds pull_scores, since that is the
+  // same principal a balance is charged against. Retrieval and top-up are
+  // additionally narrowed per-resource in the handler via
+  // contributorAccessError, so a requestor manages only its own account.
+  // `POST /v1/billing/:requestorId/credit` (manual admin adjustment) is
+  // deliberately not listed here — deny-by-default already requires `admin`.
+  'GET /v1/billing/:requestorId/account':               SCOPES.PULL_SCORES,
+  'GET /v1/billing/:requestorId/transactions':           SCOPES.PULL_SCORES,
+  'POST /v1/billing/:requestorId/topup':                 SCOPES.PULL_SCORES,
+  'POST /v1/billing/:requestorId/topup/:receiptId/confirm': SCOPES.PULL_SCORES,
+
   // Everything else (contributor registration/activation, settlement) falls
   // through to admin by default and is deliberately not listed.
 };

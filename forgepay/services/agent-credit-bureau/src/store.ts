@@ -11,6 +11,9 @@ import type {
   Dispute,
   CreditReport,
   DataContributor,
+  BillingAccount,
+  BillingTransaction,
+  TopUpReceipt,
 } from './types';
 import { computeScore } from './scorer';
 import { hashApiKey } from './hash';
@@ -20,6 +23,8 @@ import {
   isDbEnabled, runMigrations,
   upsertProfile, upsertDispute, upsertReport, upsertContributor, upsertLenderReport,
   loadAllProfiles, loadAllDisputes, loadAllReports, loadAllContributors, loadAllLenderReports,
+  upsertBillingAccount, upsertBillingTransaction, upsertTopUpReceipt,
+  loadAllBillingAccounts, loadAllBillingTransactions, loadAllTopUpReceipts,
 } from './db';
 
 /** Fire-and-forget persistence error logger — keeps mutators synchronous. */
@@ -41,6 +46,11 @@ export const contributors = new Map<string, DataContributor>();
  */
 export const lenderReports = new Map<string, LenderReport>();
 
+/** Prepaid billing ledger — see billing.ts for the credit/debit logic over these. */
+export const billingAccounts = new Map<string, BillingAccount>();
+export const billingTransactions = new Map<string, BillingTransaction>();
+export const topUpReceipts = new Map<string, TopUpReceipt>();
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 export const getProfile  = (id: string) => profiles.get(id);
@@ -59,6 +69,16 @@ export const listLenderReports = (filter?: { agentId?: string; requestorId?: str
 };
 export const getContributor = (id: string) => contributors.get(id);
 export const setContributor = (c: DataContributor) => { contributors.set(c.id, c); if (isDbEnabled()) upsertContributor(c).catch(persistErr('contributor')); return c; };
+
+export const getBillingAccount = (requestorId: string) => billingAccounts.get(requestorId);
+export const setBillingAccount = (a: BillingAccount) => { billingAccounts.set(a.requestorId, a); if (isDbEnabled()) upsertBillingAccount(a).catch(persistErr('billing account')); return a; };
+export const recordBillingTransaction = (t: BillingTransaction) => { billingTransactions.set(t.id, t); if (isDbEnabled()) upsertBillingTransaction(t).catch(persistErr('billing transaction')); return t; };
+export const listBillingTransactions = (requestorId: string) =>
+  Array.from(billingTransactions.values())
+    .filter(t => t.requestorId === requestorId)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+export const getTopUpReceipt = (receiptId: string) => topUpReceipts.get(receiptId);
+export const setTopUpReceipt = (r: TopUpReceipt) => { topUpReceipts.set(r.receiptId, r); if (isDbEnabled()) upsertTopUpReceipt(r).catch(persistErr('topup receipt')); return r; };
 
 export function listDisputes(filter?: { status?: string; agentId?: string }) {
   let all = Array.from(disputes.values());
@@ -90,6 +110,20 @@ export function bureauStats() {
   const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
   const inquiries24h = allInquiries.filter(i => new Date(i.timestamp).getTime() > dayAgo).length;
 
+  // Real revenue, summed from the billing ledger rather than derived as
+  // `inquiries × fee`. The two used to be interchangeable because nothing
+  // charged anything; now a pull only ever reaches `authoriseAndRecordPull`'s
+  // inquiry-recording step after its billing charge has already succeeded, so
+  // this sum is exact — and, unlike the derived figure, it stays correct if
+  // INQUIRY_FEE_USD ever changes, since each transaction records the fee that
+  // actually applied at the time it was charged. Demo/seed inquiries predate
+  // billing and were never charged, so they no longer inflate this number.
+  const inquiryRevenueUsdCents = Array.from(billingTransactions.values())
+    .filter(t => t.type === 'debit' && t.reason.startsWith('inquiry_fee:'))
+    .reduce((s, t) => s + t.amountUsdCents, 0);
+  const totalPrepaidBalanceUsdCents = Array.from(billingAccounts.values())
+    .reduce((s, a) => s + a.balanceUsdCents, 0);
+
   return {
     totalAgents: all.length,
     avgScore,
@@ -102,7 +136,9 @@ export function bureauStats() {
     inquiries24h,
     inquiriesTotal: allInquiries.length,
     inquiryFeeUsd: INQUIRY_FEE_USD,
-    inquiryRevenueUsd: +(allInquiries.length * INQUIRY_FEE_USD).toFixed(2),
+    inquiryRevenueUsd: +(inquiryRevenueUsdCents / 100).toFixed(2),
+    billingAccounts: billingAccounts.size,
+    totalPrepaidBalanceUsd: +(totalPrepaidBalanceUsdCents / 100).toFixed(2),
     openDisputes: Array.from(disputes.values()).filter(d => d.status === 'open' || d.status === 'investigating').length,
     contributors: contributors.size,
   };
@@ -366,13 +402,16 @@ export async function initPersistence(): Promise<void> {
 
   await runMigrations();
 
-  const [ps, ds, rs, cs, ls] = await Promise.all([
+  const [ps, ds, rs, cs, ls, bas, bts, tus] = await Promise.all([
     loadAllProfiles(), loadAllDisputes(), loadAllReports(), loadAllContributors(),
-    loadAllLenderReports(),
+    loadAllLenderReports(), loadAllBillingAccounts(), loadAllBillingTransactions(),
+    loadAllTopUpReceipts(),
   ]);
 
   if (ps.length === 0) {
-    // Fresh database — seed in memory, then persist the seed.
+    // Fresh database — seed in memory, then persist the seed. Billing starts
+    // empty on a fresh database — there is nothing to seed there, accounts
+    // are created lazily on first credit/debit.
     seed();
     await Promise.all([
       ...Array.from(profiles.values()).map((p) => upsertProfile(p).catch(persistErr('profile'))),
@@ -390,4 +429,11 @@ export async function initPersistence(): Promise<void> {
     lenderReports.clear(); ls.forEach((r) => lenderReports.set(r.reportId, r));
     console.log(`[credit-bureau] hydrated ${profiles.size} profiles, ${disputes.size} disputes from database`);
   }
+
+  // Billing hydrates unconditionally, independent of the profile-seed branch
+  // above — money must never be re-seeded or dropped on restart.
+  billingAccounts.clear();     bas.forEach((a) => billingAccounts.set(a.requestorId, a));
+  billingTransactions.clear(); bts.forEach((t) => billingTransactions.set(t.id, t));
+  topUpReceipts.clear();       tus.forEach((r) => topUpReceipts.set(r.receiptId, r));
+  console.log(`[credit-bureau] hydrated ${billingAccounts.size} billing accounts, ${billingTransactions.size} ledger entries`);
 }
