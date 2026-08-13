@@ -14,10 +14,13 @@
  * Port: 3013
  *
  * Env vars:
- *   AGENT_IDENTITY_URL  — default http://localhost:3010
- *   CORS_ORIGIN         — default *
- *   RATE_LIMIT_PER_MIN  — default 100
- *   LOG_LEVEL           — default info
+ *   AGENT_IDENTITY_URL     — default http://localhost:3010
+ *   AGENT_IDENTITY_API_KEY — key sent to agent-identity's protected routes
+ *   ADF_ADMIN_API_KEY      — operator key (all scopes); required in production
+ *   ADF_SERVICE_API_KEYS   — comma-separated internal-caller keys (evaluate + read)
+ *   CORS_ORIGIN            — default *
+ *   RATE_LIMIT_PER_MIN     — default 100
+ *   LOG_LEVEL              — default info
  */
 
 import Fastify, { FastifyError } from 'fastify';
@@ -38,6 +41,8 @@ import {
 import { decide, fetchReputation } from './risk-scorer';
 import { recordDecision, getDecisionHistory } from './decision-log';
 import { recordTransaction, getVelocity } from './velocity';
+import { registerAuth } from './auth';
+import { instrumentationPlugin } from './lib/instrumentation';
 import type { DecisionPolicy } from './types';
 
 // ── Configuration ─────────────────────────────────────────────────────────────
@@ -121,6 +126,9 @@ async function buildApp() {
       message:    `Rate limit exceeded. Retry in ${Math.ceil(context.ttl / 1000)}s`,
     }),
   });
+
+  registerAuth(app);
+  await app.register(instrumentationPlugin);
 
   // ── Health probe ───────────────────────────────────────────────────────────
   app.get('/health', async () => ({
