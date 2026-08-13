@@ -26,6 +26,11 @@ env:
   NODE_ENV: production
   RATE_LIMIT_PER_MIN: '100'
   CORS_ORIGIN: '*'
+# ALM_ADMIN_API_KEY is NOT set here — this service refuses to boot in
+# production without it (see src/auth.ts getAdminKeyHash). Populate a
+# Secret named "<release-name>-agent-liquidity-manager-secrets" with an
+# ALM_ADMIN_API_KEY key (sourced from Vault / AWS Secrets Manager, never
+# committed) — templates/deployment.yaml already loads it via envFrom.
 livenessProbe:
   httpGet:
     path: /health

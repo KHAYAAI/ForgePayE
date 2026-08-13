@@ -19,11 +19,22 @@ import {
 } from './types';
 import { recomputeWalletUsd, getAssetClass, toUsd, USD_RATES } from './rebalancer';
 import { persistAsync } from './db';
+import { hashApiKey, safeEqualHex } from './hash';
+import { randomBytes } from 'node:crypto';
 
 const wallets:  Map<string, AgentWallet>       = new Map();
 const policies: Map<string, LiquidityPolicy>   = new Map();
 const targets:  Map<string, PortfolioTarget>   = new Map();
 const history:  HistoryEvent[]                 = [];
+
+/**
+ * Per-agent API key hashes, keyed by agentId. Like `policies`/`targets`, this
+ * is in-memory only (no Postgres table) — the raw key is shown once to the
+ * caller at issue time via `issueAgentApiKey()` and never again. Restarting
+ * the service invalidates issued agent keys, matching this service's
+ * existing volatility model for everything except wallets (see db.ts).
+ */
+const agentApiKeyHashes: Map<string, string> = new Map();
 
 let walletSeq = 0;
 let eventSeq  = 0;
@@ -277,6 +288,33 @@ export function creditAssetToAgent(agentId: string, asset: string, amountUsd: nu
   return amountUsd;
 }
 
+// ── Agent API keys ────────────────────────────────────────────────────────────
+
+/**
+ * Mint (or rotate) an API key for an agent. The raw key is returned to the
+ * caller exactly once — only its sha256 hash is retained. Rotating replaces
+ * the previous key outright, so a leaked key can be invalidated by issuing a
+ * new one.
+ */
+export function issueAgentApiKey(agentId: string): { agentId: string; apiKey: string } {
+  const apiKey = `alm_${randomBytes(24).toString('base64url')}`;
+  agentApiKeyHashes.set(agentId, hashApiKey(apiKey));
+  return { agentId, apiKey };
+}
+
+/** True once an agent has been issued a key (used by tests/diagnostics). */
+export function hasAgentApiKey(agentId: string): boolean {
+  return agentApiKeyHashes.has(agentId);
+}
+
+/** Resolve a presented key hash to the agentId that owns it, or null. */
+export function findAgentIdByKeyHash(presentedHash: string): string | null {
+  for (const [agentId, hash] of agentApiKeyHashes) {
+    if (safeEqualHex(presentedHash, hash)) return agentId;
+  }
+  return null;
+}
+
 // ── Policies ──────────────────────────────────────────────────────────────────
 
 export function setPolicy(p: Omit<LiquidityPolicy, 'updatedAt'>): LiquidityPolicy {
@@ -330,6 +368,7 @@ export function _resetStoreForTests(): void {
   wallets.clear();
   policies.clear();
   targets.clear();
+  agentApiKeyHashes.clear();
   history.length = 0;
   walletSeq = 0;
   eventSeq  = 0;

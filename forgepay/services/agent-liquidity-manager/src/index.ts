@@ -29,6 +29,7 @@ import { runMigrations } from './db';
 import helmet from '@fastify/helmet';
 import { z } from 'zod';
 
+import { registerAuth } from './auth';
 import {
   registerWallet,
   updateWalletAssets,
@@ -43,6 +44,7 @@ import {
   executeRebalancePlan,
   debitAssetClassAcrossWallets,
   creditAssetToAgent,
+  issueAgentApiKey,
 } from './store';
 import {
   computeRebalance,
@@ -174,6 +176,8 @@ async function buildApp() {
     }),
   });
 
+  registerAuth(app);
+
   // ── Health ─────────────────────────────────────────────────────────────────
   app.get('/health', async () => ({
     status:    'ok',
@@ -193,6 +197,16 @@ async function buildApp() {
   app.get<{ Params: { agentId: string } }>('/v1/agents/:agentId/portfolio', async (req, reply) => {
     const wallets = getWalletsForAgent(req.params.agentId);
     return reply.send({ data: buildSnapshot(req.params.agentId, wallets) });
+  });
+
+  // ── API keys ───────────────────────────────────────────────────────────────
+  // Admin-only (unlisted in ROUTE_SCOPES → falls through to the `admin`
+  // scope by default): mints/rotates the key an agent uses to call every
+  // other route on its own portfolio. Returned once, in the response body —
+  // never persisted or re-servable in plaintext.
+  app.post<{ Params: { agentId: string } }>('/v1/agents/:agentId/api-key', async (req, reply) => {
+    const issued = issueAgentApiKey(req.params.agentId);
+    return reply.status(201).send({ data: issued });
   });
 
   // ── Wallets ────────────────────────────────────────────────────────────────
