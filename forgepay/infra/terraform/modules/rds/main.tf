@@ -1,4 +1,12 @@
 # RDS module — encrypted, optionally Multi-AZ PostgreSQL for ForgePay.
+#
+# The master password is RDS-managed (`manage_master_user_password`), not a
+# Terraform variable: RDS generates it and stores it in Secrets Manager
+# directly, so the plaintext never passes through a `.tf` variable or lands
+# in Terraform state — the same guarantee `modules/secrets` already makes for
+# every other platform credential. Services read it from
+# `aws_db_instance.this.master_user_secret[0].secret_arn` (exposed below),
+# not from an env var baked at apply time.
 
 data "aws_iam_policy_document" "monitoring_assume" {
   count = var.enable_enhanced_monitoring ? 1 : 0
@@ -32,7 +40,8 @@ resource "aws_db_instance" "this" {
 
   db_name  = var.db_name
   username = var.db_username
-  password = var.db_password
+
+  manage_master_user_password = true
 
   allocated_storage     = var.db_allocated_storage
   max_allocated_storage = var.db_allocated_storage * 2

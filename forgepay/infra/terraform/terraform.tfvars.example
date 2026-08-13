@@ -2,7 +2,9 @@
 # Required (no defaults):
 environment         = "staging"          # dev | staging | production
 db_username         = "forgepay_admin"
-db_password         = "CHANGE_ME_use_secrets_manager"   # inject via TF_VAR_db_password / Secrets Manager
+# db_password is NOT a variable — RDS generates and stores it directly in
+# Secrets Manager (manage_master_user_password). Read it via
+# `terraform output rds_master_user_secret_arn` after apply.
 acm_certificate_arn = "arn:aws:acm:us-east-1:000000000000:certificate/REPLACE"
 alert_email         = "ops@forgepay.io"
 
@@ -15,3 +17,10 @@ db_instance_class       = "db.r6i.2xlarge" # db.t3.large is fine for staging
 db_multi_az             = true
 redis_node_type         = "cache.r6g.xlarge"
 cloudfront_allowed_origins = ["api.forgepay.io", "checkout.forgepay.io"]
+# Defaults to 0.0.0.0/0 (unrestricted) so a first apply succeeds from any
+# laptop. Restrict to your office/VPN/CI egress ranges before production —
+# endpoint_private_access is always on, so the VPC keeps working regardless.
+eks_public_access_cidrs = ["203.0.113.0/24"]
+# Null until the Load Balancer Controller creates the ALB (see DEPLOY_AWS.md
+# step 3) — set and re-apply once known, or the WAF protects nothing.
+# waf_alb_arn = "arn:aws:elasticloadbalancing:...:loadbalancer/app/..."

@@ -56,15 +56,15 @@ variable "eks_node_instance_types" {
   default     = ["t3.xlarge", "t3.2xlarge"]
 }
 
+variable "eks_public_access_cidrs" {
+  description = "CIDRs allowed to reach the public EKS API endpoint. Restrict before production — default is unrestricted."
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
+}
+
 # RDS Configuration
 variable "db_username" {
   description = "RDS master username"
-  type        = string
-  sensitive   = true
-}
-
-variable "db_password" {
-  description = "RDS master password (use AWS Secrets Manager in production)"
   type        = string
   sensitive   = true
 }
@@ -185,4 +185,10 @@ variable "waf_blocked_country_codes" {
   type        = list(string)
   default     = []
   description = "ISO 3166-1 alpha-2 codes to block at the edge. Empty by default — a sanctions/compliance decision, not a default."
+}
+
+variable "waf_alb_arn" {
+  type        = string
+  default     = null
+  description = "ALB ARN to attach the web ACL to. Null on first apply (the ALB doesn't exist until the Load Balancer Controller creates it from the Ingress) — set and re-apply once known, or the WAF protects nothing."
 }

@@ -72,6 +72,7 @@ module "eks" {
   node_max_size       = var.eks_node_max_size
   node_instance_types = var.eks_node_instance_types
   enable_irsa         = true
+  public_access_cidrs = var.eks_public_access_cidrs
 
   tags = {
     Module = "EKS"
@@ -85,7 +86,6 @@ module "rds" {
   environment                = var.environment
   db_name                    = "forgepay"
   db_username                = var.db_username
-  db_password                = var.db_password # Use AWS Secrets Manager in production
   db_instance_class          = var.db_instance_class
   db_allocated_storage       = var.db_allocated_storage
   db_backup_retention_days   = var.db_backup_retention_days
@@ -168,11 +168,19 @@ module "cloudfront" {
 # REGIONAL scope by default (attaches to the ALB). To front CloudFront instead,
 # set scope = "CLOUDFRONT" and pass a provider aliased to us-east-1, then set
 # web_acl_id on the distribution from module.waf.web_acl_arn.
+#
+# `alb_arn` is null on first apply — the AWS Load Balancer Controller creates
+# the ALB from the in-cluster Ingress, which does not exist until after `helm
+# install` (see DEPLOY_AWS.md step 3). Until `var.alb_arn` is set and this is
+# re-applied, the web ACL exists but protects nothing: the association
+# resource has count = 0. Same two-phase shape as `cloudfront.alb_domain_name`
+# below.
 module "waf" {
   source = "./modules/waf"
 
   environment           = var.environment
   scope                 = "REGIONAL"
+  alb_arn               = var.waf_alb_arn
   rate_limit_per_5min   = var.waf_rate_limit_per_5min
   blocked_country_codes = var.waf_blocked_country_codes
   log_retention_days    = var.log_retention_days
@@ -230,6 +238,11 @@ output "rds_endpoint" {
   description = "RDS PostgreSQL endpoint"
 }
 
+output "rds_master_user_secret_arn" {
+  value       = module.rds.master_user_secret_arn
+  description = "Secrets Manager ARN holding the RDS-generated master password — read this via IRSA, not a Terraform variable"
+}
+
 output "redis_endpoint" {
   value       = module.redis.cluster_endpoint
   description = "Redis endpoint"
@@ -243,4 +256,9 @@ output "s3_backup_bucket" {
 output "cloudfront_domain_name" {
   value       = module.cloudfront.domain_name
   description = "CloudFront distribution domain"
+}
+
+output "secrets_reader_role_arn" {
+  value       = module.secrets.secrets_reader_role_arn
+  description = "IRSA role ARN — annotate the External Secrets Operator's service account with this so it can read Secrets Manager"
 }
