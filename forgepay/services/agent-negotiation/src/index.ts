@@ -6,6 +6,12 @@
  *
  * Port: 3011
  *
+ * Auth: see plugins/api-key-auth.ts. Every route below except /health and
+ * /metrics requires a valid API key, and every route that reads or mutates a
+ * specific session/escrow additionally requires the caller to be a party to
+ * that resource (or hold the admin key) — see negotiationAccessError /
+ * escrowAccessError. A mismatch is 403, not 404.
+ *
  * Routes:
  *   GET  /health
  *   POST /v1/sessions                        — create negotiation session
@@ -21,10 +27,11 @@
  *   POST /v1/escrow/:id/refund               — refund to buyer (credits ledger)
  *   POST /v1/escrow/:id/dispute              — open dispute
  *   GET  /v1/escrow/:id                      — get escrow status
- *   POST /v1/agents/:agentId/balance/deposit — ADMIN/TEST/INTERNAL: credit an agent's
+ *   POST /v1/agents/:agentId/balance/deposit — ADMIN ONLY: credit an agent's
  *                                               internal ledger balance (see ledger.ts —
  *                                               real on-chain funding is not wired yet)
  *   GET  /v1/agents/:agentId/balance         — current ledger balance + audit trail
+ *                                               (own balance only, unless admin)
  */
 
 import Fastify, { type FastifyError } from 'fastify';
@@ -32,7 +39,7 @@ import helmet from '@fastify/helmet';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import { z } from 'zod';
-import apiKeyAuth from './plugins/api-key-auth';
+import { registerApiKeyAuth, negotiationAccessError, escrowAccessError } from './plugins/api-key-auth';
 
 import { getSession, listSessions, getEscrow, initStore } from './store';
 import { createSession, addMessage, getAgreedTerms, isExpired } from './negotiation';
@@ -78,7 +85,10 @@ async function buildApp() {
     }),
   });
 
-  await app.register(apiKeyAuth);
+  // Called directly (not via app.register) so a production misconfiguration
+  // (missing/weak/placeholder VALID_API_KEYS) throws synchronously here,
+  // failing buildApp() at boot rather than on the first request.
+  registerApiKeyAuth(app);
 
   // ── Health ─────────────────────────────────────────────────────────────────
   app.get('/health', async () => ({
@@ -114,6 +124,12 @@ async function buildApp() {
     if (body['initiatorAgentId'] === body['responderAgentId']) {
       return reply.status(422).send({ error: 'ValidationError', message: 'initiatorAgentId and responderAgentId must be different agents' });
     }
+    if (req.auth?.kind !== 'admin' && body['initiatorAgentId'] !== req.auth?.principalId) {
+      return reply.status(403).send({
+        error:   'Forbidden',
+        message: 'initiatorAgentId must match the authenticated caller — a key may not open a negotiation on behalf of another agent.',
+      });
+    }
 
     const session = await createSession({
       initiatorAgentId: body['initiatorAgentId'] as string,
@@ -129,10 +145,15 @@ async function buildApp() {
 
   // ── GET /v1/sessions — List sessions ──────────────────────────────────────
   app.get<{ Querystring: Record<string, string> }>('/v1/sessions', async (req, reply) => {
-    const q        = req.query;
+    const q = req.query;
+    // Non-admins may only list negotiations they are a party to — regardless
+    // of what (or whether an) agentId they asked for. Without this, any
+    // valid key could list every negotiation in the system by omitting the
+    // filter entirely.
+    const agentId = req.auth?.kind === 'admin' ? q['agentId'] : req.auth?.principalId;
     const sessions = await listSessions({
-      agentId: q['agentId'],
-      status:  q['status'] as NegotiationSession['status'] | undefined,
+      agentId,
+      status: q['status'] as NegotiationSession['status'] | undefined,
     });
     return reply.send({ data: sessions, total: sessions.length });
   });
@@ -143,6 +164,9 @@ async function buildApp() {
     if (!session) {
       return reply.status(404).send({ error: 'NotFound', message: `Session ${req.params.id} not found` });
     }
+    const accessError = negotiationAccessError(req.auth, session);
+    if (accessError) return reply.status(403).send(accessError);
+
     // Refresh expiry status on read
     if (isExpired(session) && session.status === 'active') {
       return reply.send({ data: { ...session, status: 'expired' } });
@@ -165,6 +189,19 @@ async function buildApp() {
     }
     if (!Array.isArray(body['terms'])) {
       return reply.status(400).send({ error: 'ValidationError', message: 'terms must be an array' });
+    }
+
+    const targetSession = await getSession(req.params.id);
+    if (!targetSession) {
+      return reply.status(404).send({ error: 'NegotiationError', message: `Session ${req.params.id} not found` });
+    }
+    const accessError = negotiationAccessError(req.auth, targetSession);
+    if (accessError) return reply.status(403).send(accessError);
+    if (req.auth?.kind !== 'admin' && body['fromAgentId'] !== req.auth?.principalId) {
+      return reply.status(403).send({
+        error:   'Forbidden',
+        message: 'fromAgentId must match the authenticated caller — a key may not post messages on behalf of another agent.',
+      });
     }
 
     const result = await addMessage(req.params.id, {
@@ -191,9 +228,17 @@ async function buildApp() {
     if (!session) {
       return reply.status(404).send({ error: 'NotFound', message: `Session ${req.params.id} not found` });
     }
+    const acceptAccessError = negotiationAccessError(req.auth, session);
+    if (acceptAccessError) return reply.status(403).send(acceptAccessError);
 
     if (!body['fromAgentId'] || typeof body['fromAgentId'] !== 'string') {
       return reply.status(400).send({ error: 'ValidationError', message: 'fromAgentId is required' });
+    }
+    if (req.auth?.kind !== 'admin' && body['fromAgentId'] !== req.auth?.principalId) {
+      return reply.status(403).send({
+        error:   'Forbidden',
+        message: 'fromAgentId must match the authenticated caller — a key may not accept on behalf of another agent.',
+      });
     }
 
     // Accept with the most recent terms in the session
@@ -222,9 +267,17 @@ async function buildApp() {
     if (!session) {
       return reply.status(404).send({ error: 'NotFound', message: `Session ${req.params.id} not found` });
     }
+    const rejectAccessError = negotiationAccessError(req.auth, session);
+    if (rejectAccessError) return reply.status(403).send(rejectAccessError);
 
     if (!body['fromAgentId'] || typeof body['fromAgentId'] !== 'string') {
       return reply.status(400).send({ error: 'ValidationError', message: 'fromAgentId is required' });
+    }
+    if (req.auth?.kind !== 'admin' && body['fromAgentId'] !== req.auth?.principalId) {
+      return reply.status(403).send({
+        error:   'Forbidden',
+        message: 'fromAgentId must match the authenticated caller — a key may not reject on behalf of another agent.',
+      });
     }
 
     const result = await addMessage(req.params.id, {
@@ -244,6 +297,13 @@ async function buildApp() {
 
   // ── GET /v1/sessions/:id/agreed-terms — Get agreed terms ─────────────────
   app.get<{ Params: { id: string } }>('/v1/sessions/:id/agreed-terms', async (req, reply) => {
+    const session = await getSession(req.params.id);
+    if (!session) {
+      return reply.status(404).send({ error: 'NegotiationError', message: `Session ${req.params.id} not found` });
+    }
+    const accessError = negotiationAccessError(req.auth, session);
+    if (accessError) return reply.status(403).send(accessError);
+
     const result = await getAgreedTerms(req.params.id);
     if ('error' in result) {
       const status = result.error.includes('not found') ? 404 : 422;
@@ -275,6 +335,13 @@ async function buildApp() {
       return reply.status(400).send({ error: 'ValidationError', message: `chain must be one of: ${VALID_CHAINS.join(', ')}` });
     }
 
+    const parentSession = await getSession(body['sessionId'] as string);
+    if (!parentSession) {
+      return reply.status(404).send({ error: 'NotFound', message: `Session ${body['sessionId'] as string} not found` });
+    }
+    const createAccessError = negotiationAccessError(req.auth, parentSession);
+    if (createAccessError) return reply.status(403).send(createAccessError);
+
     const result = await createEscrow({
       sessionId:     body['sessionId'] as string,
       buyerAgentId:  body['buyerAgentId'] as string,
@@ -294,6 +361,13 @@ async function buildApp() {
 
   // ── POST /v1/escrow/:id/fund — Fund escrow ────────────────────────────────
   app.post<{ Params: { id: string } }>('/v1/escrow/:id/fund', async (req, reply) => {
+    const escrow = await getEscrow(req.params.id);
+    if (!escrow) {
+      return reply.status(404).send({ error: 'EscrowError', message: `Escrow ${req.params.id} not found` });
+    }
+    const accessError = escrowAccessError(req.auth, escrow);
+    if (accessError) return reply.status(403).send(accessError);
+
     app.log.info({ escrowId: req.params.id }, '[agent-negotiation] Escrow fund requested — debiting buyer ledger balance');
     const result = await fundEscrow(req.params.id);
     if ('error' in result) {
@@ -305,6 +379,13 @@ async function buildApp() {
 
   // ── POST /v1/escrow/:id/release — Release escrow ─────────────────────────
   app.post<{ Params: { id: string } }>('/v1/escrow/:id/release', async (req, reply) => {
+    const escrow = await getEscrow(req.params.id);
+    if (!escrow) {
+      return reply.status(404).send({ error: 'EscrowError', message: `Escrow ${req.params.id} not found` });
+    }
+    const accessError = escrowAccessError(req.auth, escrow);
+    if (accessError) return reply.status(403).send(accessError);
+
     const body            = req.body as Record<string, unknown>;
     const settlementTxId  = body['settlementTxId'] as string | undefined;
     const result          = await releaseEscrow(req.params.id, settlementTxId);
@@ -318,6 +399,13 @@ async function buildApp() {
 
   // ── POST /v1/escrow/:id/refund — Refund escrow ────────────────────────────
   app.post<{ Params: { id: string } }>('/v1/escrow/:id/refund', async (req, reply) => {
+    const escrow = await getEscrow(req.params.id);
+    if (!escrow) {
+      return reply.status(404).send({ error: 'EscrowError', message: `Escrow ${req.params.id} not found` });
+    }
+    const refundAccessError = escrowAccessError(req.auth, escrow);
+    if (refundAccessError) return reply.status(403).send(refundAccessError);
+
     const body   = req.body as Record<string, unknown>;
     const reason = typeof body['reason'] === 'string' ? body['reason'] : 'No reason provided';
     const result = await refundEscrow(req.params.id, reason);
@@ -331,6 +419,13 @@ async function buildApp() {
 
   // ── POST /v1/escrow/:id/dispute — Open dispute ────────────────────────────
   app.post<{ Params: { id: string } }>('/v1/escrow/:id/dispute', async (req, reply) => {
+    const escrow = await getEscrow(req.params.id);
+    if (!escrow) {
+      return reply.status(404).send({ error: 'EscrowError', message: `Escrow ${req.params.id} not found` });
+    }
+    const disputeAccessError = escrowAccessError(req.auth, escrow);
+    if (disputeAccessError) return reply.status(403).send(disputeAccessError);
+
     const body   = req.body as Record<string, unknown>;
     const reason = typeof body['reason'] === 'string' ? body['reason'] : 'Dispute opened without reason';
     const result = await disputeEscrow(req.params.id, reason);
@@ -348,21 +443,31 @@ async function buildApp() {
     if (!escrow) {
       return reply.status(404).send({ error: 'NotFound', message: `Escrow ${req.params.id} not found` });
     }
+    const accessError = escrowAccessError(req.auth, escrow);
+    if (accessError) return reply.status(403).send(accessError);
+
     return reply.send({ data: escrow });
   });
 
-  // ── POST /v1/agents/:agentId/balance/deposit — Deposit (ADMIN/TEST/INTERNAL) ─
+  // ── POST /v1/agents/:agentId/balance/deposit — Deposit (ADMIN ONLY) ──────────
   // Credits an agent's internal escrow-ledger balance. Real on-chain funding
   // is NOT wired yet (see escrow.ts / ledger.ts module comments) — this
   // exists purely so the ledger's lock/release/refund accounting is
-  // testable end-to-end. This is an internal/admin operation: it is gated
-  // by the same shared API key as every other route here, which is NOT
-  // sufficient authorization for a production money-movement endpoint.
+  // testable end-to-end. This is a money-creation operation and is
+  // restricted to the admin principal — no agent key may call it for itself
+  // or anyone else.
   const depositSchema = z.object({
     amountUsd: z.number().positive().finite(),
   });
 
   app.post<{ Params: { agentId: string } }>('/v1/agents/:agentId/balance/deposit', async (req, reply) => {
+    if (req.auth?.kind !== 'admin') {
+      return reply.status(403).send({
+        error:   'Forbidden',
+        message: 'Balance deposits are an admin-only operation.',
+      });
+    }
+
     const parsed = depositSchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.status(400).send({
@@ -382,6 +487,13 @@ async function buildApp() {
 
   // ── GET /v1/agents/:agentId/balance — Current balance + audit trail ──────
   app.get<{ Params: { agentId: string } }>('/v1/agents/:agentId/balance', async (req, reply) => {
+    if (req.auth?.kind !== 'admin' && req.auth?.principalId !== req.params.agentId) {
+      return reply.status(403).send({
+        error:   'Forbidden',
+        message: 'This key may only view its own balance.',
+      });
+    }
+
     return reply.send({
       data: {
         agentId:    req.params.agentId,

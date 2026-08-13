@@ -750,3 +750,276 @@ describe('Agent Negotiation Protocol', () => {
     expect(res.statusCode).toBe(401);
   });
 });
+
+// ── Production auth: fail closed, not open ───────────────────────────────────
+//
+// Regression coverage for the bug where `VALID_API_KEYS` unset in production
+// silently accepted any non-empty key (`validKeys.size > 0` was false, so the
+// whole guard collapsed). The service must now refuse to boot instead.
+
+describe('Production auth fails closed', () => {
+  const ENV_KEYS = ['NODE_ENV', 'VALID_API_KEYS', 'AGENT_API_KEYS'] as const;
+  let saved: Record<string, string | undefined>;
+
+  beforeAll(() => {
+    saved = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
+  });
+
+  afterAll(() => {
+    for (const k of ENV_KEYS) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  });
+
+  it('refuses to boot in production when VALID_API_KEYS is not configured', async () => {
+    process.env['NODE_ENV'] = 'production';
+    delete process.env['VALID_API_KEYS'];
+    delete process.env['AGENT_API_KEYS'];
+
+    await expect(buildApp()).rejects.toThrow(/VALID_API_KEYS is not set/);
+  });
+
+  it('refuses to boot in production when VALID_API_KEYS is the dev placeholder', async () => {
+    process.env['NODE_ENV'] = 'production';
+    process.env['VALID_API_KEYS'] = 'dev-negotiation-key';
+
+    await expect(buildApp()).rejects.toThrow(/development placeholder/);
+  });
+
+  it('refuses to boot in production when a configured key is too short', async () => {
+    process.env['NODE_ENV'] = 'production';
+    process.env['VALID_API_KEYS'] = 'short-key';
+
+    await expect(buildApp()).rejects.toThrow(/at least 32 characters/);
+  });
+
+  it('boots in production with a sufficiently long VALID_API_KEYS', async () => {
+    process.env['NODE_ENV'] = 'production';
+    process.env['VALID_API_KEYS'] = 'a'.repeat(40);
+
+    const prodApp = await buildApp();
+    await prodApp.ready();
+    await prodApp.close();
+  });
+});
+
+// ── Per-resource ownership ────────────────────────────────────────────────────
+//
+// Regression coverage for the bug where any valid key — with no notion of
+// which agent it belonged to — could read or mutate any other party's
+// negotiation session or escrow. AGENT_API_KEYS gives each key an identity;
+// negotiationAccessError / escrowAccessError enforce that a non-admin caller
+// may only act on resources it is a party to (403, never 404, on mismatch).
+
+describe('Per-resource ownership', () => {
+  const AGENT_A_KEY = 'agent-a-key-000000000000000000000000';
+  const AGENT_B_KEY = 'agent-b-key-000000000000000000000000';
+  const ADMIN_KEY   = 'ownership-admin-key-0000000000000000000';
+
+  const AUTH_A     = { 'x-api-key': AGENT_A_KEY };
+  const AUTH_B     = { 'x-api-key': AGENT_B_KEY };
+  const AUTH_ADMIN = { 'x-api-key': ADMIN_KEY };
+
+  let ownershipApp: FastifyApp;
+  let savedAgentKeys: string | undefined;
+  let savedValidKeys: string | undefined;
+
+  beforeAll(async () => {
+    savedAgentKeys = process.env['AGENT_API_KEYS'];
+    savedValidKeys = process.env['VALID_API_KEYS'];
+    process.env['AGENT_API_KEYS'] = `agent-a:${AGENT_A_KEY},agent-b:${AGENT_B_KEY}`;
+    process.env['VALID_API_KEYS'] = ADMIN_KEY;
+
+    ownershipApp = await buildApp();
+    await ownershipApp.ready();
+  });
+
+  afterAll(async () => {
+    await ownershipApp.close();
+    if (savedAgentKeys === undefined) delete process.env['AGENT_API_KEYS']; else process.env['AGENT_API_KEYS'] = savedAgentKeys;
+    if (savedValidKeys === undefined) delete process.env['VALID_API_KEYS']; else process.env['VALID_API_KEYS'] = savedValidKeys;
+  });
+
+  async function createOwnedSession(): Promise<string> {
+    const res = await ownershipApp.inject({
+      method:  'POST',
+      url:     '/v1/sessions',
+      headers: AUTH_A,
+      payload: {
+        initiatorAgentId: 'agent-a',
+        responderAgentId: 'agent-b',
+        subject:          'Ownership test negotiation',
+        initialTerms:     [{ key: 'price_usd', value: 100, unit: 'USD' }],
+      },
+    });
+    expect(res.statusCode).toBe(201);
+    return res.json<{ data: { id: string } }>().data.id;
+  }
+
+  it('a key acting as its own agent on its own negotiation succeeds', async () => {
+    const sessionId = await createOwnedSession();
+
+    const res = await ownershipApp.inject({ method: 'GET', url: `/v1/sessions/${sessionId}`, headers: AUTH_A });
+    expect(res.statusCode).toBe(200);
+
+    const bRes = await ownershipApp.inject({ method: 'GET', url: `/v1/sessions/${sessionId}`, headers: AUTH_B });
+    expect(bRes.statusCode).toBe(200);
+  });
+
+  it('cannot open a session claiming to be an agent the key does not own', async () => {
+    const res = await ownershipApp.inject({
+      method:  'POST',
+      url:     '/v1/sessions',
+      headers: AUTH_A,
+      payload: {
+        initiatorAgentId: 'agent-b', // agent-a's key claiming to be agent-b
+        responderAgentId: 'agent-a',
+        subject:          'Forged initiator',
+        initialTerms:     [],
+      },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it('a key acting on a negotiation it is not a party to gets 403, not 404', async () => {
+    // agent-a and agent-b negotiate; an unrelated third party's key must not
+    // be able to read it even though the session genuinely exists.
+    const outsiderKey = 'agent-c-key-00000000000000000000000';
+    process.env['AGENT_API_KEYS'] = `agent-a:${AGENT_A_KEY},agent-b:${AGENT_B_KEY},agent-c:${outsiderKey}`;
+    const app2 = await buildApp();
+    await app2.ready();
+    try {
+      const createRes = await app2.inject({
+        method:  'POST',
+        url:     '/v1/sessions',
+        headers: AUTH_A,
+        payload: {
+          initiatorAgentId: 'agent-a',
+          responderAgentId: 'agent-b',
+          subject:          'Outsider access test',
+          initialTerms:     [],
+        },
+      });
+      const sessionId = createRes.json<{ data: { id: string } }>().data.id;
+
+      const res = await app2.inject({
+        method:  'GET',
+        url:     `/v1/sessions/${sessionId}`,
+        headers: { 'x-api-key': outsiderKey },
+      });
+      expect(res.statusCode).toBe(403);
+    } finally {
+      await app2.close();
+    }
+  });
+
+  it('cannot forge a fromAgentId belonging to another party when posting a message', async () => {
+    const sessionId = await createOwnedSession();
+
+    const res = await ownershipApp.inject({
+      method:  'POST',
+      url:     `/v1/sessions/${sessionId}/messages`,
+      headers: AUTH_A, // authenticated as agent-a
+      payload: {
+        fromAgentId: 'agent-b', // but claiming to speak for agent-b
+        role:        'counter_offer',
+        terms:       [{ key: 'price_usd', value: 90, unit: 'USD' }],
+      },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it('a key acting on someone else\'s escrow (fund/release/refund/dispute/get) gets 403', async () => {
+    const sessionId = await createOwnedSession();
+    const escrowRes = await ownershipApp.inject({
+      method:  'POST',
+      url:     '/v1/escrow',
+      headers: AUTH_A,
+      payload: {
+        sessionId,
+        buyerAgentId:  'agent-a',
+        sellerAgentId: 'agent-b',
+        amountUsd:     100,
+        asset:         'USDC',
+        chain:         'base',
+      },
+    });
+    expect(escrowRes.statusCode).toBe(201);
+    const escrowId = escrowRes.json<{ data: { id: string } }>().data.id;
+
+    const outsiderKey = 'agent-d-key-00000000000000000000000';
+    process.env['AGENT_API_KEYS'] = `agent-a:${AGENT_A_KEY},agent-b:${AGENT_B_KEY},agent-d:${outsiderKey}`;
+    const app3 = await buildApp();
+    await app3.ready();
+    try {
+      const outsiderAuth = { 'x-api-key': outsiderKey };
+
+      const getRes = await app3.inject({ method: 'GET', url: `/v1/escrow/${escrowId}`, headers: outsiderAuth });
+      expect(getRes.statusCode).toBe(403);
+
+      const fundRes = await app3.inject({ method: 'POST', url: `/v1/escrow/${escrowId}/fund`, headers: outsiderAuth });
+      expect(fundRes.statusCode).toBe(403);
+
+      const releaseRes = await app3.inject({ method: 'POST', url: `/v1/escrow/${escrowId}/release`, headers: outsiderAuth, payload: {} });
+      expect(releaseRes.statusCode).toBe(403);
+
+      const refundRes = await app3.inject({ method: 'POST', url: `/v1/escrow/${escrowId}/refund`, headers: outsiderAuth, payload: {} });
+      expect(refundRes.statusCode).toBe(403);
+
+      const disputeRes = await app3.inject({ method: 'POST', url: `/v1/escrow/${escrowId}/dispute`, headers: outsiderAuth, payload: {} });
+      expect(disputeRes.statusCode).toBe(403);
+    } finally {
+      await app3.close();
+    }
+  });
+
+  it('a key may only read or deposit into its own agent balance, not another agent\'s', async () => {
+    const readOwn = await ownershipApp.inject({ method: 'GET', url: '/v1/agents/agent-a/balance', headers: AUTH_A });
+    expect(readOwn.statusCode).toBe(200);
+
+    const readOther = await ownershipApp.inject({ method: 'GET', url: '/v1/agents/agent-b/balance', headers: AUTH_A });
+    expect(readOther.statusCode).toBe(403);
+
+    const depositAsAgent = await ownershipApp.inject({
+      method: 'POST', url: '/v1/agents/agent-a/balance/deposit', headers: AUTH_A, payload: { amountUsd: 10 },
+    });
+    expect(depositAsAgent.statusCode).toBe(403); // deposit is admin-only, even onto your own balance
+  });
+
+  it('the admin key can act on a negotiation and escrow it is not a party to', async () => {
+    const sessionId = await createOwnedSession();
+
+    const sessionRes = await ownershipApp.inject({ method: 'GET', url: `/v1/sessions/${sessionId}`, headers: AUTH_ADMIN });
+    expect(sessionRes.statusCode).toBe(200);
+
+    const escrowRes = await ownershipApp.inject({
+      method:  'POST',
+      url:     '/v1/escrow',
+      headers: AUTH_ADMIN,
+      payload: {
+        sessionId,
+        buyerAgentId:  'agent-a',
+        sellerAgentId: 'agent-b',
+        amountUsd:     50,
+        asset:         'USDC',
+        chain:         'base',
+      },
+    });
+    expect(escrowRes.statusCode).toBe(201);
+    const escrowId = escrowRes.json<{ data: { id: string } }>().data.id;
+
+    const disputeRes = await ownershipApp.inject({
+      method: 'POST', url: `/v1/escrow/${escrowId}/dispute`, headers: AUTH_ADMIN, payload: { reason: 'admin review' },
+    });
+    expect(disputeRes.statusCode).toBe(200);
+
+    const depositRes = await ownershipApp.inject({
+      method: 'POST', url: '/v1/agents/agent-a/balance/deposit', headers: AUTH_ADMIN, payload: { amountUsd: 25 },
+    });
+    expect(depositRes.statusCode).toBe(201);
+
+    const balanceRes = await ownershipApp.inject({ method: 'GET', url: '/v1/agents/agent-b/balance', headers: AUTH_ADMIN });
+    expect(balanceRes.statusCode).toBe(200);
+  });
+});
