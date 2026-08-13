@@ -16,6 +16,10 @@ version: "3.9"
 #   3008  → rwa-registry        RWA asset registry    [profile: agentic]
 #   3010  → agent-identity      Agent identity service [profile: agentic]
 #   3011  → agent-negotiation   Agent negotiation svc  [profile: agentic]
+#   3013  → agent-decision-fwk  Risk scoring / policy engine [profile: agentic]
+#   3014  → agent-liquidity-mgr Multi-asset portfolio rebalance/sweep [profile: agentic]
+#   3018  → agent-credit-bureau FICO-style scoring, billing, disputes [profile: agentic]
+#   8003  → compliance-monitor  OFAC/EU sanctions screening, KYC     [profile: agentic, forge]
 #   4317  → otel-collector      OTLP gRPC receiver    (from all services)
 #   4318  → otel-collector      OTLP HTTP receiver
 #   8889  → otel-collector      Prometheus metrics scrape endpoint
@@ -267,6 +271,63 @@ services:
     networks: [forgepay]
     profiles: [agentic]
 
+  # ── Agent Credit Bureau — FICO-style scoring, billing, furnisher ingest ─────
+  agent-credit-bureau:
+    build:
+      context: ../../services/agent-credit-bureau
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: development
+      PORT:     "3018"
+      LOG_LEVEL: debug
+      DATABASE_URL: postgresql://forgepay:devpassword@postgres:5432/forgepay_dev
+      REDIS_URL: redis://redis:6379
+      AGENT_IDENTITY_URL: http://agent-identity:3010
+      COMPLIANCE_MONITOR_URL: http://compliance-monitor:8003
+      BUREAU_ADMIN_API_KEY: dev-bureau-admin-key
+      CONSENT_SIGNING_SECRET: dev-consent-signing-secret
+      # Unset here: STABLECOIN_GATEWAY_URL (top-ups 503 without it, see .env.example),
+      # COMPLIANCE_MONITOR_API_KEY (screening skips with a warning in dev).
+    ports:
+      - "3018:3018"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis:    { condition: service_healthy }
+    networks: [forgepay]
+    profiles: [agentic]
+
+  # ── Compliance Monitor — OFAC/EU sanctions screening, KYC, transaction monitoring ──
+  # forge-custody's COMPLIANCE_MONITOR_URL (below) pointed at this hostname
+  # with no service defined here to answer it — every screening call failed
+  # closed (custody's own fail-closed default), silently rejecting every
+  # transfer above the sanctions threshold whenever this compose stack was
+  # actually brought up. Same dependency now exists for agent-credit-bureau
+  # above.
+  compliance-monitor:
+    build:
+      context: ../../services/compliance-monitor
+      dockerfile: Dockerfile
+    environment:
+      ENVIRONMENT: development
+      PORT: "8003"
+      LOG_LEVEL: INFO
+      REDIS_URL: redis://redis:6379/2
+      JWT_SECRET: dev-compliance-monitor-jwt-secret
+      # Free government sources — no vendor account needed for these two.
+      OFAC_SDN_URL: https://www.treasury.gov/ofac/downloads/sdn.xml
+      EU_SANCTIONS_URL: https://webgate.ec.europa.eu/fsd/fsf/public/files/xmlFullSanctionsList_1_1/content
+      # Unset here: CHAINALYSIS_API_KEY, ELLIPTIC_API_KEY (crypto AML vendor
+      # keys — inbound-webhook integrations, see EXTERNAL_DEPENDENCIES.md).
+    ports:
+      - "8003:8003"
+    depends_on:
+      redis: { condition: service_healthy }
+    networks: [forgepay]
+    # Both profiles: forge-custody (profile "forge") and agent-credit-bureau
+    # (profile "agentic") both depend on this service — it must come up under
+    # either invocation, not just one.
+    profiles: [agentic, forge]
+
   agent-negotiation:
     build:
       context: ../../services/agent-negotiation
@@ -283,6 +344,44 @@ services:
     networks: [forgepay]
     profiles: [agentic]
 
+  # NOTE: unlike agent-negotiation, this service keeps all state (policies,
+  # velocity, decision log) in-memory — no postgres/redis dependency.
+  agent-decision-framework:
+    build:
+      context: ../../services/agent-decision-framework
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: development
+      PORT:     "3013"
+      LOG_LEVEL: debug
+      AGENT_IDENTITY_URL: http://agent-identity:3010
+    ports:
+      - "3013:3013"
+    networks: [forgepay]
+    profiles: [agentic]
+
+  # NOTE: wallets are the source of truth in-memory; postgres is best-effort
+  # persistence only (service boots and serves fine if postgres is down in
+  # dev). ALM_ADMIN_API_KEY is a dev-only placeholder — real deployments
+  # inject it from Vault / AWS Secrets Manager (see .env.example).
+  agent-liquidity-manager:
+    build:
+      context: ../../services/agent-liquidity-manager
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: development
+      PORT:     "3014"
+      LOG_LEVEL: debug
+      DATABASE_URL: postgresql://forgepay:devpassword@postgres:5432/forgepay_dev
+      YIELD_ENGINE_URL: http://yield-engine:3007
+      ALM_ADMIN_API_KEY: dev-alm-admin-key
+    ports:
+      - "3014:3014"
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [forgepay]
+    profiles: [agentic]
+
   # ── FORGE Custody (OpenFireblocks → FORGE) — institutional threshold signing ──
   forge-custody:
     build:
@@ -295,12 +394,13 @@ services:
       DATABASE_URL: postgresql://forgepay:devpassword@postgres:5432/forgepay_dev
       UNIFIED_ROUTER_URL: http://unified-router:8000
       WEBHOOK_SECRET: dev-forge-custody-webhook-secret
-      COMPLIANCE_MONITOR_URL: http://compliance-monitor:8004
+      COMPLIANCE_MONITOR_URL: http://compliance-monitor:8003
       MPC_COORDINATOR_URL: http://openfireblocks-mpc-signer:8080
     ports:
       - "3019:3019"
     depends_on:
       postgres: { condition: service_healthy }
+      compliance-monitor: { condition: service_started }
     networks: [forgepay]
     profiles: [forge]
 

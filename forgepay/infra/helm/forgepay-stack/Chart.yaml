@@ -65,10 +65,30 @@ dependencies:
     repository: "file://../agent-negotiation"
     condition: agentNegotiation.enabled
 
+  - name: agent-decision-framework
+    version: "0.1.0"
+    repository: "file://../agent-decision-framework"
+    condition: agentDecisionFramework.enabled
+
+  - name: agent-liquidity-manager
+    version: "0.1.0"
+    repository: "file://../agent-liquidity-manager"
+    condition: agentLiquidityManager.enabled
+
   - name: rwa-registry
     version: "0.1.0"
     repository: "file://../rwa-registry"
     condition: rwaRegistry.enabled
+
+  - name: agent-credit-bureau
+    version: "0.1.0"
+    repository: "file://../agent-credit-bureau"
+    condition: agentCreditBureau.enabled
+
+  - name: compliance-monitor
+    version: "0.1.0"
+    repository: "file://../compliance-monitor"
+    condition: complianceMonitor.enabled
 
   # Shared infrastructure (can be disabled if you bring your own)
   - name: postgresql

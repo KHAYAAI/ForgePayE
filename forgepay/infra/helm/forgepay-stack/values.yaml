@@ -288,6 +288,41 @@ agentNegotiation:
     requests: { cpu: "100m", memory: "128Mi" }
     limits:   { cpu: "300m", memory: "256Mi" }
 
+# ── Agent Decision Framework ─────────────────────────────────────────────
+# Risk scoring / policy engine — evaluates agent transactions against
+# reputation, velocity, and policy gates. Called by other services, not
+# end users directly, so no ingress path is defined for it.
+agentDecisionFramework:
+  enabled: false   # flip true alongside agentIdentity / agentNegotiation
+  replicaCount: 1
+  image:
+    repository: forgepay/agent-decision-framework
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  service:
+    port: 3013
+  resources:
+    requests: { cpu: "100m", memory: "128Mi" }
+    limits:   { cpu: "300m", memory: "256Mi" }
+
+# ── Agent Liquidity Manager ───────────────────────────────────────────────
+# Multi-asset agent portfolio tracking, target-driven rebalancing, and
+# idle-balance auto-sweep to yield. Money-movement path — requires
+# ALM_ADMIN_API_KEY (see the service's standalone chart values for the
+# secret-backed env wiring); flip on alongside agentIdentity.
+agentLiquidityManager:
+  enabled: false   # flip true alongside agentIdentity
+  replicaCount: 1
+  image:
+    repository: forgepay/agent-liquidity-manager
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  service:
+    port: 3014
+  resources:
+    requests: { cpu: "100m", memory: "128Mi" }
+    limits:   { cpu: "300m", memory: "256Mi" }
+
 # ── RWA Registry ─────────────────────────────────────────────────────────
 # Tokenized Real-World Asset positions (Ondo USDY, TBILL, BUIDL, FOBXX).
 rwaRegistry:
@@ -302,6 +337,43 @@ rwaRegistry:
   resources:
     requests: { cpu: "100m", memory: "128Mi" }
     limits:   { cpu: "300m", memory: "256Mi" }
+
+# ── Agent Credit Bureau ───────────────────────────────────────────────────
+# FICO-style scoring for autonomous agents, billing (prepaid USDC ledger),
+# furnisher ingest, disputes and lender reports. Requires BUREAU_ADMIN_API_KEY
+# and CONSENT_SIGNING_SECRET (see the service's standalone chart values for
+# the secret-backed env wiring) — refuses to boot in production without them,
+# without a database, or with CORS_ORIGIN unset/"*".
+agentCreditBureau:
+  enabled: false   # flip true alongside agentIdentity / complianceMonitor
+  replicaCount: 1
+  image:
+    repository: forgepay/agent-credit-bureau
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  service:
+    port: 3018
+  resources:
+    requests: { cpu: "100m", memory: "128Mi" }
+    limits:   { cpu: "300m", memory: "256Mi" }
+
+# ── Compliance Monitor ────────────────────────────────────────────────────
+# OFAC/EU sanctions screening (free government lists, polled + cached),
+# transaction monitoring, KYC. forge-custody and agent-credit-bureau both
+# call this — both fail closed in production when it's unreachable, so this
+# needs to be enabled before either of them in any real deployment.
+complianceMonitor:
+  enabled: false   # flip true alongside forgeCustody / agentCreditBureau
+  replicaCount: 1
+  image:
+    repository: forgepay/compliance-monitor
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  service:
+    port: 8003
+  resources:
+    requests: { cpu: "100m", memory: "256Mi" }
+    limits:   { cpu: "300m", memory: "512Mi" }
 
 # ── Forge Agent ──────────────────────────────────────────────────────────
 # AI billing assistant powered by Claude.
