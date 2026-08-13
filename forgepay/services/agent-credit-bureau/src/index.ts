@@ -39,6 +39,7 @@ import {
   getAccountSummary, creditAccount, chargeInquiryFee, billingHistory,
   requestTopUp, confirmTopUp, centsToUsd, usdToCents,
 } from './billing';
+import { isRedisEnabled, getRedisClient } from './redis';
 
 import {
   getProfile, setProfile, getDispute, setDispute,
@@ -73,6 +74,36 @@ import {
 const PORT               = parseInt(process.env['PORT'] ?? '3018', 10);
 const AGENT_IDENTITY_URL = process.env['AGENT_IDENTITY_URL'] ?? 'http://localhost:3010';
 const RATE_LIMIT_PER_MIN = parseInt(process.env['RATE_LIMIT_PER_MIN'] ?? '100', 10);
+
+/**
+ * Resolve the CORS origin allowlist.
+ *
+ * `CORS_ORIGIN` defaults to `*` for local/demo use. That default reaching
+ * production would let any website's browser JS read every response this
+ * service returns — the same class of "safe default that is unsafe in
+ * production" already guarded for the admin key, consent secret and
+ * database. Comma-separated origins are supported so a real deployment can
+ * list every trusted caller (dashboard, mobile web, ...) rather than being
+ * forced back to `*` for lack of a multi-origin option.
+ *
+ * @throws in production when CORS_ORIGIN is unset or still `*`.
+ */
+export function resolveCorsOrigin(): string | string[] {
+  const raw = process.env['CORS_ORIGIN'];
+  const isProduction = process.env['NODE_ENV'] === 'production';
+
+  if (isProduction && (!raw || raw === '*')) {
+    throw new Error(
+      'CORS_ORIGIN is not set (or is "*") in production. The credit bureau refuses to start ' +
+      'without an explicit origin allowlist — set it to a comma-separated list of trusted ' +
+      'origins, e.g. CORS_ORIGIN=https://dashboard.forgepay.io,https://app.forgepay.io',
+    );
+  }
+
+  if (!raw) return '*';
+  const origins = raw.split(',').map((o) => o.trim()).filter(Boolean);
+  return origins.length === 1 ? origins[0]! : origins;
+}
 
 // ── Zod schemas ───────────────────────────────────────────────────────────────
 
@@ -232,12 +263,15 @@ async function buildApp() {
 
   await app.register(helmet, { contentSecurityPolicy: false });
   await app.register(cors, {
-    origin:  process.env['CORS_ORIGIN'] ?? '*',
+    origin:  resolveCorsOrigin(),
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   });
+  // Shared across replicas when REDIS_URL is set; otherwise the plugin's own
+  // in-memory counter (per-process, resets on every deploy — see redis.ts).
   await app.register(rateLimit, {
     max:        RATE_LIMIT_PER_MIN,
     timeWindow: '1 minute',
+    redis:      isRedisEnabled() ? getRedisClient() : undefined,
     keyGenerator: (req) =>
       (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim() ?? req.ip,
     errorResponseBuilder: (_req, ctx) => ({

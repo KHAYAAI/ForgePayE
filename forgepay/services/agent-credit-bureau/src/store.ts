@@ -20,7 +20,7 @@ import { hashApiKey } from './hash';
 import { gradeDistribution, INQUIRY_FEE_USD } from './grade';
 import type { LenderReport } from './lender-report';
 import {
-  isDbEnabled, runMigrations,
+  isDbEnabled, assertPersistenceConfigured, runMigrations,
   upsertProfile, upsertDispute, upsertReport, upsertContributor, upsertLenderReport,
   loadAllProfiles, loadAllDisputes, loadAllReports, loadAllContributors, loadAllLenderReports,
   upsertBillingAccount, upsertBillingTransaction, upsertTopUpReceipt,
@@ -398,6 +398,7 @@ if (!isDbEnabled()) seed();
  * When no database is configured this is a no-op (module load already seeded).
  */
 export async function initPersistence(): Promise<void> {
+  assertPersistenceConfigured();
   if (!isDbEnabled()) return;
 
   await runMigrations();

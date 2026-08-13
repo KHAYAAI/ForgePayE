@@ -42,6 +42,31 @@ export function isDbEnabled(): boolean {
   return !!(process.env['DATABASE_URL'] || process.env['DB_HOST']);
 }
 
+/**
+ * Refuse to boot in production with no database configured.
+ *
+ * Every other production credential in this service (BUREAU_ADMIN_API_KEY,
+ * CONSENT_SIGNING_SECRET) already fails closed at startup rather than
+ * degrading silently — persistence was the one exception. Unlike those,
+ * `isDbEnabled() === false` is not a misconfiguration you'd notice from a
+ * missing-secret error: the service boots, serves traffic, looks correct,
+ * and then a restart silently drops every profile, score, dispute and
+ * billing transaction and reseeds five demo agents in their place. That is
+ * a worse failure mode than refusing to start.
+ *
+ * @throws in production when neither DATABASE_URL nor DB_HOST is set.
+ */
+export function assertPersistenceConfigured(): void {
+  if (process.env['NODE_ENV'] !== 'production') return;
+  if (isDbEnabled()) return;
+
+  throw new Error(
+    'Neither DATABASE_URL nor DB_HOST is set. The credit bureau refuses to start in ' +
+    'production without persistence — without it, every profile, score, dispute and ' +
+    'billing transaction lives only in memory and is lost on the next restart.',
+  );
+}
+
 // ── Pool ──────────────────────────────────────────────────────────────────────
 
 function createDbPool(): Pool {

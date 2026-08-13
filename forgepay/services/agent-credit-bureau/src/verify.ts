@@ -20,6 +20,7 @@
 import type { AgentCreditProfile } from './types';
 import { creditGrade, type CreditGrade } from './grade';
 import { screenAddress, screenEntity, type ScreenOutcome } from './sanctions';
+import { checkAgentIdentity } from './identity';
 
 export type VerificationStatus =
   | 'VERIFIED'
@@ -138,8 +139,39 @@ export async function verifyAgent(profile: AgentCreditProfile): Promise<Verifica
   );
   const openDelinquencies = profile.delinquencies.filter(d => d.status === 'open').length;
   const hasDefault = profile.creditHistory.some(e => e.eventType === 'default');
-  const identityVerified = profile.operatorEntityId.length > 0 &&
+
+  // Local heuristic — shape checks on data the bureau itself already trusts,
+  // not evidence of anything agent-identity confirms. Kept as the fallback
+  // for address-form DIDs (never registered there by design) and for when
+  // agent-identity is unreachable, so a network blip doesn't turn every
+  // verification unreachably UNVERIFIED.
+  const localHeuristic = profile.operatorEntityId.length > 0 &&
     (profile.creditHistory.some(e => e.eventType === 'identity_verified') || profile.did.startsWith('did:'));
+
+  const identityCheck = await checkAgentIdentity(profile.did);
+  let identityVerified: boolean;
+  let identityDetail: string;
+  if (identityCheck.checked && identityCheck.found) {
+    // A real answer from the registry overrides the heuristic in both
+    // directions: confirmed-active passes even if local data was thin;
+    // confirmed-inactive fails even if it looked plausible locally.
+    identityVerified = identityCheck.active;
+    identityDetail = identityVerified
+      ? `${profile.did} confirmed active in the agent-identity registry.`
+      : `${profile.did} found in the agent-identity registry but status is not active.`;
+  } else if (identityCheck.checked && !identityCheck.found) {
+    identityVerified = false;
+    identityDetail = `${profile.did} is a registry-form DID but has no matching record in agent-identity.`;
+  } else {
+    identityVerified = localHeuristic;
+    const why = identityCheck.reason === 'not_registry_form'
+      ? 'address-form DID, not issued by agent-identity'
+      : 'agent-identity unreachable';
+    identityDetail = identityVerified
+      ? `${profile.did} bound to operator entity ${profile.operatorEntityId} (${profile.operatorEntityType}). Unverified against agent-identity (${why}).`
+      : `DID is not bound to a verified legal operator entity. Unverified against agent-identity (${why}).`;
+  }
+
   const sanctions = await sanctionsScreen(profile);
 
   const checks: VerificationCheck[] = [
@@ -151,9 +183,7 @@ export async function verifyAgent(profile: AgentCreditProfile): Promise<Verifica
     {
       check: 'identity_bound',
       passed: identityVerified,
-      detail: identityVerified
-        ? `${profile.did} bound to operator entity ${profile.operatorEntityId} (${profile.operatorEntityType}).`
-        : 'DID is not bound to a verified legal operator entity.',
+      detail: identityDetail,
     },
     {
       check: 'account_age',
