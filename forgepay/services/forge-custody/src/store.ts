@@ -212,3 +212,138 @@ export function resetStore(): void {
   signingShares.clear();
   auditLog.length = 0;
 }
+
+// ── Demo seed data ────────────────────────────────────────────────────────────
+
+/**
+ * Populates the store with realistic workspaces, keys, DKG ceremonies, and
+ * signing requests so the console's /api/v1/console/summary shows real
+ * depth instead of an all-zeros empty state — every stat there reads live
+ * off these same Maps.
+ *
+ * Called once from main() — never from buildApp() or any test path — so it
+ * never runs under `vitest` (tests call resetStore() and build their own
+ * fixtures via createWorkspace/createKey/etc.) and the caller is
+ * responsible for skipping it in production (see index.ts).
+ */
+export function seedDemoData(): void {
+  const bank = createWorkspace('Meridian Trust Bank', 'bank');
+  const fintech = createWorkspace('Northwind Robotics Treasury', 'fintech');
+
+  issueApiKey(bank.id, 'Treasury Ops — production');
+  issueApiKey(fintech.id, 'Settlement Bot — production');
+
+  createPolicy(bank.id, 'Standard treasury policy', {
+    dailyLimitUsd: 5_000_000,
+    allowedChains: ['ethereum', 'polygon'],
+    approvalThreshold: { amountUsd: 250_000, approvalsRequired: 2, roles: ['CFO', 'Treasury Ops'] },
+  });
+  createPolicy(fintech.id, 'Agent settlement policy', {
+    dailyLimitUsd: 500_000,
+    allowedChains: ['ethereum', 'polygon'],
+    whitelist: ['0x9f2b1a4e6c8d3f5a7b9e1c2d4f6a8b0c2d4e6f80'],
+  });
+
+  const bankKey = createKey({
+    workspaceId: bank.id, blockchain: 'ethereum',
+    publicKey: `pk_${sha256(bank.id + 'ethereum').slice(0, 48)}`,
+    address: `0x${sha256(bank.id + 'addr-eth').slice(0, 40)}`,
+    totalShares: 7, threshold: 4,
+    shareHolders: ['ops-1', 'ops-2', 'sre-1', 'sre-2', 'security-1', 'security-2', 'cold-backup'],
+    vaultPath: `secret/forge-custody/${bank.id}/key_eth_treasury`,
+  });
+  const fintechKey = createKey({
+    workspaceId: fintech.id, blockchain: 'polygon',
+    publicKey: `pk_${sha256(fintech.id + 'polygon').slice(0, 48)}`,
+    address: `0x${sha256(fintech.id + 'addr-poly').slice(0, 40)}`,
+    totalShares: 7, threshold: 4,
+    shareHolders: ['ops-1', 'ops-2', 'sre-1', 'sre-2', 'security-1', 'security-2', 'cold-backup'],
+    vaultPath: `secret/forge-custody/${fintech.id}/key_poly_settlement`,
+  });
+
+  recordCeremony({
+    workspaceId: bank.id, ceremonyType: 'dkg',
+    participants: bankKey.shareHolders.map((h) => ({ participantId: h, role: h.startsWith('security') ? 'security' : 'ops' })),
+    vssCommitments: bankKey.shareHolders.map((h) => sha256(`vss:${bankKey.id}:${h}`)),
+    commitmentsVerified: true,
+    keyId: bankKey.id,
+  });
+
+  const now = () => new Date().toISOString();
+  const mkRequest = (fields: Omit<SigningRequest, 'reasonCode' | 'signature' | 'txHash' | 'blockNumber' | 'confirmationTime' | 'error' | 'updatedAt'>): SigningRequest => ({
+    ...fields,
+    reasonCode: null, signature: null, txHash: null, blockNumber: null, confirmationTime: null, error: null,
+    updatedAt: now(),
+  });
+
+  // Confirmed — below approval threshold, straight through.
+  const confirmed = mkRequest({
+    id: newId('sr'), workspaceId: bank.id, customerId: 'cust_acme_holdings', keyId: bankKey.id,
+    blockchain: 'ethereum',
+    transaction: { to: `0x${sha256('exchange-withdrawal-1').slice(0, 40)}`, value: '50000000000000000000' },
+    metadata: { forge_merchant_id: 'merch_acme_holdings' },
+    amountUsd: 82_500, status: 'confirmed', approvalsRequired: 0, approverRoles: [],
+    createdAt: now(),
+  });
+  confirmed.signature = sha256(`sig:${confirmed.id}`);
+  confirmed.txHash = `0x${sha256(`tx:${confirmed.id}`).slice(0, 64)}`;
+  confirmed.blockNumber = 21_453_902;
+  confirmed.confirmationTime = now();
+  saveSigningRequest(confirmed);
+
+  // Confirmed on the fintech workspace — this is what usdSignedToday sums.
+  const confirmed2 = mkRequest({
+    id: newId('sr'), workspaceId: fintech.id, customerId: 'cust_agent_settlement_bot', keyId: fintechKey.id,
+    blockchain: 'polygon',
+    transaction: { to: '0x9f2b1a4e6c8d3f5a7b9e1c2d4f6a8b0c2d4e6f80', value: '12000000000000000000' },
+    metadata: { agent_id: 'agent_settlement_bot', forge_payment_id: 'pay_7f3a9c' },
+    amountUsd: 4_200, status: 'confirmed', approvalsRequired: 0, approverRoles: [],
+    createdAt: now(),
+  });
+  confirmed2.signature = sha256(`sig:${confirmed2.id}`);
+  confirmed2.txHash = `0x${sha256(`tx:${confirmed2.id}`).slice(0, 64)}`;
+  confirmed2.blockNumber = 58_120_447;
+  confirmed2.confirmationTime = now();
+  saveSigningRequest(confirmed2);
+
+  // Pending approval — above the bank's $250K threshold, one of two required
+  // approvals already in.
+  const pendingApproval = mkRequest({
+    id: newId('sr'), workspaceId: bank.id, customerId: 'cust_globex_corp', keyId: bankKey.id,
+    blockchain: 'ethereum',
+    transaction: { to: `0x${sha256('exchange-withdrawal-2').slice(0, 40)}`, value: '400000000000000000000' },
+    metadata: { forge_merchant_id: 'merch_globex_corp' },
+    amountUsd: 640_000, status: 'pending_approval', approvalsRequired: 2, approverRoles: ['CFO', 'Treasury Ops'],
+    createdAt: now(),
+  });
+  saveSigningRequest(pendingApproval);
+  addApproval({ id: newId('appr'), signingRequestId: pendingApproval.id, approverId: 'user_cfo_meridian', approverRole: 'CFO', approvedAt: now() });
+
+  // Rejected — outside the policy whitelist.
+  const rejected = mkRequest({
+    id: newId('sr'), workspaceId: fintech.id, customerId: 'cust_agent_settlement_bot', keyId: fintechKey.id,
+    blockchain: 'polygon',
+    transaction: { to: `0x${sha256('unwhitelisted-destination').slice(0, 40)}`, value: '3000000000000000000' },
+    metadata: { agent_id: 'agent_settlement_bot' },
+    amountUsd: 1_050, status: 'rejected', approvalsRequired: 0, approverRoles: [],
+    createdAt: now(),
+  });
+  rejected.reasonCode = 'DESTINATION_NOT_WHITELISTED';
+  saveSigningRequest(rejected);
+
+  audit({
+    workspaceId: bank.id, apiKeyId: null, actor: 'Treasury Ops — production',
+    method: 'POST', path: '/api/v1/sign', action: 'signing.create', resourceId: confirmed.id,
+    statusCode: 201, detail: { amountUsd: confirmed.amountUsd, chain: confirmed.blockchain }, ip: null,
+  });
+  audit({
+    workspaceId: bank.id, apiKeyId: null, actor: 'user_cfo_meridian',
+    method: 'POST', path: `/api/v1/signing/${pendingApproval.id}/approve`, action: 'signing.approve', resourceId: pendingApproval.id,
+    statusCode: 200, detail: { role: 'CFO' }, ip: null,
+  });
+  audit({
+    workspaceId: fintech.id, apiKeyId: null, actor: 'Settlement Bot — production',
+    method: 'POST', path: '/api/v1/sign', action: 'signing.reject', resourceId: rejected.id,
+    statusCode: 200, detail: { reason: rejected.reasonCode }, ip: null,
+  });
+}

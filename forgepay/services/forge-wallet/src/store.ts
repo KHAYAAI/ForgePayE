@@ -13,6 +13,7 @@
  */
 
 import { randomUUID, randomBytes } from 'node:crypto';
+import bcrypt from 'bcryptjs';
 import {
   CHAIN_ADAPTERS,
   encryptPrivateKey,
@@ -549,4 +550,89 @@ export function getConsoleSummary(): ConsoleSummary {
       })),
     dids: didRows.slice(0, 20),
   };
+}
+
+// ── Demo seed data ────────────────────────────────────────────────────────────
+
+/**
+ * Populates the store with realistic users, agent wallets, and transactions
+ * so the console's summary and dashboards show real depth instead of an
+ * all-zeros empty state (every counter in ConsoleSummary reads live off
+ * these Maps — there is no separate demo-data path).
+ *
+ * Called once from main() — never from buildApp() or any test path — so it
+ * never runs under `vitest` (tests call resetStore() and build their own
+ * fixtures) and the caller is responsible for skipping it in production
+ * (see index.ts). Safe to call more than once: every entity gets a fresh
+ * randomUUID, so calling it twice just adds a second batch rather than
+ * erroring, but main() only ever calls it once per process.
+ */
+export async function seedDemoData(): Promise<void> {
+  const BCRYPT_ROUNDS = 4; // seed data only — full 12 rounds x7 users/agents adds real boot latency for no benefit
+  const seedPasswordHash = await bcrypt.hash('seed-demo-password-not-real', BCRYPT_ROUNDS);
+
+  const { user: sarah, wallets: sarahWallets } =
+    createUser('sarah@acme-labs.example', seedPasswordHash, 'seed-demo-password-not-real', 'Sarah Chen');
+  const { user: james, wallets: jamesWallets } =
+    createUser('james@northwind-robotics.example', seedPasswordHash, 'seed-demo-password-not-real', 'James Okafor');
+  createUser('priya@vertex-ai.example', seedPasswordHash, 'seed-demo-password-not-real', 'Priya Sharma');
+
+  const { agent: procurementAgent, wallets: procurementWallets } =
+    createAgentWallets('Procurement Agent', 'acme-labs');
+  const { agent: settlementAgent, wallets: settlementWallets } =
+    createAgentWallets('Settlement Bot', 'northwind-robotics');
+  createAgentWallets('Treasury Agent', 'vertex-ai');
+  const { agent: subscriptionAgent, wallets: subscriptionWallets } =
+    createAgentWallets('Subscription Manager', 'acme-labs');
+
+  const sarahEth = sarahWallets.find((w) => w.blockchain === 'ethereum')!;
+  const jamesEth = jamesWallets.find((w) => w.blockchain === 'ethereum')!;
+  const procurementEth = procurementWallets.find((w) => w.blockchain === 'ethereum')!;
+  const settlementPoly = settlementWallets.find((w) => w.blockchain === 'polygon')!;
+  const subscriptionSol = subscriptionWallets.find((w) => w.blockchain === 'solana')!;
+
+  // A spread of transactions across statuses and chains — confirmed ones earn
+  // gas sponsorship, mirroring what recordGasSponsorship is actually called
+  // for on the real POST /transactions confirm path.
+  const confirmed1 = createTransaction({
+    ownerId: procurementAgent.id, did: procurementAgent.did, walletId: procurementEth.id,
+    blockchain: 'ethereum', fromAddress: procurementEth.address, toAddress: sarahEth.address,
+    amount: 4250.00, currency: 'USDC', paymentTerms: 'net-0',
+  });
+  transitionTransaction(confirmed1.id, 'confirmed', { confirmations: 12, txHash: `0x${randomBytes(32).toString('hex')}` }, 'seed data');
+  recordGasSponsorship(confirmed1);
+
+  const confirmed2 = createTransaction({
+    ownerId: settlementAgent.id, did: settlementAgent.did, walletId: settlementPoly.id,
+    blockchain: 'polygon', fromAddress: settlementPoly.address, toAddress: jamesEth.address,
+    amount: 890.50, currency: 'USDC', paymentTerms: null,
+  });
+  transitionTransaction(confirmed2.id, 'confirmed', { confirmations: 40, txHash: `0x${randomBytes(32).toString('hex')}` }, 'seed data');
+  recordGasSponsorship(confirmed2);
+
+  const broadcast1 = createTransaction({
+    ownerId: subscriptionAgent.id, did: subscriptionAgent.did, walletId: subscriptionSol.id,
+    blockchain: 'solana', fromAddress: subscriptionSol.address, toAddress: procurementEth.address,
+    amount: 149.99, currency: 'USDC', paymentTerms: 'monthly',
+  });
+  transitionTransaction(broadcast1.id, 'broadcast', { signature: randomBytes(64).toString('hex') }, 'seed data');
+
+  createTransaction({
+    ownerId: sarah.id, did: sarah.did, walletId: sarahEth.id,
+    blockchain: 'ethereum', fromAddress: sarahEth.address, toAddress: settlementPoly.address,
+    amount: 25.00, currency: 'USDC', paymentTerms: null,
+  }); // left in 'created' — a queued, unsigned transaction
+
+  const failed1 = createTransaction({
+    ownerId: james.id, did: james.did, walletId: jamesEth.id,
+    blockchain: 'ethereum', fromAddress: jamesEth.address, toAddress: subscriptionSol.address,
+    amount: 1200.00, currency: 'USDC', paymentTerms: null,
+  });
+  transitionTransaction(failed1.id, 'failed', { failureReason: 'insufficient_gas' }, 'seed data');
+
+  // One trusted contact + a pending recovery so /console/summary's
+  // recovery_requests array (and recoveries_open count) isn't empty either.
+  addTrustedContact(sarah.id, 'backup@acme-labs.example', 'Acme Labs IT');
+  addTrustedContact(sarah.id, 'ops-lead@acme-labs.example', 'Ops Lead');
+  initiateRecovery(sarah.id);
 }

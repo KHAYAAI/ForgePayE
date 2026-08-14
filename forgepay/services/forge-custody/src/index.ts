@@ -50,6 +50,7 @@ import {
   policiesForWorkspace,
   recordCeremony,
   saveSigningRequest,
+  seedDemoData,
   signingApprovals,
   signingRequests,
   workspaces,
@@ -484,6 +485,10 @@ async function main(): Promise<void> {
   } catch (err) {
     if (process.env.NODE_ENV === 'production') throw err;
     logger.warn({ err }, '[custody] Postgres unavailable — running in-memory only (dev)');
+  }
+  if (process.env.NODE_ENV !== 'production') {
+    seedDemoData();
+    logger.info('[custody] seeded demo workspaces, keys and signing requests (non-production only)');
   }
   const app = await buildApp();
   await app.listen({ port: PORT, host: '0.0.0.0' });
