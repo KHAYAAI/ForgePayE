@@ -1,0 +1,11 @@
+# Only apps/dashboard currently uses a `workspace:*` dependency
+# (@forgepay/forge-agent) — without this file, pnpm has no workspace root to
+# resolve it against and `npm install` fails outright with
+# EUNSUPPORTEDPROTOCOL (npm has never supported the workspace: protocol).
+# Every other service/app here installs standalone via plain `npm install`
+# and is unaffected by this file — it's opt-in per-package, only consulted
+# by pnpm, and only for packages that actually reference `workspace:`.
+packages:
+  - "apps/*"
+  - "services/*"
+  - "packages/*"

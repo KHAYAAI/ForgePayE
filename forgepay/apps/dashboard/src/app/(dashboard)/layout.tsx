@@ -21,8 +21,9 @@
  *
  * Auth guard: middleware.ts at src/middleware.ts uses next-auth/middleware to
  *   redirect unauthenticated requests to /login. The CredentialsProvider validates
- *   against DASHBOARD_ADMIN_EMAIL / DASHBOARD_ADMIN_PASSWORD env vars and stores
- *   the Hyperswitch API key in the JWT so it never reaches the browser.
+ *   against the merchant's real mor-layer account (POST /v1/auth/token, bcrypt-
+ *   verified) and stores that merchant's own Hyperswitch API key in the JWT so
+ *   it never reaches the browser.
  */
 
 import Sidebar from '@/components/layout/Sidebar';
