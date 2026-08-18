@@ -7,6 +7,38 @@ function req(name: string): string {
   return v;
 }
 
+/**
+ * Resolve the CORS allowlist.
+ *
+ * `CORS_ALLOWED_ORIGINS` defaulted to `http://localhost:3001` with no
+ * production guard, so an operator who forgot to set it in production got a
+ * silently wrong (dev-only) origin, and one who set it to `*` — reasonable
+ * shorthand for "not sure yet" — got every website's browser JS able to read
+ * this service's responses. Mirrors agent-credit-bureau's
+ * `resolveCorsOrigin()`: refuse to boot in production unless the allowlist is
+ * explicit and does not contain a wildcard.
+ *
+ * @throws in production when CORS_ALLOWED_ORIGINS is unset or contains `*`.
+ */
+function resolveCorsOrigins(): string[] {
+  const raw = process.env['CORS_ALLOWED_ORIGINS'];
+  const isProduction = process.env['NODE_ENV'] === 'production';
+  const origins = (raw ?? 'http://localhost:3001')
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean);
+
+  if (isProduction && (!raw || origins.includes('*'))) {
+    throw new Error(
+      'CORS_ALLOWED_ORIGINS is not set (or contains "*") in production. crypto-gateway refuses ' +
+      'to start without an explicit origin allowlist — set it to a comma-separated list of ' +
+      'trusted origins, e.g. CORS_ALLOWED_ORIGINS=https://dashboard.forgepay.io',
+    );
+  }
+
+  return origins;
+}
+
 export const config = {
   port: parseInt(opt('PORT', '8030'), 10),
   env:  opt('NODE_ENV', 'development') as 'development' | 'production',
@@ -47,8 +79,5 @@ export const config = {
   priceFeedUrl: opt('PRICE_FEED_URL', 'https://api.coingecko.com/api/v3'),
 
   // CORS allowed origins (comma-separated list)
-  corsAllowedOrigins: opt('CORS_ALLOWED_ORIGINS', 'http://localhost:3001')
-    .split(',')
-    .map((o) => o.trim())
-    .filter(Boolean),
+  corsAllowedOrigins: resolveCorsOrigins(),
 } as const;

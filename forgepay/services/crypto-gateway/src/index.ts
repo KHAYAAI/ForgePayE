@@ -33,7 +33,7 @@ import { config } from './config.js';
 import { getDb } from './lib/db.js';
 import { buildInvoiceRoutes } from './routes/invoices.js';
 import { startChainMonitors } from './lib/monitor.js';
-import apiKeyAuth from './plugins/api-key-auth.js';
+import { registerApiKeyAuth } from './plugins/api-key-auth.js';
 
 async function main() {
   const app = Fastify({ logger: true, trustProxy: true });
@@ -56,7 +56,10 @@ async function main() {
     credentials: false,
   });
 
-  await app.register(apiKeyAuth);
+  // Called directly (not via app.register) so a production misconfiguration
+  // (missing/weak/placeholder VALID_API_KEYS) throws synchronously here,
+  // failing startup rather than the first request.
+  registerApiKeyAuth(app);
 
   const db = getDb();
 

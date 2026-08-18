@@ -16,6 +16,7 @@ import { randomUUID } from 'node:crypto';
 import { getDb } from '../lib/db.js';
 import { getUsdPrice, usdToCrypto } from '../lib/prices.js';
 import { config } from '../config.js';
+import { invoiceAccessError } from '../plugins/api-key-auth.js';
 import {
   deriveBtcAddress, deriveLtcAddress, deriveEthAddress, deriveXmrAddress, nextKeyIndex,
 } from '../lib/hdwallet.js';
@@ -53,6 +54,17 @@ export async function buildInvoiceRoutes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const { merchant_id, amount_usd, coin, payment_id, description, metadata } = req.body;
+
+      // A merchant key may only create invoices for its own merchant_id — an
+      // admin/platform key (e.g. mor-layer checking out on a merchant's
+      // behalf) may create for any merchant_id.
+      if (req.auth?.kind === 'merchant' && req.auth.principalId !== merchant_id) {
+        reply.code(403).send({
+          error:   'Forbidden',
+          message: 'This key may only create invoices for its own merchant_id.',
+        });
+        return;
+      }
 
       // Get live price and compute expected crypto amount
       let priceUsd    = 0;
@@ -137,7 +149,15 @@ export async function buildInvoiceRoutes(app: FastifyInstance) {
         reply.code(404).send({ error: 'Invoice not found' });
         return;
       }
-      reply.send(result.rows[0]);
+
+      const invoice = result.rows[0];
+      const accessError = invoiceAccessError(req.auth, invoice.merchant_id);
+      if (accessError) {
+        reply.code(403).send(accessError);
+        return;
+      }
+
+      reply.send(invoice);
     },
   );
 
@@ -158,6 +178,15 @@ export async function buildInvoiceRoutes(app: FastifyInstance) {
       },
     },
     async (req, reply) => {
+      // A merchant key may only list its own invoices — otherwise any valid
+      // key could enumerate another merchant's entire invoice history by
+      // passing its merchant_id in the query string.
+      const accessError = invoiceAccessError(req.auth, req.query.merchant_id);
+      if (accessError) {
+        reply.code(403).send(accessError);
+        return;
+      }
+
       const db    = getDb();
       const limit = Math.min(parseInt(req.query.limit ?? '50', 10), 200);
       const params: unknown[] = [req.query.merchant_id, limit];

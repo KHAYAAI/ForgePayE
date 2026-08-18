@@ -1,5 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import Fastify from 'fastify';
+import { registerApiKeyAuth } from '../src/plugins/api-key-auth.js';
 
 // invoices.ts reads the db pool via getDb() (a module-level singleton) and
 // fetches live prices via getUsdPrice() — neither is passed in as a
@@ -23,12 +24,19 @@ vi.mock('../src/lib/hdwallet.js', () => ({
 
 const { buildInvoiceRoutes } = await import('../src/routes/invoices.js');
 
+// Any non-empty API key authenticates (as admin) as long as neither
+// VALID_API_KEYS nor MERCHANT_API_KEYS is configured — see
+// `permissiveDevFallback` in plugins/api-key-auth.ts. Tests that exercise
+// ownership configure MERCHANT_API_KEYS/VALID_API_KEYS explicitly instead.
+const ANY_KEY = { 'x-api-key': 'any-non-empty-test-key' };
+
 describe('Crypto Gateway - Invoice Routes', () => {
   let app: ReturnType<typeof Fastify>;
 
   beforeEach(async () => {
     queryMock.mockReset();
     app = Fastify();
+    registerApiKeyAuth(app);
     await app.register(buildInvoiceRoutes, { prefix: '/invoices' });
   });
 
@@ -38,6 +46,7 @@ describe('Crypto Gateway - Invoice Routes', () => {
       const res = await app.inject({
         method: 'POST',
         url: '/invoices',
+        headers: ANY_KEY,
         payload: {
           coin: 'BTC',
           amount_usd: 0.5,
@@ -60,6 +69,7 @@ describe('Crypto Gateway - Invoice Routes', () => {
       const res = await app.inject({
         method: 'POST',
         url: '/invoices',
+        headers: ANY_KEY,
         payload: {
           coin: 'ETH',
           amount_usd: 1.5,
@@ -77,6 +87,7 @@ describe('Crypto Gateway - Invoice Routes', () => {
       const res = await app.inject({
         method: 'POST',
         url: '/invoices',
+        headers: ANY_KEY,
         payload: {
           coin: 'BTC',
           merchant_id: 'test-merchant-123',
@@ -91,6 +102,7 @@ describe('Crypto Gateway - Invoice Routes', () => {
       const res = await app.inject({
         method: 'POST',
         url: '/invoices',
+        headers: ANY_KEY,
         payload: {
           coin: 'DOGE',
           amount_usd: 1,
@@ -105,11 +117,12 @@ describe('Crypto Gateway - Invoice Routes', () => {
   describe('GET /invoices/:id', () => {
     it('should fetch invoice details', async () => {
       queryMock.mockResolvedValueOnce({
-        rows: [{ id: 'inv_test123', coin: 'BTC', amount_usd: 0.5, status: 'pending' }],
+        rows: [{ id: 'inv_test123', merchant_id: 'test-merchant-123', coin: 'BTC', amount_usd: 0.5, status: 'pending' }],
       });
       const res = await app.inject({
         method: 'GET',
         url: '/invoices/inv_test123',
+        headers: ANY_KEY,
       });
 
       expect(res.statusCode).toBe(200);
@@ -121,9 +134,122 @@ describe('Crypto Gateway - Invoice Routes', () => {
       const res = await app.inject({
         method: 'GET',
         url: '/invoices/non_existent',
+        headers: ANY_KEY,
       });
 
       expect(res.statusCode).toBe(404);
     });
+  });
+
+  // ── Auth enforcement ─────────────────────────────────────────────────────
+
+  it('requests without an API key return 401', async () => {
+    const res = await app.inject({ method: 'GET', url: '/invoices/inv_test123' });
+    expect(res.statusCode).toBe(401);
+  });
+});
+
+// ── Per-merchant ownership ───────────────────────────────────────────────────
+//
+// Regression coverage for the bug where any valid key — with no notion of
+// which merchant it belonged to — could read any other merchant's invoice by
+// id, or list any merchant's invoices wholesale, by simply supplying that
+// merchant's id. MERCHANT_API_KEYS gives each key an identity;
+// invoiceAccessError enforces that a non-admin caller may only act on
+// invoices belonging to its own merchant_id (403, never 404, on mismatch).
+
+describe('Per-merchant invoice ownership', () => {
+  const MERCHANT_A_KEY = 'merchant-a-key-00000000000000000000';
+  const MERCHANT_B_KEY = 'merchant-b-key-00000000000000000000';
+  const ADMIN_KEY      = 'ownership-admin-key-000000000000000';
+
+  const AUTH_A     = { 'x-api-key': MERCHANT_A_KEY };
+  const AUTH_B     = { 'x-api-key': MERCHANT_B_KEY };
+  const AUTH_ADMIN = { 'x-api-key': ADMIN_KEY };
+
+  let ownedApp: ReturnType<typeof Fastify>;
+  let savedMerchantKeys: string | undefined;
+  let savedValidKeys: string | undefined;
+
+  beforeEach(async () => {
+    queryMock.mockReset();
+    savedMerchantKeys = process.env['MERCHANT_API_KEYS'];
+    savedValidKeys = process.env['VALID_API_KEYS'];
+    process.env['MERCHANT_API_KEYS'] = `merchant-a:${MERCHANT_A_KEY},merchant-b:${MERCHANT_B_KEY}`;
+    process.env['VALID_API_KEYS'] = ADMIN_KEY;
+
+    ownedApp = Fastify();
+    registerApiKeyAuth(ownedApp);
+    await ownedApp.register(buildInvoiceRoutes, { prefix: '/invoices' });
+  });
+
+  afterEach(async () => {
+    await ownedApp.close();
+    if (savedMerchantKeys === undefined) delete process.env['MERCHANT_API_KEYS']; else process.env['MERCHANT_API_KEYS'] = savedMerchantKeys;
+    if (savedValidKeys === undefined) delete process.env['VALID_API_KEYS']; else process.env['VALID_API_KEYS'] = savedValidKeys;
+  });
+
+  it('a merchant reading its own invoice succeeds', async () => {
+    queryMock.mockResolvedValueOnce({
+      rows: [{ id: 'inv_a1', merchant_id: 'merchant-a', coin: 'BTC', status: 'pending' }],
+    });
+    const res = await ownedApp.inject({ method: 'GET', url: '/invoices/inv_a1', headers: AUTH_A });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it('a merchant reading another merchant\'s invoice gets 403, not 404', async () => {
+    queryMock.mockResolvedValueOnce({
+      rows: [{ id: 'inv_a1', merchant_id: 'merchant-a', coin: 'BTC', status: 'pending' }],
+    });
+    const res = await ownedApp.inject({ method: 'GET', url: '/invoices/inv_a1', headers: AUTH_B });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it('admin can read any merchant\'s invoice', async () => {
+    queryMock.mockResolvedValueOnce({
+      rows: [{ id: 'inv_a1', merchant_id: 'merchant-a', coin: 'BTC', status: 'pending' }],
+    });
+    const res = await ownedApp.inject({ method: 'GET', url: '/invoices/inv_a1', headers: AUTH_ADMIN });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it('a merchant cannot list another merchant\'s invoices', async () => {
+    const res = await ownedApp.inject({
+      method: 'GET',
+      url: '/invoices?merchant_id=merchant-b',
+      headers: AUTH_A,
+    });
+    expect(res.statusCode).toBe(403);
+    expect(queryMock).not.toHaveBeenCalled();
+  });
+
+  it('a merchant can list its own invoices', async () => {
+    queryMock.mockResolvedValueOnce({ rows: [] });
+    const res = await ownedApp.inject({
+      method: 'GET',
+      url: '/invoices?merchant_id=merchant-a',
+      headers: AUTH_A,
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it('a merchant cannot create an invoice claiming to be another merchant', async () => {
+    const res = await ownedApp.inject({
+      method: 'POST',
+      url: '/invoices',
+      headers: AUTH_A,
+      payload: { coin: 'BTC', amount_usd: 1, merchant_id: 'merchant-b' },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(queryMock).not.toHaveBeenCalled();
+  });
+
+  it('an unknown key is rejected once MERCHANT_API_KEYS/VALID_API_KEYS are configured', async () => {
+    const res = await ownedApp.inject({
+      method: 'GET',
+      url: '/invoices/inv_a1',
+      headers: { 'x-api-key': 'totally-unknown-key' },
+    });
+    expect(res.statusCode).toBe(401);
   });
 });
