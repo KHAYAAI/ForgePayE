@@ -758,11 +758,15 @@ describe('Agent Negotiation Protocol', () => {
 // whole guard collapsed). The service must now refuse to boot instead.
 
 describe('Production auth fails closed', () => {
-  const ENV_KEYS = ['NODE_ENV', 'VALID_API_KEYS', 'AGENT_API_KEYS'] as const;
+  const ENV_KEYS = ['NODE_ENV', 'VALID_API_KEYS', 'AGENT_API_KEYS', 'CORS_ORIGIN'] as const;
   let saved: Record<string, string | undefined>;
 
   beforeAll(() => {
     saved = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
+    // These tests exercise the API-key boot guard specifically; give CORS_ORIGIN
+    // a valid production value up front so its own guard doesn't fire first and
+    // mask the auth error under test (see resolveCorsOrigin in ../index).
+    process.env['CORS_ORIGIN'] = 'https://dashboard.forgepay.io';
   });
 
   afterAll(() => {

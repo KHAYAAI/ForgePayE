@@ -53,6 +53,34 @@ const PORT                        = parseInt(process.env['PORT'] ?? '3016', 10);
 const RATE_LIMIT_PER_MIN          = parseInt(process.env['RATE_LIMIT_PER_MIN'] ?? '100', 10);
 const OVERDUE_SWEEP_INTERVAL_MS   = 60_000;
 
+/**
+ * Resolve the CORS origin allowlist.
+ *
+ * `CORS_ORIGIN` defaults to `*` for local/demo use. That default reaching
+ * production would let any website's browser JS read every response this
+ * service returns. Comma-separated origins are supported so a real
+ * deployment can list every trusted caller (dashboard, mobile web, ...)
+ * rather than being forced back to `*` for lack of a multi-origin option.
+ *
+ * @throws in production when CORS_ORIGIN is unset or still `*`.
+ */
+export function resolveCorsOrigin(): string | string[] {
+  const raw = process.env['CORS_ORIGIN'];
+  const isProduction = process.env['NODE_ENV'] === 'production';
+
+  if (isProduction && (!raw || raw === '*')) {
+    throw new Error(
+      'CORS_ORIGIN is not set (or is "*") in production. Agent Credit Lines refuses to start ' +
+      'without an explicit origin allowlist — set it to a comma-separated list of trusted ' +
+      'origins, e.g. CORS_ORIGIN=https://dashboard.forgepay.io,https://app.forgepay.io',
+    );
+  }
+
+  if (!raw) return '*';
+  const origins = raw.split(',').map((o) => o.trim()).filter(Boolean);
+  return origins.length === 1 ? origins[0]! : origins;
+}
+
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
 let lineCounter = 0;
@@ -92,7 +120,7 @@ async function buildApp() {
   await app.register(helmet, { contentSecurityPolicy: false });
 
   await app.register(cors, {
-    origin:      process.env['CORS_ORIGIN'] ?? '*',
+    origin:      resolveCorsOrigin(),
     methods:     ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     credentials: false,
   });

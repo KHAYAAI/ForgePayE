@@ -28,6 +28,8 @@ import rateLimit from '@fastify/rate-limit';
 import helmet from '@fastify/helmet';
 import { z } from 'zod';
 
+import { resolveCorsOrigin } from './cors';
+
 import { generateCashFlowReport }    from './generators/cash-flow';
 import { generateYieldIncomeReport } from './generators/yield-income';
 import { generateNettingReport }     from './generators/netting';
@@ -77,7 +79,7 @@ const app = Fastify({
 });
 
 await app.register(helmet);
-await app.register(cors, { origin: process.env['CORS_ORIGIN'] ?? '*' });
+await app.register(cors, { origin: resolveCorsOrigin() });
 await app.register(rateLimit, { max: RATE_LIMIT_PER_MIN, timeWindow: '1 minute' });
 
 // ── Error handler ─────────────────────────────────────────────────────────────
