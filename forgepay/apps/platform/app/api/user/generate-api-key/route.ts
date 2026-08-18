@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser, generateApiKey } from '@/lib/auth';
 import { sendApiKeyEmail } from '@/lib/email';
 import { queryOne } from '@/lib/db';
+import { logAuditEvent, clientIp } from '@/lib/audit';
 
 export async function POST(req: NextRequest) {
   try {
@@ -24,6 +25,11 @@ export async function POST(req: NextRequest) {
     if (userData) {
       await sendApiKeyEmail(userData.email, newApiKey);
     }
+
+    await logAuditEvent({
+      tenantId: user.tenantId, actorUserId: user.userId, actorEmail: user.email,
+      action: 'user.api_key_rotated', ipAddress: clientIp(req), userAgent: req.headers.get('user-agent'),
+    });
 
     return NextResponse.json({
       success: true,

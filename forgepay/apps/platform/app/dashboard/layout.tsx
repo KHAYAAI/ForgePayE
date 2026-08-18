@@ -94,11 +94,16 @@ export default async function DashboardLayout({
             <div className={styles.navSection}>
               <h3>Account</h3>
               <Link href="/dashboard/settings" className={styles.navItem}>
-                Settings
+                Settings<span className={styles.navTag}>2FA</span>
               </Link>
               {can(role, 'manage:api_keys') && (
                 <Link href="/dashboard/api-keys" className={styles.navItem}>
                   API Keys
+                </Link>
+              )}
+              {can(role, 'view:audit') && (
+                <Link href="/dashboard/audit" className={styles.navItem}>
+                  Audit Log
                 </Link>
               )}
               <Link href="/api/auth/logout" className={styles.navItem}>

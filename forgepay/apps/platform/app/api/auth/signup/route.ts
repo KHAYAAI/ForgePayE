@@ -4,10 +4,11 @@ import {
   hashPassword,
   createUser,
   setAuthCookie,
-  generateToken,
+  createSession,
 } from '@/lib/auth';
 import { sendVerificationEmail, sendOnboardingEmail } from '@/lib/email';
 import { query } from '@/lib/db';
+import { logAuditEvent, clientIp } from '@/lib/audit';
 
 const signupSchema = z.object({
   email: z.string().email(),
@@ -45,16 +46,19 @@ export async function POST(req: NextRequest) {
     const passwordHash = await hashPassword(password);
     const user = await createUser(email, name, passwordHash, tenantId, 'owner');
 
-    // Generate token
-    const token = generateToken({
-      userId: user.id,
-      email: user.email,
-      tenantId: user.tenant_id,
-      role: user.role ?? 'owner',
-    });
+    // Create session
+    const { token } = await createSession(
+      { userId: user.id, email: user.email, tenantId: user.tenant_id, role: user.role ?? 'owner' },
+      { ipAddress: clientIp(req), userAgent: req.headers.get('user-agent') },
+    );
 
     // Set auth cookie
     await setAuthCookie(token);
+
+    await logAuditEvent({
+      tenantId: user.tenant_id, actorUserId: user.id, actorEmail: user.email,
+      action: 'auth.signup', ipAddress: clientIp(req), userAgent: req.headers.get('user-agent'),
+    });
 
     // Send verification email
     await sendVerificationEmail(email, token);
