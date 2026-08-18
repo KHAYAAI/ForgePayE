@@ -1,34 +1,243 @@
+/**
+ * API-key authentication and per-resource ownership for rwa-registry.
+ *
+ * ── Bug 1: fail-open production auth ────────────────────────────────────────
+ * The previous implementation read:
+ *
+ *   const validKeys = new Set((process.env['VALID_API_KEYS'] ?? '').split(',').filter(Boolean));
+ *   if (!isDev && validKeys.size > 0 && !validKeys.has(apiKey)) return reply.code(401)...
+ *
+ * In production, if `VALID_API_KEYS` was never set, `validKeys.size > 0` is
+ * false, so the whole guard collapses to "any non-empty key is accepted" —
+ * fail OPEN exactly when the operator forgot to configure the one thing that
+ * restricts access to tokenized T-bill/money-market positions. Mirroring
+ * agent-credit-bureau's `getAdminKeyHash()` (agent-credit-bureau/src/auth.ts)
+ * and agent-negotiation's `resolveAdminKeyHashes()`, this module now refuses
+ * to boot in production unless `VALID_API_KEYS` is set to real (non-placeholder,
+ * sufficiently long) keys.
+ *
+ * ── Bug 2: no per-resource ownership ─────────────────────────────────────────
+ * `VALID_API_KEYS` was a flat set with no notion of which merchant presented
+ * the key, so any valid key could read or mutate any merchant's RWA position
+ * or redemption request — including opening/redeeming units, reading NAV/cost
+ * basis, or cancelling a pending redemption — purely by varying the
+ * `:id`/`merchantId` in the request. There was no equivalent of the bureau's
+ * `AuthContext.principalId` / `contributorAccessError`.
+ *
+ * This module adds:
+ *   - `MERCHANT_API_KEYS` — a `merchantId:key,merchantId:key,...` map giving
+ *     each key an identity (a merchant principal).
+ *   - An `admin` principal (`VALID_API_KEYS`) that, like the bureau's operator
+ *     key, may act on any resource (used by internal jobs/ops tooling).
+ *   - `merchantAccessError`, the equivalent of `contributorAccessError`: a
+ *     non-admin principal may only act on positions/redemptions/income that
+ *     belong to it. A mismatch is 403 (authenticated fine, just not the
+ *     owner), never 404.
+ *
+ * Dev/test ergonomics: when neither `VALID_API_KEYS` nor `MERCHANT_API_KEYS`
+ * is configured and NODE_ENV isn't 'production', any non-empty key
+ * authenticates as admin — preserving the "any key works in dev" behaviour
+ * the existing test suite relies on. As soon as either variable is set (in
+ * any environment), that permissive fallback turns off and keys must resolve
+ * to a real principal.
+ */
+
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import fp from 'fastify-plugin';
+import { createHash, timingSafeEqual } from 'node:crypto';
+
+// ── Principal / auth context ───────────────────────────────────────────────────
+
+export interface AuthContext {
+  /** 'admin' for an operator key, otherwise the merchantId the key belongs to. */
+  principalId: string;
+  kind: 'admin' | 'merchant';
+}
+
+declare module 'fastify' {
+  interface FastifyRequest {
+    auth?: AuthContext;
+  }
+}
+
+// ── Key hashing ───────────────────────────────────────────────────────────────
+
+function hashKey(raw: string): string {
+  return createHash('sha256').update(raw).digest('hex');
+}
+
+function safeEqualHex(a: string, b: string): boolean {
+  const bufA = Buffer.from(a, 'hex');
+  const bufB = Buffer.from(b, 'hex');
+  if (bufA.length !== bufB.length) return false;
+  return timingSafeEqual(bufA, bufB);
+}
+
+// ── Admin keys (VALID_API_KEYS) ─────────────────────────────────────────────────
+
+const DEV_PLACEHOLDER_KEY = 'dev-rwa-registry-key';
+const MIN_PRODUCTION_KEY_LENGTH = 32;
 
 /**
- * Validates X-Api-Key or Authorization: Bearer header.
- * In development (NODE_ENV !== 'production'), any non-empty key passes.
- * In production, key is validated against VALID_API_KEYS env var (comma-separated).
+ * Resolve the configured admin/operator keys.
+ *
+ * @throws in production when VALID_API_KEYS is missing, contains the
+ *         development placeholder, or contains a key shorter than
+ *         MIN_PRODUCTION_KEY_LENGTH. A registry of tokenized T-bill/money-
+ *         market positions that boots with no real restriction on who can
+ *         open, read, or redeem a position is worse than one that refuses to
+ *         boot.
  */
-async function apiKeyAuthPlugin(app: FastifyInstance) {
-  const isDev = process.env['NODE_ENV'] !== 'production';
-  const validKeys = new Set(
-    (process.env['VALID_API_KEYS'] ?? '').split(',').filter(Boolean)
-  );
+export function resolveAdminKeyHashes(): Set<string> {
+  const isProduction = process.env['NODE_ENV'] === 'production';
+  const rawKeys = (process.env['VALID_API_KEYS'] ?? '')
+    .split(',')
+    .map((k) => k.trim())
+    .filter(Boolean);
+
+  if (isProduction) {
+    if (rawKeys.length === 0) {
+      throw new Error(
+        'VALID_API_KEYS is not set. rwa-registry refuses to start in production without ' +
+        'at least one admin API key — generate one with `openssl rand -hex 32` and supply it ' +
+        'via Vault or AWS Secrets Manager.',
+      );
+    }
+    for (const key of rawKeys) {
+      if (key === DEV_PLACEHOLDER_KEY) {
+        throw new Error('VALID_API_KEYS contains the development placeholder key, which is public in this repository.');
+      }
+      if (key.length < MIN_PRODUCTION_KEY_LENGTH) {
+        throw new Error(
+          `Every key in VALID_API_KEYS must be at least ${MIN_PRODUCTION_KEY_LENGTH} characters in production (got ${key.length}).`,
+        );
+      }
+    }
+  }
+
+  return new Set(rawKeys.map(hashKey));
+}
+
+// ── Merchant identity keys (MERCHANT_API_KEYS) ──────────────────────────────────
+
+/**
+ * Parse `MERCHANT_API_KEYS` — a comma-separated `merchantId:key` list — into a
+ * hash(key) → merchantId map. This is what gives a presented credential an
+ * identity to check resource ownership against; nothing did before.
+ */
+export function resolveMerchantKeyMap(): Map<string, string> {
+  const raw = (process.env['MERCHANT_API_KEYS'] ?? '').trim();
+  const map = new Map<string, string>();
+  if (!raw) return map;
+
+  for (const pair of raw.split(',')) {
+    const idx = pair.indexOf(':');
+    if (idx === -1) continue;
+    const merchantId = pair.slice(0, idx).trim();
+    const key = pair.slice(idx + 1).trim();
+    if (!merchantId || !key) continue;
+    map.set(hashKey(key), merchantId);
+  }
+  return map;
+}
+
+// ── Credential extraction ────────────────────────────────────────────────────
+
+function extractKey(request: FastifyRequest): string | null {
+  const xApiKey = request.headers['x-api-key'];
+  if (typeof xApiKey === 'string' && xApiKey.trim()) return xApiKey.trim();
+
+  const authHeader = request.headers['authorization'];
+  if (typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
+    const value = authHeader.slice(7).trim();
+    return value || null;
+  }
+  return null;
+}
+
+// ── Plugin ────────────────────────────────────────────────────────────────────
+
+/**
+ * Register the global authentication hook.
+ *
+ * Called directly (not via `app.register`) so a production misconfiguration
+ * throws synchronously while `buildApp()` is being assembled, rather than on
+ * the first request — the same shape as the bureau's `registerAuth`.
+ */
+export function registerApiKeyAuth(app: FastifyInstance): void {
+  const adminKeyHashes = resolveAdminKeyHashes();
+  const merchantKeyMap = resolveMerchantKeyMap();
+  const isProduction = process.env['NODE_ENV'] === 'production';
+  // Only when nothing has been configured at all do we fall back to "any
+  // non-empty key is admin" — the moment either variable is set, callers must
+  // resolve to a real principal. This never fires in production because
+  // resolveAdminKeyHashes() above already throws when VALID_API_KEYS is unset.
+  const permissiveDevFallback = !isProduction && adminKeyHashes.size === 0 && merchantKeyMap.size === 0;
 
   app.addHook('onRequest', async (request: FastifyRequest, reply: FastifyReply) => {
     // Skip auth for health endpoint
     if (request.url === '/health' || request.url.startsWith('/health')) return;
 
-    const apiKey =
-      request.headers['x-api-key'] as string ??
-      (request.headers['authorization'] as string)?.replace('Bearer ', '');
-
+    const apiKey = extractKey(request);
     if (!apiKey) {
-      return reply.code(401).send({ error: 'Missing API key. Provide X-Api-Key header.' });
+      return reply.code(401).send({
+        error:   'Unauthorized',
+        message: 'Missing API key. Provide it via X-Api-Key or Authorization: Bearer <key>.',
+      });
     }
 
-    // Dev: any key works; Prod: key must be in VALID_API_KEYS
-    if (!isDev && validKeys.size > 0 && !validKeys.has(apiKey)) {
-      return reply.code(401).send({ error: 'Invalid API key.' });
+    const presented = hashKey(apiKey);
+
+    for (const hash of adminKeyHashes) {
+      if (safeEqualHex(presented, hash)) {
+        request.auth = { principalId: 'admin', kind: 'admin' };
+        return;
+      }
     }
+
+    const merchantId = merchantKeyMap.get(presented);
+    if (merchantId) {
+      request.auth = { principalId: merchantId, kind: 'merchant' };
+      return;
+    }
+
+    if (permissiveDevFallback) {
+      request.auth = { principalId: 'admin', kind: 'admin' };
+      return;
+    }
+
+    return reply.code(401).send({ error: 'Unauthorized', message: 'Invalid API key.' });
   });
 }
 
-export default fp(apiKeyAuthPlugin, { name: 'api-key-auth' });
+// ── Per-resource ownership ────────────────────────────────────────────────────
+
+/**
+ * Does the caller own this merchant-scoped resource (position, redemption
+ * request, income record)?
+ *
+ * The auth hook answers "is this a known key"; it cannot answer "may this
+ * principal act on merchant X's data". Nothing did before — every position
+ * and redemption route trusted the path/query/body `merchantId` alone, so any
+ * valid key could read another merchant's position/cost-basis/NAV or drive
+ * (via a forged `merchantId` or by varying `:id`) a redemption belonging to a
+ * merchant it has no relationship with.
+ *
+ * Admin acts on any merchant's data; a merchant key acts only on its own.
+ *
+ * @returns null when authorised, or an error body to send with 403 — a
+ *          mismatch is 403, not 404: the caller authenticated fine, it simply
+ *          doesn't own this resource.
+ */
+export function merchantAccessError(
+  auth: AuthContext | undefined,
+  merchantId: string,
+): { error: string; message: string } | null {
+  if (!auth) return { error: 'Unauthorized', message: 'Missing authentication context.' };
+  if (auth.kind === 'admin') return null;
+  if (auth.principalId === merchantId) return null;
+
+  return {
+    error:   'Forbidden',
+    message: 'This key does not belong to the merchant that owns this resource.',
+  };
+}

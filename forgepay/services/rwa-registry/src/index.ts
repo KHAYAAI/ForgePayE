@@ -44,7 +44,7 @@ import helmet from '@fastify/helmet';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import { v4 as uuidv4 } from 'uuid';
-import apiKeyAuth from './plugins/api-key-auth';
+import { registerApiKeyAuth, merchantAccessError } from './plugins/api-key-auth';
 
 import {
   rwaAssets,
@@ -76,6 +76,35 @@ const RATE_LIMIT_PER_MIN = parseInt(process.env['RATE_LIMIT_PER_MIN'] ?? '100', 
 const NAV_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000;    // 6 hours
 const INCOME_DIST_INTERVAL_MS  = 24 * 60 * 60 * 1000;  // 24 hours
 
+/**
+ * Resolve the CORS origin allowlist.
+ *
+ * `CORS_ORIGIN` defaulted to `*` unconditionally, which in production would
+ * let any website's browser JS read every response this service returns —
+ * including merchant RWA positions, cost basis, and redemption history. Same
+ * class of "safe default that is unsafe in production" already guarded for
+ * the API key. Comma-separated origins are supported so a real deployment can
+ * list every trusted caller rather than being forced back to `*`.
+ *
+ * @throws in production when CORS_ORIGIN is unset or still `*`.
+ */
+export function resolveCorsOrigin(): string | string[] {
+  const raw = process.env['CORS_ORIGIN'];
+  const isProduction = process.env['NODE_ENV'] === 'production';
+
+  if (isProduction && (!raw || raw === '*')) {
+    throw new Error(
+      'CORS_ORIGIN is not set (or is "*") in production. rwa-registry refuses to start ' +
+      'without an explicit origin allowlist — set it to a comma-separated list of trusted ' +
+      'origins, e.g. CORS_ORIGIN=https://dashboard.forgepay.io,https://app.forgepay.io',
+    );
+  }
+
+  if (!raw) return '*';
+  const origins = raw.split(',').map((o) => o.trim()).filter(Boolean);
+  return origins.length === 1 ? origins[0]! : origins;
+}
+
 // ── App builder ───────────────────────────────────────────────────────────────
 
 async function buildApp() {
@@ -86,7 +115,7 @@ async function buildApp() {
 
   // ── Plugins ────────────────────────────────────────────────────────────────
   await app.register(cors, {
-    origin: process.env['CORS_ORIGIN'] ?? '*',
+    origin: resolveCorsOrigin(),
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     credentials: false,
   });
@@ -105,7 +134,11 @@ async function buildApp() {
     }),
   });
 
-  await app.register(apiKeyAuth);
+  // Registered directly (not via app.register) so a production
+  // misconfiguration (missing/placeholder/short VALID_API_KEYS) throws
+  // synchronously while the app is being assembled, rather than on the first
+  // request.
+  registerApiKeyAuth(app);
 
   // ── Health ─────────────────────────────────────────────────────────────────
   app.get('/health', async () => ({
@@ -200,6 +233,8 @@ async function buildApp() {
         message: 'merchantId, assetId, units, and costBasisUsd are required',
       });
     }
+    const openDenied = merchantAccessError(req.auth, merchantId);
+    if (openDenied) return reply.status(403).send(openDenied);
     if (units <= 0) {
       return reply.status(400).send({ error: 'ValidationError', message: 'units must be positive' });
     }
@@ -251,31 +286,39 @@ async function buildApp() {
     if (!merchantId) {
       return reply.status(400).send({ error: 'ValidationError', message: 'merchantId query param is required' });
     }
+    const listDenied = merchantAccessError(req.auth, merchantId);
+    if (listDenied) return reply.status(403).send(listDenied);
     const merchantPositions = getPositionsForMerchant(merchantId);
     return reply.send({ data: merchantPositions, total: merchantPositions.length });
   });
 
   /**
    * GET /v1/positions/:id
-   * Get a single position by ID.
+   * Get a single position by ID. Scoped to the owning merchant — a
+   * merchant-scoped key may only read its own position.
    */
   app.get<{ Params: { id: string } }>('/v1/positions/:id', async (req, reply) => {
     const position = positions.get(req.params.id);
     if (!position) {
       return reply.status(404).send({ error: 'NotFound', message: `Position ${req.params.id} not found` });
     }
+    const denied = merchantAccessError(req.auth, position.merchantId);
+    if (denied) return reply.status(403).send(denied);
     return reply.send({ data: position });
   });
 
   /**
    * PUT /v1/positions/:id/update-value
    * Recalculates currentValueUsd and unrealizedGainUsd using the latest NAV.
+   * Scoped to the owning merchant.
    */
   app.put<{ Params: { id: string } }>('/v1/positions/:id/update-value', async (req, reply) => {
     const position = positions.get(req.params.id);
     if (!position) {
       return reply.status(404).send({ error: 'NotFound', message: `Position ${req.params.id} not found` });
     }
+    const denied = merchantAccessError(req.auth, position.merchantId);
+    if (denied) return reply.status(403).send(denied);
     const asset = rwaAssets.get(position.assetId);
     if (!asset) {
       return reply.status(404).send({ error: 'NotFound', message: `Asset ${position.assetId} not found` });
@@ -302,6 +345,8 @@ async function buildApp() {
     if (!merchantId || !assetId) {
       return reply.status(400).send({ error: 'ValidationError', message: 'merchantId and assetId are required' });
     }
+    const distributeDenied = merchantAccessError(req.auth, merchantId);
+    if (distributeDenied) return reply.status(403).send(distributeDenied);
 
     // Find the position(s) to distribute for
     let targetPositions = getPositionsForMerchant(merchantId).filter(p => p.assetId === assetId);
@@ -338,6 +383,8 @@ async function buildApp() {
     if (!merchantId) {
       return reply.status(400).send({ error: 'ValidationError', message: 'merchantId query param is required' });
     }
+    const historyDenied = merchantAccessError(req.auth, merchantId);
+    if (historyDenied) return reply.status(403).send(historyDenied);
     const history = getIncomeHistory(merchantId, assetId);
     return reply.send({ data: history, total: history.length });
   });
@@ -354,6 +401,8 @@ async function buildApp() {
     if (!merchantId) {
       return reply.status(400).send({ error: 'ValidationError', message: 'merchantId query param is required' });
     }
+    const taxDenied = merchantAccessError(req.auth, merchantId);
+    if (taxDenied) return reply.status(403).send(taxDenied);
 
     let distributions = getIncomeHistory(merchantId);
 
@@ -397,6 +446,8 @@ async function buildApp() {
         message: 'merchantId, assetId, positionId, and units are required',
       });
     }
+    const createDenied = merchantAccessError(req.auth, merchantId);
+    if (createDenied) return reply.status(403).send(createDenied);
     if (units <= 0) {
       return reply.status(400).send({ error: 'ValidationError', message: 'units must be positive' });
     }
@@ -421,6 +472,8 @@ async function buildApp() {
     if (!merchantId) {
       return reply.status(400).send({ error: 'ValidationError', message: 'merchantId query param is required' });
     }
+    const listDenied = merchantAccessError(req.auth, merchantId);
+    if (listDenied) return reply.status(403).send(listDenied);
 
     let requests = Array.from(redemptionRequests.values()).filter(r => r.merchantId === merchantId);
     if (status) requests = requests.filter(r => r.status === status);
@@ -430,24 +483,34 @@ async function buildApp() {
 
   /**
    * GET /v1/redemptions/:id
-   * Get a single redemption request by ID.
+   * Get a single redemption request by ID. Scoped to the owning merchant.
    */
   app.get<{ Params: { id: string } }>('/v1/redemptions/:id', async (req, reply) => {
     const request = redemptionRequests.get(req.params.id);
     if (!request) {
       return reply.status(404).send({ error: 'NotFound', message: `Redemption request ${req.params.id} not found` });
     }
+    const denied = merchantAccessError(req.auth, request.merchantId);
+    if (denied) return reply.status(403).send(denied);
     return reply.send({ data: request });
   });
 
   /**
    * POST /v1/redemptions/:id/process
-   * Process (settle) a pending redemption request.
+   * Process (settle) a pending redemption request. Scoped to the owning
+   * merchant — otherwise any valid key could settle (and release proceeds
+   * for) a redemption belonging to a merchant it has no relationship with.
    */
   app.post<{ Params: { id: string } }>('/v1/redemptions/:id/process', async (req, reply) => {
+    const request = redemptionRequests.get(req.params.id);
+    if (!request) {
+      return reply.status(404).send({ error: 'NotFound', message: `Redemption request ${req.params.id} not found` });
+    }
+    const denied = merchantAccessError(req.auth, request.merchantId);
+    if (denied) return reply.status(403).send(denied);
     try {
-      const request = processRedemption(req.params.id);
-      return reply.send({ data: request });
+      const processed = processRedemption(req.params.id);
+      return reply.send({ data: processed });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return reply.status(400).send({ error: 'ProcessError', message });
@@ -456,9 +519,16 @@ async function buildApp() {
 
   /**
    * POST /v1/redemptions/:id/cancel
-   * Cancel a pending redemption request and restore the unit hold.
+   * Cancel a pending redemption request and restore the unit hold. Scoped to
+   * the owning merchant.
    */
   app.post<{ Params: { id: string } }>('/v1/redemptions/:id/cancel', async (req, reply) => {
+    const request = redemptionRequests.get(req.params.id);
+    if (!request) {
+      return reply.status(404).send({ error: 'NotFound', message: `Redemption request ${req.params.id} not found` });
+    }
+    const denied = merchantAccessError(req.auth, request.merchantId);
+    if (denied) return reply.status(403).send(denied);
     try {
       cancelRedemption(req.params.id);
       return reply.send({ success: true, message: `Redemption ${req.params.id} cancelled` });
