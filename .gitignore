@@ -284,6 +284,12 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
+.mypy_cache/
+.ruff_cache/
+# None of this repo's Python services commit a lock file (each environment
+# resolves its own from pyproject.toml's version constraints) — this just
+# stops locally-generated ones from showing up as untracked noise.
+poetry.lock
 
 # Terraform provider cache / local state
 .terraform/
