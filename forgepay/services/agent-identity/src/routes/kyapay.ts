@@ -15,6 +15,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { mintAgentDid } from '../did';
 import { getKeySet, buildJwks } from '../lib/kyapay-keys.js';
 import { getAgent, setAgent, getAgentByKyapaySub } from '../store.js';
+import { agentAccessError } from '../plugins/api-key-auth.js';
 import type { AgentIdentity } from '../types.js';
 
 const FORGEPAY_ISSUER  = process.env['FORGEPAY_ISSUER_URL'] ?? 'https://api.forgepay.com';
@@ -61,6 +62,14 @@ export async function buildKYAPayRoutes(app: FastifyInstance) {
     if (!body['ownerMerchantId'] || typeof body['ownerMerchantId'] !== 'string') {
       return reply.status(400).send({ error: 'ValidationError', message: 'ownerMerchantId is required' });
     }
+    // Mirrors POST /v1/agents: a merchant-tier key may only import agents
+    // under its own ownerMerchantId.
+    if (req.auth?.kind !== 'admin' && body['ownerMerchantId'] !== req.auth?.principalId) {
+      return reply.status(403).send({
+        error: 'Forbidden',
+        message: 'ownerMerchantId must match the authenticated merchant.',
+      });
+    }
 
     const jwt   = body['kyapayToken'] as string;
     const parts = jwt.split('.');
@@ -104,6 +113,12 @@ export async function buildKYAPayRoutes(app: FastifyInstance) {
     // Upsert by KYAPay identity
     const existing = await getAgentByKyapaySub(sub, issuer);
     if (existing) {
+      // Re-import mutates an already-registered agent — the ownerMerchantId
+      // check above only constrains what a *new* import may claim, so a
+      // caller re-importing must also own the existing record.
+      const accessError = agentAccessError(req.auth, existing);
+      if (accessError) return reply.status(403).send(accessError);
+
       const updated: AgentIdentity = {
         ...existing,
         name:         businessName ?? existing.name,
@@ -157,6 +172,8 @@ export async function buildKYAPayRoutes(app: FastifyInstance) {
     if (!agent) {
       return reply.status(404).send({ error: 'NotFound', message: `Agent ${req.params.id} not found` });
     }
+    const accessError = agentAccessError(req.auth, agent);
+    if (accessError) return reply.status(403).send(accessError);
     if (agent.status !== 'active') {
       return reply.status(409).send({ error: 'Conflict', message: 'Cannot issue token for inactive agent' });
     }

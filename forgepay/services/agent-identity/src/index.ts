@@ -28,7 +28,7 @@ import rateLimit from '@fastify/rate-limit';
 import { v4 as uuidv4 } from 'uuid';
 import { mintAgentDid } from './did';
 import { createVerify } from 'crypto';
-import apiKeyAuth from './plugins/api-key-auth';
+import apiKeyAuth, { agentAccessError } from './plugins/api-key-auth';
 
 import {
   getAgent,
@@ -140,6 +140,16 @@ async function buildApp() {
         message: 'ownerMerchantId is required',
       });
     }
+    // A merchant-tier key may only register agents under its own
+    // ownerMerchantId — otherwise any valid key could mint agents that
+    // appear owned by a competitor. Admin keys may register on behalf of
+    // any merchant.
+    if (req.auth?.kind !== 'admin' && body['ownerMerchantId'] !== req.auth?.principalId) {
+      return reply.status(403).send({
+        error: 'Forbidden',
+        message: 'ownerMerchantId must match the authenticated merchant.',
+      });
+    }
     if (body['reputationScore'] !== undefined) {
       const score = body['reputationScore'];
       if (typeof score !== 'number' || score < 0 || score > 1000) {
@@ -214,6 +224,8 @@ async function buildApp() {
         .status(404)
         .send({ error: 'NotFound', message: `Agent ${req.params.id} not found` });
     }
+    const accessError = agentAccessError(req.auth, agent);
+    if (accessError) return reply.status(403).send(accessError);
     return reply.send({ data: agent });
   });
 
@@ -225,6 +237,8 @@ async function buildApp() {
         .status(404)
         .send({ error: 'NotFound', message: `Agent ${req.params.id} not found` });
     }
+    const accessError = agentAccessError(req.auth, agent);
+    if (accessError) return reply.status(403).send(accessError);
     if (agent.status === 'deregistered') {
       return reply.status(409).send({
         error: 'Conflict',
@@ -262,6 +276,8 @@ async function buildApp() {
         .status(404)
         .send({ error: 'NotFound', message: `Agent ${req.params.id} not found` });
     }
+    const accessError = agentAccessError(req.auth, agent);
+    if (accessError) return reply.status(403).send(accessError);
     await setAgent({
       ...agent,
       status: 'deregistered',
@@ -273,6 +289,15 @@ async function buildApp() {
 
   // ── POST /v1/agents/:id/reputation — Record reputation event ──────────
   app.post<{ Params: { id: string } }>('/v1/agents/:id/reputation', async (req, reply) => {
+    const agent = await getAgent(req.params.id);
+    if (!agent) {
+      return reply
+        .status(404)
+        .send({ error: 'NotFound', message: `Agent ${req.params.id} not found` });
+    }
+    const accessError = agentAccessError(req.auth, agent);
+    if (accessError) return reply.status(403).send(accessError);
+
     const body = req.body as Record<string, unknown>;
 
     if (
@@ -316,6 +341,8 @@ async function buildApp() {
         .status(404)
         .send({ error: 'NotFound', message: `Agent ${req.params.id} not found` });
     }
+    const accessError = agentAccessError(req.auth, agent);
+    if (accessError) return reply.status(403).send(accessError);
     const events = await getReputationEventsByAgentId(req.params.id);
     return reply.send({ data: events, total: events.length });
   });
@@ -328,6 +355,8 @@ async function buildApp() {
         .status(404)
         .send({ error: 'NotFound', message: `Agent ${req.params.id} not found` });
     }
+    const accessError = agentAccessError(req.auth, agent);
+    if (accessError) return reply.status(403).send(accessError);
 
     const body = req.body as Record<string, unknown>;
     if (!body['claim'] || typeof body['claim'] !== 'string') {
@@ -369,6 +398,8 @@ async function buildApp() {
         .status(404)
         .send({ error: 'NotFound', message: `Agent ${req.params.id} not found` });
     }
+    const accessError = agentAccessError(req.auth, agent);
+    if (accessError) return reply.status(403).send(accessError);
     const attestations = await getAttestationsBySubjectAgentId(req.params.id);
     return reply.send({ data: attestations, total: attestations.length });
   });

@@ -460,3 +460,253 @@ describe('Agent Identity Registry', () => {
     expect(res.statusCode).toBe(401);
   });
 });
+
+// ── Production auth: fail closed, not open ───────────────────────────────────
+//
+// Regression coverage for the bug where VALID_API_KEYS unset in production
+// silently accepted any non-empty key (validKeys.size > 0 was false, so the
+// whole guard collapsed to "accept anything"). The service must now refuse
+// to boot instead. Also regression coverage for reading the wrong env var
+// (API_KEYS instead of VALID_API_KEYS, which is what forgepay/infra/vault
+// actually provisions) — buildApp() now consumes VALID_API_KEYS.
+
+describe('Production auth fails closed', () => {
+  const ENV_KEYS = ['NODE_ENV', 'VALID_API_KEYS', 'MERCHANT_API_KEYS'] as const;
+  let saved: Record<string, string | undefined>;
+
+  beforeAll(() => {
+    saved = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
+  });
+
+  afterAll(() => {
+    for (const k of ENV_KEYS) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  });
+
+  it('refuses to boot in production when VALID_API_KEYS is not configured', async () => {
+    process.env['NODE_ENV'] = 'production';
+    delete process.env['VALID_API_KEYS'];
+    delete process.env['MERCHANT_API_KEYS'];
+
+    await expect(buildApp()).rejects.toThrow(/VALID_API_KEYS is not set/);
+  });
+
+  it('refuses to boot in production when VALID_API_KEYS is the dev placeholder', async () => {
+    process.env['NODE_ENV'] = 'production';
+    process.env['VALID_API_KEYS'] = 'dev-identity-key';
+
+    await expect(buildApp()).rejects.toThrow(/development placeholder/);
+  });
+
+  it('refuses to boot in production when a configured key is too short', async () => {
+    process.env['NODE_ENV'] = 'production';
+    process.env['VALID_API_KEYS'] = 'short-key';
+
+    await expect(buildApp()).rejects.toThrow(/at least 32 characters/);
+  });
+
+  it('boots in production with a sufficiently long VALID_API_KEYS', async () => {
+    process.env['NODE_ENV'] = 'production';
+    process.env['VALID_API_KEYS'] = 'a'.repeat(40);
+
+    const prodApp = await buildApp();
+    await prodApp.ready();
+    await prodApp.close();
+  });
+});
+
+// ── Per-resource ownership ────────────────────────────────────────────────────
+//
+// Regression coverage for the bug where any valid key — with no notion of
+// which merchant it belonged to — could read or mutate any other merchant's
+// agent identity, reputation, or attestation record. MERCHANT_API_KEYS gives
+// each key an identity (AgentIdentity.ownerMerchantId); agentAccessError
+// enforces that a non-admin caller may only act on agents it owns (403,
+// never 404, on mismatch). VALID_API_KEYS holders act as admin and bypass
+// ownership entirely (matching what cross-service callers like
+// agent-decision-framework's AGENT_IDENTITY_API_KEY are expected to hold).
+
+describe('Per-resource ownership', () => {
+  const MERCHANT_A_KEY = 'merchant-a-key-00000000000000000000000';
+  const MERCHANT_B_KEY = 'merchant-b-key-00000000000000000000000';
+  const ADMIN_KEY      = 'ownership-admin-key-0000000000000000000';
+
+  const AUTH_A     = { 'x-api-key': MERCHANT_A_KEY };
+  const AUTH_B     = { 'x-api-key': MERCHANT_B_KEY };
+  const AUTH_ADMIN = { 'x-api-key': ADMIN_KEY };
+
+  let ownershipApp: FastifyApp;
+  let savedMerchantKeys: string | undefined;
+  let savedValidKeys: string | undefined;
+  let agentAId: string;
+
+  beforeAll(async () => {
+    savedMerchantKeys = process.env['MERCHANT_API_KEYS'];
+    savedValidKeys = process.env['VALID_API_KEYS'];
+    process.env['MERCHANT_API_KEYS'] = `merchant-a:${MERCHANT_A_KEY},merchant-b:${MERCHANT_B_KEY}`;
+    process.env['VALID_API_KEYS'] = ADMIN_KEY;
+
+    ownershipApp = await buildApp();
+    await ownershipApp.ready();
+
+    const createRes = await ownershipApp.inject({
+      method:  'POST',
+      url:     '/v1/agents',
+      headers: AUTH_A,
+      payload: {
+        name:            'Merchant A Owned Agent',
+        framework:       'forgepay',
+        ownerMerchantId: 'merchant-a',
+        capabilities:    ['payment'],
+      },
+    });
+    expect(createRes.statusCode).toBe(201);
+    agentAId = createRes.json<{ data: { id: string } }>().data.id;
+  });
+
+  afterAll(async () => {
+    await ownershipApp.close();
+    if (savedMerchantKeys === undefined) delete process.env['MERCHANT_API_KEYS']; else process.env['MERCHANT_API_KEYS'] = savedMerchantKeys;
+    if (savedValidKeys === undefined) delete process.env['VALID_API_KEYS']; else process.env['VALID_API_KEYS'] = savedValidKeys;
+  });
+
+  it('cannot register an agent claiming an ownerMerchantId the key does not hold', async () => {
+    const res = await ownershipApp.inject({
+      method:  'POST',
+      url:     '/v1/agents',
+      headers: AUTH_A,
+      payload: {
+        name:            'Forged Owner Agent',
+        framework:       'forgepay',
+        ownerMerchantId: 'merchant-b', // merchant-a's key claiming merchant-b
+        capabilities:    [],
+      },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it('admin may register an agent on behalf of any merchant', async () => {
+    const res = await ownershipApp.inject({
+      method:  'POST',
+      url:     '/v1/agents',
+      headers: AUTH_ADMIN,
+      payload: {
+        name:            'Admin Provisioned Agent',
+        framework:       'forgepay',
+        ownerMerchantId: 'merchant-b',
+        capabilities:    [],
+      },
+    });
+    expect(res.statusCode).toBe(201);
+  });
+
+  it('the owning merchant can read its own agent', async () => {
+    const res = await ownershipApp.inject({ method: 'GET', url: `/v1/agents/${agentAId}`, headers: AUTH_A });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it('a different merchant reading another merchant\'s agent gets 403, not 404', async () => {
+    const res = await ownershipApp.inject({ method: 'GET', url: `/v1/agents/${agentAId}`, headers: AUTH_B });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it('admin can read any merchant\'s agent', async () => {
+    const res = await ownershipApp.inject({ method: 'GET', url: `/v1/agents/${agentAId}`, headers: AUTH_ADMIN });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it('a different merchant cannot update another merchant\'s agent', async () => {
+    const res = await ownershipApp.inject({
+      method:  'PUT',
+      url:     `/v1/agents/${agentAId}`,
+      headers: AUTH_B,
+      payload: { name: 'Hijacked Name' },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it('a different merchant cannot deregister another merchant\'s agent', async () => {
+    const res = await ownershipApp.inject({ method: 'DELETE', url: `/v1/agents/${agentAId}`, headers: AUTH_B });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it('a different merchant cannot post a reputation event for another merchant\'s agent', async () => {
+    const res = await ownershipApp.inject({
+      method:  'POST',
+      url:     `/v1/agents/${agentAId}/reputation`,
+      headers: AUTH_B,
+      payload: { eventType: 'transaction_success', description: 'Forged event' },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it('the owning merchant can post a reputation event for its own agent', async () => {
+    const res = await ownershipApp.inject({
+      method:  'POST',
+      url:     `/v1/agents/${agentAId}/reputation`,
+      headers: AUTH_A,
+      payload: { eventType: 'transaction_success', description: 'Legitimate event' },
+    });
+    expect(res.statusCode).toBe(201);
+  });
+
+  it('a different merchant cannot read another merchant\'s reputation history', async () => {
+    const res = await ownershipApp.inject({
+      method:  'GET',
+      url:     `/v1/agents/${agentAId}/reputation`,
+      headers: AUTH_B,
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it('a different merchant cannot add an attestation to another merchant\'s agent', async () => {
+    const res = await ownershipApp.inject({
+      method:  'POST',
+      url:     `/v1/agents/${agentAId}/attestations`,
+      headers: AUTH_B,
+      payload: { claim: 'forged_claim', issuerMerchantId: 'merchant-b' },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it('a different merchant cannot read another merchant\'s attestations', async () => {
+    const res = await ownershipApp.inject({
+      method:  'GET',
+      url:     `/v1/agents/${agentAId}/attestations`,
+      headers: AUTH_B,
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it('a different merchant cannot issue a KYAPay token for another merchant\'s agent', async () => {
+    const res = await ownershipApp.inject({
+      method:  'POST',
+      url:     `/v1/agents/${agentAId}/kyapay-token`,
+      headers: AUTH_B,
+      payload: {},
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it('the owning merchant can issue a KYAPay token for its own agent', async () => {
+    const res = await ownershipApp.inject({
+      method:  'POST',
+      url:     `/v1/agents/${agentAId}/kyapay-token`,
+      headers: AUTH_A,
+      payload: {},
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it('admin can act on any merchant\'s agent (attestation write example)', async () => {
+    const res = await ownershipApp.inject({
+      method:  'POST',
+      url:     `/v1/agents/${agentAId}/attestations`,
+      headers: AUTH_ADMIN,
+      payload: { claim: 'admin_added_claim', issuerMerchantId: 'forgepay-internal' },
+    });
+    expect(res.statusCode).toBe(201);
+  });
+});
