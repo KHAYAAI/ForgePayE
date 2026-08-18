@@ -77,6 +77,89 @@ const RULES_EVAL_INTERVAL_MS     = 60_000;
 const BALANCE_REFRESH_INTERVAL_MS = 15 * 60_000;
 const FX_REFRESH_INTERVAL_MS     = 60 * 60_000;
 
+/**
+ * Resolve the configured internal API keys.
+ *
+ * The previous check was `!isDev && validKeys.size > 0 && !validKeys.has(apiKey)`.
+ * In production, if `VALID_API_KEYS` was never set, `validKeys.size > 0` was
+ * false, so the whole guard collapsed to "any non-empty key is accepted" —
+ * fail OPEN exactly when the operator forgot to configure the one thing that
+ * restricts access to treasury data (FX rates, cash positions, rules that move
+ * money). Mirroring agent-negotiation's `resolveAdminKeyHashes()` and the
+ * credit bureau's `getAdminKeyHash()`, this now refuses to boot in production
+ * unless `VALID_API_KEYS` is set to real (non-placeholder, sufficiently long)
+ * keys. A service that fails to start is recoverable; one that silently
+ * accepts any key is not.
+ *
+ * @throws in production when VALID_API_KEYS is missing, contains a known dev
+ *         placeholder, or contains a key shorter than MIN_PRODUCTION_KEY_LENGTH.
+ */
+const DEV_PLACEHOLDER_KEYS = new Set(['dev-treasury-key', 'dev-api-key', 'changeme']);
+const MIN_PRODUCTION_KEY_LENGTH = 32;
+
+export function resolveApiKeys(): Set<string> {
+  const isProduction = process.env['NODE_ENV'] === 'production';
+  const rawKeys = (process.env['VALID_API_KEYS'] ?? '')
+    .split(',')
+    .map((k) => k.trim())
+    .filter(Boolean);
+
+  if (isProduction) {
+    if (rawKeys.length === 0) {
+      throw new Error(
+        'VALID_API_KEYS is not set. enterprise-treasury refuses to start in production without ' +
+        'at least one API key — generate one with `openssl rand -hex 32` and supply it via Vault ' +
+        'or AWS Secrets Manager.',
+      );
+    }
+    for (const key of rawKeys) {
+      if (DEV_PLACEHOLDER_KEYS.has(key)) {
+        throw new Error(
+          `VALID_API_KEYS contains the development placeholder key "${key}", which must not be used in production.`,
+        );
+      }
+      if (key.length < MIN_PRODUCTION_KEY_LENGTH) {
+        throw new Error(
+          `Every key in VALID_API_KEYS must be at least ${MIN_PRODUCTION_KEY_LENGTH} characters in production (got ${key.length}).`,
+        );
+      }
+    }
+  }
+
+  return new Set(rawKeys);
+}
+
+/**
+ * Resolve the CORS origin allowlist.
+ *
+ * `CORS_ORIGIN` defaults to `*` for local/demo use. That default reaching
+ * production would let any website's browser JS read every response this
+ * service returns — cash positions, FX rates, treasury rules — the same class
+ * of "safe default that is unsafe in production" already guarded for the API
+ * key above. Comma-separated origins are supported so a real deployment can
+ * list every trusted caller (treasury dashboard, ops tooling, ...) rather than
+ * being forced back to `*` for lack of a multi-origin option. Mirrors
+ * agent-credit-bureau's `resolveCorsOrigin()`.
+ *
+ * @throws in production when CORS_ORIGIN is unset or still `*`.
+ */
+export function resolveCorsOrigin(): string | string[] {
+  const raw = process.env['CORS_ORIGIN'];
+  const isProduction = process.env['NODE_ENV'] === 'production';
+
+  if (isProduction && (!raw || raw === '*')) {
+    throw new Error(
+      'CORS_ORIGIN is not set (or is "*") in production. enterprise-treasury refuses to start ' +
+      'without an explicit origin allowlist — set it to a comma-separated list of trusted ' +
+      'origins, e.g. CORS_ORIGIN=https://treasury.forgepay.io,https://app.forgepay.io',
+    );
+  }
+
+  if (!raw) return '*';
+  const origins = raw.split(',').map((o) => o.trim()).filter(Boolean);
+  return origins.length === 1 ? origins[0]! : origins;
+}
+
 // ── Zod schemas ───────────────────────────────────────────────────────────────
 
 const TreasuryRuleCreateSchema = z.object({
@@ -116,7 +199,7 @@ const NettingFlowSchema = z.object({
 
 // ── App builder ───────────────────────────────────────────────────────────────
 
-async function buildApp() {
+export async function buildApp() {
   const app = Fastify({
     logger: { level: process.env['LOG_LEVEL'] ?? 'info' },
     trustProxy: true,
@@ -127,10 +210,11 @@ async function buildApp() {
   });
 
   // ── Internal API key auth ──────────────────────────────────────────────────
+  // resolveApiKeys() throws synchronously (before the app finishes building)
+  // if production is misconfigured, so a bad deploy fails to boot rather than
+  // silently accepting any key. See resolveApiKeys() above.
   const isDev      = process.env['NODE_ENV'] !== 'production';
-  const validKeys  = new Set(
-    (process.env['VALID_API_KEYS'] ?? '').split(',').filter(Boolean),
-  );
+  const validKeys  = resolveApiKeys();
   app.addHook('onRequest', async (request: FastifyRequest, reply: FastifyReply) => {
     if (request.url === '/health' || request.url.startsWith('/health')) return;
     const apiKey =
@@ -139,13 +223,16 @@ async function buildApp() {
     if (!apiKey) {
       return reply.code(401).send({ error: 'Missing API key. Provide X-Api-Key header.' });
     }
-    if (!isDev && validKeys.size > 0 && !validKeys.has(apiKey)) {
+    // In dev, any non-empty key is accepted (validKeys may be empty). In
+    // production, validKeys is guaranteed non-empty by resolveApiKeys(), so
+    // this is a real allowlist check, not the old fail-open `size > 0` gate.
+    if (!isDev && !validKeys.has(apiKey)) {
       return reply.code(401).send({ error: 'Invalid API key.' });
     }
   });
 
   await app.register(cors, {
-    origin:      process.env['CORS_ORIGIN'] ?? '*',
+    origin:      resolveCorsOrigin(),
     methods:     ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     credentials: false,
   });
