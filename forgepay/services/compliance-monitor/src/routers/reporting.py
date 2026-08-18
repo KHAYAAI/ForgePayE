@@ -16,7 +16,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
-from src.auth import require_auth
+from src.auth import require_admin, require_auth, require_merchant_access, scoped_merchant_id
 from src.models import CreateSarRequest, CtrReport, SarReport
 
 router = APIRouter(prefix="/api/v1/reporting", tags=["Reporting"])
@@ -37,6 +37,9 @@ async def create_sar(
     request: Request,
     caller: Annotated[dict, Depends(require_auth)],
 ) -> SarReport:
+    # A caller may only file a SAR under their own merchant, unless admin.
+    require_merchant_access(caller, body.merchant_id)
+
     mgr = _sar_manager(request)
     return mgr.create_draft_sar(
         merchant_id=body.merchant_id,
@@ -62,7 +65,8 @@ async def list_sars(
     sar_status: str | None = Query(default=None, alias="status"),
 ) -> list[SarReport]:
     mgr = _sar_manager(request)
-    return mgr.get_sars(merchant_id=merchant_id, status=sar_status)
+    effective_merchant_id = scoped_merchant_id(caller, merchant_id)
+    return mgr.get_sars(merchant_id=effective_merchant_id, status=sar_status)
 
 
 @router.get(
@@ -82,6 +86,7 @@ async def get_sar(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"SAR {sar_id!r} not found",
         )
+    require_merchant_access(caller, sar.merchant_id)
     return sar
 
 
@@ -96,6 +101,9 @@ async def submit_sar(
     caller: Annotated[dict, Depends(require_auth)],
 ) -> SarReport:
     mgr = _sar_manager(request)
+    existing = mgr.get_sar(sar_id)
+    if existing is not None:
+        require_merchant_access(caller, existing.merchant_id)
     try:
         return mgr.submit_sar(sar_id)
     except KeyError as exc:
@@ -120,17 +128,18 @@ async def list_ctrs(
     ctr_status: str | None = Query(default=None, alias="status"),
 ) -> list[CtrReport]:
     mgr = _sar_manager(request)
-    return mgr.get_ctrs(merchant_id=merchant_id, status=ctr_status)
+    effective_merchant_id = scoped_merchant_id(caller, merchant_id)
+    return mgr.get_ctrs(merchant_id=effective_merchant_id, status=ctr_status)
 
 
 @router.get(
     "/dashboard",
     response_model=dict,
-    summary="Compliance dashboard statistics",
+    summary="Compliance dashboard statistics (admin only — aggregates all merchants)",
 )
 async def dashboard(
     request: Request,
-    caller: Annotated[dict, Depends(require_auth)],
+    caller: Annotated[dict, Depends(require_admin)],
 ) -> dict:
     sar_mgr = _sar_manager(request)
     monitoring_engine = request.app.state.monitoring_engine

@@ -10,11 +10,11 @@ Routes:
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
-from src.auth import require_auth
+from src.auth import require_admin, require_auth, require_merchant_access, scoped_merchant_id
 from src.models import EvaluateTransactionRequest, TransactionMonitoringResult
 
 router = APIRouter(prefix="/api/v1/monitoring", tags=["Monitoring"])
@@ -34,6 +34,10 @@ async def evaluate_transaction(
     request: Request,
     caller: Annotated[dict, Depends(require_auth)],
 ) -> TransactionMonitoringResult:
+    # A caller may only submit transactions to evaluate for their own
+    # merchant, unless they hold the admin scope.
+    require_merchant_access(caller, body.merchant_id)
+
     engine = _engine(request)
     transaction = body.model_dump()
     # Map to internal key names expected by the rule engine
@@ -53,7 +57,8 @@ async def list_alerts(
     merchant_id: str | None = Query(default=None, description="Filter by merchant ID"),
 ) -> list[TransactionMonitoringResult]:
     engine = _engine(request)
-    return engine.get_alerts(merchant_id=merchant_id)
+    effective_merchant_id = scoped_merchant_id(caller, merchant_id)
+    return engine.get_alerts(merchant_id=effective_merchant_id)
 
 
 @router.get(
@@ -77,7 +82,7 @@ async def list_rules(
 async def toggle_rule(
     rule_id: str,
     request: Request,
-    caller: Annotated[dict, Depends(require_auth)],
+    caller: Annotated[dict, Depends(require_admin)],
     enabled: bool = Query(..., description="True to enable, False to disable"),
 ) -> dict:
     engine = _engine(request)

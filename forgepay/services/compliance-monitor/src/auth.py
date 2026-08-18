@@ -43,6 +43,11 @@ _bearer_scheme = HTTPBearer(auto_error=False)
 # ---------------------------------------------------------------------------
 _API_KEY_STORE: dict[str, dict[str, Any]] = {}
 
+# Scope required for platform-wide/admin actions (e.g. toggling AML rules,
+# viewing another merchant's compliance data). Must be granted explicitly —
+# see require_admin / is_admin below for why "*" does not imply this.
+ADMIN_SCOPE = "admin"
+
 
 def register_api_key(raw_key: str, merchant_id: str, scopes: list[str] | None = None) -> None:
     """Register an API key (called at startup or when a key is provisioned)."""
@@ -124,6 +129,71 @@ async def require_auth(
         detail="Authentication required: provide Bearer JWT or X-Compliance-API-Key header",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+
+async def require_admin(caller: dict[str, Any] = Depends(require_auth)) -> dict[str, Any]:
+    """
+    FastAPI dependency for platform-privileged endpoints (e.g. toggling AML
+    rules), as opposed to merchant-scoped endpoints. Requires the caller to
+    hold the "admin" scope.
+
+    Callers must carry the literal "admin" scope. The "*" wildcard scope
+    (the default `register_api_key`/`decode_access_token` fall back to when
+    no explicit scopes are supplied) intentionally does NOT satisfy this
+    check — nearly every merchant API key and JWT ends up with "*" by
+    default, so treating it as admin-equivalent would make this gate a
+    no-op. Admin access must be granted explicitly via the "admin" scope.
+    """
+    if not is_admin(caller):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This action requires the 'admin' scope",
+        )
+    return caller
+
+
+def is_admin(caller: dict[str, Any]) -> bool:
+    """True if the caller context carries the explicit 'admin' scope."""
+    return ADMIN_SCOPE in (caller.get("scopes") or [])
+
+
+def require_merchant_access(caller: dict[str, Any], merchant_id: str) -> None:
+    """
+    Raise 403 unless `caller` is an admin or belongs to `merchant_id`.
+
+    Use for single-resource endpoints (e.g. GET /sar/{id}) where the
+    resource's owning merchant is already known and must be checked against
+    the authenticated caller before the resource is returned or mutated.
+    """
+    if is_admin(caller):
+        return
+    if caller.get("merchant_id") != merchant_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to access this merchant's data",
+        )
+
+
+def scoped_merchant_id(caller: dict[str, Any], requested: str | None) -> str | None:
+    """
+    Resolve the effective merchant_id filter for a list-style endpoint that
+    accepts an optional `merchant_id` query parameter.
+
+    - Admin callers: pass the requested filter through unchanged (None
+      means "all merchants", which is intentional for admins).
+    - Non-admin callers: may only ever see their own merchant's data. If no
+      filter was requested, it is forced to the caller's own merchant_id
+      (rather than silently returning every merchant's data); if a
+      *different* merchant_id was requested, that is rejected outright.
+    """
+    if is_admin(caller):
+        return requested
+    if requested is not None and requested != caller.get("merchant_id"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to access this merchant's data",
+        )
+    return caller.get("merchant_id")
 
 
 async def require_internal(
