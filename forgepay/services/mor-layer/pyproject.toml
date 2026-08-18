@@ -21,6 +21,15 @@ redis        = "^5.0.7"
 structlog    = "^24.2.0"
 python-jose  = { version = "^3.3.0", extras = ["cryptography"] }
 passlib      = { version = "^1.7.4", extras = ["bcrypt"] }
+# passlib 1.7.4 (unmaintained since 2020) auto-detects the bcrypt backend by
+# reading `_bcrypt.__about__.__version__`, an attribute bcrypt removed in 5.0
+# (confirmed: 4.3.0 works, 5.0.0 doesn't). With no upper bound here, poetry
+# resolves the newest bcrypt and every password hash/verify call in this
+# service — registration, login — raises `ValueError: password cannot be
+# longer than 72 bytes` at the version-sniff step, not at the 72-byte
+# truncation it's actually meant to guard. Pin below 5.0. mor-layer is the
+# only service in this repo using passlib.
+bcrypt       = "^4.0.1"
 cryptography = "^42.0"          # X25519 ECDH + AES-256-GCM for auditor decryption
 python-multipart = "^0.0.9"
 stripe       = "^10.5.0"         # Keep as type reference only; no live calls

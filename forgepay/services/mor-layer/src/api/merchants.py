@@ -15,6 +15,7 @@ from pydantic import BaseModel, EmailStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.auth.dependencies import get_current_merchant
 from src.auth.jwt import create_access_token
 from src.db.models import Merchant
 from src.db.session import get_db
@@ -78,6 +79,25 @@ async def register_merchant(
         email=merchant.email,
         name=merchant.name,
         api_key=merchant.api_key,
+    )
+
+
+@router.get("/me", response_model=MerchantResponse)
+async def get_my_merchant(
+    current_merchant: Annotated[Merchant, Depends(get_current_merchant)],
+) -> MerchantResponse:
+    """
+    The caller's own merchant profile. The JWT issued by POST /auth/token
+    only carries `sub` (merchant id) and `email` — this is the roundtrip a
+    caller (e.g. the dashboard's login flow) makes right after authenticating
+    to get everything else about their own account (name, api_key) without
+    a second, separate credential.
+    """
+    return MerchantResponse(
+        id=current_merchant.id,
+        email=current_merchant.email,
+        name=current_merchant.name,
+        api_key=current_merchant.api_key,
     )
 
 
