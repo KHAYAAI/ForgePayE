@@ -19,7 +19,10 @@
  *
  * Auth:
  *   JWT (@fastify/jwt) for inbound requests from the dashboard / mor-layer.
- *   The `x-merchant-id` header is accepted as a fallback in dev mode.
+ *   Merchant identity always comes from the verified token's `merchantId`
+ *   claim — there is no client-suppliable header override. A missing or
+ *   invalid token is rejected with 401 before any handler runs. See
+ *   ./lib/auth.ts for the full auth gate.
  *
  * Internal service communication:
  *   Reads from stablecoin-gateway (balance queries) via HTTP.
@@ -44,10 +47,13 @@ import { updateAllPositions, initPositionsFromDb }   from './services/positionTr
 import { fetchAllApys }         from './services/apyAggregator';
 import { initDb, closeDb }      from './db';
 import { setUseDb }             from './store';
+import { registerMerchantAuth, getMerchantId } from './lib/auth';
 
 // ── Build app ─────────────────────────────────────────────────────────────────
+// Exported so tests can build a fully-wired app (auth included) with
+// `.inject()` without starting the DB, cron scheduler, or HTTP listener.
 
-async function buildApp() {
+export async function buildApp() {
   const app = Fastify({
     logger: {
       level: process.env['LOG_LEVEL'] ?? 'info',
@@ -80,21 +86,14 @@ async function buildApp() {
     secret: config.jwtSecret,
   });
 
-  // ── JWT auth decorator ─────────────────────────────────────────────────────
-  // Adds req.user when a valid Bearer token is present.
-  // Routes that need auth call await req.jwtVerify() themselves.
-  // Unauthenticated routes (healthz, /yields/apys) skip this.
-  app.addHook('preHandler', async (req) => {
-    const authHeader = req.headers.authorization;
-    if (authHeader?.startsWith('Bearer ')) {
-      try {
-        await req.jwtVerify();
-      } catch {
-        // Invalid token — we don't reject here because some routes are public.
-        // Routes that require auth check req.user explicitly.
-      }
-    }
-  });
+  // ── JWT auth gate ───────────────────────────────────────────────────────────
+  // Deny-by-default: every route except the explicit public allowlist in
+  // lib/auth.ts (healthz/readyz/metrics, vault catalogue, /yields/apys)
+  // requires a valid Bearer JWT with a merchantId claim, or the request is
+  // rejected with 401 before any handler runs. See lib/auth.ts for details
+  // on why the old client-suppliable `x-merchant-id` fallback was removed
+  // rather than gated.
+  registerMerchantAuth(app);
 
   // ── Routes ────────────────────────────────────────────────────────────────
   await app.register(buildVaultRoutes,    { prefix: '/api/v1/vaults' });
@@ -105,10 +104,7 @@ async function buildApp() {
   // Convenience alias: GET /api/v1/portfolio → same handler as
   // GET /api/v1/positions/portfolio (aggregate summary, no prefix overlap)
   app.get('/api/v1/portfolio', async (req, reply) => {
-    const merchantId =
-      (req as any).user?.merchantId ??
-      (req.headers['x-merchant-id'] as string | undefined) ??
-      null;
+    const merchantId = getMerchantId(req);
     if (!merchantId) {
       return reply.status(401).send({ error: 'Missing merchant identity' });
     }
@@ -235,7 +231,16 @@ async function main(): Promise<void> {
   console.log(`[yield-engine] Listening on :${config.port}`);
 }
 
-main().catch((err) => {
-  console.error('[yield-engine] Fatal startup error:', err);
-  process.exit(1);
-});
+// Only auto-start when this file is the process entry point (`node
+// dist/index.js` / `tsx src/index.ts`) — not when it's imported as a module,
+// e.g. by tests importing `buildApp`. Without this guard, importing index.ts
+// unconditionally started a second HTTP listener on config.port, a live cron
+// scheduler, and process-exiting `unhandledRejection`/`uncaughtException`
+// handlers as a side effect of the import — the latter can tear down an
+// entire test worker on an unrelated rejection.
+if (require.main === module) {
+  main().catch((err) => {
+    console.error('[yield-engine] Fatal startup error:', err);
+    process.exit(1);
+  });
+}

@@ -11,6 +11,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { sweepConfigStore, vaultsStore, getSweepTxsByMerchant } from '../store';
 import { sweepIdleBalances } from '../services/sweepService';
+import { getMerchantId } from '../lib/auth';
 import type { SweepConfig } from '../types';
 
 // ── Validation ────────────────────────────────────────────────────────────────
@@ -23,23 +24,14 @@ const SweepConfigSchema = z.object({
   autoCompound:      z.boolean(),
 });
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function getMerchantId(req: {
-  headers: Record<string, string | string[] | undefined>;
-  user?: { merchantId?: string };
-}): string | null {
-  if (req.user?.merchantId) return req.user.merchantId;
-  const header = req.headers['x-merchant-id'];
-  return typeof header === 'string' ? header : null;
-}
-
 // ── Routes ────────────────────────────────────────────────────────────────────
+// Merchant identity is always derived from the verified JWT via
+// getMerchantId() (../lib/auth.ts) — never from a client-suppliable header.
 
 export async function buildSweepRoutes(app: FastifyInstance): Promise<void> {
   // ── Get sweep config ───────────────────────────────────────────────────────
   app.get('/config', async (req, reply) => {
-    const merchantId = getMerchantId(req as any);
+    const merchantId = getMerchantId(req);
     if (!merchantId) {
       return reply.status(401).send({ error: 'Missing merchant identity' });
     }
@@ -64,7 +56,7 @@ export async function buildSweepRoutes(app: FastifyInstance): Promise<void> {
 
   // ── Create / update sweep config ───────────────────────────────────────────
   app.put('/config', async (req, reply) => {
-    const merchantId = getMerchantId(req as any);
+    const merchantId = getMerchantId(req);
     if (!merchantId) {
       return reply.status(401).send({ error: 'Missing merchant identity' });
     }
@@ -94,7 +86,7 @@ export async function buildSweepRoutes(app: FastifyInstance): Promise<void> {
 
   // ── Manually trigger a sweep ───────────────────────────────────────────────
   app.post('/run', async (req, reply) => {
-    const merchantId = getMerchantId(req as any);
+    const merchantId = getMerchantId(req);
     if (!merchantId) {
       return reply.status(401).send({ error: 'Missing merchant identity' });
     }
@@ -125,7 +117,7 @@ export async function buildSweepRoutes(app: FastifyInstance): Promise<void> {
 
   // ── Sweep history ──────────────────────────────────────────────────────────
   app.get('/history', async (req, reply) => {
-    const merchantId = getMerchantId(req as any);
+    const merchantId = getMerchantId(req);
     if (!merchantId) {
       return reply.status(401).send({ error: 'Missing merchant identity' });
     }

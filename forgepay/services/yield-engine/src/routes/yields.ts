@@ -9,19 +9,11 @@
 import type { FastifyInstance } from 'fastify';
 import { vaultsStore, getTxsByMerchant } from '../store';
 import { fetchAllApys } from '../services/apyAggregator';
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function getMerchantId(req: {
-  headers: Record<string, string | string[] | undefined>;
-  user?: { merchantId?: string };
-}): string | null {
-  if (req.user?.merchantId) return req.user.merchantId;
-  const header = req.headers['x-merchant-id'];
-  return typeof header === 'string' ? header : null;
-}
+import { getMerchantId } from '../lib/auth';
 
 // ── Routes ────────────────────────────────────────────────────────────────────
+// Merchant identity is always derived from the verified JWT via
+// getMerchantId() (../lib/auth.ts) — never from a client-suppliable header.
 
 export async function buildYieldRoutes(app: FastifyInstance): Promise<void> {
   // ── Current APYs ───────────────────────────────────────────────────────────
@@ -59,7 +51,7 @@ export async function buildYieldRoutes(app: FastifyInstance): Promise<void> {
 
   // ── Yield accrual history ──────────────────────────────────────────────────
   app.get('/history', async (req, reply) => {
-    const merchantId = getMerchantId(req as any);
+    const merchantId = getMerchantId(req);
     if (!merchantId) {
       return reply.status(401).send({ error: 'Missing merchant identity' });
     }
@@ -92,7 +84,7 @@ export async function buildYieldRoutes(app: FastifyInstance): Promise<void> {
 
   // ── Full transaction log ───────────────────────────────────────────────────
   app.get('/transactions', async (req, reply) => {
-    const merchantId = getMerchantId(req as any);
+    const merchantId = getMerchantId(req);
     if (!merchantId) {
       return reply.status(401).send({ error: 'Missing merchant identity' });
     }
