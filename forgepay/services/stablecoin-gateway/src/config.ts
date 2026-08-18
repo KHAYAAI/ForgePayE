@@ -7,6 +7,37 @@ function req(name: string): string {
   return v;
 }
 
+/**
+ * Resolve the allowed CORS origins.
+ *
+ * @throws in production when CORS_ALLOWED_ORIGINS is unset, empty, or "*" —
+ * mirroring agent-credit-bureau's resolveCorsOrigin() (src/index.ts). A
+ * stablecoin gateway that boots with no origin allowlist in production is
+ * either silently useless (falls back to localhost, so the real merchant
+ * dashboard can't call it) or, if an operator "fixes" that by setting it to
+ * "*", silently wide open. Neither should happen without an explicit choice.
+ */
+export function resolveCorsOrigins(): string[] {
+  const raw = process.env['CORS_ALLOWED_ORIGINS'];
+  const isProduction = process.env['NODE_ENV'] === 'production';
+
+  if (isProduction && (!raw || !raw.trim() || raw.trim() === '*')) {
+    throw new Error(
+      'CORS_ALLOWED_ORIGINS is not set (or is "*") in production. stablecoin-gateway refuses to ' +
+      'start without an explicit origin allowlist — set it to a comma-separated list of trusted ' +
+      'origins, e.g. CORS_ALLOWED_ORIGINS=https://dashboard.forgepay.io,https://app.forgepay.io',
+    );
+  }
+
+  const origins = (raw ?? 'http://localhost:3001').split(',').map((o) => o.trim()).filter(Boolean);
+
+  if (isProduction && origins.includes('*')) {
+    throw new Error('CORS_ALLOWED_ORIGINS must not include "*" as one of several origins in production.');
+  }
+
+  return origins;
+}
+
 export const config = {
   port: parseInt(opt('PORT', '8020'), 10),
   env:  opt('NODE_ENV', 'development') as 'development' | 'production',
@@ -55,11 +86,9 @@ export const config = {
   // Payment expiry (1 hour to pay)
   paymentExpirySeconds: parseInt(opt('PAYMENT_EXPIRY_SECONDS', '3600'), 10),
 
-  // CORS allowed origins (comma-separated list)
-  corsAllowedOrigins: opt('CORS_ALLOWED_ORIGINS', 'http://localhost:3001')
-    .split(',')
-    .map((o) => o.trim())
-    .filter(Boolean),
+  // CORS allowed origins (comma-separated list). Throws at load time in
+  // production if unset or "*" — see resolveCorsOrigins() above.
+  corsAllowedOrigins: resolveCorsOrigins(),
 
   // Shielded stablecoin payments (ZK-proof privacy)
   shielded: {

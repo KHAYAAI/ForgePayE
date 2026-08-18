@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto';
 import { getDb } from '../lib/db.js';
 import { config } from '../config.js';
 import { encryptPrivateKey } from '../lib/keystore.js';
+import { merchantAccessError } from '../plugins/api-key-auth.js';
 
 interface CreateDepositBody {
   merchant_id:    string;
@@ -43,6 +44,15 @@ export async function buildDepositRoutes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const { merchant_id, amount_usd, token, chain, payment_id, metadata } = req.body;
+
+      // A merchant key may only create deposits attributed to itself — without
+      // this, any valid merchant key could open a deposit (and its associated
+      // custodied private key) under a different merchant_id entirely.
+      const ownershipError = merchantAccessError(req.auth, merchant_id);
+      if (ownershipError) {
+        reply.code(403).send(ownershipError);
+        return;
+      }
 
       // Convert USD amount to token units (USDC/USDT both have 6 decimals)
       const amountUnits = Math.round(amount_usd * 1_000_000).toString();
@@ -108,7 +118,21 @@ export async function buildDepositRoutes(app: FastifyInstance) {
         reply.code(404).send({ error: 'Deposit not found' });
         return;
       }
-      reply.send(result.rows[0]);
+
+      const deposit = result.rows[0] as { merchant_id: string };
+      // IDOR guard: the deposit id is a UUID (not enumerable), but this is
+      // defense-in-depth — without it, any valid API key could read any
+      // other merchant's deposit record (amount, deposit address,
+      // merchant_id) just by knowing/guessing the UUID. A mismatch is 403,
+      // not 404: the caller authenticated fine, it simply doesn't own this
+      // deposit.
+      const ownershipError = merchantAccessError(req.auth, deposit.merchant_id);
+      if (ownershipError) {
+        reply.code(403).send(ownershipError);
+        return;
+      }
+
+      reply.send(deposit);
     },
   );
 
@@ -128,6 +152,15 @@ export async function buildDepositRoutes(app: FastifyInstance) {
       },
     },
     async (req, reply) => {
+      // A merchant key may only list its own deposits — the query string
+      // alone is not a credential, so a non-admin caller is always scoped to
+      // its own merchant_id regardless of what it asked for.
+      const merchantId = req.auth?.kind === 'admin' ? req.query.merchant_id : req.auth?.principalId;
+      if (!merchantId) {
+        reply.code(401).send({ error: 'Unauthorized', message: 'Missing authentication context.' });
+        return;
+      }
+
       const db = getDb();
       const limit = Math.min(parseInt(req.query.limit ?? '50', 10), 200);
       const result = await db.query(
@@ -136,7 +169,7 @@ export async function buildDepositRoutes(app: FastifyInstance) {
           WHERE merchant_id = $1
           ORDER BY created_at DESC
           LIMIT $2`,
-        [req.query.merchant_id, limit],
+        [merchantId, limit],
       );
       reply.send({ data: result.rows });
     },

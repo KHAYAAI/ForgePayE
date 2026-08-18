@@ -39,13 +39,15 @@ import { startShieldedMonitor, startShieldedRecoveryPoller } from './lib/shielde
 import { assertShieldedPaymentsSafeToBoot } from './lib/proof-verifier.js';
 import apiKeyAuth from './plugins/api-key-auth.js';
 
-async function main() {
-  // Fail fast, before we even bind a port, if shielded payments are enabled
-  // in production without a real (deployed) proof-verification path. See
-  // lib/proof-verifier.ts for details — this must never silently fall back
-  // to the always-true stub in production.
-  assertShieldedPaymentsSafeToBoot();
-
+/**
+ * Assemble the Fastify app: plugins, auth, and routes. Split out from
+ * main() so tests can build and `.inject()` against a real app (with real
+ * auth/ownership enforcement) without starting chain monitors, binding a
+ * port, or registering process signal handlers. Also means a production
+ * misconfiguration (missing VALID_API_KEYS, unset/"*" CORS_ALLOWED_ORIGINS)
+ * throws here, synchronously during boot, rather than on the first request.
+ */
+export async function buildApp() {
   const app = Fastify({ logger: true, trustProxy: true });
   await app.register(helmet, { contentSecurityPolicy: false });
 
@@ -66,9 +68,10 @@ async function main() {
     credentials: false,
   });
 
+  // Registered before every route below so nothing is served without a
+  // credential, and its own production misconfiguration (missing/weak/
+  // placeholder VALID_API_KEYS) throws here rather than on the first request.
   await app.register(apiKeyAuth);
-
-  const db = getDb();
 
   // Register routes
   await app.register(buildDepositRoutes,         { prefix: '/deposits' });
@@ -106,13 +109,25 @@ async function main() {
 
   app.get('/readyz',  async () => {
     try {
-      await db.query('SELECT 1', []);
+      await getDb().query('SELECT 1', []);
       return { status: 'ready' };
     } catch (err) {
-      const reply = app.server; // needed to set 503
       return { status: 'not ready', error: String(err) };
     }
   });
+
+  return app;
+}
+
+async function main() {
+  // Fail fast, before we even bind a port, if shielded payments are enabled
+  // in production without a real (deployed) proof-verification path. See
+  // lib/proof-verifier.ts for details — this must never silently fall back
+  // to the always-true stub in production.
+  assertShieldedPaymentsSafeToBoot();
+
+  const app = await buildApp();
+  const db = getDb();
 
   // Start EVM chain monitors (fire-and-forget — don't block server startup)
   const chains = ['ethereum', 'polygon', 'base', 'arbitrum'] as const;

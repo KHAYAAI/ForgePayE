@@ -15,6 +15,7 @@ import type { FastifyInstance } from 'fastify';
 import { randomUUID } from 'node:crypto';
 import { getDb } from '../lib/db.js';
 import { config } from '../config.js';
+import { merchantAccessError } from '../plugins/api-key-auth.js';
 
 interface X402PayBody {
   resource_url:  string;   // URL the agent wants to access
@@ -75,6 +76,13 @@ export async function buildX402Routes(app: FastifyInstance) {
     async (req, reply) => {
       const { resource_url, amount_usdc, merchant_id, agent_id } = req.body;
 
+      // A merchant key may only create x402 payments attributed to itself.
+      const ownershipError = merchantAccessError(req.auth, merchant_id);
+      if (ownershipError) {
+        reply.code(403).send(ownershipError);
+        return;
+      }
+
       if (amount_usdc > config.x402.maxAmountUsdc) {
         reply.code(400).send({ error: `Amount exceeds x402 max ($${config.x402.maxAmountUsdc})` });
         return;
@@ -113,7 +121,7 @@ export async function buildX402Routes(app: FastifyInstance) {
     async (req, reply) => {
       const db = getDb();
       const result = await db.query(
-        `SELECT id, status, amount_usdc, chain, resource_url, created_at, expires_at
+        `SELECT id, merchant_id, status, amount_usdc, chain, resource_url, created_at, expires_at
            FROM x402_payments WHERE id = $1`,
         [req.params.receipt_id],
       );
@@ -121,9 +129,19 @@ export async function buildX402Routes(app: FastifyInstance) {
         reply.code(404).send({ error: 'Receipt not found' });
         return;
       }
-      const payment = result.rows[0] as { status: string; expires_at: string };
+      const payment = result.rows[0] as { merchant_id: string; status: string; expires_at: string };
+
+      // IDOR guard — same pattern as GET /deposits/:id: only the owning
+      // merchant (or admin) may verify a receipt's payment details.
+      const ownershipError = merchantAccessError(req.auth, payment.merchant_id);
+      if (ownershipError) {
+        reply.code(403).send(ownershipError);
+        return;
+      }
+
+      const { merchant_id: _merchantId, ...publicPayment } = payment;
       reply.send({
-        ...payment,
+        ...publicPayment,
         valid: payment.status === 'confirmed' && new Date(payment.expires_at) > new Date(),
       });
     },

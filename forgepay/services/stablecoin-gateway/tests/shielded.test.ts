@@ -16,6 +16,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import Fastify from 'fastify';
 import { buildShieldedDepositRoutes } from '../src/routes/shielded-deposits.js';
 import { buildX402Routes } from '../src/routes/x402.js';
+import { buildX402ShieldedRoutes } from '../src/routes/x402-shielded.js';
 
 // ── Mock DB ───────────────────────────────────────────────────────────────────
 const mockDb = {
@@ -30,6 +31,35 @@ vi.mock('../src/lib/db.js', () => ({
 vi.mock('../src/lib/events.js', () => ({
   forwardToUnifiedRouter: vi.fn().mockResolvedValue(undefined),
 }));
+
+// This suite builds routes directly (no api-key-auth plugin registered, so
+// req.auth is always undefined) — it is about shielded-payment privacy
+// behaviour, not ownership enforcement, which is covered separately in
+// __tests__/ownership.test.ts against a real auth-enabled app. Stub
+// merchantAccessError to always authorise so these requests aren't rejected
+// for lacking an auth context they were never meant to exercise.
+vi.mock('../src/plugins/api-key-auth.js', () => ({
+  merchantAccessError: () => null,
+}));
+
+// decryptMemoViaAuditor makes a real outbound HTTP call to
+// config.shielded.auditorServiceUrl (mor-layer:8010) — unreachable in this
+// unit-test environment (no mor-layer running, no network egress). Every
+// route under test calls it before doing anything else, so without this
+// mock every one of them 502s ("AuditorUnavailable") regardless of what's
+// actually being tested. verifyGroth16Proof is left unmocked — it already
+// self-stubs to `true` for any chain whose NullifierRegistry isn't deployed
+// (see lib/proof-verifier.ts), which is exactly this suite's config.
+vi.mock('../src/lib/proof-verifier.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/lib/proof-verifier.js')>();
+  return {
+    ...actual,
+    decryptMemoViaAuditor: vi.fn().mockResolvedValue({
+      amount_units: '4999000000',
+      amount_usd:   4999,
+    }),
+  };
+});
 
 vi.mock('../src/config.js', () => ({
   config: {
@@ -68,8 +98,28 @@ const validShieldedDepositBody = {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 async function buildTestApp() {
   const app = Fastify({ logger: false });
+  // GET /shielded-deposits (list) reads req.auth?.principalId directly
+  // (ownership scoping added alongside this service's IDOR fix) rather than
+  // going through the merchantAccessError() mock above, which the other
+  // routes use. This suite is about shielded-payment privacy behaviour, not
+  // ownership enforcement (see the top-of-file comment), so fake an
+  // authenticated merchant matching whatever merchant_id the request itself
+  // names — equivalent in spirit to merchantAccessError always returning
+  // "authorized" — rather than exercise real ownership denial here.
+  app.addHook('onRequest', async (req) => {
+    const merchantId =
+      (req.query as { merchant_id?: string } | undefined)?.merchant_id ??
+      (req.body as { merchant_id?: string } | undefined)?.merchant_id ??
+      'merch_test_001';
+    req.auth = { principalId: merchantId, kind: 'merchant' };
+  });
   await app.register(buildShieldedDepositRoutes, { prefix: '/shielded-deposits' });
   await app.register(buildX402Routes,            { prefix: '/x402' });
+  // POST /x402/shielded-pay and GET /x402/shielded-verify/:receipt_id live in
+  // a separate router file (mirrors src/index.ts, which registers both under
+  // the same /x402 prefix) — buildX402Routes alone never mounted them, which
+  // is why the "x402-shielded flow" tests below 404'd before this was added.
+  await app.register(buildX402ShieldedRoutes,    { prefix: '/x402' });
   return app;
 }
 
@@ -306,6 +356,7 @@ describe('x402-shielded flow', () => {
         encrypted_memo: Buffer.from('{}').toString('base64'),
         proof_bytes:    Buffer.from('stub').toString('base64'),
         nullifier:      VALID_NULLIFIER,
+        chain:          'base',
         agent_id:       'agent_claude_001',
       },
     });
@@ -355,6 +406,7 @@ describe('x402-shielded flow', () => {
         encrypted_memo: Buffer.from('{}').toString('base64'),
         proof_bytes:    Buffer.from('stub').toString('base64'),
         nullifier:      VALID_NULLIFIER,
+        chain:          'base',
       },
     });
     expect(res.statusCode).toBe(409);

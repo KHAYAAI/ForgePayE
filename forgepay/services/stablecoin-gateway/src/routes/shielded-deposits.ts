@@ -27,6 +27,7 @@ import { getDb } from '../lib/db.js';
 import { config } from '../config.js';
 import { forwardToUnifiedRouter } from '../lib/events.js';
 import { decryptMemoViaAuditor, verifyGroth16Proof } from '../lib/proof-verifier.js';
+import { merchantAccessError } from '../plugins/api-key-auth.js';
 
 interface CreateShieldedDepositBody {
   merchant_id:    string;
@@ -66,6 +67,13 @@ export async function buildShieldedDepositRoutes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const { merchant_id, encrypted_memo, proof_bytes, nullifier, chain, token, metadata } = req.body;
+
+      // A merchant key may only create shielded deposits attributed to itself.
+      const ownershipError = merchantAccessError(req.auth, merchant_id);
+      if (ownershipError) {
+        reply.code(403).send(ownershipError);
+        return;
+      }
 
       const db = getDb();
 
@@ -169,8 +177,18 @@ export async function buildShieldedDepositRoutes(app: FastifyInstance) {
         reply.code(404).send({ error: 'ShieldedDeposit not found' });
         return;
       }
+
+      const deposit = result.rows[0] as { merchant_id: string };
+      // IDOR guard — same defense-in-depth as GET /deposits/:id: a mismatch
+      // is 403, not 404, since the caller authenticated fine.
+      const ownershipError = merchantAccessError(req.auth, deposit.merchant_id);
+      if (ownershipError) {
+        reply.code(403).send(ownershipError);
+        return;
+      }
+
       // Never return encrypted_memo or proof_bytes to merchant
-      reply.send(result.rows[0]);
+      reply.send(deposit);
     },
   );
 
@@ -191,9 +209,16 @@ export async function buildShieldedDepositRoutes(app: FastifyInstance) {
       },
     },
     async (req, reply) => {
+      // Non-admin callers are always scoped to their own merchant_id.
+      const merchantId = req.auth?.kind === 'admin' ? req.query.merchant_id : req.auth?.principalId;
+      if (!merchantId) {
+        reply.code(401).send({ error: 'Unauthorized', message: 'Missing authentication context.' });
+        return;
+      }
+
       const db = getDb();
       const limit  = Math.min(parseInt(req.query.limit ?? '50', 10), 200);
-      const params: unknown[] = [req.query.merchant_id];
+      const params: unknown[] = [merchantId];
       let statusClause = '';
       if (req.query.status) {
         params.push(req.query.status);

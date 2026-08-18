@@ -21,6 +21,7 @@ import type { FastifyInstance } from 'fastify';
 import { randomUUID } from 'node:crypto';
 import { getDb } from '../lib/db.js';
 import { decryptMemoViaAuditor, verifyGroth16Proof } from '../lib/proof-verifier.js';
+import { merchantAccessError } from '../plugins/api-key-auth.js';
 
 // Supported chains for shielded x402 — Base is the default (low fees for agents)
 type ShieldedChain = 'base' | 'ethereum' | 'polygon' | 'arbitrum';
@@ -74,6 +75,13 @@ export async function buildX402ShieldedRoutes(app: FastifyInstance): Promise<voi
         encrypted_memo, proof_bytes, nullifier,
         chain, agent_id,
       } = req.body;
+
+      // A merchant key may only create x402 shielded payments attributed to itself.
+      const ownershipError = merchantAccessError(req.auth, merchant_id);
+      if (ownershipError) {
+        reply.code(403).send(ownershipError);
+        return;
+      }
 
       const db = getDb();
 
@@ -185,8 +193,9 @@ export async function buildX402ShieldedRoutes(app: FastifyInstance): Promise<voi
     async (req, reply) => {
       const db = getDb();
       const result = await db.query(
-        // Intentionally select only non-sensitive columns
-        `SELECT id, status, chain, resource_url, nullifier,
+        // Intentionally select only non-sensitive columns (plus merchant_id,
+        // needed for the ownership check below, but never returned).
+        `SELECT id, merchant_id, status, chain, resource_url, nullifier,
                 agent_id, created_at, expires_at
            FROM x402_shielded_payments
           WHERE id = $1`,
@@ -200,6 +209,7 @@ export async function buildX402ShieldedRoutes(app: FastifyInstance): Promise<voi
 
       const payment = result.rows[0] as {
         id:           string;
+        merchant_id:  string;
         status:       string;
         chain:        string;
         resource_url: string;
@@ -208,6 +218,14 @@ export async function buildX402ShieldedRoutes(app: FastifyInstance): Promise<voi
         created_at:   string;
         expires_at:   string;
       };
+
+      // IDOR guard — same pattern as GET /deposits/:id: only the owning
+      // merchant (or admin) may verify a shielded receipt.
+      const ownershipError = merchantAccessError(req.auth, payment.merchant_id);
+      if (ownershipError) {
+        reply.code(403).send(ownershipError);
+        return;
+      }
 
       // Payment is valid only when confirmed on-chain and not expired
       const valid = payment.status === 'confirmed'
