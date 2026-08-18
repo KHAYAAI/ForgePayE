@@ -24,13 +24,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from src.auditor import AuditorClient
+from src.auth.dependencies import get_current_merchant
 from src.bridges.hyperswitch import (
     HyperswitchClient,
     PaymentCreateRequest,
     get_hyperswitch_client,
 )
 from src.config import Settings, get_settings
-from src.db.models import CheckoutSession
+from src.db.models import CheckoutSession, Merchant
 from src.db.session import get_db
 from src.models.checkout import (
     CheckoutLineItem,
@@ -57,6 +58,16 @@ def get_redis() -> aioredis.Redis:
     return _redis_client
 
 
+async def dispose_redis() -> None:
+    """Test-only counterpart to db.session.dispose_engine() — see its
+    docstring. This client is bound to whichever event loop first called
+    get_redis(); a per-test event loop makes it stale across tests."""
+    global _redis_client
+    if _redis_client is not None:
+        await _redis_client.aclose()
+    _redis_client = None
+
+
 def _sum_line_items(items: list[CheckoutLineItem]) -> int:
     return sum(item.amount * item.quantity for item in items)
 
@@ -68,6 +79,7 @@ async def create_checkout_session(
     cfg:  Annotated[Settings, Depends(get_settings)],
     db:   Annotated[AsyncSession, Depends(get_db)],
     request: Request,
+    current_merchant: Annotated[Merchant, Depends(get_current_merchant)],
 ) -> CheckoutSessionResponse:
     """
     Create a checkout session.
@@ -81,6 +93,15 @@ async def create_checkout_session(
     """
     # Rate limit: 30 checkout creations per minute
     check_rate_limit(request, "30/minute")
+
+    # The merchant a session is created for must be the authenticated caller —
+    # never trust body.merchant_id on its own, or any bearer token could create
+    # sessions (and downstream payment state) for an arbitrary merchant_id.
+    if body.merchant_id != current_merchant.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="merchant_id does not match the authenticated merchant",
+        )
 
     subtotal_cents = _sum_line_items(body.line_items)
 
@@ -194,6 +215,7 @@ async def create_shielded_checkout_session(
     hs:   Annotated[HyperswitchClient, Depends(get_hyperswitch_client)],
     cfg:  Annotated[Settings, Depends(get_settings)],
     db:   Annotated[AsyncSession, Depends(get_db)],
+    current_merchant: Annotated[Merchant, Depends(get_current_merchant)],
 ) -> CheckoutSessionResponse:
     """
     Create a shielded (privacy-preserving) checkout session.
@@ -210,6 +232,14 @@ async def create_shielded_checkout_session(
     Privacy guarantee: Merchant never sees plaintext. Public ledger never sees plaintext.
     Only auditor can decrypt to compute taxes.
     """
+    # As with the plain checkout flow, the merchant a shielded session is
+    # created for must be the authenticated caller.
+    if body.merchant_id != current_merchant.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="merchant_id does not match the authenticated merchant",
+        )
+
     try:
         memo_bytes = base64.b64decode(body.encrypted_memo)
     except Exception as exc:
@@ -401,6 +431,13 @@ async def retrieve_checkout_session(
       1. Redis cache (fast path, 1h TTL)
       2. Postgres (source of truth)
       3. Hyperswitch payment status (to verify latest state)
+
+    Intentionally unauthenticated: this is loaded directly by the buyer's
+    browser on the merchant's success/cancel redirect (no merchant JWT
+    available there). session_id is an unguessable server-generated token
+    (cs_<32 hex chars>) and this route returns no secrets (client_secret is
+    always None here) — it only exposes status/amount for the one session
+    the caller already holds the ID for.
     """
     # Rate limit: 100 retrievals per minute (read-heavy, higher limit)
     check_rate_limit(request, "100/minute")
