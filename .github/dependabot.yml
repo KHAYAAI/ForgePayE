@@ -1,0 +1,180 @@
+version: 2
+
+updates:
+  # ── GitHub Actions ──────────────────────────────────────────────────────
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule: { interval: "weekly" }
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # ── Python services (pip) ───────────────────────────────────────────────
+  - package-ecosystem: "pip"
+    directory: "/forgepay/services/compliance-monitor"
+    schedule: { interval: "weekly" }
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+  - package-ecosystem: "pip"
+    directory: "/forgepay/services/mor-layer"
+    schedule: { interval: "weekly" }
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+  - package-ecosystem: "pip"
+    directory: "/forgepay/services/liquidity-forecaster"
+    schedule: { interval: "weekly" }
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  # ── Node/TypeScript apps ────────────────────────────────────────────────
+  - package-ecosystem: "npm"
+    directory: "/forgepay/apps/platform"
+    schedule: { interval: "weekly" }
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+  - package-ecosystem: "npm"
+    directory: "/forgepay/apps/dashboard"
+    schedule: { interval: "weekly" }
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+  - package-ecosystem: "npm"
+    directory: "/forgepay/apps/web"
+    schedule: { interval: "weekly" }
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  # ── Node/TypeScript services — money-moving and identity-critical first ──
+  - package-ecosystem: "npm"
+    directory: "/forgepay/services/agent-credit-bureau"
+    schedule: { interval: "weekly" }
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+  - package-ecosystem: "npm"
+    directory: "/forgepay/services/agent-identity"
+    schedule: { interval: "weekly" }
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+  - package-ecosystem: "npm"
+    directory: "/forgepay/services/agent-credit-lines"
+    schedule: { interval: "weekly" }
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+  - package-ecosystem: "npm"
+    directory: "/forgepay/services/agent-decision-framework"
+    schedule: { interval: "weekly" }
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+  - package-ecosystem: "npm"
+    directory: "/forgepay/services/agent-liquidity-manager"
+    schedule: { interval: "weekly" }
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+  - package-ecosystem: "npm"
+    directory: "/forgepay/services/agent-negotiation"
+    schedule: { interval: "weekly" }
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+  - package-ecosystem: "npm"
+    directory: "/forgepay/services/forge-wallet"
+    schedule: { interval: "weekly" }
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+  - package-ecosystem: "npm"
+    directory: "/forgepay/services/forge-custody"
+    schedule: { interval: "weekly" }
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+  - package-ecosystem: "npm"
+    directory: "/forgepay/services/stablecoin-gateway"
+    schedule: { interval: "weekly" }
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+  - package-ecosystem: "npm"
+    directory: "/forgepay/services/crypto-gateway"
+    schedule: { interval: "weekly" }
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+  - package-ecosystem: "npm"
+    directory: "/forgepay/services/unified-router"
+    schedule: { interval: "weekly" }
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+  - package-ecosystem: "npm"
+    directory: "/forgepay/services/enterprise-treasury"
+    schedule: { interval: "weekly" }
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+  - package-ecosystem: "npm"
+    directory: "/forgepay/services/yield-engine"
+    schedule: { interval: "weekly" }
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+  - package-ecosystem: "npm"
+    directory: "/forgepay/services/rwa-registry"
+    schedule: { interval: "weekly" }
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+  - package-ecosystem: "npm"
+    directory: "/forgepay/services/accounts-service"
+    schedule: { interval: "weekly" }
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+  - package-ecosystem: "npm"
+    directory: "/forgepay/services/bank-connectivity"
+    schedule: { interval: "weekly" }
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+  - package-ecosystem: "npm"
+    directory: "/forgepay/services/bank-whitelabel"
+    schedule: { interval: "weekly" }
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+  - package-ecosystem: "npm"
+    directory: "/forgepay/services/chain-sync"
+    schedule: { interval: "weekly" }
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+  - package-ecosystem: "npm"
+    directory: "/forgepay/services/institutional-reporting"
+    schedule: { interval: "weekly" }
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  # ── Published SDK / agent packages ──────────────────────────────────────
+  - package-ecosystem: "npm"
+    directory: "/forgepay/packages/sdk-js"
+    schedule: { interval: "weekly" }
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+  - package-ecosystem: "npm"
+    directory: "/forgepay/packages/forge-agent"
+    schedule: { interval: "weekly" }
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
