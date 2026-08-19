@@ -10,8 +10,9 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const limit = parseInt(req.nextUrl.searchParams.get('limit') ?? '50', 10);
-    const before = req.nextUrl.searchParams.get('before');
+    const limitParam = req.nextUrl.searchParams.get('limit');
+    const limit = limitParam ? parseInt(limitParam, 10) : 50;
+    const before = req.nextUrl.searchParams.get('before') ?? undefined;
 
     const events = await listAuditLog(session.user.id, { limit, before });
     return NextResponse.json({ events });
