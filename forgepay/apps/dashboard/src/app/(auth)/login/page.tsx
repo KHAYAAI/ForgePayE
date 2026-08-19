@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { Suspense } from 'react';
 import LoginForm from '@/components/auth/LoginForm';
 
 export const metadata: Metadata = { title: 'Sign in' };
@@ -24,9 +25,13 @@ export default function LoginPage() {
           <p className="text-sm text-gray-400 mt-1">Sign in to your dashboard</p>
         </div>
 
-        {/* Form card */}
+        {/* Form card. LoginForm reads the ?sso_ticket / ?error the SSO callback
+            redirects back with, so it needs a Suspense boundary to keep this
+            page statically renderable. */}
         <div className="card p-8">
-          <LoginForm />
+          <Suspense fallback={<div className="h-64" aria-hidden />}>
+            <LoginForm />
+          </Suspense>
         </div>
 
         <p className="text-center text-xs text-gray-500 mt-6">

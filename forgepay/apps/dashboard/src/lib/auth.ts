@@ -257,6 +257,13 @@ export const authOptions: NextAuthOptions = {
     },
     session({ session, token }) {
       if (session.user) {
+        // NextAuth builds session.user as { name, email, image } and nothing
+        // else — there is no id unless it is put there. The merchant id rides
+        // in the JWT's standard `sub` claim (set from user.id when the token
+        // is minted), so map it across. Without this every route that scopes
+        // a query by session.user.id silently works on `undefined`: the type
+        // augmentation below promises a string, so nothing would flag it.
+        session.user.id        = token.sub!;
         session.user.apiKey    = token.apiKey;
         session.user.sessionId = token.sessionId;
       }

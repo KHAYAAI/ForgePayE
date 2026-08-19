@@ -2,7 +2,10 @@
 
 import { useState } from 'react';
 import { useSession } from 'next-auth/react';
-import { Save, Loader2, Key, Bell, Shield, Globe } from 'lucide-react';
+import { Save, Loader2, Key, Bell, Shield, Globe, Monitor, History, TriangleAlert } from 'lucide-react';
+import MfaPanel from '@/components/settings/MfaPanel';
+import SessionsPanel from '@/components/settings/SessionsPanel';
+import AuditLogPanel from '@/components/settings/AuditLogPanel';
 
 export default function SettingsPage() {
   const { data: session } = useSession();
@@ -116,23 +119,42 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* Security */}
+      {/* Two-factor authentication */}
       <div className="card p-6">
         <div className="flex items-center gap-2 mb-5">
           <Shield size={16} className="text-cyan-400" />
-          <h3 className="text-sm font-semibold text-white">Security</h3>
+          <h3 className="text-sm font-semibold text-white">Two-Factor Authentication</h3>
         </div>
-        <div className="space-y-3">
-          <button className="w-full text-left py-3 px-4 bg-white/[0.03] hover:bg-white/[0.06] border border-white/10 rounded-lg text-sm text-white transition-colors">
-            Change Password
-          </button>
-          <button className="w-full text-left py-3 px-4 bg-white/[0.03] hover:bg-white/[0.06] border border-white/10 rounded-lg text-sm text-white transition-colors">
-            Enable Two-Factor Authentication
-          </button>
-          <button className="w-full text-left py-3 px-4 bg-red-500/5 hover:bg-red-500/10 border border-red-500/20 rounded-lg text-sm text-red-400 transition-colors">
-            Delete Account
-          </button>
+        <MfaPanel />
+      </div>
+
+      {/* Active sessions */}
+      <div className="card p-6">
+        <div className="flex items-center gap-2 mb-5">
+          <Monitor size={16} className="text-cyan-400" />
+          <h3 className="text-sm font-semibold text-white">Active Sessions</h3>
         </div>
+        <SessionsPanel />
+      </div>
+
+      {/* Account activity */}
+      <div className="card p-6">
+        <div className="flex items-center gap-2 mb-5">
+          <History size={16} className="text-cyan-400" />
+          <h3 className="text-sm font-semibold text-white">Account Activity</h3>
+        </div>
+        <AuditLogPanel />
+      </div>
+
+      {/* Danger zone */}
+      <div className="card p-6">
+        <div className="flex items-center gap-2 mb-5">
+          <TriangleAlert size={16} className="text-red-400" />
+          <h3 className="text-sm font-semibold text-white">Danger Zone</h3>
+        </div>
+        <button className="w-full text-left py-3 px-4 bg-red-500/5 hover:bg-red-500/10 border border-red-500/20 rounded-lg text-sm text-red-400 transition-colors">
+          Delete Account
+        </button>
       </div>
     </div>
   );
