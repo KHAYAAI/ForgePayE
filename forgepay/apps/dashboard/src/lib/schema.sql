@@ -2,7 +2,7 @@
 -- Idempotent: safe to run repeatedly (CREATE TABLE IF NOT EXISTS + additive ALTERs).
 -- Run via: npm run db:migrate  (apps/dashboard/scripts/migrate.mjs)
 
--- Merchants table — matches mor-layer registration (extended here for session/MFA)
+-- Merchants table — matches mor-layer registration (extended here for session/MFA/SSO)
 CREATE TABLE IF NOT EXISTS merchants (
   id            TEXT PRIMARY KEY,
   email         TEXT NOT NULL UNIQUE,
@@ -12,6 +12,12 @@ CREATE TABLE IF NOT EXISTS merchants (
   created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- SSO (WorkOS) — merchants in the same company (email domain) share an organization
+ALTER TABLE merchants ADD COLUMN IF NOT EXISTS workos_organization_id TEXT;
+ALTER TABLE merchants ADD COLUMN IF NOT EXISTS workos_id TEXT;  -- User ID from WorkOS profile
+
+CREATE INDEX IF NOT EXISTS idx_merchants_workos_org ON merchants(workos_organization_id) WHERE workos_organization_id IS NOT NULL;
 
 -- MFA (TOTP). totp_secret is set on enrollment but totp_enabled stays false
 -- until the merchant confirms one code — see lib/mfa.ts. backup_codes holds
