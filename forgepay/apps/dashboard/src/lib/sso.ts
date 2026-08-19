@@ -1,80 +1,81 @@
-import { WorkOS } from '@workos-inc/node';
+import { getWorkOS, isWorkOsConfigured, ssoRedirectUri } from './workos';
+import { queryOne } from './db';
 
 /**
- * Merchant SSO via WorkOS domain-based routing.
- * Merchants in the same company (email domain) authenticate via their
- * company's IdP (Okta, Azure AD, Google Workspace, SAML, etc.).
+ * Enterprise SSO for merchants, brokered by WorkOS.
  *
- * Requires WORKOS_API_KEY and WORKOS_CLIENT_ID — until then,
- * isSsoConfigured() is false and SSO routes gracefully refuse.
+ * WorkOS sits in front of the actual IdPs (Okta, Azure AD, Google Workspace,
+ * SAML), so this app integrates once instead of once per customer. A merchant
+ * whose email domain belongs to an org with an SSO connection configured is
+ * routed to that org's IdP; everyone else keeps using password + MFA.
  */
 
-let workosClient: WorkOS | null = null;
-
-export function isSsoConfigured(): boolean {
-  return !!(process.env.WORKOS_API_KEY && process.env.WORKOS_CLIENT_ID);
-}
-
-function getWorkOS(): WorkOS {
-  if (!isSsoConfigured()) {
-    throw new Error(
-      'SSO is not configured. Set WORKOS_API_KEY and WORKOS_CLIENT_ID ' +
-      '(from https://dashboard.workos.com) to enable it.',
-    );
-  }
-  if (!workosClient) {
-    workosClient = new WorkOS(process.env.WORKOS_API_KEY!, {
-      clientId: process.env.WORKOS_CLIENT_ID!,
-    });
-  }
-  return workosClient;
-}
-
-function redirectUri(): string {
-  return (
-    process.env.WORKOS_REDIRECT_URI ??
-    `${process.env.NEXTAUTH_URL ?? 'http://localhost:3001'}/api/auth/sso/callback`
-  );
-}
+export { isWorkOsConfigured as isSsoConfigured };
 
 export interface SsoProfile {
   id: string;
   email: string;
   firstName: string;
   lastName: string;
-  organizationId: string;
+  organizationId: string | null;
 }
 
 /**
- * Build SSO authorization URL for the merchant's email domain.
- * Redirects to their company's IdP (if configured in WorkOS).
+ * The WorkOS organization an email address belongs to, or null if its domain
+ * has no SSO connection configured (the ordinary case for most merchants).
  */
-export function buildSsoAuthorizationUrl(email: string, state: string): string {
+export async function findSsoOrganizationForEmail(email: string): Promise<string | null> {
   const domain = email.split('@')[1]?.toLowerCase();
-  if (!domain) {
-    throw new Error('Invalid email domain for SSO');
-  }
+  if (!domain) return null;
 
+  const row = await queryOne<{ workos_organization_id: string }>(
+    `SELECT workos_organization_id FROM sso_domains WHERE domain = $1`,
+    [domain],
+  );
+  return row?.workos_organization_id ?? null;
+}
+
+/**
+ * Authorization URL that sends the merchant to their organization's IdP.
+ *
+ * Takes an already-resolved organization id: the handshake must name a
+ * connection, organization, or provider — there is no route-by-email-domain
+ * parameter — so callers resolve the domain first via
+ * findSsoOrganizationForEmail(). `loginHint` is passed so the IdP can
+ * pre-fill the address rather than asking for it a second time.
+ */
+export function buildSsoAuthorizationUrl(
+  organizationId: string,
+  state: string,
+  email?: string,
+): string {
   return getWorkOS().sso.getAuthorizationUrl({
-    domain,
-    clientId: process.env.WORKOS_CLIENT_ID!,
-    redirectUri: redirectUri(),
+    organization: organizationId,
+    clientId:     process.env['WORKOS_CLIENT_ID']!,
+    redirectUri:  ssoRedirectUri(),
     state,
+    ...(email ? { loginHint: email } : {}),
   });
 }
 
 /**
- * Exchange WorkOS authorization code for merchant profile.
- * Called by POST /api/auth/sso/callback after the merchant
- * authenticates with their company's IdP.
+ * Exchange the callback's authorization code for the authenticated profile.
+ *
+ * `getProfileAndToken` is the code-exchange call; `sso.getProfile` is a
+ * different thing entirely (it reads a profile from an access token already
+ * in hand) and passing a code to it silently fails.
  */
 export async function exchangeSsoCode(code: string): Promise<SsoProfile> {
-  const profile = await getWorkOS().sso.getProfile(code);
+  const { profile } = await getWorkOS().sso.getProfileAndToken({
+    code,
+    clientId: process.env['WORKOS_CLIENT_ID']!,
+  });
+
   return {
-    id: profile.id,
-    email: profile.email,
-    firstName: profile.first_name ?? '',
-    lastName: profile.last_name ?? '',
-    organizationId: profile.organization_id,
+    id:             profile.id,
+    email:          profile.email,
+    firstName:      profile.firstName ?? '',
+    lastName:       profile.lastName ?? '',
+    organizationId: profile.organizationId ?? null,
   };
 }

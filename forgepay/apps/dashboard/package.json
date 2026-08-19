@@ -30,12 +30,11 @@
     "@hookform/resolvers":  "^3.9.0",
     "react-plaid-link":    "^3.5.2",
     "pg":                   "^8.11.3",
-    "otplib":               "^12.0.1",
-    "qrcode":               "^1.5.4",
-    "@workos-inc/node":     "^10.14.0"
+    "@workos-inc/node":     "^10.10.0"
   },
   "devDependencies": {
     "@types/node":       "^20.14.0",
+    "@types/pg":         "^8.23.1",
     "@types/react":      "^18.3.3",
     "@types/react-dom":  "^18.3.0",
     "autoprefixer":      "^10.4.19",

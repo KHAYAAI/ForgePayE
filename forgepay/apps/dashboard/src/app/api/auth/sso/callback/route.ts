@@ -1,104 +1,105 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { exchangeSsoCode } from '@/lib/sso';
-import { queryOne, execute } from '@/lib/db';
-import { createSession } from '@/lib/sessions';
-import { logAuditEvent } from '@/lib/audit';
-import { randomUUID } from 'node:crypto';
+import { execute } from '@/lib/db';
+import { getMerchantByEmail } from '@/lib/merchants';
+import { issueSsoTicket } from '@/lib/sso-ticket';
+import { logAuditEvent, clientIp } from '@/lib/audit';
 
+/**
+ * Where WorkOS returns the merchant after their IdP has authenticated them.
+ *
+ * This route does NOT mint the session itself — it issues a single-use ticket
+ * and redirects to /login, which spends it through NextAuth's credentials
+ * flow (see lib/sso-ticket.ts for why the hand-off works this way).
+ */
 export async function GET(req: NextRequest) {
+  const code  = req.nextUrl.searchParams.get('code');
+  const state = req.nextUrl.searchParams.get('state');
+
+  if (!code) return failTo(req, 'sso_missing_code');
+
+  // The state we minted in /authorize came back in a cookie; WorkOS echoes
+  // its copy in the query. Both must match, or this is a response to a
+  // handshake we never started — the CSRF case this parameter exists for.
+  const expectedState = req.cookies.get('sso-state')?.value;
+  if (!expectedState || !state || !safeEqual(state, expectedState)) {
+    return failTo(req, 'sso_state_mismatch');
+  }
+
   try {
-    const code = req.nextUrl.searchParams.get('code');
-    const state = req.nextUrl.searchParams.get('state');
+    const profile = await exchangeSsoCode(code);
 
-    if (!code) {
-      return NextResponse.json({ error: 'Missing authorization code' }, { status: 400 });
-    }
-
-    // Exchange code for SSO profile
-    const ssoProfile = await exchangeSsoCode(code);
-
-    // Find or create merchant by email
-    let merchant = await queryOne<any>(
-      `SELECT * FROM merchants WHERE email = $1`,
-      [ssoProfile.email],
-    );
+    let merchant = await getMerchantByEmail(profile.email);
 
     if (!merchant) {
-      // Auto-create merchant from SSO profile
+      // First SSO login for this address: provision a local merchant.
+      //
+      // NOTE: this row carries no Hyperswitch api_key — mor-layer issues
+      // those, and nothing here can conjure a valid one. Such a merchant can
+      // sign in and use the dashboard's own surfaces, but payment calls will
+      // fail until an operator links the account to its mor-layer record. A
+      // fabricated key would look like it worked and fail confusingly later.
       const merchantId = `merchant_${randomUUID()}`;
-      const apiKey = `pk_${randomUUID()}`;
-      const fullName = `${ssoProfile.firstName} ${ssoProfile.lastName}`.trim() || ssoProfile.email;
+      const fullName =
+        `${profile.firstName} ${profile.lastName}`.trim() || profile.email;
 
       await execute(
         `INSERT INTO merchants (id, email, name, api_key, workos_organization_id, workos_id)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [merchantId, ssoProfile.email, fullName, apiKey, ssoProfile.organizationId, ssoProfile.id],
+         VALUES ($1, $2, $3, NULL, $4, $5)`,
+        [merchantId, profile.email, fullName, profile.organizationId, profile.id],
       );
 
-      merchant = {
-        id: merchantId,
-        email: ssoProfile.email,
-        name: fullName,
-        api_key: apiKey,
-        workos_organization_id: ssoProfile.organizationId,
-        workos_id: ssoProfile.id,
-      };
-
       await logAuditEvent({
-        merchantId: merchant.id,
-        actorMerchantId: merchant.id,
-        actorEmail: merchant.email,
-        action: 'auth.signup',
-        detail: { via: 'sso', workos_organization_id: ssoProfile.organizationId },
-        ipAddress: req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || null,
-        userAgent: req.headers.get('user-agent'),
+        merchantId,
+        actorMerchantId: merchantId,
+        actorEmail:      profile.email,
+        action:          'auth.signup',
+        detail:          { via: 'sso', workosOrganizationId: profile.organizationId },
+        ipAddress:       clientIp(req),
+        userAgent:       req.headers.get('user-agent'),
       });
-    } else {
-      // Update existing merchant's WorkOS info if needed
-      if (!merchant.workos_organization_id) {
-        await execute(
-          `UPDATE merchants SET workos_organization_id = $1, workos_id = $2, updated_at = NOW()
-           WHERE id = $3`,
-          [ssoProfile.organizationId, ssoProfile.id, merchant.id],
-        );
-        merchant.workos_organization_id = ssoProfile.organizationId;
-        merchant.workos_id = ssoProfile.id;
-      }
+
+      merchant = await getMerchantByEmail(profile.email);
+    } else if (!merchant.workos_organization_id) {
+      // Existing password-based merchant signing in via SSO for the first
+      // time — record the linkage.
+      await execute(
+        `UPDATE merchants
+            SET workos_organization_id = $1, workos_id = $2, updated_at = NOW()
+          WHERE id = $3`,
+        [profile.organizationId, profile.id, merchant.id],
+      );
     }
 
-    // Create session
-    const { sessionId } = await createSession(merchant.id, {
-      ipAddress: req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || null,
-      userAgent: req.headers.get('user-agent'),
-    });
+    if (!merchant) return failTo(req, 'sso_provisioning_failed');
 
-    await logAuditEvent({
-      merchantId: merchant.id,
-      actorMerchantId: merchant.id,
-      actorEmail: merchant.email,
-      action: 'auth.login_success',
-      detail: { via: 'sso' },
-      ipAddress: req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || null,
-      userAgent: req.headers.get('user-agent'),
-    });
+    const ticket = await issueSsoTicket(merchant.id);
 
-    // Create JWT via NextAuth callback manually — redirect to set cookie
-    // In production, you'd use NextAuth's signIn() redirect or create a server action
-    const redirectUrl = new URL('/dashboard', req.nextUrl.origin);
-    const response = NextResponse.redirect(redirectUrl);
+    const redirect = new URL('/login', req.nextUrl.origin);
+    redirect.searchParams.set('sso_ticket', ticket);
 
-    // Set session cookie (note: in production you'd coordinate with NextAuth's session handling)
-    response.cookies.set('merchant-sso-session', sessionId, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60,
-    });
-
-    return response;
+    const res = NextResponse.redirect(redirect);
+    res.cookies.delete('sso-state'); // one handshake, one state
+    return res;
   } catch (err) {
-    console.error('[sso-callback] error:', err);
-    const errorUrl = new URL('/login?error=sso_failed', req.nextUrl.origin);
-    return NextResponse.redirect(errorUrl);
+    console.error('[sso-callback] exchange failed:', err);
+    return failTo(req, 'sso_failed');
   }
+}
+
+/** Send the browser back to the login page with a reason, never a stack trace. */
+function failTo(req: NextRequest, reason: string): NextResponse {
+  const url = new URL('/login', req.nextUrl.origin);
+  url.searchParams.set('error', reason);
+  const res = NextResponse.redirect(url);
+  res.cookies.delete('sso-state');
+  return res;
+}
+
+function safeEqual(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return timingSafeEqual(bufA, bufB);
 }

@@ -10,12 +10,22 @@ export class UnauthorizedError extends Error {
 }
 
 /**
- * Returns the merchant's Hyperswitch API key from their authenticated JWT session.
- * Validates that the session is not revoked (checks database).
- * Throws `UnauthorizedError` if the caller is not authenticated or session is invalid.
+ * Returns the merchant's Hyperswitch API key from their authenticated JWT
+ * session, after confirming that session is still live.
+ *
+ * The JWT's own signature and expiry are not sufficient: a merchant who
+ * logged out, revoked the session from another device, or just enabled MFA
+ * still holds a syntactically valid token until its 7-day expiry. The
+ * sessions row is the authority on whether it may still be used, so it is
+ * checked on every request.
+ *
+ * Fails closed on a token with no `sessionId`: such a token cannot be
+ * revoked, so treating it as valid would reopen exactly the hole the
+ * sessions table exists to close.
  */
 export async function getSessionApiKey(): Promise<string> {
   const session = await getServerSession(authOptions);
+
   if (!session?.user?.apiKey) {
     // Dev / CI fallback — must NEVER be set in production Kubernetes secrets.
     const envKey = process.env['HYPERSWITCH_MERCHANT_API_KEY'];
@@ -23,14 +33,11 @@ export async function getSessionApiKey(): Promise<string> {
     throw new UnauthorizedError();
   }
 
-  // Validate session is not revoked (if sessionId is present)
-  const sessionId = (session.user as any)?.sessionId;
-  if (sessionId) {
-    const validSession = await getValidSession(sessionId);
-    if (!validSession) {
-      throw new UnauthorizedError();
-    }
-  }
+  const sessionId = session.user.sessionId;
+  if (!sessionId) throw new UnauthorizedError();
+
+  const live = await getValidSession(sessionId);
+  if (!live) throw new UnauthorizedError();
 
   return session.user.apiKey;
 }
