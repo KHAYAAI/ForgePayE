@@ -1,6 +1,7 @@
 import { getServerSession } from 'next-auth';
 import { NextResponse } from 'next/server';
 import { authOptions } from '@/lib/auth';
+import { getValidSession } from '@/lib/sessions';
 
 /** Thrown when no API key can be resolved for the request. */
 export class UnauthorizedError extends Error {
@@ -10,17 +11,28 @@ export class UnauthorizedError extends Error {
 
 /**
  * Returns the merchant's Hyperswitch API key from their authenticated JWT session.
- * Throws `UnauthorizedError` if the caller is not authenticated.
+ * Validates that the session is not revoked (checks database).
+ * Throws `UnauthorizedError` if the caller is not authenticated or session is invalid.
  */
 export async function getSessionApiKey(): Promise<string> {
   const session = await getServerSession(authOptions);
-  if (session?.user?.apiKey) return session.user.apiKey;
+  if (!session?.user?.apiKey) {
+    // Dev / CI fallback — must NEVER be set in production Kubernetes secrets.
+    const envKey = process.env['HYPERSWITCH_MERCHANT_API_KEY'];
+    if (envKey) return envKey;
+    throw new UnauthorizedError();
+  }
 
-  // Dev / CI fallback — must NEVER be set in production Kubernetes secrets.
-  const envKey = process.env['HYPERSWITCH_MERCHANT_API_KEY'];
-  if (envKey) return envKey;
+  // Validate session is not revoked (if sessionId is present)
+  const sessionId = (session.user as any)?.sessionId;
+  if (sessionId) {
+    const validSession = await getValidSession(sessionId);
+    if (!validSession) {
+      throw new UnauthorizedError();
+    }
+  }
 
-  throw new UnauthorizedError();
+  return session.user.apiKey;
 }
 
 /** Convenience: turn an UnauthorizedError into a 401 NextResponse. */

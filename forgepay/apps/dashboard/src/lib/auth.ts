@@ -1,6 +1,8 @@
 import type { NextAuthOptions } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import { getNextAuthSecret } from './nextauth-secret';
+import { createSession, getValidSession } from './sessions';
+import { logAuditEvent, clientIp } from './audit';
 
 /**
  * Merchant authentication.
@@ -23,14 +25,15 @@ import { getNextAuthSecret } from './nextauth-secret';
  * access registers a real merchant account the same way a customer does.
  */
 
-// Extend next-auth types to carry the merchant's Hyperswitch API key in the JWT.
+// Extend next-auth types to carry the merchant's Hyperswitch API key and session id in the JWT.
 declare module 'next-auth' {
   interface Session {
     user: {
-      id:      string;
-      email:   string;
-      name?:   string | null;
-      apiKey:  string;
+      id:        string;
+      email:     string;
+      name?:     string | null;
+      apiKey:    string;
+      sessionId: string;
     };
   }
   interface User {
@@ -42,7 +45,8 @@ declare module 'next-auth' {
 }
 declare module 'next-auth/jwt' {
   interface JWT {
-    apiKey: string;
+    apiKey:    string;
+    sessionId: string;
   }
 }
 
@@ -109,10 +113,24 @@ export const authOptions: NextAuthOptions = {
         password: { label: 'Password', type: 'password' },
       },
       async authorize(credentials) {
-        if (!credentials?.email || !credentials?.password) return null;
+        if (!credentials?.email || !credentials?.password) {
+          await logAuditEvent({
+            actorEmail: credentials?.email,
+            action: 'auth.login_failed',
+            detail: { reason: 'missing_credentials' },
+          });
+          return null;
+        }
 
         const merchant = await authenticateWithMorLayer(credentials.email, credentials.password);
-        if (!merchant) return null;
+        if (!merchant) {
+          await logAuditEvent({
+            actorEmail: credentials.email,
+            action: 'auth.login_failed',
+            detail: { reason: 'invalid_credentials' },
+          });
+          return null;
+        }
 
         return {
           id:     merchant.id,
@@ -124,12 +142,30 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   callbacks: {
-    jwt({ token, user }) {
-      if (user) token.apiKey = (user as { apiKey: string }).apiKey;
+    async jwt({ token, user }) {
+      if (user) {
+        token.apiKey = (user as { apiKey: string }).apiKey;
+        // Create a database session for this JWT
+        try {
+          const { sessionId } = await createSession(user.id);
+          token.sessionId = sessionId;
+          await logAuditEvent({
+            merchantId: user.id,
+            actorMerchantId: user.id,
+            actorEmail: (user as { email: string }).email,
+            action: 'auth.login_success',
+          });
+        } catch (err) {
+          console.error('[auth] failed to create session:', err);
+        }
+      }
       return token;
     },
     session({ session, token }) {
-      if (session.user) session.user.apiKey = token.apiKey;
+      if (session.user) {
+        session.user.apiKey = token.apiKey;
+        session.user.sessionId = (token as any).sessionId;
+      }
       return session;
     },
   },
