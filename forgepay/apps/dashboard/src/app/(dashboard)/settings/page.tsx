@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import { Save, Loader2, Key, Bell, Shield, Globe, Monitor, History, TriangleAlert } from 'lucide-react';
 import MfaPanel from '@/components/settings/MfaPanel';
@@ -10,10 +10,21 @@ import AuditLogPanel from '@/components/settings/AuditLogPanel';
 export default function SettingsPage() {
   const { data: session } = useSession();
 
-  const [email,    setEmail]    = useState(session?.user?.email ?? '');
-  const [name,     setName]     = useState(session?.user?.name  ?? '');
+  const [email,    setEmail]    = useState('');
+  const [name,     setName]     = useState('');
   const [saving,   setSaving]   = useState(false);
   const [saved,    setSaved]    = useState(false);
+
+  // useSession() resolves asynchronously: on first render `session` is null, so
+  // seeding these fields from it in useState() captured empty strings and never
+  // updated — the form rendered blank for a merchant whose name and email the
+  // app already knew. Sync once the session arrives, without clobbering edits
+  // the merchant has already typed.
+  useEffect(() => {
+    if (!session?.user) return;
+    setName((cur) => cur || session.user.name || '');
+    setEmail((cur) => cur || session.user.email || '');
+  }, [session]);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
