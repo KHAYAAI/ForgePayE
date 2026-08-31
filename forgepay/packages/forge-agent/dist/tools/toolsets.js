@@ -1,0 +1,33 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+// Importing these modules causes them to call registry.register() at load time.
+require("./core/analytics");
+require("./core/payments");
+require("./core/customers");
+require("./core/subscriptions");
+require("./core/integration");
+require("./core/crypto");
+require("./core/webhooks");
+require("./core/compliance-check");
+require("./core/get-forecast");
+require("./memory/recall");
+require("./memory/store");
+require("./delegation/delegate");
+require("./billing/invoices");
+require("./billing/credits");
+require("./evolution/create-skill");
+require("./evolution/improve-skill");
+require("./evolution/list-skills");
+require("./evolution/submit-feedback");
+require("./evolution/platform-discovery");
+require("./treasury/get-cash-position");
+require("./treasury/sweep-to-yield");
+require("./treasury/list-rules");
+require("./treasury/netting-summary");
+require("./agents/discover-agents");
+require("./agents/start-negotiation");
+require("./agents/check-negotiation");
+require("./rwa/list-rwa-assets");
+require("./rwa/get-rwa-income");
+require("./rwa/redeem-rwa");
+//# sourceMappingURL=toolsets.js.map

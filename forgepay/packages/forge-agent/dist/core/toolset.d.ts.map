@@ -1,0 +1,1 @@
+{"version":3,"file":"toolset.d.ts","sourceRoot":"","sources":["../../src/core/toolset.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,WAAW,EAAE,SAAS,EAAE,MAAM,SAAS,CAAC;AAEtD,eAAO,MAAM,aAAa,EAAE,MAAM,CAAC,SAAS,EAAE,WAAW,EAAE,CAI1D,CAAC;AAEF,qBAAa,eAAe;IAE1B,MAAM,CAAC,OAAO,CACZ,IAAI,EAAE,SAAS,EACf,cAAc,EAAE,OAAO,EACvB,aAAa,GAAE,WAAW,EAAO,GAChC,WAAW,EAAE;CAOjB"}
