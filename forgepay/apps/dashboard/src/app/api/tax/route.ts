@@ -65,7 +65,10 @@ export async function GET(req: NextRequest) {
 
     // Check if MoR integration is active (real tax data available)
     const morUrl = process.env['MOR_LAYER_URL'];
-    let morData: { total_tax_cents?: number; jurisdiction_count?: number } | null = null;
+    // Named rather than inferred: `as typeof morData` narrowed to `null` at the
+    // assignment below, which made every property read resolve to `never`.
+    type MorTaxSummary = { total_tax_cents?: number; jurisdiction_count?: number };
+    let morData: MorTaxSummary | null = null;
     if (morUrl) {
       try {
         const morRes = await fetch(`${morUrl}/v1/tax/summary?days=${days}`, {
@@ -73,7 +76,7 @@ export async function GET(req: NextRequest) {
           signal: AbortSignal.timeout(3000),
         });
         if (morRes.ok) {
-          morData = await morRes.json() as typeof morData;
+          morData = (await morRes.json()) as MorTaxSummary;
         }
       } catch {
         // MoR unreachable — use calculated values

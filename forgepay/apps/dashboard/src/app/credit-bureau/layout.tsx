@@ -17,7 +17,7 @@ export default function CreditBureauLayout({ children }: { children: React.React
       {/* Sub-nav */}
       <div className="flex items-center gap-1 px-6 pt-4 pb-0 border-b border-[#1A1A1A]">
         {TABS.map(({ label, href }) => {
-          const active = href === '/credit-bureau' ? pathname === href : pathname.startsWith(href);
+          const active = href === '/credit-bureau' ? pathname === href : pathname?.startsWith(href);
           return (
             <Link
               key={href}

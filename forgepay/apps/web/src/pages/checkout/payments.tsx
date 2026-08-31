@@ -6,7 +6,8 @@ import { useState } from 'react';
 export default function PaymentsCheckout() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const tier = searchParams.get('tier') || 'growth';
+  // Null until the router is ready — see the same guard in bundle.tsx.
+  const tier = searchParams?.get('tier') || 'growth';
   const [loading, setLoading] = useState(false);
 
   const plans = {

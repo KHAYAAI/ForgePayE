@@ -101,7 +101,9 @@ function DetailRow({ label, children }: { label: string; children: React.ReactNo
 }
 
 export default function PaymentDetailPage() {
-  const { id } = useParams<{ id: string }>();
+  // useParams() is typed as possibly null in Next 14; the route only
+  // renders with an [id] segment present, so default rather than assert.
+  const id = useParams<{ id: string }>()?.id ?? '';
   const { data, isLoading, error } = useSWR<Payment>(`/api/payments/${id}`, fetcher);
 
   const [refundAmount, setRefundAmount] = useState('');

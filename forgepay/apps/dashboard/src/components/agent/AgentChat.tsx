@@ -68,7 +68,7 @@ function ToolCard({
           <ChevronRight className="h-3 w-3 shrink-0" />
         )}
         <span className="font-semibold text-gray-800">{msg.name}</span>
-        {msg.result && (
+        {Boolean(msg.result) && (
           <span className="ml-auto text-xs text-green-600">✓ done</span>
         )}
       </button>

@@ -20,11 +20,17 @@ CREATE TABLE IF NOT EXISTS subscription_events (
   billing_amount NUMERIC(10, 2),
   previous_plan VARCHAR(255),
   metadata JSONB,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  INDEX idx_customer_product (customer_id, product),
-  INDEX idx_event_type (event_type),
-  INDEX idx_kb_subscription (kb_subscription_id)
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Indexes are declared separately: an inline `INDEX name (cols)` clause inside
+-- CREATE TABLE is MySQL syntax and is a hard parse error in Postgres, which
+-- aborted this migration at the CREATE TABLE and meant subscription_events was
+-- never created at all — the products columns above it applied, so the failure
+-- looked partial rather than total.
+CREATE INDEX IF NOT EXISTS idx_subevents_customer_product ON subscription_events (customer_id, product);
+CREATE INDEX IF NOT EXISTS idx_subevents_type            ON subscription_events (event_type);
+CREATE INDEX IF NOT EXISTS idx_subevents_kb_subscription ON subscription_events (kb_subscription_id);
 
 -- Revenue ontology expanded: add subscription-related events
 -- (existing revenue_events table already supports this via metadata JSONB)

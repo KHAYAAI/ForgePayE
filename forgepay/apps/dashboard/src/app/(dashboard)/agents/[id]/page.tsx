@@ -100,7 +100,9 @@ function fmt(cents: number) {
 }
 
 export default function AgentDetailPage() {
-  const { id } = useParams<{ id: string }>();
+  // useParams() is typed as possibly null in Next 14; the route only
+  // renders with an [id] segment present, so default rather than assert.
+  const id = useParams<{ id: string }>()?.id ?? '';
 
   const { data: agent, isLoading: loadingAgent } =
     useSWR<Agent>(`/api/agents/${id}`, fetcher);

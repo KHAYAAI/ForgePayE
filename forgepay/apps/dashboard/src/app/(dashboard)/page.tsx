@@ -45,10 +45,10 @@ export default function OverviewPage() {
           </>
         ) : (
           <>
-            <StatCard title="Gross Revenue"        value={revenue}    change="" trend="up" icon={DollarSign} sub="last 30 days" />
-            <StatCard title="Successful Payments"  value={successCnt} change="" trend="up" icon={CreditCard} sub={successRate} />
-            <StatCard title="Active Subscriptions" value={subCount}   change="" trend="up" icon={RefreshCw}  sub="Kill Bill" />
-            <StatCard title="Active Customers"     value={custCount}  change="" trend="up" icon={Users}      sub="this period" />
+            <StatCard label="Gross Revenue"        value={revenue}    change="" changeType="up" icon={DollarSign} sublabel="last 30 days" />
+            <StatCard label="Successful Payments"  value={successCnt} change="" changeType="up" icon={CreditCard} sublabel={successRate} />
+            <StatCard label="Active Subscriptions" value={subCount}   change="" changeType="up" icon={RefreshCw}  sublabel="Kill Bill" />
+            <StatCard label="Active Customers"     value={custCount}  change="" changeType="up" icon={Users}      sublabel="this period" />
           </>
         )}
       </div>

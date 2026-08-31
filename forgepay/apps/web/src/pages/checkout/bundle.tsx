@@ -6,7 +6,10 @@ import { useState } from 'react';
 export default function BundleCheckout() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const products = searchParams.get('products') || 'treasury,credit-bureau';
+  // useSearchParams() is null while the router is not ready (and during static
+  // prerender), so it has to be guarded — reading through it directly is what
+  // failed the build.
+  const products = searchParams?.get('products') || 'treasury,credit-bureau';
   const [loading, setLoading] = useState(false);
 
   const isTreasuryAndCB = products === 'treasury,credit-bureau';

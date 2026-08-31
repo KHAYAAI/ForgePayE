@@ -39,7 +39,7 @@ export default function Sidebar() {
         <div className="absolute -top-4 left-1/2 -translate-x-1/2 w-px h-4 bg-[#39D353]/30" />
 
         {NAV.slice(0, 5).map(({ href, icon: Icon, label }) => {
-          const active = href === '/' ? pathname === '/' : pathname.startsWith(href);
+          const active = href === '/' ? pathname === '/' : pathname?.startsWith(href);
           return (
             <div key={href} className="relative flex items-center">
               {/* Active indicator dot to the left */}
@@ -66,7 +66,7 @@ export default function Sidebar() {
         <div className="w-6 h-px bg-[#1E1E1E] my-1" />
 
         {NAV.slice(5).map(({ href, icon: Icon, label }) => {
-          const active = href === '/' ? pathname === '/' : pathname.startsWith(href);
+          const active = href === '/' ? pathname === '/' : pathname?.startsWith(href);
           return (
             <div key={href} className="relative flex items-center">
               {active && (

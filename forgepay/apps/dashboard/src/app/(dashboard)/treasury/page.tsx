@@ -147,7 +147,7 @@ export default function TreasuryPage() {
                   <div className="text-sm font-medium text-white truncate">{rule.name as string}</div>
                   <div className="flex items-center gap-2 mt-0.5">
                     <StatusBadge status={(rule.condition as Record<string, unknown>)?.type as string} />
-                    {rule.approvalRequired && (
+                    {Boolean(rule.approvalRequired) && (
                       <span className="text-[10px] text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded-full">
                         Approval req.
                       </span>
@@ -158,7 +158,7 @@ export default function TreasuryPage() {
                   <div className="text-[11px] text-gray-400">
                     {(rule.executionCount as number) > 0 ? `${rule.executionCount as number}× triggered` : 'Never triggered'}
                   </div>
-                  {rule.lastTriggered && (
+                  {Boolean(rule.lastTriggered) && (
                     <div className="text-[10px] text-gray-600 mt-0.5">
                       {new Date(rule.lastTriggered as string).toLocaleDateString()}
                     </div>

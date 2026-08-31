@@ -9,7 +9,7 @@ export function Sidebar() {
   const pathname = usePathname();
   const products = customer?.products || [];
 
-  const isActive = (path: string) => pathname.startsWith(path);
+  const isActive = (path: string) => pathname?.startsWith(path);
 
   return (
     <aside className="w-64 bg-gray-900 text-white h-full sticky top-0">

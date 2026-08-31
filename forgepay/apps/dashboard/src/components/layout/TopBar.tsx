@@ -13,7 +13,7 @@ export default function TopBar() {
     return () => clearInterval(t);
   }, []);
 
-  const crumb = pathname === '/' ? 'OVERVIEW' : pathname.slice(1).replace(/-/g, '_').toUpperCase();
+  const crumb = !pathname || pathname === '/' ? 'OVERVIEW' : pathname.slice(1).replace(/-/g, '_').toUpperCase();
 
   return (
     <header className="h-12 flex items-center justify-between px-6 border-b border-[#1A1A1A] bg-transparent shrink-0">

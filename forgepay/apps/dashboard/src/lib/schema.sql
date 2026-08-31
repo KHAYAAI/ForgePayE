@@ -68,6 +68,60 @@ CREATE TABLE IF NOT EXISTS sessions (
 
 CREATE INDEX IF NOT EXISTS idx_sessions_merchant ON sessions(merchant_id, revoked_at, expires_at);
 
+-- ── Product entitlements ─────────────────────────────────────────────────────
+--
+-- ForgePay is several platforms a merchant selects among — payments, the
+-- credit bureau, treasury, wallet, compliance — each independently priced and
+-- each usable on its own. This table is the dashboard's answer to "may this
+-- merchant use this product", and `lib/entitlements.ts` is the only thing that
+-- should write it.
+--
+-- `unified-router` owns the same model at platform scale (its own
+-- `entitlements` + `products` tables, keyed by customer). Until that service
+-- is mounted, the dashboard resolves entitlements locally; when it is, this
+-- becomes a projection of that and the source of truth moves there.
+--
+-- product_key is deliberately not an enum or a CHECK list: onboarding a new
+-- platform later should be an INSERT and a catalog entry, not a migration.
+CREATE TABLE IF NOT EXISTS entitlements (
+  id             BIGSERIAL PRIMARY KEY,
+  merchant_id    TEXT NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+  product_key    TEXT NOT NULL,
+  status         TEXT NOT NULL DEFAULT 'active'
+                 CHECK (status IN ('trialing','active','past_due','cancelled')),
+  plan           TEXT,
+  trial_ends_at  TIMESTAMPTZ,
+  activated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  cancelled_at   TIMESTAMPTZ,
+  metadata       JSONB NOT NULL DEFAULT '{}',
+  UNIQUE (merchant_id, product_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_entitlements_merchant ON entitlements (merchant_id, status);
+
+-- ── Revenue ontology ─────────────────────────────────────────────────────────
+--
+-- The mesh underneath the products. Whichever platform a merchant entered
+-- through, every revenue-affecting act lands here in one shape, tagged with
+-- the product that produced it — including LICENSING_DENIED, which is how a
+-- merchant hitting a product they have not bought becomes an upgrade signal
+-- instead of just a 403.
+--
+-- Integer cents: this is the table that has to reconcile.
+CREATE TABLE IF NOT EXISTS revenue_events (
+  id                BIGSERIAL PRIMARY KEY,
+  merchant_id       TEXT REFERENCES merchants(id) ON DELETE SET NULL,
+  product           TEXT NOT NULL,
+  event_type        TEXT NOT NULL,
+  amount_usd_cents  BIGINT NOT NULL DEFAULT 0,
+  currency          TEXT NOT NULL DEFAULT 'USD',
+  metadata          JSONB NOT NULL DEFAULT '{}',
+  event_timestamp   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_revenue_merchant_time ON revenue_events (merchant_id, event_timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_revenue_product_time  ON revenue_events (product, event_timestamp DESC);
+
 -- Email domain → WorkOS organization.
 --
 -- The SSO handshake must name a connection, organization, or provider; there
