@@ -23,6 +23,7 @@ export type ProductKey =
   | 'credit-bureau'
   | 'treasury'
   | 'wallet'
+  | 'custody'
   | 'compliance';
 
 export type Availability = 'available' | 'waitlist' | 'private' | 'retired';
@@ -89,15 +90,31 @@ export const PRODUCTS: Product[] = [
   {
     key: 'wallet',
     name: 'Wallet',
-    tagline: 'Programmable wallets and custody for agents and operators',
+    tagline: 'Programmable wallets for agents and operators',
     highlights: [
       'Wallets provisioned per agent',
       'Spending policies enforced before signing',
-      'MPC custody for balances held on-chain',
+      'Backed by the Custody platform for key security',
+    ],
+    availability: 'waitlist',
+    // Wallet holds balances; Custody is what actually secures the keys behind
+    // them. Split into its own platform so it can also be sold standalone —
+    // to a business that wants MPC custody under its own wallet, not ours.
+    requires: ['custody'],
+    basePath: '/wallet',
+  },
+  {
+    key: 'custody',
+    name: 'Custody',
+    tagline: 'MPC key custody, sellable on its own or underneath any wallet',
+    highlights: [
+      'Threshold signing — no single key ever exists in one place',
+      'Policy-gated signing, enforced before a signature is produced',
+      'Also secures ForgePay\'s own Wallet platform end to end',
     ],
     availability: 'waitlist',
     requires: [],
-    basePath: '/wallet',
+    basePath: '/custody',
   },
   {
     key: 'compliance',

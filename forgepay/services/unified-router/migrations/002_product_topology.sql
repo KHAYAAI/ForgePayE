@@ -150,7 +150,8 @@ INSERT INTO products (key, name, tagline, availability, requires, sort_order) VA
   ('credit-bureau', 'Credit Bureau', 'Credit files and underwriting reports for autonomous agents', 'available', '{}', 10),
   ('payments',      'Payments',      'One API for cards, bank transfers, stablecoins and crypto',    'private',   '{}', 20),
   ('treasury',      'Treasury',      'Corporate treasury, yield and liquidity management',            'waitlist',  '{}', 30),
-  ('wallet',        'Wallet',        'Programmable wallets and custody for agents and operators',     'waitlist',  '{}', 40),
+  ('wallet',        'Wallet',        'Programmable wallets for agents and operators',                  'waitlist',  '{custody}', 40),
+  ('custody',       'Custody',       'MPC key custody, sellable standalone or underneath any wallet', 'waitlist',  '{}', 45),
   ('compliance',    'Compliance',    'AML monitoring, sanctions screening and regulatory reporting',  'waitlist',  '{}', 50)
 ON CONFLICT (key) DO UPDATE
   SET name = EXCLUDED.name,

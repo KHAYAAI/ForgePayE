@@ -154,6 +154,7 @@ export const PRICING: Record<ProductKey, ProductPricing> = {
   'credit-bureau': CREDIT_BUREAU,
   treasury:        unpriced('treasury',   'Expected: monthly platform fee plus basis points on balances under management.'),
   wallet:          unpriced('wallet',     'Expected: per-wallet monthly fee plus per-signature or per-transfer charge.'),
+  custody:         unpriced('custody',    'Expected: monthly fee per custodied key or wallet, likely tiered by assets under custody.'),
   compliance:      unpriced('compliance', 'Expected: monthly fee by screening volume, plus per-alert or per-report charge.'),
 };
 
