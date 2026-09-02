@@ -28,5 +28,8 @@
   },
   "license": "MIT",
   "attribution": "Contains code derived from Qova (https://github.com/brn-mwai/qova) by Hausor Labs — MIT License",
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "forge-std": "^1.1.2"
+  }
 }
