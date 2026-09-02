@@ -28,7 +28,7 @@ from __future__ import annotations
 import warnings
 from concurrent.futures import ThreadPoolExecutor
 from itertools import product
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
@@ -91,7 +91,7 @@ class ARIMAForecaster:
     _Q_RANGE = range(0, 4)   # 0–3
 
     def __init__(self) -> None:
-        self._result = None          # fitted SARIMAXResults
+        self._result: Any = None     # fitted SARIMAXResults (statsmodels is untyped)
         self._best_order: tuple[int, int, int] = (1, 1, 1)
         self._series: pd.Series | None = None
         self._fitted = False
@@ -189,7 +189,12 @@ class ExponentialSmoothingForecaster:
     _SEASONAL_PERIOD = 7  # weekly pattern
 
     def __init__(self) -> None:
-        self._result = None
+        # Annotated because a bare `= None` makes mypy infer the attribute's
+        # type as None, which then reports every later assignment and every
+        # `self._result.fittedvalues` access as an error. The fitted object is a
+        # statsmodels HoltWintersResults, which ships no type information, so
+        # Any is the honest annotation rather than a fabricated protocol.
+        self._result: Any = None
         self._rmse: float = 0.0
         self._fitted = False
 
@@ -392,18 +397,25 @@ class EnsembleForecaster:
         if not self._fitted:
             raise RuntimeError("Call fit() before predict()")
 
-        arima_f = arima_lo = arima_hi = None
-        es_f = es_lo = es_hi = None
+        # Each forecaster yields (point, lower, upper) or nothing at all. Held
+        # as one optional triple rather than three separate optionals so the
+        # "all three or none" invariant is structural: previously the guard
+        # below tested only the point forecast and then used the bands, which
+        # was correct solely because the tuple unpack is atomic — an invariant
+        # nothing enforced and a type checker could not see.
+        Triple = tuple[np.ndarray, np.ndarray, np.ndarray]
+        arima: Triple | None = None
+        es: Triple | None = None
 
         if self._arima_ok:
             try:
-                arima_f, arima_lo, arima_hi = self._arima.predict(horizon_days)
+                arima = self._arima.predict(horizon_days)
             except Exception as exc:
                 log.warning("arima_predict_failed", error=str(exc))
 
         if self._es_ok:
             try:
-                es_f, es_lo, es_hi = self._es.predict(horizon_days)
+                es = self._es.predict(horizon_days)
             except Exception as exc:
                 log.warning("es_predict_failed", error=str(exc))
 
@@ -411,14 +423,14 @@ class EnsembleForecaster:
         w_e = self._es_weight
 
         # Blend whichever succeeded
-        if arima_f is not None and es_f is not None:
-            forecast = w_a * arima_f + w_e * es_f
-            lower_80 = w_a * arima_lo + w_e * es_lo
-            upper_80 = w_a * arima_hi + w_e * es_hi
-        elif arima_f is not None:
-            forecast, lower_80, upper_80 = arima_f, arima_lo, arima_hi  # type: ignore[assignment]
-        elif es_f is not None:
-            forecast, lower_80, upper_80 = es_f, es_lo, es_hi  # type: ignore[assignment]
+        if arima is not None and es is not None:
+            forecast = w_a * arima[0] + w_e * es[0]
+            lower_80 = w_a * arima[1] + w_e * es[1]
+            upper_80 = w_a * arima[2] + w_e * es[2]
+        elif arima is not None:
+            forecast, lower_80, upper_80 = arima
+        elif es is not None:
+            forecast, lower_80, upper_80 = es
         else:
             # Both failed — return zeros
             forecast = np.zeros(horizon_days)
