@@ -41,6 +41,10 @@ import { buildWebhookRoutes } from './routes/webhooks.js';
 import { buildPaymentRoutes } from './routes/payments.js';
 import { buildEventRoutes } from './routes/events.js';
 import { buildHealthRoutes } from './routes/health.js';
+import { customerRoutes } from './routes/customer.js';
+import { bundleRoutes } from './routes/bundle.js';
+import { csmRoutes } from './routes/csm.js';
+import { registerAuth } from './auth.js';
 import { createRedisClient } from './lib/redis.js';
 import { pool as sharedPool } from './db/index.js';
 import { config } from './config.js';
@@ -109,11 +113,22 @@ async function main() {
     logger.warn({ err }, '[unified-router] Migrations failed — continuing (dev only)');
   }
 
+  // ── Authentication ────────────────────────────────────────────────────────
+  // Registered before the routes so `request.user` is populated by the time any
+  // handler runs. Deny-by-default: an unlisted route requires the operator key.
+  await registerAuth(app);
+
   // ── Routes ────────────────────────────────────────────────────────────────
   await app.register(buildHealthRoutes);
   await app.register(buildWebhookRoutes, { prefix: '/webhooks' });
   await app.register(buildPaymentRoutes);
   await app.register(buildEventRoutes,   { prefix: '/events' });
+
+  // Product licensing. These four modules existed but were never registered
+  // because they read `request.user` and nothing populated it — see auth.ts.
+  await app.register(customerRoutes);
+  await app.register(bundleRoutes, { prefix: '/bundle' });
+  await app.register(csmRoutes,    { prefix: '/csm' });
 
   // ── Graceful shutdown ─────────────────────────────────────────────────────
   const shutdown = async (signal: string) => {

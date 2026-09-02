@@ -26,16 +26,24 @@ declare module 'fastify' {
     rawBody?: Buffer;
 
     /**
-     * Decoded auth principal. Not yet populated by any registered plugin —
-     * the routes/middleware that read it (bundle.ts, csm.ts, customer.ts,
-     * require-product.ts) are not currently mounted in index.ts. Declared
-     * here so those modules type-check; wiring a real JWT-verification
-     * preHandler is tracked separately before any of them are registered.
+     * Decoded auth principal, populated by the `onRequest` hook in auth.ts.
+     *
+     * Both fields are undefined for the operator key, which is not scoped to a
+     * single customer or tenant — handlers that act on one customer must read
+     * the id from the route and authorise it via `customerAccessError()` rather
+     * than assuming `customerId` is present.
      */
     user?: {
       customerId?: string;
       tenantId?: string;
     };
+
+    /**
+     * Full principal, including which kind of key authenticated. Prefer this in
+     * new code; `user` exists because bundle.ts, csm.ts and customer.ts were
+     * written against that shape before any authentication existed.
+     */
+    auth?: import('../auth.js').AuthContext;
   }
 
   interface FastifyContextConfig {

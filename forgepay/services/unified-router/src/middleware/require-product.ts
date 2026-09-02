@@ -7,9 +7,27 @@ const PRODUCT_MAP: Record<string, string> = {
   '/v1/credit-bureau': 'credit-bureau',
 };
 
+/**
+ * Whether entitlement checks actually block requests.
+ *
+ * Deliberately opt-in. `POST /v1/payments` is matched by PRODUCT_MAP below and
+ * is the one payment route this service serves; no customer currently has
+ * `products` populated, so switching enforcement on before customers are
+ * provisioned would 403 every payment call. That is an outage, not a fix.
+ *
+ * Set ENFORCE_PRODUCT_ENTITLEMENTS=true once customers carry their products —
+ * the code path is live and tested either way, so this is a flag flip rather
+ * than a deploy of untested code. Until then the middleware records the denial
+ * it *would* have issued (LICENSING_DENIED in revenue_events, which is how
+ * unlicensed demand gets measured) and lets the request through.
+ */
+function enforcementEnabled(): boolean {
+  return process.env['ENFORCE_PRODUCT_ENTITLEMENTS'] === 'true';
+}
+
 export async function requireProductMiddleware(request: FastifyRequest, reply: FastifyReply) {
-  const customerId = (request.user as any)?.customerId;
-  const tenantId = (request.user as any)?.tenantId;
+  const customerId = request.user?.customerId;
+  const tenantId = request.user?.tenantId;
   const pathname = request.url.split('?')[0];
 
   const requiredProduct = Object.entries(PRODUCT_MAP).find(([prefix]) =>
@@ -20,8 +38,24 @@ export async function requireProductMiddleware(request: FastifyRequest, reply: F
     return;
   }
 
+  // No customer context means there is no entitlement to evaluate. This is the
+  // operator key, which acts across customers and is not licensed per product.
+  //
+  // Reaching here with neither an operator nor a customer would mean an
+  // unauthenticated request got past the auth hook, so fail closed rather than
+  // silently allowing it — previously `(request.user as any).customerId` made
+  // this case a `SELECT ... WHERE id = undefined`, which matches nothing and
+  // therefore denied every product to a caller it could not identify.
+  if (!customerId || !tenantId) {
+    if (request.auth?.kind === 'operator') return;
+    return reply.status(401).send({
+      error: 'Unauthorized',
+      message: 'No customer context on this request.',
+    });
+  }
+
   try {
-    const customer = await db.query(
+    const customer = await db.query<{ products: string[] | null }>(
       tenantId,
       `SELECT products FROM customers WHERE id = $1`,
       [customerId]
@@ -48,6 +82,11 @@ export async function requireProductMiddleware(request: FastifyRequest, reply: F
           }),
         ]
       );
+
+      if (!enforcementEnabled()) {
+        // Denial recorded above, request allowed through. See enforcementEnabled().
+        return;
+      }
 
       return reply.status(403).send({
         error: 'unlicensed_product',
