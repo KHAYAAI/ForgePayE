@@ -270,24 +270,37 @@ export class ForgeChainClient {
         ? Math.round((successCount / totalCount) * 10_000)
         : 0;
 
-      // Budget compliance approximation:
-      //   hasBudget=false → no limit configured → 1.0 (full compliance by definition)
-      //   hasBudget=true  → limits exist; all recorded txs passed the check (overages revert
-      //                     and are never stored), so compliance is 1.0 for recorded txs.
-      //                     Conservative: treat as 0.97 to reflect potential off-chain attempts
-      //                     that never reached the contract. Replace with event-log analysis
-      //                     once SpendRecorded events are indexed.
-      const budgetComplianceRate = hasBudget ? 0.97 : 1.0;
+      // Budget compliance is NOT measured.
+      //
+      // This was `hasBudget ? 0.97 : 1.0` — two literals presented to the scorer
+      // as an observed rate. Neither is derived from anything: an agent with no
+      // budget scored a perfect 1.0 for compliance across zero spend attempts,
+      // taking the full 150-point bucket, and an agent with a budget got 0.97 by
+      // assertion regardless of behaviour.
+      //
+      // Measuring it properly needs indexed ForgeBudgetEnforcer events —
+      // SpendRecorded for accepted spends, and reverted calls for rejected ones,
+      // since a rejected spend leaves no successful transaction behind. Until
+      // that indexer exists, this is null and the scorer omits the factor and
+      // redistributes its weight, rather than scoring a guess.
+      const budgetComplianceRate: number | null = null;
+      void hasBudget; // read above to keep the contract call, unused until events are indexed
 
       // Check if score is settled on-chain
       const onChainScore = await this.getOnChainScore(agentAddress);
 
+      // `accountAgeMonths` is supplied by the caller and, today, always derives
+      // from the off-chain profile's createdAt — see the caller in index.ts.
+      // Labelling it as such stops the scorer reporting off-chain tenure as
+      // "months of on-chain activity history", which it did even for an address
+      // whose first on-chain write happened minutes earlier.
       return {
         successRateBps,
         totalVolumeUsd,
         totalCount,
         budgetComplianceRate,
         accountAgeMonths,
+        accountAgeSource: 'off-chain-profile',
         onChainSettled: onChainScore !== null,
         onChainScore:   onChainScore ?? undefined,
       };

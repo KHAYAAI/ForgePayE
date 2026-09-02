@@ -292,6 +292,109 @@ jobs:
       - run: poetry run mypy forgepay
       - run: poetry run pytest tests/ -v --tb=short
 
+  # ── Remaining TypeScript services ────────────────────────────────────────────
+  #
+  # Twelve services with passing suites that no pipeline was watching. Between
+  # them they carry 420 test cases which could have gone red on any commit
+  # without anyone finding out — CI covered 6 of 26 services, so the majority of
+  # the platform's own tests were advisory.
+  #
+  # Every service below was verified locally before being added here: `tsc
+  # --noEmit` clean and the full suite green. A gate that starts red teaches
+  # people to ignore the gate.
+  #
+  # Deliberately NOT in this matrix:
+  #   email-service        — 119 lines, no test files to run
+  #   liquidity-forecaster — no package.json; cannot be installed or tested
+  #                          as a Node service at all (see below)
+  #   billing-engine, open-privy, openfireblocks — nested Java/NestJS/Go
+  #                          layouts needing their own toolchains
+  #   bank-connectivity, rwa-registry — need Postgres; gated separately below
+  typescript-services:
+    name: "${{ matrix.service }} — type-check + test"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - accounts-service
+          - agent-credit-lines
+          - agent-decision-framework
+          - agent-liquidity-manager
+          - agent-negotiation
+          - bank-whitelabel
+          - chain-sync
+          - crypto-gateway
+          - enterprise-treasury
+          - institutional-reporting
+          - stablecoin-gateway
+          - yield-engine
+    defaults:
+      run:
+        working-directory: forgepay/services/${{ matrix.service }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: forgepay/services/${{ matrix.service }}/package-lock.json
+
+      - run: npm ci
+      - run: npm run type-check
+      - run: npm test
+
+  # ── Services requiring Postgres ──────────────────────────────────────────────
+  #
+  # These two were not failing on their merits — their integration suites need a
+  # real database and were erroring with ECONNREFUSED on 127.0.0.1:5432. Given a
+  # service container they pass, which is the difference between "these tests are
+  # broken" and "nobody ever gave these tests a database".
+  postgres-backed-services:
+    name: "${{ matrix.service }} — test against Postgres"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [bank-connectivity, rwa-registry]
+    defaults:
+      run:
+        working-directory: forgepay/services/${{ matrix.service }}
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: forgepay
+          POSTGRES_PASSWORD: forgepay
+          POSTGRES_DB: forgepay_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgres://forgepay:forgepay@localhost:5432/forgepay_test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: forgepay/services/${{ matrix.service }}/package-lock.json
+
+      - run: npm ci
+
+      # bank-connectivity is Prisma-backed; its schema has to exist before the
+      # suite runs. rwa-registry creates its own tables on connect.
+      - name: Apply Prisma migrations
+        if: matrix.service == 'bank-connectivity'
+        run: npx prisma migrate deploy
+
+      - run: npm test
+
   # ── Helm lint ────────────────────────────────────────────────────────────────
   helm-lint:
     name: "helm — lint all charts"

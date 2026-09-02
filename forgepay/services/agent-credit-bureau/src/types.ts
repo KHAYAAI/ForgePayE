@@ -311,8 +311,27 @@ export interface Mode2Inputs {
   successRateBps: number;          // basis points: 9500 = 95%
   totalVolumeUsd: number;
   totalCount: number;
-  budgetComplianceRate: number;    // 0.0-1.0: fraction of spend attempts within budget
+  /**
+   * 0.0-1.0: fraction of spend attempts within budget, or `null` when it has
+   * not been measured.
+   *
+   * This was previously a non-nullable number that no code path ever measured —
+   * `hasBudget ? 0.97 : 1.0`, two literals standing in for observed behaviour.
+   * An agent with no budget configured scored full marks for "100% compliance"
+   * across zero spend attempts, and 15% of the Mode 2 weighting was decided by
+   * a constant. Computing real compliance needs indexed `SpendRecorded` and
+   * revert events from ForgeBudgetEnforcer; until that exists this is `null`
+   * and the scorer omits the factor rather than inventing one.
+   */
+  budgetComplianceRate: number | null;
   accountAgeMonths: number;
+  /**
+   * Where `accountAgeMonths` came from. Only `'on-chain'` may be scored as an
+   * on-chain factor — the off-chain profile's creation date says nothing about
+   * activity on a chain and previously produced the contradiction of "32 months
+   * of on-chain activity history" alongside "0 transactions recorded".
+   */
+  accountAgeSource: 'on-chain' | 'off-chain-profile';
   onChainSettled: boolean;         // whether ForgeReputationRegistry has a score
   onChainScore?: number;           // the settled on-chain score (0-1000) if available
 }

@@ -25,6 +25,19 @@
  *   BUREAU_X402_MERCHANT_ID — default forgepay-credit-bureau
  */
 
+// Load .env before anything reads process.env.
+//
+// Without this the service has no .env loader at all — tsx does not read one,
+// and nothing else did either. A correctly filled .env was simply ignored, so
+// the on-chain bridge reported `chainConfigured: false` and fell back to
+// off-chain-only mode with no error to explain why. Container deployments inject
+// variables directly, which is exactly why the gap survived unnoticed.
+//
+// `override: false` keeps real environment variables winning over the file, so
+// this changes nothing in a deployed container.
+import { config as loadEnv } from 'dotenv';
+loadEnv({ override: false });
+
 import Fastify, { FastifyError } from 'fastify';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';

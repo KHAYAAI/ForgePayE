@@ -318,11 +318,59 @@ export { riskGrade, scoreTier as tierFromScore };
 //   Budget Compliance  15% — fraction of spend attempts within budget limits
 //   Account Age        10% — months since first on-chain transaction
 
-export function computeMode2Score(inputs: Mode2Inputs): {
+//
+// Two rules govern what may be scored here:
+//
+//   1. A factor is scored only when it has been measured. An unmeasured factor
+//      is omitted and its weight redistributed across the rest, rather than
+//      being awarded a default. Crediting an agent for behaviour nobody
+//      observed is how an empty file came to score 250 of its 290 raw points.
+//
+//   2. An agent with no recorded on-chain transactions has no Mode 2 score at
+//      all — `null`, not a number. "We have no information about you" and "we
+//      have information and it is bad" are different findings, and collapsing
+//      them onto 300/DEEP_SUBPRIME made every newly-onboarded agent
+//      indistinguishable from a genuinely delinquent one.
+
+/** Returned when an agent has no on-chain record to score. */
+export interface Mode2Unscored {
+  score: null;
+  reason: 'INSUFFICIENT_ONCHAIN_HISTORY';
+  detail: string;
+  factors: ScoreFactor[];
+}
+
+export interface Mode2Scored {
   score: number;
   factors: ScoreFactor[];
-} {
+}
+
+export function computeMode2Score(inputs: Mode2Inputs): Mode2Scored | Mode2Unscored {
+  // Rule 2 — no observed activity means no score. The dual-mode composite
+  // already handles a null Mode 2 correctly: Mode 1 stays authoritative and no
+  // divergence is claimed.
+  if (inputs.totalCount === 0) {
+    return {
+      score:  null,
+      reason: 'INSUFFICIENT_ONCHAIN_HISTORY',
+      detail:
+        'No on-chain transactions have been recorded for this agent, so operational ' +
+        'performance cannot be scored. This is an absence of evidence, not evidence ' +
+        'of poor performance.',
+      factors: [{
+        code:        'NO_ONCHAIN_RECORD',
+        description: '0 transactions recorded against ForgeTransactionValidator.',
+        impact:      'neutral',
+        weight:      0,
+      }],
+    };
+  }
+
   const factors: ScoreFactor[] = [];
+  // Points available from factors that were actually measured. Every scored
+  // bucket adds its maximum here; the final score is rescaled against it so
+  // omitting a factor does not silently depress the result.
+  let availablePoints = 0;
 
   // ── 1. Success Rate (30%) — max 300pts ────────────────────────────────────
   const successPct = inputs.successRateBps / 100;   // e.g. 9500 bps → 95%
@@ -334,6 +382,7 @@ export function computeMode2Score(inputs: Mode2Inputs): {
   else if (successPct >= 70) successScore = 80;
   else                       successScore = 20;
 
+  availablePoints += 300;
   factors.push({
     code: successPct >= 95 ? 'HIGH_SUCCESS_RATE' : 'LOW_SUCCESS_RATE',
     description: `${successPct.toFixed(1)}% of on-chain transactions succeeded.`,
@@ -351,6 +400,7 @@ export function computeMode2Score(inputs: Mode2Inputs): {
   else if (vol >= 100)       volScore = 50;
   else                       volScore = 10;
 
+  availablePoints += 250;
   factors.push({
     code: vol >= 10_000 ? 'HIGH_VOLUME' : vol >= 100 ? 'MODERATE_VOLUME' : 'LOW_VOLUME',
     description: `$${vol.toLocaleString()} total on-chain transaction volume.`,
@@ -367,6 +417,7 @@ export function computeMode2Score(inputs: Mode2Inputs): {
   else if (cnt >= 3)    cntScore = 50;
   else                  cntScore = 10;
 
+  availablePoints += 200;
   factors.push({
     code: cnt >= 100 ? 'ACTIVE_TRANSACTION_HISTORY' : cnt >= 10 ? 'MODERATE_HISTORY' : 'THIN_HISTORY',
     description: `${cnt.toLocaleString()} total on-chain transactions recorded.`,
@@ -374,40 +425,72 @@ export function computeMode2Score(inputs: Mode2Inputs): {
     weight: 20,
   });
 
-  // ── 4. Budget Compliance (15%) — max 150pts ───────────────────────────────
-  const compliance = inputs.budgetComplianceRate;   // 0.0-1.0
-  let complianceScore: number;
-  if      (compliance >= 0.99) complianceScore = 150;
-  else if (compliance >= 0.95) complianceScore = 120;
-  else if (compliance >= 0.85) complianceScore = 80;
-  else if (compliance >= 0.70) complianceScore = 40;
-  else                         complianceScore = 0;
+  // ── 4. Budget Compliance (15%) — max 150pts, scored only when measured ────
+  const compliance = inputs.budgetComplianceRate;
+  let complianceScore = 0;
 
-  factors.push({
-    code: compliance >= 0.95 ? 'STRONG_BUDGET_COMPLIANCE' : 'POOR_BUDGET_COMPLIANCE',
-    description: `${Math.round(compliance * 100)}% of spending attempts within configured budget limits.`,
-    impact: compliance >= 0.90 ? 'positive' : compliance >= 0.70 ? 'neutral' : 'negative',
-    weight: 15,
-  });
+  if (compliance === null) {
+    // Not measurable yet — reported as context, worth nothing either way.
+    factors.push({
+      code:        'BUDGET_COMPLIANCE_UNMEASURED',
+      description: 'Budget compliance is not yet measured on-chain and is excluded from this score.',
+      impact:      'neutral',
+      weight:      0,
+    });
+  } else {
+    availablePoints += 150;
+    if      (compliance >= 0.99) complianceScore = 150;
+    else if (compliance >= 0.95) complianceScore = 120;
+    else if (compliance >= 0.85) complianceScore = 80;
+    else if (compliance >= 0.70) complianceScore = 40;
+    else                         complianceScore = 0;
 
-  // ── 5. Account Age (10%) — max 100pts ────────────────────────────────────
+    factors.push({
+      code: compliance >= 0.95 ? 'STRONG_BUDGET_COMPLIANCE' : 'POOR_BUDGET_COMPLIANCE',
+      description: `${Math.round(compliance * 100)}% of spending attempts within configured budget limits.`,
+      impact: compliance >= 0.90 ? 'positive' : compliance >= 0.70 ? 'neutral' : 'negative',
+      weight: 15,
+    });
+  }
+
+  // ── 5. Account Age (10%) — max 100pts, scored only when on-chain ─────────
   const ageMonths = inputs.accountAgeMonths;
-  let ageScore: number;
-  if      (ageMonths >= 24) ageScore = 100;
-  else if (ageMonths >= 12) ageScore = 80;
-  else if (ageMonths >= 6)  ageScore = 55;
-  else if (ageMonths >= 3)  ageScore = 30;
-  else                      ageScore = 10;
+  let ageScore = 0;
 
-  factors.push({
-    code: ageMonths >= 12 ? 'ESTABLISHED_ONCHAIN_HISTORY' : 'NEW_ONCHAIN_ACCOUNT',
-    description: `${Math.round(ageMonths)} months of on-chain activity history.`,
-    impact: ageMonths >= 12 ? 'positive' : ageMonths >= 3 ? 'neutral' : 'negative',
-    weight: 10,
-  });
+  if (inputs.accountAgeSource !== 'on-chain') {
+    // The off-chain profile's creation date is not evidence of on-chain
+    // tenure. Surfaced for context, excluded from the score.
+    factors.push({
+      code:        'ONCHAIN_AGE_UNKNOWN',
+      description:
+        `On-chain tenure is unknown; ${Math.round(ageMonths)} months is the age of the ` +
+        'off-chain credit profile and is excluded from this score.',
+      impact:      'neutral',
+      weight:      0,
+    });
+  } else {
+    availablePoints += 100;
+    if      (ageMonths >= 24) ageScore = 100;
+    else if (ageMonths >= 12) ageScore = 80;
+    else if (ageMonths >= 6)  ageScore = 55;
+    else if (ageMonths >= 3)  ageScore = 30;
+    else                      ageScore = 10;
 
-  const raw   = successScore + volScore + cntScore + complianceScore + ageScore;
-  const score = Math.round(Math.max(300, Math.min(1000, raw)));
+    factors.push({
+      code: ageMonths >= 12 ? 'ESTABLISHED_ONCHAIN_HISTORY' : 'NEW_ONCHAIN_ACCOUNT',
+      description: `${Math.round(ageMonths)} months of on-chain activity history.`,
+      impact: ageMonths >= 12 ? 'positive' : ageMonths >= 3 ? 'neutral' : 'negative',
+      weight: 10,
+    });
+  }
+
+  const raw = successScore + volScore + cntScore + complianceScore + ageScore;
+
+  // Rescale against the points that were actually available. Without this,
+  // omitting an unmeasured factor would read as a low score rather than a
+  // narrower one — penalising an agent for the bureau's missing instrumentation.
+  const scaled = (raw / availablePoints) * 1000;
+  const score  = Math.round(Math.max(300, Math.min(1000, scaled)));
 
   return { score, factors: factors.sort((a, b) => b.weight - a.weight) };
 }
@@ -439,22 +522,30 @@ export function computeDualModeScore(
     source:              'FORGE_FICO_OFFCHAIN',
   };
 
-  // Mode 2: On-chain operational (only if on-chain inputs available)
+  // Mode 2: On-chain operational. Null when there are no on-chain inputs at
+  // all, and equally null when the inputs exist but record no activity — an
+  // agent with nothing on-chain is unscored, not badly scored.
   let mode2: Mode2Score | null = null;
+  let mode2Unscored: Mode2Unscored | null = null;
 
   if (mode2Inputs !== null) {
-    const { score: m2score, factors: m2factors } = computeMode2Score(mode2Inputs);
-    mode2 = {
-      score:             m2score,
-      tier:              scoreTier(m2score),
-      factors:           m2factors,
-      txHash:            mode2OnChain?.txHash,
-      blockNumber:       mode2OnChain?.blockNumber,
-      chainId:           mode2OnChain?.chainId,
-      settledAt:         mode2OnChain?.settledAt,
-      source:            'FORGE_OPERATIONAL_ONCHAIN',
-      verifiableOnChain: mode2Inputs.onChainSettled,
-    };
+    const result = computeMode2Score(mode2Inputs);
+
+    if (result.score === null) {
+      mode2Unscored = result;
+    } else {
+      mode2 = {
+        score:             result.score,
+        tier:              scoreTier(result.score),
+        factors:           result.factors,
+        txHash:            mode2OnChain?.txHash,
+        blockNumber:       mode2OnChain?.blockNumber,
+        chainId:           mode2OnChain?.chainId,
+        settledAt:         mode2OnChain?.settledAt,
+        source:            'FORGE_OPERATIONAL_ONCHAIN',
+        verifiableOnChain: mode2Inputs.onChainSettled,
+      };
+    }
   }
 
   // Consensus analysis
@@ -465,7 +556,9 @@ export function computeDualModeScore(
 
   if (!mode2) {
     level           = 'MEDIUM';
-    recommendation  = 'Mode 2 on-chain score not yet settled. Mode 1 (FICO) is authoritative.';
+    recommendation  = mode2Unscored
+      ? `${mode2Unscored.detail} Mode 1 (FICO) is authoritative.`
+      : 'Mode 2 on-chain score not yet settled. Mode 1 (FICO) is authoritative.';
     flagForReview   = false;
   } else if (variance <= 50) {
     level           = 'HIGH';

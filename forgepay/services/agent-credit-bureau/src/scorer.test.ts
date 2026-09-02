@@ -281,20 +281,87 @@ describe('computeMode2Score + consensus classification', () => {
     totalCount: 4_000,
     budgetComplianceRate: 0.98,
     accountAgeMonths: 30,
+    accountAgeSource: 'on-chain',
     onChainSettled: true,
     ...over,
   });
 
+  /** Narrows to the scored branch, failing the test if the input was unscorable. */
+  const scored = (inputs: Mode2Inputs): number => {
+    const r = computeMode2Score(inputs);
+    if (r.score === null) throw new Error(`expected a score, got ${r.reason}`);
+    return r.score;
+  };
+
   it('stays inside 300–1000', () => {
-    expect(computeMode2Score(m2()).score).toBeGreaterThanOrEqual(300);
-    expect(computeMode2Score(m2()).score).toBeLessThanOrEqual(1000);
-    const weak = computeMode2Score(m2({ successRateBps: 0, totalVolumeUsd: 0, totalCount: 0, budgetComplianceRate: 0, accountAgeMonths: 0 }));
-    expect(weak.score).toBeGreaterThanOrEqual(300);
+    expect(scored(m2())).toBeGreaterThanOrEqual(300);
+    expect(scored(m2())).toBeLessThanOrEqual(1000);
+    const weak = scored(m2({ successRateBps: 0, totalVolumeUsd: 0, totalCount: 1, budgetComplianceRate: 0, accountAgeMonths: 0 }));
+    expect(weak).toBeGreaterThanOrEqual(300);
   });
 
   it('rewards a higher success rate', () => {
-    expect(computeMode2Score(m2({ successRateBps: 9_900 })).score)
-      .toBeGreaterThan(computeMode2Score(m2({ successRateBps: 6_000 })).score);
+    expect(scored(m2({ successRateBps: 9_900 })))
+      .toBeGreaterThan(scored(m2({ successRateBps: 6_000 })));
+  });
+
+  // ── Regressions for the three defects a live Base Sepolia run exposed ──────
+  //
+  // Every agent came back 300/DEEP_SUBPRIME while simultaneously being credited
+  // for "32 months of on-chain activity" and "100% budget compliance" it had
+  // never demonstrated. 250 of its 290 raw points came from data nobody measured.
+
+  it('refuses to score an agent with no recorded on-chain transactions', () => {
+    const r = computeMode2Score(m2({ totalCount: 0 }));
+    expect(r.score).toBeNull();
+    if (r.score !== null) throw new Error('unreachable');
+    expect(r.reason).toBe('INSUFFICIENT_ONCHAIN_HISTORY');
+    // The distinction that matters: no evidence is not evidence of bad behaviour.
+    expect(r.factors.map((f) => f.code)).toContain('NO_ONCHAIN_RECORD');
+  });
+
+  it('omits budget compliance when it has not been measured, rather than crediting it', () => {
+    const r = computeMode2Score(m2({ budgetComplianceRate: null }));
+    if (r.score === null) throw new Error('expected a score');
+    const codes = r.factors.map((f) => f.code);
+    expect(codes).toContain('BUDGET_COMPLIANCE_UNMEASURED');
+    expect(codes).not.toContain('STRONG_BUDGET_COMPLIANCE');
+    // Weight is redistributed, not forfeited: an unmeasured factor must not
+    // depress the score of an otherwise strong agent.
+    expect(r.score).toBeGreaterThan(700);
+  });
+
+  it('does not report off-chain profile age as on-chain history', () => {
+    const r = computeMode2Score(m2({ accountAgeMonths: 32, accountAgeSource: 'off-chain-profile' }));
+    if (r.score === null) throw new Error('expected a score');
+    const codes = r.factors.map((f) => f.code);
+    expect(codes).toContain('ONCHAIN_AGE_UNKNOWN');
+    expect(codes).not.toContain('ESTABLISHED_ONCHAIN_HISTORY');
+  });
+
+  it('never claims on-chain tenure for an agent with zero on-chain transactions', () => {
+    // The contradiction observed in production was specifically zero
+    // transactions reported alongside "32 months of on-chain activity history".
+    //
+    // Note the invariant is about *zero*, not about thinness generally: an
+    // agent 32 months old with 5 transactions is a real state — long tenure,
+    // low activity — and THIN_HISTORY beside ESTABLISHED_ONCHAIN_HISTORY is a
+    // correct description of it. Only the zero case is impossible.
+    for (const source of ['on-chain', 'off-chain-profile'] as const) {
+      const r = computeMode2Score(m2({ totalCount: 0, accountAgeMonths: 32, accountAgeSource: source }));
+      const codes = r.factors.map((f) => f.code);
+      expect(codes).not.toContain('ESTABLISHED_ONCHAIN_HISTORY');
+      expect(r.score).toBeNull();
+    }
+  });
+
+  it('does not manufacture a divergence when Mode 2 is unscorable', () => {
+    const p = profiles.get('agent_prime_001')!;
+    const d = computeDualModeScore(p.agentId, p, m2({ totalCount: 0 }));
+    expect(d.mode2).toBeNull();
+    expect(d.consensus.variance).toBe(0);
+    expect(d.consensus.flagForReview).toBe(false);
+    expect(d.consensus.recommendation).toContain('absence of evidence');
   });
 
   it('reports MEDIUM consensus and defers to Mode 1 when no on-chain score exists', () => {
