@@ -189,6 +189,50 @@ jobs:
           MOR_DATABASE_URL: "postgresql+asyncpg://test:test@localhost/test"
           MOR_REDIS_URL: "redis://localhost:6379/0"
 
+  # ── Liquidity Forecaster (Python) ───────────────────────────────────────────
+  #
+  # Previously had no job at all — a readiness audit found it had no
+  # package.json and, on that basis alone, called it unbuildable and
+  # untestable without ever checking that it's a Python/Poetry service, not a
+  # Node one. It has a real pyproject.toml, installs cleanly, and its 51-test
+  # suite passes (one test that manually drove an event loop with the
+  # since-removed asyncio.get_event_loop() implicit-creation behavior has been
+  # fixed to match this file's own @pytest.mark.asyncio convention).
+  #
+  # Deliberately test-only, unlike mor-layer's lint + type-check + test: ruff
+  # and mypy currently report 66 and 28 findings respectively across this
+  # service, pre-existing and unrelated to the audit that added this job.
+  # Gating on checks that start red teaches people to ignore the gate rather
+  # than fix it — tracked separately, added here once clean.
+  liquidity-forecaster:
+    name: "liquidity-forecaster — test"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: forgepay/services/liquidity-forecaster
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: snok/install-poetry@v1
+        with:
+          version: "1.8.3"
+          virtualenvs-in-project: true
+
+      - name: Cache Poetry virtualenv
+        uses: actions/cache@v4
+        with:
+          path: forgepay/services/liquidity-forecaster/.venv
+          key: liquidity-forecaster-venv-${{ hashFiles('forgepay/services/liquidity-forecaster/poetry.lock') }}
+
+      - run: poetry install
+
+      - name: Test (pytest)
+        run: poetry run pytest tests/ -v --tb=short
+
   # ── Marketing Site (Next.js) ────────────────────────────────────────────────
   web:
     name: "web — type-check + build"

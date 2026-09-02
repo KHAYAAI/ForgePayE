@@ -548,19 +548,26 @@ class TestAlertEngine:
         found = engine.resolve_alert("m1", "does-not-exist")
         assert found is False
 
-    def test_deduplication_does_not_duplicate_alerts(self) -> None:
+    @pytest.mark.asyncio
+    async def test_deduplication_does_not_duplicate_alerts(self) -> None:
         """Calling evaluate_alerts twice should not double-add the same alert type."""
-        import asyncio
         from src.alerts.engine import AlertEngine, _alert_store
         df = _make_df(n=60)
         engine = self._make_engine_with_mock_ingestor(df)
         forecast = _make_forecast_with_negative_balance("m2")
 
-        async def run():
-            await engine.evaluate_alerts("m2", forecast, current_balance=50_000.0)
-            await engine.evaluate_alerts("m2", forecast, current_balance=50_000.0)
+        # Every other async test in this file runs under pytest-asyncio via
+        # @pytest.mark.asyncio (see test_negative_forecast_triggers_critical_alert
+        # above). This one instead drove its own loop with
+        # asyncio.get_event_loop().run_until_complete(...) — a pattern that relies
+        # on get_event_loop() implicitly creating a loop when none is running, a
+        # behavior removed from Python's asyncio in the version this suite now
+        # runs under ("RuntimeError: There is no current event loop in thread
+        # 'MainThread'"). Matching the file's existing convention fixes it without
+        # introducing a second way of running async tests.
+        await engine.evaluate_alerts("m2", forecast, current_balance=50_000.0)
+        await engine.evaluate_alerts("m2", forecast, current_balance=50_000.0)
 
-        asyncio.get_event_loop().run_until_complete(run())
         negative_alerts = [
             a for a in _alert_store["m2"]
             if a.alert_type == "negative_forecast"
