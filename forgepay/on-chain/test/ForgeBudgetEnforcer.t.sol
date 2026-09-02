@@ -76,8 +76,12 @@ contract ForgeBudgetEnforcerTest is Test {
 
     function test_recordSpend_revertDailyLimit() public {
         vm.prank(manager); enforcer.setBudget(agent, DAILY, MONTHLY, PER_TX);
-        // Spend up to daily limit
-        vm.prank(manager); enforcer.recordSpend(agent, DAILY);
+        // Spend up to daily limit, in per-tx-sized chunks (a single DAILY-sized
+        // spend would trip the per-tx limit first, before the daily check runs).
+        for (uint128 spent = 0; spent < DAILY; spent += PER_TX) {
+            vm.prank(manager);
+            enforcer.recordSpend(agent, PER_TX);
+        }
         // Next spend exceeds daily
         vm.prank(manager);
         vm.expectRevert();
@@ -98,14 +102,21 @@ contract ForgeBudgetEnforcerTest is Test {
 
     function test_dailyReset_after24h() public {
         vm.prank(manager); enforcer.setBudget(agent, DAILY, MONTHLY, PER_TX);
-        vm.prank(manager); enforcer.recordSpend(agent, DAILY); // exhaust daily
+
+        // Exhaust daily budget in per-tx-sized chunks
+        for (uint128 spent = 0; spent < DAILY; spent += PER_TX) {
+            vm.prank(manager);
+            enforcer.recordSpend(agent, PER_TX);
+        }
 
         // Advance 24h + 1s
         vm.warp(block.timestamp + 1 days + 1);
 
-        // checkBudget should now allow again
-        assertTrue(enforcer.checkBudget(agent, DAILY));
-        vm.prank(manager); enforcer.recordSpend(agent, DAILY); // should succeed
+        // checkBudget should now allow again (daily counter reset). Checked
+        // with a PER_TX-sized amount, not DAILY, since DAILY alone would
+        // always fail the per-tx check regardless of the daily counter.
+        assertTrue(enforcer.checkBudget(agent, PER_TX));
+        vm.prank(manager); enforcer.recordSpend(agent, PER_TX); // should succeed
     }
 
     function test_monthlyReset_after30d() public {

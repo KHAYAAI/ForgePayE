@@ -94,6 +94,8 @@ contract ForgeCoreTest is Test {
     }
 
     function test_executeAgentAction_revertUnauthorized() public {
+        address attacker = makeAddr("attacker");
+        vm.prank(attacker);
         vm.expectRevert();
         core.executeAgentAction(agent, TX1, 1000, PAYMENT, true);
     }
@@ -152,8 +154,9 @@ contract ForgeCoreTest is Test {
     }
 
     function test_P5b_applyWithNoPending_reverts() public {
-        vm.expectRevert(abi.encodeWithSelector(ForgeCore.NoPendingUpgrade.selector, core.REGISTRY_KEY()));
-        core.applyUpgrade(core.REGISTRY_KEY());
+        bytes32 key = core.REGISTRY_KEY();
+        vm.expectRevert(abi.encodeWithSelector(ForgeCore.NoPendingUpgrade.selector, key));
+        core.applyUpgrade(key);
     }
 
     // ── View helpers ──────────────────────────────────────────────────────────

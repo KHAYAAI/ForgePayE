@@ -46,6 +46,8 @@ contract ForgeReputationRegistryTest is Test {
     }
 
     function test_registerAgent_revertUnauthorized() public {
+        address attacker = makeAddr("attacker");
+        vm.prank(attacker);
         vm.expectRevert();
         reg.registerAgent(agent1);
     }
