@@ -10,6 +10,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   startPullCost, pullCostSummary, resetPullCosts, pullCostSamples, unitPrices,
+  setUnitPrices, clearUnitPriceOverrides, unitPriceSources, validateUnitPrice,
 } from './pull-cost';
 import { VOLUME_BANDS } from './plans';
 
@@ -148,5 +149,57 @@ describe('configured unit prices', () => {
     const s = pullCostSummary();
     expect(s.samples).toBe(0);
     expect(s.costPerPullUsd).toBeUndefined();
+  });
+});
+
+describe('operator-set unit prices', () => {
+  beforeEach(() => { clearUnitPriceOverrides(); });
+  afterEach(() => { clearUnitPriceOverrides(); });
+
+  it('lets an operator supply a price without a redeploy', () => {
+    // The invoice arrives after the deploy; if recording it needs a redeploy,
+    // it never gets recorded and the margin stays unknown forever.
+    setUnitPrices({ sanctionsScreenUsd: 0.42, chainReadUsd: 0, computeHourUsd: 0 });
+    const span = startPullCost();
+    span.sanctionsScreen();
+    span.finish('rep_1', 'req_1');
+
+    expect(pullCostSummary().costPerPullUsd).toBeCloseTo(0.42, 6);
+  });
+
+  it('lets an operator price override the deploy manifest', () => {
+    // The environment came from a manifest that may predate the invoice.
+    setPrices('9.99', '0', '0');
+    setUnitPrices({ sanctionsScreenUsd: 0.42 });
+    expect(unitPrices().sanctionsScreenUsd).toBe(0.42);
+  });
+
+  it('reports where each price came from', () => {
+    setPrices('1', '2', '3');
+    setUnitPrices({ chainReadUsd: 0.001 });
+    const src = unitPriceSources();
+    expect(src['sanctionsScreenUsd']).toBe('environment');
+    expect(src['chainReadUsd']).toBe('operator');
+
+    clearUnitPriceOverrides();
+    delete process.env['COST_COMPUTE_HOUR_USD'];
+    expect(unitPriceSources()['computeHourUsd']).toBe('unset');
+  });
+
+  it('rejects a negative or non-finite price instead of coercing it', () => {
+    // A bad price flows straight into a margin figure and out into a pricing
+    // decision, so it is refused at the edge.
+    expect(validateUnitPrice('sanctions_screen_usd', -1)).toMatch(/non-negative/);
+    expect(validateUnitPrice('sanctions_screen_usd', NaN)).toMatch(/non-negative/);
+    expect(validateUnitPrice('sanctions_screen_usd', '0.5')).toMatch(/non-negative/);
+    expect(validateUnitPrice('sanctions_screen_usd', 0)).toBeNull();
+  });
+
+  it('still withholds cost when only some prices are supplied', () => {
+    setUnitPrices({ sanctionsScreenUsd: 0.42 });
+    startPullCost().finish('rep_1', 'req_1');
+    const s = pullCostSummary();
+    expect(s.costPerPullUsd).toBeUndefined();
+    expect(s.missingUnitPrices).toContain('COST_CHAIN_READ_USD');
   });
 });

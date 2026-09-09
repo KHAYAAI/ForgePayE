@@ -339,6 +339,13 @@ export class ForgeChainClient {
 
   get chainId()  { return this.cfg.chainId; }
   get address()  { return this.account.address; }
+
+  /**
+   * The read-only viem client, for callers that need to interrogate the chain
+   * itself rather than the contracts — see chain-preflight.ts, which compares
+   * the configured chain id against what the RPC actually reports.
+   */
+  publicClient() { return this.public; }
 }
 
 // ── Singleton — created once at startup if env vars are present ───────────────

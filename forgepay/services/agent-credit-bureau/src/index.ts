@@ -61,7 +61,10 @@ import {
 import {
   previewPeriod, settleFurnisherPeriod, previousPeriod as previousPayoutPeriod, isPeriodClosed,
 } from './furnisher-payouts';
-import { startPullCost, pullCostSummary } from './pull-cost';
+import { assertChainConfigured } from './chain-preflight';
+import {
+  startPullCost, pullCostSummary, setUnitPrices, unitPriceSources, validateUnitPrice,
+} from './pull-cost';
 import { isRedisEnabled, getRedisClient } from './redis';
 
 import {
@@ -1275,6 +1278,10 @@ async function buildApp() {
     const summary = pullCostSummary();
     return reply.send({
       data: summary,
+      // Which prices came from an operator, which from the deploy manifest,
+      // and which are still missing — a margin figure should be traceable to
+      // where its inputs came from.
+      price_sources: unitPriceSources(),
       // Stated rather than implied. Without vendor unit prices the cost fields
       // are absent, and a caller must be able to tell "not yet known" from
       // "measured at zero" — the whole point of the instrumentation is to stop
@@ -1283,6 +1290,55 @@ async function buildApp() {
         ? `Cost figures omitted — set ${summary.missingUnitPrices.join(', ')} to the prices your ` +
           `vendors actually charge. Call volumes and latencies above are measured and accurate.`
         : undefined,
+    });
+  });
+
+  // PUT /v1/admin/pull-costs/unit-prices — record what your vendors charge.
+  //
+  // Vendor pricing is discovered from an invoice, which arrives weeks after
+  // the service is live. Requiring a redeploy to record it is how the number
+  // never gets recorded, and an unrecorded number is why the margin on the
+  // $2.00 band stays unknown. Admin-gated by deny-by-default, like the read.
+  app.put<{
+    Body: { sanctions_screen_usd?: number; chain_read_usd?: number; compute_hour_usd?: number };
+  }>('/v1/admin/pull-costs/unit-prices', async (req, reply) => {
+    const body = req.body ?? {};
+    const fields: [string, unknown, keyof typeof mapped][] = [
+      ['sanctions_screen_usd', body.sanctions_screen_usd, 'sanctionsScreenUsd'],
+      ['chain_read_usd',       body.chain_read_usd,       'chainReadUsd'],
+      ['compute_hour_usd',     body.compute_hour_usd,     'computeHourUsd'],
+    ];
+    const mapped: { sanctionsScreenUsd?: number; chainReadUsd?: number; computeHourUsd?: number } = {};
+
+    for (const [name, value, key] of fields) {
+      if (value === undefined) continue;
+      const invalid = validateUnitPrice(name, value);
+      if (invalid) {
+        return reply.status(400).send({ error: 'ValidationError', field: name, message: invalid });
+      }
+      mapped[key] = value as number;
+    }
+
+    if (Object.keys(mapped).length === 0) {
+      return reply.status(400).send({
+        error: 'ValidationError',
+        message: 'Supply at least one of sanctions_screen_usd, chain_read_usd, compute_hour_usd.',
+      });
+    }
+
+    const applied = setUnitPrices(mapped);
+    const summary = pullCostSummary();
+
+    return reply.send({
+      data: applied,
+      price_sources: unitPriceSources(),
+      still_missing: summary.missingUnitPrices,
+      // Said plainly rather than left to be discovered: these live in memory,
+      // so a restart returns the summary to reporting cost as unknown. A stale
+      // price surviving a restart silently would be worse — it would keep
+      // producing a margin figure from a number nobody had re-confirmed.
+      note: 'Applied in memory. Re-apply after a restart, or set the matching ' +
+            'COST_* environment variables to make them survive one.',
     });
   });
 
@@ -1867,6 +1923,13 @@ async function buildApp() {
 // ── Startup ───────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
+  // Before anything else: refuse a production deployment that inherited the
+  // testnet chain-id default. CHAIN_ID defaults to 84532 (Base Sepolia), so a
+  // mainnet rollout that sets the RPC and the contract addresses but forgets
+  // CHAIN_ID would settle Mode 2 scores to a testnet and keep reporting them
+  // as settled — a lender reading the transaction hash cannot tell.
+  assertChainConfigured();
+
   const app = await buildApp();
 
   // Bring the store online against Postgres when configured (migrate + hydrate,

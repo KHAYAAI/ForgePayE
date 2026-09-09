@@ -154,6 +154,24 @@ async function main() {
     console.warn('[stablecoin-gateway] Migrations failed — continuing (dev only):', err);
   }
 
+  // Install the outbound signer, if the operator has asked for one.
+  //
+  // Deliberately after migrations and before the port opens: the signer's
+  // daily spend cap reads the payouts table, and a deployment that intends to
+  // move money should fail to start rather than serve traffic with a
+  // broadcaster that refuses every settlement run. Saying nothing about
+  // signing leaves the refusing broadcaster in place — the default posture is
+  // "cannot send", never "sends".
+  const { installPayoutSigner } = await import('./lib/payout-signer.js');
+  const signer = installPayoutSigner();
+  if (signer.installed) {
+    console.warn(
+      `[stablecoin-gateway] Outbound payout signer ACTIVE — ${signer.address} on ${signer.chain}`,
+    );
+  } else {
+    console.log(`[stablecoin-gateway] Outbound payouts not signed: ${signer.reason}`);
+  }
+
   // Start EVM chain monitors (fire-and-forget — don't block server startup)
   const chains = ['ethereum', 'polygon', 'base', 'arbitrum'] as const;
   for (const chain of chains) {

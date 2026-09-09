@@ -49,8 +49,48 @@ export interface UnitPrices {
   computeHourUsd?: number;
 }
 
-export function unitPrices(): UnitPrices {
+/**
+ * Prices set at runtime by an operator, which take precedence over the
+ * environment.
+ *
+ * Vendor pricing is discovered from an invoice, not from a deploy: the first
+ * real sanctions bill arrives weeks after the service is live, and requiring a
+ * redeploy to record it is how the number never gets recorded at all. These are
+ * held in memory and re-applied by the operator after a restart — deliberately
+ * not persisted, because a stale price silently surviving a restart is worse
+ * than an absent one that reports itself as absent.
+ */
+let overrides: UnitPrices = {};
+
+export function setUnitPrices(next: UnitPrices): UnitPrices {
+  overrides = {
+    ...(next.sanctionsScreenUsd !== undefined ? { sanctionsScreenUsd: next.sanctionsScreenUsd } : {}),
+    ...(next.chainReadUsd !== undefined ? { chainReadUsd: next.chainReadUsd } : {}),
+    ...(next.computeHourUsd !== undefined ? { computeHourUsd: next.computeHourUsd } : {}),
+  };
+  return unitPrices();
+}
+
+/** Test seam, and the way an operator clears a price they set by mistake. */
+export function clearUnitPriceOverrides(): void {
+  overrides = {};
+}
+
+/** Where each price came from, so a margin figure can be traced to its source. */
+export function unitPriceSources(): Record<string, 'operator' | 'environment' | 'unset'> {
+  const src = (key: keyof UnitPrices, env: string) =>
+    overrides[key] !== undefined ? 'operator' as const
+    : envNumber(env) !== undefined ? 'environment' as const
+    : 'unset' as const;
   return {
+    sanctionsScreenUsd: src('sanctionsScreenUsd', 'COST_SANCTIONS_SCREEN_USD'),
+    chainReadUsd:       src('chainReadUsd', 'COST_CHAIN_READ_USD'),
+    computeHourUsd:     src('computeHourUsd', 'COST_COMPUTE_HOUR_USD'),
+  };
+}
+
+export function unitPrices(): UnitPrices {
+  const fromEnv: UnitPrices = {
     ...(envNumber('COST_SANCTIONS_SCREEN_USD') !== undefined
       ? { sanctionsScreenUsd: envNumber('COST_SANCTIONS_SCREEN_USD')! } : {}),
     ...(envNumber('COST_CHAIN_READ_USD') !== undefined
@@ -58,6 +98,22 @@ export function unitPrices(): UnitPrices {
     ...(envNumber('COST_COMPUTE_HOUR_USD') !== undefined
       ? { computeHourUsd: envNumber('COST_COMPUTE_HOUR_USD')! } : {}),
   };
+  // Operator values win: they came from an invoice, the environment came from
+  // a deploy manifest that may predate it.
+  return { ...fromEnv, ...overrides };
+}
+
+/**
+ * Validate a price the operator is trying to set.
+ *
+ * A negative or non-finite price would flow straight into a margin figure and
+ * out into a pricing decision, so it is rejected rather than coerced.
+ */
+export function validateUnitPrice(field: string, value: unknown): string | null {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    return `${field} must be a non-negative number`;
+  }
+  return null;
 }
 
 // ── Per-pull measurement ──────────────────────────────────────────────────────
