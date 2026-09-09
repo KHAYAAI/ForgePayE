@@ -69,13 +69,47 @@ export async function startChainMonitor(chain: string, db: Pool): Promise<void> 
   const contracts = CONTRACTS[chain];
   if (!contracts) return;
 
+  // Network-detection retries and filter-polling failures are caught inside
+  // ethers itself and only ever logged. This isn't: `_detectNetwork` errors
+  // surface through this event too, and with no listener that's silent, not
+  // dangerous. It exists so a flaky RPC is visible in our own logs.
+  provider.on('error', (err) => {
+    console.error(`[stablecoin-gateway] Provider error on ${chain}:`, err);
+  });
+
   for (const [token, contractAddress] of Object.entries(contracts) as [string, string][]) {
     if (contractAddress === '0x') continue;
 
     const erc20 = new ethers.Contract(contractAddress, ERC20_TRANSFER_ABI, provider);
 
     // Listen for Transfer events to any address we're watching.
+    //
+    // Contract.on() is async — it performs RPC calls to set up the
+    // subscription (eth_newFilter, or a network check, depending on what the
+    // backend supports) and returns a Promise. Left unawaited and uncaught,
+    // as it was, a single unreachable or rate-limited RPC (any one of four
+    // chains, any time) rejects that promise with nothing attached to it —
+    // an unhandled rejection the process-wide handler in index.ts treats as
+    // fatal, taking down outbound payouts along with inbound deposit
+    // watching on every other chain. One flaky public endpoint must not be
+    // able to do that.
     erc20.on('Transfer', async (from: string, to: string, value: bigint, eventObj: ethers.EventLog) => {
+      // Outer guard for the same reason as the .catch() below: this callback
+      // is invoked by ethers with no awaiter, so an error anywhere in it
+      // (not just the confirmation wait already guarded further down) would
+      // otherwise be an unhandled rejection.
+      try {
+        await handleTransfer(from, to, value, eventObj);
+      } catch (err) {
+        console.error(`[stablecoin-gateway] Transfer handler failed on ${chain}:`, err);
+      }
+    }).catch((err: unknown) => {
+      console.error(`[stablecoin-gateway] Failed to subscribe to ${token} Transfer events on ${chain}:`, err);
+    });
+
+    async function handleTransfer(
+      from: string, to: string, value: bigint, eventObj: ethers.EventLog,
+    ): Promise<void> {
       // Check if `to` is one of our watched deposit addresses.
       const result = await db.query<DepositRow>(
         `SELECT id, merchant_id, address, chain, token, amount_units, payment_id
@@ -147,7 +181,7 @@ export async function startChainMonitor(chain: string, db: Pool): Promise<void> 
       } catch (err) {
         console.error(`[stablecoin-gateway] Confirmation wait failed for ${txHash}:`, err);
       }
-    });
+    }
 
     console.log(`[stablecoin-gateway] Monitoring ${token} on ${chain} (${contractAddress})`);
   }
