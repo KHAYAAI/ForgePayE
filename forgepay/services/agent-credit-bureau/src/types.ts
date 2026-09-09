@@ -245,6 +245,17 @@ export interface DataContributor {
   recordsThisWindow?: number;
 
   /**
+   * Where this furnisher's cash share is paid, and on which chain.
+   *
+   * Optional because a furnisher in the reciprocity phase earns credits rather
+   * than cash and needs no address at all. A cash-phase furnisher without one
+   * is reported as unpayable by a settlement run rather than skipped quietly —
+   * money owed with nowhere to send it is a condition someone has to see.
+   */
+  payoutAddress?: string;
+  payoutChain?: string;
+
+  /**
    * When this furnisher first became active — the start of its cash-share year.
    *
    * Set by the activation route, not by registration: a contributor registers
@@ -460,6 +471,17 @@ export interface AttributionEntry {
   /** Set when a dispute reverses this attribution. */
   reversedAt?: string;
   reversalReason?: string;
+
+  /**
+   * The settlement run that paid this entry, and when.
+   *
+   * Cash accrues per inquiry but is disbursed per period, so an entry is owed
+   * from the moment it is written and paid some time later. Without this the
+   * bureau cannot tell the difference between "never paid" and "already paid",
+   * which is the only thing standing between a re-run and paying twice.
+   */
+  settlementId?: string;
+  settledAt?: string;
 }
 
 /**

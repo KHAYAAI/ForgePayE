@@ -58,6 +58,9 @@ import {
   compensateInquiry, furnisherStatement, redeemCredits, creditBalanceFor,
   compensationPhase, cashMonthsRemaining, reverseAttribution,
 } from './furnisher-comp';
+import {
+  previewPeriod, settleFurnisherPeriod, previousPeriod as previousPayoutPeriod, isPeriodClosed,
+} from './furnisher-payouts';
 import { isRedisEnabled, getRedisClient } from './redis';
 
 import {
@@ -1254,6 +1257,57 @@ async function buildApp() {
       return reply.send({ data: result.balance });
     },
   );
+
+  // ── Furnisher settlement ────────────────────────────────────────────────────
+  //
+  // Both routes are deliberately absent from ROUTE_SCOPES: deny-by-default
+  // already requires `admin`, which is the right gate for anything that moves
+  // money out of the bureau.
+
+  // GET /v1/settlements/preview?period=YYYY-MM — what a run would pay, and to
+  // whom it could not. Always available, including for an open period: seeing
+  // what is accruing is safe, paying it early is not.
+  app.get<{ Querystring: { period?: string } }>('/v1/settlements/preview', async (req, reply) => {
+    const period = req.query.period ?? previousPayoutPeriod();
+    const lines = previewPeriod(period);
+    const payable = lines.filter(l => !l.blocked);
+    return reply.send({
+      data: lines,
+      period,
+      period_closed: isPeriodClosed(period),
+      totals: {
+        payable_usd:   payable.reduce((s, l) => s + l.amountUsdCents, 0) / 100,
+        blocked_usd:   lines.filter(l => l.blocked).reduce((s, l) => s + l.amountUsdCents, 0) / 100,
+        furnishers:    lines.length,
+        blocked_count: lines.filter(l => l.blocked).length,
+      },
+    });
+  });
+
+  // POST /v1/settlements/run — pay a closed period.
+  app.post<{ Body: { period?: string } }>('/v1/settlements/run', async (req, reply) => {
+    const period = req.body?.period ?? previousPayoutPeriod();
+    const result = await settleFurnisherPeriod(period);
+
+    if (!result.ok) {
+      // 409 for an open period rather than 400: the request is well-formed and
+      // will succeed unchanged once the period closes.
+      return reply.status(result.reason === 'period_open' ? 409 : 503).send({
+        error: result.reason === 'period_open' ? 'PeriodOpen' : 'SettlementUnavailable',
+        period,
+        message: result.message,
+      });
+    }
+
+    return reply.send({
+      data: result.lines,
+      settlement_id:  result.settlementId,
+      period:         result.period,
+      total_paid_usd: result.totalPaidUsdCents / 100,
+      blocked_count:  result.blockedCount,
+      failed_count:   result.failedCount,
+    });
+  });
 
   // POST /v1/billing/:requestorId/credit — admin-only manual credit, for wire
   // transfers, invoiced customers, and support adjustments outside the x402
