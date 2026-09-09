@@ -286,8 +286,12 @@ services:
       COMPLIANCE_MONITOR_URL: http://compliance-monitor:8003
       BUREAU_ADMIN_API_KEY: dev-bureau-admin-key
       CONSENT_SIGNING_SECRET: dev-consent-signing-secret
-      # Unset here: STABLECOIN_GATEWAY_URL (top-ups 503 without it, see .env.example),
-      # COMPLIANCE_MONITOR_API_KEY (screening skips with a warning in dev).
+      # Required for both halves of the money path: x402 top-ups, and the
+      # monthly furnisher settlement that posts payouts to the gateway. Without
+      # it top-ups 503 and settlement refuses with `not_configured` rather than
+      # silently dropping what is owed.
+      STABLECOIN_GATEWAY_URL: http://stablecoin-gateway:8020
+      # Unset here: COMPLIANCE_MONITOR_API_KEY (screening skips with a warning in dev).
     ports:
       - "3018:3018"
     depends_on:

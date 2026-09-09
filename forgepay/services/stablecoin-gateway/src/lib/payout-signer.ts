@@ -40,12 +40,27 @@
 
 import { ethers } from 'ethers';
 import { readFileSync } from 'node:fs';
-import { getDb } from './db.js';
-import { logger } from './logger.js';
 import {
   setPayoutBroadcaster, PAYOUT_ABSOLUTE_MAX_USD,
   type Payout, type PayoutBroadcaster, type BroadcastResult,
 } from './payouts.js';
+
+// db and logger are imported lazily, inside the functions that use them.
+//
+// Both pull in config.ts, which throws on any missing service secret. Loading
+// them at module scope made this file unimportable by anything that is not the
+// running service — including the preflight CLI, whose whole job is to report
+// that a signer is *not* configured, and which should not need a webhook
+// secret to say so.
+async function db() {
+  const { getDb } = await import('./db.js');
+  return getDb();
+}
+
+async function log() {
+  const { logger } = await import('./logger.js');
+  return logger;
+}
 
 // ── Chain registry ────────────────────────────────────────────────────────────
 //
@@ -183,8 +198,8 @@ export function resolveSignerConfig(): SignerConfig {
  * crash-loop it exists to bound.
  */
 export async function spentLast24hUsd(): Promise<number> {
-  const db = getDb();
-  const res = await db.query<{ total: string | null }>(
+  const conn = await db();
+  const res = await conn.query<{ total: string | null }>(
     `SELECT COALESCE(SUM(amount_usdc), 0) AS total
        FROM payouts
       WHERE status IN ('submitted', 'confirmed')
@@ -271,7 +286,7 @@ export class UsdcPayoutBroadcaster implements PayoutBroadcaster {
     // ── Send. One attempt, no retry: submitPayout has already claimed the row
     // and will mark it failed rather than re-arming it, precisely because a
     // transfer that errors may still have landed on-chain.
-    logger.info(
+    (await log()).info(
       { payoutId: payout.id, chain: cfg.chain, amountUsdc: payout.amountUsdc, to: payout.payeeAddress },
       '[payout-signer] broadcasting USDC transfer',
     );
@@ -286,7 +301,7 @@ export class UsdcPayoutBroadcaster implements PayoutBroadcaster {
       );
     }
 
-    logger.info(
+    (await log()).info(
       { payoutId: payout.id, txHash: tx.hash, block: receipt.blockNumber },
       '[payout-signer] payout confirmed on-chain',
     );
@@ -347,10 +362,10 @@ export function installPayoutSigner(): InstallResult {
 
   setPayoutBroadcaster(broadcaster);
 
-  logger.warn(
+  void log().then((l) => l.warn(
     { chain: cfg.chain, from: broadcaster.address, dailyMaxUsd: cfg.dailyMaxUsd },
     '[payout-signer] LIVE SIGNER INSTALLED — this service can now move USDC',
-  );
+  ));
 
   return { installed: true, address: broadcaster.address, chain: cfg.chain };
 }

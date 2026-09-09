@@ -44,8 +44,22 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { getDb } from './db.js';
-import { logger } from './logger.js';
+
+// db and logger are loaded lazily, inside the functions that need them.
+//
+// Both import config.ts, which throws on any missing service secret. At module
+// scope that made this file — including its pure policy helpers and its
+// limit constants — unimportable by tooling and tests that have no business
+// holding a database password.
+async function db() {
+  const { getDb } = await import('./db.js');
+  return getDb();
+}
+
+async function log() {
+  const { logger } = await import('./logger.js');
+  return logger;
+}
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
@@ -126,7 +140,7 @@ export class UnconfiguredBroadcaster implements PayoutBroadcaster {
     if (process.env['NODE_ENV'] === 'production') {
       throw new PayoutsNotConfiguredError();
     }
-    logger.warn(
+    (await log()).warn(
       { payoutId: payout.id, amountUsdc: payout.amountUsdc },
       '[payouts] simulating broadcast — no signer configured (development only)',
     );
@@ -247,11 +261,11 @@ export interface CreatePayoutResult {
  * the loser of that race sends money twice.
  */
 export async function createPayout(input: CreatePayoutInput): Promise<CreatePayoutResult> {
-  const db = getDb();
+  const conn = await db();
   const id = randomUUID();
   const status: PayoutStatus = requiresApproval(input.amountUsdc) ? 'pending_approval' : 'approved';
 
-  const inserted = await db.query<PayoutRow>(
+  const inserted = await conn.query<PayoutRow>(
     `INSERT INTO payouts
        (id, external_id, payee_id, payee_address, chain, amount_usdc, status, reason, requested_by)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -265,7 +279,7 @@ export async function createPayout(input: CreatePayoutInput): Promise<CreatePayo
     return { payout: rowToPayout(inserted.rows[0]), deduplicated: false };
   }
 
-  const existing = await db.query<PayoutRow>(
+  const existing = await conn.query<PayoutRow>(
     `SELECT * FROM payouts WHERE requested_by = $1 AND external_id = $2`,
     [input.requestedBy, input.externalId],
   );
@@ -273,19 +287,19 @@ export async function createPayout(input: CreatePayoutInput): Promise<CreatePayo
 }
 
 export async function getPayout(id: string): Promise<Payout | null> {
-  const db = getDb();
-  const result = await db.query<PayoutRow>(`SELECT * FROM payouts WHERE id = $1`, [id]);
+  const conn = await db();
+  const result = await conn.query<PayoutRow>(`SELECT * FROM payouts WHERE id = $1`, [id]);
   return result.rows[0] ? rowToPayout(result.rows[0]) : null;
 }
 
 export async function listPayouts(filter: { payeeId?: string; status?: PayoutStatus } = {}): Promise<Payout[]> {
-  const db = getDb();
+  const conn = await db();
   const clauses: string[] = [];
   const params: unknown[] = [];
   if (filter.payeeId) { params.push(filter.payeeId); clauses.push(`payee_id = $${params.length}`); }
   if (filter.status)  { params.push(filter.status);  clauses.push(`status = $${params.length}`); }
   const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
-  const result = await db.query<PayoutRow>(
+  const result = await conn.query<PayoutRow>(
     `SELECT * FROM payouts ${where} ORDER BY created_at DESC LIMIT 500`, params,
   );
   return result.rows.map(rowToPayout);
@@ -303,8 +317,8 @@ export type ApproveResult =
  * the same moment.
  */
 export async function approvePayout(id: string, approvedBy: string): Promise<ApproveResult> {
-  const db = getDb();
-  const result = await db.query<PayoutRow>(
+  const conn = await db();
+  const result = await conn.query<PayoutRow>(
     `UPDATE payouts
         SET status = 'approved', approved_by = $2, approved_at = NOW(), updated_at = NOW()
       WHERE id = $1 AND status = 'pending_approval'
@@ -320,8 +334,8 @@ export async function approvePayout(id: string, approvedBy: string): Promise<App
 }
 
 export async function rejectPayout(id: string, rejectedBy: string, reason: string): Promise<ApproveResult> {
-  const db = getDb();
-  const result = await db.query<PayoutRow>(
+  const conn = await db();
+  const result = await conn.query<PayoutRow>(
     `UPDATE payouts
         SET status = 'rejected', approved_by = $2, failure_reason = $3, updated_at = NOW()
       WHERE id = $1 AND status = 'pending_approval'
@@ -352,9 +366,9 @@ export type SubmitResult =
  * attempt is how a double-send happens.
  */
 export async function submitPayout(id: string): Promise<SubmitResult> {
-  const db = getDb();
+  const conn = await db();
 
-  const claimed = await db.query<PayoutRow>(
+  const claimed = await conn.query<PayoutRow>(
     `UPDATE payouts SET status = 'submitted', updated_at = NOW()
       WHERE id = $1 AND status = 'approved'
       RETURNING *`,
@@ -374,20 +388,20 @@ export async function submitPayout(id: string): Promise<SubmitResult> {
 
   try {
     const { txHash } = await broadcaster.broadcast(payout);
-    const confirmed = await db.query<PayoutRow>(
+    const confirmed = await conn.query<PayoutRow>(
       `UPDATE payouts SET status = 'confirmed', tx_hash = $2, updated_at = NOW()
         WHERE id = $1 RETURNING *`,
       [id, txHash],
     );
-    logger.info({ payoutId: id, txHash, amountUsdc: payout.amountUsdc }, '[payouts] payout confirmed');
+    (await log()).info({ payoutId: id, txHash, amountUsdc: payout.amountUsdc }, '[payouts] payout confirmed');
     return { ok: true, payout: rowToPayout(confirmed.rows[0]), alreadySubmitted: false };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    await db.query(
+    await conn.query(
       `UPDATE payouts SET status = 'failed', failure_reason = $2, updated_at = NOW() WHERE id = $1`,
       [id, message],
     );
-    logger.error({ payoutId: id, err: message }, '[payouts] broadcast failed — payout marked failed, not retried');
+    (await log()).error({ payoutId: id, err: message }, '[payouts] broadcast failed — payout marked failed, not retried');
     return { ok: false, reason: 'broadcast_failed', status: 'failed', message };
   }
 }
