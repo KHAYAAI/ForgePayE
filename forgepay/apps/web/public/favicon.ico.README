@@ -1,0 +1,3 @@
+Placeholder. Replace public/favicon.ico with the real ForgePay mark before
+launch — Next.js serves whatever sits in this directory verbatim at the site
+root (e.g. /favicon.ico, /robots.txt).
