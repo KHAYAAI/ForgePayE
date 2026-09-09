@@ -1185,11 +1185,24 @@ async function buildApp() {
 
     const sub = getSubscription(req.params.requestorId);
     if (!sub) {
+      // Reported as pay-as-you-go, not as Observer.
+      //
+      // These are different products and the difference is billable. Observer
+      // forbids hard pulls outright; no subscription at all means
+      // entitlementForNextPull() returns pay-as-you-go at list, so this caller
+      // *can* pull and *will* be charged. Naming the free plan here told a
+      // customer they could not do something they could do, and hid the price
+      // they would pay for doing it.
       return reply.send({
         data: {
-          requestorId: req.params.requestorId,
-          planId: 'observer',
-          note: 'No subscription on file — soft pulls only. See GET /v1/plans.',
+          requestorId:     req.params.requestorId,
+          planId:          null,
+          billing:         'pay_as_you_go',
+          pricePerPullUsd: LIST_INQUIRY_USD,
+          note:
+            'No subscription on file. Hard pulls are available and charged at the list price ' +
+            `of $${LIST_INQUIRY_USD.toFixed(2)} each against your prepaid balance. A plan adds ` +
+            'bundled pulls and volume pricing — see GET /v1/plans.',
         },
       });
     }
