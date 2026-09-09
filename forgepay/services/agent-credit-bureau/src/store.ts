@@ -28,6 +28,8 @@ import {
   loadAllProfiles, loadAllDisputes, loadAllReports, loadAllContributors, loadAllLenderReports,
   upsertBillingAccount, upsertBillingTransaction, upsertTopUpReceipt,
   loadAllBillingAccounts, loadAllBillingTransactions, loadAllTopUpReceipts,
+  upsertAttribution, upsertSubscription, upsertCreditBalance,
+  loadAllAttributions, loadAllSubscriptions, loadAllCreditBalances,
 } from './db';
 
 /** Fire-and-forget persistence error logger — keeps mutators synchronous. */
@@ -99,7 +101,7 @@ export const setTopUpReceipt = (r: TopUpReceipt) => { topUpReceipts.set(r.receip
 // ── Subscriptions ─────────────────────────────────────────────────────────────
 
 export const getSubscription = (requestorId: string) => subscriptions.get(requestorId);
-export const setSubscription = (s: Subscription) => { subscriptions.set(s.requestorId, s); return s; };
+export const setSubscription = (s: Subscription) => { subscriptions.set(s.requestorId, s); if (isDbEnabled()) upsertSubscription(s).catch(persistErr('subscription')); return s; };
 export const listSubscriptions = () => Array.from(subscriptions.values());
 
 // ── Furnisher compensation ────────────────────────────────────────────────────
@@ -109,7 +111,7 @@ export const listSubscriptions = () => Array.from(subscriptions.values());
  * the same id with `reversedAt` set rather than deleting it — a clawback has to
  * leave a record, not erase one.
  */
-export const recordAttribution = (e: AttributionEntry) => { attributions.set(e.id, e); return e; };
+export const recordAttribution = (e: AttributionEntry) => { attributions.set(e.id, e); if (isDbEnabled()) upsertAttribution(e).catch(persistErr('attribution')); return e; };
 export const listAttributions = () => Array.from(attributions.values());
 export const listAttributionsForReport = (reportId: string) =>
   Array.from(attributions.values()).filter(e => e.reportId === reportId);
@@ -119,7 +121,7 @@ export const listAttributionsForContributor = (contributorId: string) =>
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
 export const getCreditBalance = (contributorId: string) => creditBalances.get(contributorId);
-export const setCreditBalance = (b: CreditBalance) => { creditBalances.set(b.contributorId, b); return b; };
+export const setCreditBalance = (b: CreditBalance) => { creditBalances.set(b.contributorId, b); if (isDbEnabled()) upsertCreditBalance(b).catch(persistErr('credit balance')); return b; };
 
 export function listDisputes(filter?: { status?: string; agentId?: string }) {
   let all = Array.from(disputes.values());
@@ -444,10 +446,11 @@ export async function initPersistence(): Promise<void> {
 
   await runMigrations();
 
-  const [ps, ds, rs, cs, ls, bas, bts, tus] = await Promise.all([
+  const [ps, ds, rs, cs, ls, bas, bts, tus, ats, subs, cbs] = await Promise.all([
     loadAllProfiles(), loadAllDisputes(), loadAllReports(), loadAllContributors(),
     loadAllLenderReports(), loadAllBillingAccounts(), loadAllBillingTransactions(),
-    loadAllTopUpReceipts(),
+    loadAllTopUpReceipts(), loadAllAttributions(), loadAllSubscriptions(),
+    loadAllCreditBalances(),
   ]);
 
   if (ps.length === 0) {
@@ -478,4 +481,18 @@ export async function initPersistence(): Promise<void> {
   billingTransactions.clear(); bts.forEach((t) => billingTransactions.set(t.id, t));
   topUpReceipts.clear();       tus.forEach((r) => topUpReceipts.set(r.receiptId, r));
   console.log(`[credit-bureau] hydrated ${billingAccounts.size} billing accounts, ${billingTransactions.size} ledger entries`);
+
+  // The furnisher ledger and subscriptions hydrate here for the same reason
+  // billing does, and never inside the seed branch above. These are debts and
+  // entitlements: what the bureau owes its furnishers, the inquiry credits it
+  // has issued them, and the plans customers have already paid for. Re-seeding
+  // any of it would invent money; dropping it would discharge a real debt and
+  // silently downgrade every paying subscriber to the default plan.
+  attributions.clear();   ats.forEach((e) => attributions.set(e.id, e));
+  subscriptions.clear();  subs.forEach((sub) => subscriptions.set(sub.requestorId, sub));
+  creditBalances.clear(); cbs.forEach((b) => creditBalances.set(b.contributorId, b));
+  console.log(
+    `[credit-bureau] hydrated ${attributions.size} furnisher attributions, ` +
+    `${subscriptions.size} subscriptions, ${creditBalances.size} credit balances`,
+  );
 }

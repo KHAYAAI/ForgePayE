@@ -100,6 +100,26 @@ jobs:
     defaults:
       run:
         working-directory: forgepay/services/agent-credit-bureau
+
+    # The persistence suite needs a real database or it skips itself, and a
+    # suite that silently skips is how the furnisher ledger stayed in memory
+    # while every run reported green. What it guards is money: what the bureau
+    # owes furnishers, and the plans customers have already paid for.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: bureau_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - uses: actions/checkout@v4
 
@@ -111,7 +131,32 @@ jobs:
 
       - run: npm ci
       - run: npm run type-check
+
+      # Deliberately WITHOUT a database. store.ts seeds its demo fixtures in
+      # memory only when no database is configured, so the rest of the suite —
+      # scoring, disputes, lender reports, auth — is written against that seed
+      # and fails against an empty database. Handing DATABASE_URL to the whole
+      # run turns 37 passing tests red for a reason unrelated to persistence.
       - run: npm test
+
+      # The persistence suite is the opposite: it skips itself without a
+      # database, and a suite that silently skips is exactly how the furnisher
+      # ledger stayed in memory while every run reported green. So it runs on
+      # its own, against the service container, and the result is asserted
+      # rather than trusted — a skip and a pass look identical in a summary line.
+      - name: Persistence — furnisher ledger, subscriptions, credit balances
+        run: |
+          npx vitest run src/persistence.test.ts --reporter=json --outputFile=/tmp/persist.json
+          node -e '
+            const r = require("/tmp/persist.json");
+            if (!r.numTotalTests || !r.numPassedTests) {
+              console.error("Persistence suite did not run — DATABASE_URL is not reaching it.");
+              process.exit(1);
+            }
+            console.log("persistence suite ran: " + r.numPassedTests + " passed");
+          '
+        env:
+          DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/bureau_ci
 
   # ── Agent Identity (TypeScript) ─────────────────────────────────────────────
   # Had no job here despite 3 test files and 40+ cases. That is why its

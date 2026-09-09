@@ -27,6 +27,9 @@ import type {
   BillingAccount,
   BillingTransaction,
   TopUpReceipt,
+  AttributionEntry,
+  Subscription,
+  CreditBalance,
 } from './types';
 import type { SettlementReceipt } from './settlement';
 import type { LenderReport } from './lender-report';
@@ -248,6 +251,80 @@ export async function runMigrations(): Promise<void> {
 
       CREATE INDEX IF NOT EXISTS idx_billing_topups_requestor_id
         ON billing_topups(requestor_id);
+
+      -- ── The furnisher money ledger ────────────────────────────────────────
+      --
+      -- One row per furnisher per paid inquiry: what that contributor earned
+      -- from that report. Written per inquiry rather than aggregated because a
+      -- dispute has to reverse the specific attribution a specific event
+      -- produced, and an aggregate counter cannot be clawed back accurately.
+      --
+      -- This was the last money in the service still held only in memory. The
+      -- monthly settlement run reads exactly this table to decide what to pay,
+      -- so a restart did not merely lose a statistic — it discharged real debts
+      -- to furnishers with no record that they had ever been owed.
+      CREATE TABLE IF NOT EXISTS furnisher_attributions (
+        id TEXT PRIMARY KEY,
+        contributor_id TEXT NOT NULL,
+        report_id TEXT NOT NULL,
+        agent_id TEXT NOT NULL,
+        -- Integer USD cents. Never a float: this is money.
+        amount_usd_cents BIGINT NOT NULL,
+        credits_accrued DOUBLE PRECISION NOT NULL DEFAULT 0,
+        phase TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        -- Set by a dispute. A reversed entry is retained, never deleted: a
+        -- clawback has to leave a record rather than erase one.
+        reversed_at TIMESTAMPTZ,
+        -- Set when a settlement run has paid this entry. The difference
+        -- between "never paid" and "already paid" is the only thing standing
+        -- between a re-run and paying twice.
+        settlement_id TEXT,
+        settled_at TIMESTAMPTZ,
+        entry JSONB NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
+      -- The settlement run's own query: unpaid, unreversed cash owed to one
+      -- contributor in one period.
+      CREATE INDEX IF NOT EXISTS idx_furnisher_attributions_unsettled
+        ON furnisher_attributions (contributor_id, created_at)
+        WHERE settlement_id IS NULL AND reversed_at IS NULL;
+
+      CREATE INDEX IF NOT EXISTS idx_furnisher_attributions_report
+        ON furnisher_attributions (report_id);
+
+      -- ── Subscriptions ─────────────────────────────────────────────────────
+      --
+      -- A plan is an entitlement, and losing it is a billing fault rather than
+      -- an outage: an unsubscribed caller falls back to pay-as-you-go at list,
+      -- so a restart silently stripped every paying customer of the bundled
+      -- allocation they had already paid for and began charging them per pull.
+      CREATE TABLE IF NOT EXISTS bureau_subscriptions (
+        requestor_id TEXT PRIMARY KEY,
+        plan_id TEXT NOT NULL,
+        period_started_at TIMESTAMPTZ,
+        pulls_used_this_period INT NOT NULL DEFAULT 0,
+        subscription JSONB NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_bureau_subscriptions_plan
+        ON bureau_subscriptions (plan_id);
+
+      -- ── Inquiry credit balances ───────────────────────────────────────────
+      --
+      -- The reciprocity-phase currency. Credits are earned instead of cash
+      -- after the first year, so this balance is a liability the bureau owes
+      -- exactly as much as an unpaid cash share is.
+      CREATE TABLE IF NOT EXISTS furnisher_credit_balances (
+        contributor_id TEXT PRIMARY KEY,
+        credits_available DOUBLE PRECISION NOT NULL DEFAULT 0,
+        credits_redeemed DOUBLE PRECISION NOT NULL DEFAULT 0,
+        credits_expired DOUBLE PRECISION NOT NULL DEFAULT 0,
+        balance JSONB NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
     `);
   } finally {
     client.release();
@@ -503,4 +580,101 @@ export async function loadAllTopUpReceipts(): Promise<TopUpReceipt[]> {
     createdAt:   r.created_at.toISOString(),
     confirmedAt: r.confirmed_at ? r.confirmed_at.toISOString() : undefined,
   }));
+}
+
+// ── Repository: furnisher attributions ─────────────────────────────────────────
+//
+// The money the bureau owes its data furnishers. Every other repository in this
+// file persists a record of something that happened; this one persists a debt,
+// which is why it is worth being explicit about the write path.
+//
+// `recordAttribution` is used for three different things — a new entry, a
+// dispute reversal that rewrites the same id with `reversedAt` set, and a
+// settlement run stamping `settlementId`. All three land here as an upsert on
+// the same primary key, so the row is updated in place and its history stays
+// on one row rather than being spread across an append-only log the reader
+// would have to reassemble.
+
+export async function upsertAttribution(e: AttributionEntry): Promise<void> {
+  await pool.query(
+    `INSERT INTO furnisher_attributions
+       (id, contributor_id, report_id, agent_id, amount_usd_cents, credits_accrued,
+        phase, created_at, reversed_at, settlement_id, settled_at, entry, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
+     ON CONFLICT (id) DO UPDATE SET
+       amount_usd_cents = EXCLUDED.amount_usd_cents,
+       credits_accrued  = EXCLUDED.credits_accrued,
+       phase            = EXCLUDED.phase,
+       reversed_at      = EXCLUDED.reversed_at,
+       settlement_id    = EXCLUDED.settlement_id,
+       settled_at       = EXCLUDED.settled_at,
+       entry            = EXCLUDED.entry,
+       updated_at       = NOW()`,
+    [
+      e.id, e.contributorId, e.reportId, e.agentId,
+      e.amountUsdCents, e.creditsAccrued, e.phase, e.createdAt,
+      e.reversedAt ?? null, e.settlementId ?? null, e.settledAt ?? null,
+      JSON.stringify(e),
+    ],
+  );
+}
+
+export async function loadAllAttributions(): Promise<AttributionEntry[]> {
+  const res = await pool.query<{ entry: AttributionEntry }>(
+    `SELECT entry FROM furnisher_attributions`,
+  );
+  return res.rows.map((r) => r.entry);
+}
+
+// ── Repository: subscriptions ─────────────────────────────────────────────────
+
+export async function upsertSubscription(s: Subscription): Promise<void> {
+  await pool.query(
+    `INSERT INTO bureau_subscriptions
+       (requestor_id, plan_id, period_started_at, pulls_used_this_period, subscription, updated_at)
+     VALUES ($1, $2, $3, $4, $5, NOW())
+     ON CONFLICT (requestor_id) DO UPDATE SET
+       plan_id                = EXCLUDED.plan_id,
+       period_started_at      = EXCLUDED.period_started_at,
+       pulls_used_this_period = EXCLUDED.pulls_used_this_period,
+       subscription           = EXCLUDED.subscription,
+       updated_at             = NOW()`,
+    [
+      s.requestorId, s.planId,
+      s.periodStartedAt ?? null,
+      s.pullsUsedThisPeriod ?? 0,
+      JSON.stringify(s),
+    ],
+  );
+}
+
+export async function loadAllSubscriptions(): Promise<Subscription[]> {
+  const res = await pool.query<{ subscription: Subscription }>(
+    `SELECT subscription FROM bureau_subscriptions`,
+  );
+  return res.rows.map((r) => r.subscription);
+}
+
+// ── Repository: inquiry credit balances ───────────────────────────────────────
+
+export async function upsertCreditBalance(b: CreditBalance): Promise<void> {
+  await pool.query(
+    `INSERT INTO furnisher_credit_balances
+       (contributor_id, credits_available, credits_redeemed, credits_expired, balance, updated_at)
+     VALUES ($1, $2, $3, $4, $5, NOW())
+     ON CONFLICT (contributor_id) DO UPDATE SET
+       credits_available = EXCLUDED.credits_available,
+       credits_redeemed  = EXCLUDED.credits_redeemed,
+       credits_expired   = EXCLUDED.credits_expired,
+       balance           = EXCLUDED.balance,
+       updated_at        = NOW()`,
+    [b.contributorId, b.creditsAvailable, b.creditsRedeemed, b.creditsExpired, JSON.stringify(b)],
+  );
+}
+
+export async function loadAllCreditBalances(): Promise<CreditBalance[]> {
+  const res = await pool.query<{ balance: CreditBalance }>(
+    `SELECT balance FROM furnisher_credit_balances`,
+  );
+  return res.rows.map((r) => r.balance);
 }
