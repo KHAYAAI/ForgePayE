@@ -958,6 +958,27 @@ async function buildApp() {
     });
 
     setLenderReport(report);
+
+    // The fee has settled; now record what each furnisher earned from it.
+    // Deliberately after setLenderReport: an attribution entry references a
+    // report that must already exist for a dispute to be able to reverse it.
+    //
+    // This call was missing entirely on this route — POST /v1/reports had it,
+    // POST /v1/lender-reports did not, so the endpoint an actual lender calls
+    // charged the requestor and issued the report but never credited a single
+    // furnisher for the data behind it. pull.profile is the unredacted
+    // profile authoriseAndRecordPull returned, the same one sanctionsScreen()
+    // was just run against — this route has no ZK-redaction concept the way
+    // POST /v1/reports does, so there is no separate "redacted for the
+    // caller" copy to avoid here.
+    const compensation = compensateInquiry(report.reportId, agentId, pull.profile.creditHistory);
+    if (compensation.unattributedUsdCents > 0) {
+      req.log.info(
+        { reportId: report.reportId, unattributedUsdCents: compensation.unattributedUsdCents },
+        'inquiry furnisher pool partially unattributed — events lack provenance',
+      );
+    }
+
     cost.finish(report.reportId, requestorId);
 
     if (wantsMarkdown(req)) {

@@ -380,6 +380,32 @@ function seed() {
   // persisted in plaintext.
   const seedContributors: DataContributor[] = [
     {
+      // Every seeded credit event across all five demo agents carries
+      // contributorId: 'fp_internal', but nothing ever registered it as an
+      // actual contributor -- getContributor('fp_internal') always returned
+      // undefined, so compensateInquiry()'s `if (!contributor) continue`
+      // guard silently skipped it on every single pull. The published
+      // furnisher revenue share was never payable for any demo agent, on
+      // either report endpoint, independent of which one calls
+      // compensateInquiry() -- this is what made that bug invisible in
+      // testing: crediting a furnisher that cannot be credited looks
+      // identical whether the call happens or not.
+      id: 'fp_internal',
+      name: 'FORGE Internal',
+      type: 'forgepay_internal',
+      apiKeyHash: hashApiKey('ck_forge_internal_seed'),
+      permissions: ['ingest_events'],
+      queriesUsed: 0,
+      queriesAllowed: 1_000_000,
+      dataRecordsContributed: 17, // exactly the credit events seeded below that reference it
+      createdAt: '2024-01-01T00:00:00Z',
+      status: 'active',
+      // No payoutAddress: this is the accurate state for a freshly seeded
+      // demo, and settlement correctly reports it as blocked until one is
+      // set via PUT /v1/contributors/:id/payout-destination -- the same
+      // path a real furnisher goes through, not a fabricated shortcut.
+    },
+    {
       id: 'contrib_aave',
       name: 'Aave V3 Protocol',
       type: 'defi_protocol',

@@ -570,6 +570,26 @@ describe('lender report API', () => {
     expect(after).toBe(before + 1);
   });
 
+  // Regression: POST /v1/reports credited furnishers on every pull;
+  // POST /v1/lender-reports — the endpoint an actual lender calls — charged
+  // the requestor, issued the report, and recorded the inquiry, but never
+  // called compensateInquiry() at all. The revenue share the bureau
+  // publishes was silently not paid on its own flagship endpoint.
+  it('credits the furnisher that furnished the data behind the report', async () => {
+    const before = (await app.inject({
+      method: 'GET', url: '/v1/contributors/fp_internal/statement', headers: bearer(ADMIN),
+    })).json().data.cashOwedUsd;
+
+    const res = await pull('mfi_furnisher_credit');
+    expect(res.statusCode).toBe(201);
+
+    const after = (await app.inject({
+      method: 'GET', url: '/v1/contributors/fp_internal/statement', headers: bearer(ADMIN),
+    })).json().data.cashOwedUsd;
+
+    expect(after).toBeGreaterThan(before);
+  });
+
   it('emits only codes the published schema can resolve', async () => {
     const r = (await pull('mfi_vocab')).json().data;
     for (const c of r.decision.reasonCodes) {
