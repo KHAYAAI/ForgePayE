@@ -299,6 +299,24 @@ services:
       # silently dropping what is owed.
       STABLECOIN_GATEWAY_URL: http://stablecoin-gateway:8020
       # Unset here: COMPLIANCE_MONITOR_API_KEY (screening skips with a warning in dev).
+      #
+      # ── Mode 2 on-chain bridge (Base Sepolia testnet) ──────────────────────
+      # CHAIN_ID is set explicitly on purpose — it defaults to 84532 if unset,
+      # which happens to be correct here, but the whole point of always
+      # setting it explicitly is to never rely on that default holding true
+      # when this same block is copied for a mainnet compose file later.
+      CHAIN_RPC_URL: https://sepolia.base.org
+      CHAIN_ID: "84532"
+      FORGE_REGISTRY_ADDRESS: "0x3f3f72b6894ba78a648e8baad7f875b857b0ce73"
+      FORGE_VALIDATOR_ADDRESS: "0xf7c82eab667d319340e2c7173993aad1ea4a3d58"
+      FORGE_ENFORCER_ADDRESS: "0xe5f7f62b8b7179e4f7b54a16e852ce04196b4f94"
+      FORGE_CORE_ADDRESS: "0xe157d21ed3a5c2c30fb79ebc249b85e1e4ba21dc"
+      FORGE_CROSSCHAIN_ADDRESS: "0x34d9501ebb5c14637e3fe7b4cc3ff0803c236b66"
+      # The UPDATER_ROLE key (0xA16e38E9...), never the DEFAULT_ADMIN_ROLE
+      # deployer key. Pulled from a local, gitignored .env file in this
+      # directory (forgepay/infra/k8s/.env) -- never hardcoded here, since
+      # this file is tracked in git.
+      SETTLEMENT_PRIVATE_KEY: ${SETTLEMENT_PRIVATE_KEY}
     ports:
       - "3018:3018"
     depends_on:
