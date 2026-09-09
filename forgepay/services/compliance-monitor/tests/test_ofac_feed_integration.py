@@ -604,6 +604,66 @@ class TestErrorHandling:
             # Should recognize as cached (no change)
             assert result2["cache_status"] in ["cached", "refreshed"]
 
+    @pytest.mark.asyncio
+    async def test_download_url_has_a_path_separator(
+        self, ofac_feed_manager: OfacFeedManager,
+    ) -> None:
+        """
+        Regression: `feed_base_url` is normalised with .rstrip("/") in
+        __init__, and `_download_csv` used to concatenate the list type
+        directly onto that with no separator -- turning
+        ".../downloads/ssi/" into a URL ending ".../downloads/ssiEEL.CSV"
+        instead of ".../downloads/ssi/EEL.CSV". Treasury 404'd on every
+        single call, in every environment, for as long as this method
+        existed -- because the bug was in the string, not the network.
+
+        Every other test in this file mocks `_download_csv` itself, which is
+        exactly why this shipped unnoticed: none of them ever executed the
+        line that built the URL. This patches one level lower, at the HTTP
+        client, so the real construction logic runs.
+        """
+        captured_urls: list[str] = []
+
+        class _FakeResponse:
+            content = b"header\n"
+            def raise_for_status(self) -> None:
+                return None
+
+        class _FakeClient:
+            async def __aenter__(self) -> "_FakeClient":
+                return self
+            async def __aexit__(self, *exc: object) -> None:
+                return None
+            async def get(self, url: str) -> _FakeResponse:
+                captured_urls.append(url)
+                return _FakeResponse()
+
+        with patch("src.ofac.feed.httpx.AsyncClient", return_value=_FakeClient()):
+            await ofac_feed_manager._download_csv(ListType.EEL)
+
+        assert captured_urls == ["https://www.treasury.gov/ofac/downloads/ssi/EEL.CSV"]
+        # The failure mode this guards against, made explicit rather than
+        # only implied by the assertion above.
+        assert "ssiEEL.CSV" not in captured_urls[0]
+
+    def test_download_url_is_correct_regardless_of_trailing_slash_in_config(
+        self, mock_redis_client: AsyncMock,
+    ) -> None:
+        """
+        A base URL supplied WITH a trailing slash and one supplied WITHOUT
+        one both normalise through .rstrip("/") in __init__, so both must
+        produce the identical, correctly-separated URL on the way back out.
+        """
+        with_slash = OfacFeedManager(
+            redis_client=mock_redis_client,
+            feed_base_url="https://www.treasury.gov/ofac/downloads/ssi/",
+        )
+        without_slash = OfacFeedManager(
+            redis_client=mock_redis_client,
+            feed_base_url="https://www.treasury.gov/ofac/downloads/ssi",
+        )
+        assert with_slash._feed_base_url == without_slash._feed_base_url
+
 
 # ---------------------------------------------------------------------------
 # Tests: Feed Status and Metadata

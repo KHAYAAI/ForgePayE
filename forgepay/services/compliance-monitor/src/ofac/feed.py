@@ -372,7 +372,12 @@ class OfacFeedManager:
         Raises:
             httpx.HTTPError on network failure after retries
         """
-        url = f"{self._feed_base_url}{list_type.value}.CSV"
+        # `_feed_base_url` was normalised with .rstrip("/") in __init__, so it
+        # never carries a trailing slash here — concatenating directly onto it
+        # produced e.g. ".../ssiEEL.CSV" instead of ".../ssi/EEL.CSV", and
+        # every download 404'd unconditionally, in every environment, since
+        # the day this method was written.
+        url = f"{self._feed_base_url}/{list_type.value}.CSV"
         logger.info("ofac_feed.download", url=url, list_type=list_type.value)
 
         async with httpx.AsyncClient(timeout=120.0, follow_redirects=True) as client:
