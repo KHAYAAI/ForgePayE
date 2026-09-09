@@ -77,13 +77,16 @@ export default function Home() {
           <ProductCard icon="💳" title="Forge Payments" price="R15,000/mo" description="Card and bank transfer processing with intelligent fallback routing." href="/products/payments" />
           <ProductCard icon="💰" title="Forge Treasury" price="R40,000/mo" description="Multi-agent payout netting, OFAC screening, and FX optimization." href="/products/treasury" />
           {/*
-            Priced in USD from the Growth tier, matching the plan table the
-            bureau service actually enforces (agent-credit-bureau/src/plans.ts:
-            Observer $0, Growth $1,000, Institutional $4,000, Network $12,000).
-            This card advertised R8,500/mo, which was the rate card the
+            $4,000/mo is the Institutional tier — the plan the named buyers
+            (banks, underwriters, white-label partners) actually land on, and the
+            headline the bureau is sold at. The full enforced table lives in
+            agent-credit-bureau/src/plans.ts: Observer $0, Growth $1,000,
+            Institutional $4,000, Network $12,000.
+
+            This card previously advertised R8,500/mo, the rate card the
             enterprise repricing replaced — the service had stopped honouring it.
           */}
-          <ProductCard icon="📊" title="Forge Credit Bureau" price="From $1,000/mo" description="Dual-mode credit scoring with FICO and on-chain operational modes." href="/products/credit-bureau" />
+          <ProductCard icon="📊" title="Forge Credit Bureau" price="$4,000/mo" description="Dual-mode credit scoring with FICO and on-chain operational modes." href="/products/credit-bureau" />
         </div>
       </section>
 

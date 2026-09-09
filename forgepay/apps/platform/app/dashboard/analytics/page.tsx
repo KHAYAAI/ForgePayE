@@ -105,7 +105,7 @@ export default function AnalyticsDashboard() {
         <div>
           <RevenueRow product="Forge Payments" amount="R15,000" percentage={24} />
           <RevenueRow product="Forge Treasury" amount="R40,000" percentage={63} />
-          <RevenueRow product="Forge Credit Bureau" amount="R8,500" percentage={13} />
+          <RevenueRow product="Forge Credit Bureau" amount="$4,000" percentage={13} />
           <div style={{ marginTop: 20, paddingTop: 20, borderTop: '1px solid #eee', fontWeight: 600, fontSize: 16 }}>
             Total: R63,500/mo
           </div>

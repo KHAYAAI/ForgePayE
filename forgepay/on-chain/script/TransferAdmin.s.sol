@@ -57,7 +57,10 @@ contract TransferAdmin is Script {
         ForgeTransactionValidator validator  = ForgeTransactionValidator(vm.envAddress("FORGE_VALIDATOR_ADDRESS"));
         ForgeBudgetEnforcer       enforcer   = ForgeBudgetEnforcer(vm.envAddress("FORGE_ENFORCER_ADDRESS"));
         ForgeCore                 core       = ForgeCore(vm.envAddress("FORGE_CORE_ADDRESS"));
-        ForgeCrossChainReputation crossChain = ForgeCrossChainReputation(vm.envAddress("FORGE_CROSSCHAIN_ADDRESS"));
+        // payable() because ForgeCrossChainReputation has a payable fallback
+        // (it receives native gas for CCIP fees); solc refuses the plain
+        // address conversion for such a contract.
+        ForgeCrossChainReputation crossChain = ForgeCrossChainReputation(payable(vm.envAddress("FORGE_CROSSCHAIN_ADDRESS")));
 
         vm.startBroadcast(deployerKey);
 

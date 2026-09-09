@@ -641,7 +641,15 @@ async function main(): Promise<void> {
 `);
 }
 
-main().catch((err) => {
-  console.error('[enterprise-treasury] Fatal startup error:', err);
-  process.exit(1);
-});
+// Only boot when this module is the process entrypoint.
+//
+// buildApp() is exported so tests can assemble the real app, but an
+// unconditional main() at module scope defeated that: importing buildApp bound
+// the port and started background workers as a side effect, which is why no
+// test ever exercised the assembled app. Same fix as stablecoin-gateway.
+if (require.main === module) {
+  main().catch((err) => {
+    console.error('[enterprise-treasury] Fatal startup error:', err);
+    process.exit(1);
+  });
+}

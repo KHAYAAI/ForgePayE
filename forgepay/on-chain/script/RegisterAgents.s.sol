@@ -27,10 +27,10 @@ contract RegisterAgents is Script {
         // seed profiles (services/agent-credit-bureau/src/store.ts), which now
         // carry the address explicitly rather than encoding it in the DID.
         address[] memory agents = new address[](5);
-        agents[0] = 0x7a3b9C2D1e4F5A6b7C8D9e0F1A2b3c4d5E6f7A8b; // agent_prime_001
-        agents[1] = 0x1a2B3C4d5e6F7a8B9c0D1e2F3a4b5c6D7e8f9a0b; // agent_prime_002
-        agents[2] = 0x9F8e7d6c5b4a3928172605040302010e0f1a2b3C; // agent_subprime_001
-        agents[3] = 0xDeaDbeeF1234567890AbcDef1234567890abcdef; // agent_super_001
+        agents[0] = 0x7a3B9C2d1e4f5A6B7C8D9E0F1a2B3c4d5E6F7A8B; // agent_prime_001
+        agents[1] = 0x1a2b3C4d5e6F7A8B9c0D1e2f3A4B5c6d7e8F9A0B; // agent_prime_002
+        agents[2] = 0x9F8E7d6c5B4A3928172605040302010e0F1A2B3C; // agent_subprime_001
+        agents[3] = 0xdeADbEEf1234567890AbCdeF1234567890ABCdEF; // agent_super_001
         // Was hardcoded to address(0) and skipped by the loop below — the DID
         // did:fp:0x000…dead was mis-transcribed as the zero address, so this
         // agent was silently never registered on-chain.

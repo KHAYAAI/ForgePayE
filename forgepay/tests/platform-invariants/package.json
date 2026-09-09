@@ -1,0 +1,16 @@
+{
+  "name": "@forgepay/platform-invariants",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cross-service guards for the deployment faults that made services unbootable",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "type-check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.3",
+    "vitest": "^2.0.4"
+  }
+}

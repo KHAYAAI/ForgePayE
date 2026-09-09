@@ -61,6 +61,7 @@ import {
 import {
   previewPeriod, settleFurnisherPeriod, previousPeriod as previousPayoutPeriod, isPeriodClosed,
 } from './furnisher-payouts';
+import { startPullCost, pullCostSummary } from './pull-cost';
 import { isRedisEnabled, getRedisClient } from './redis';
 
 import {
@@ -718,6 +719,7 @@ async function buildApp() {
   };
 
   app.post('/v1/reports', async (req, reply) => {
+    const cost = startPullCost();
     const parse = PullReportSchema.safeParse(req.body);
     if (!parse.success) return reply.status(400).send({ error: 'ValidationError', details: parse.error.flatten() });
 
@@ -783,6 +785,8 @@ async function buildApp() {
         'inquiry furnisher pool partially unattributed — events lack provenance',
       );
     }
+
+    cost.finish(report.reportId, requestorId);
 
     return reply.status(201).send({ data: report });
   });
@@ -907,6 +911,7 @@ async function buildApp() {
    * does, via the shared `authoriseAndRecordPull`.
    */
   app.post('/v1/lender-reports', async (req, reply) => {
+    const cost = startPullCost();
     const parse = LenderReportSchema.safeParse(req.body);
     if (!parse.success) return reply.status(400).send({ error: 'ValidationError', details: parse.error.flatten() });
 
@@ -924,6 +929,7 @@ async function buildApp() {
     // agent last happened to be screened. Fails closed — an unreachable
     // screening service produces a decline, never a silent pass.
     const sanctions = await sanctionsScreen(pull.profile);
+    cost.sanctionsScreen();
 
     const report = buildLenderReport({
       reportId:      randomUUID(),
@@ -937,6 +943,7 @@ async function buildApp() {
     });
 
     setLenderReport(report);
+    cost.finish(report.reportId, requestorId);
 
     if (wantsMarkdown(req)) {
       return reply.status(201).type('text/markdown; charset=utf-8').send(renderLenderReportMarkdown(report));
@@ -1257,6 +1264,27 @@ async function buildApp() {
       return reply.send({ data: result.balance });
     },
   );
+
+  // GET /v1/admin/pull-costs — what a hard pull costs to serve, and whether
+  // each volume band is sold above that cost.
+  //
+  // Absent from ROUTE_SCOPES, so deny-by-default requires `admin`: this is
+  // margin data, and the volume bands are what the largest customers negotiate
+  // against.
+  app.get('/v1/admin/pull-costs', async (_req, reply) => {
+    const summary = pullCostSummary();
+    return reply.send({
+      data: summary,
+      // Stated rather than implied. Without vendor unit prices the cost fields
+      // are absent, and a caller must be able to tell "not yet known" from
+      // "measured at zero" — the whole point of the instrumentation is to stop
+      // a pricing decision resting on a fabricated number.
+      note: summary.missingUnitPrices.length > 0
+        ? `Cost figures omitted — set ${summary.missingUnitPrices.join(', ')} to the prices your ` +
+          `vendors actually charge. Call volumes and latencies above are measured and accurate.`
+        : undefined,
+    });
+  });
 
   // ── Furnisher settlement ────────────────────────────────────────────────────
   //
