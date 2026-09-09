@@ -89,11 +89,21 @@ describe('entitlement', () => {
     expect(e.kind).toBe('refused');
   });
 
-  it('treats an absent subscription as the free tier rather than as unlimited', () => {
-    // Failing open here would give every unsubscribed caller institutional
-    // entitlement for nothing.
+  it('sells a pull at list to a caller with no subscription', () => {
+    // Pay-as-you-go is a published product, not an oversight: the bureau quotes
+    // a per-pull price to callers who will never sign a contract. Refusing them
+    // would have withdrawn that product in the name of tiering.
     const e = entitlementForNextPull(undefined);
-    expect(e.kind).toBe('refused');
+    expect(e.kind).toBe('paid');
+    if (e.kind !== 'paid') throw new Error('unreachable');
+    expect(e.priceUsd).toBe(LIST_INQUIRY_USD);
+  });
+
+  it('never lets an unsubscribed caller inherit a paid plan\'s bundled allocation', () => {
+    // The actual fail-closed requirement. Pay-as-you-go is fine; free inquiries
+    // that nobody bought are not.
+    const e = entitlementForNextPull(undefined);
+    expect(e.kind).not.toBe('bundled');
   });
 
   it('spends the bundled allocation before touching the prepaid balance', () => {

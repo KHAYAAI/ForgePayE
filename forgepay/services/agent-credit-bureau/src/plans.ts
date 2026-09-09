@@ -181,15 +181,27 @@ export type PullEntitlement =
  * for 2,500 inquiries should exhaust them before their prepaid balance is
  * touched — the alternative silently double-charges someone who is already
  * paying for the same thing.
+ *
+ * No subscription means pay-as-you-go at list, not refusal. The bureau
+ * publishes a per-pull price and sells to callers who will never sign a
+ * contract — a small lender, or an operator pulling on its own agent. Treating
+ * an absent subscription as the free tier would have withdrawn that product.
+ * What must never happen is an unsubscribed caller inheriting a *paid* plan's
+ * bundled allocation, which is why the allocation below is read from the
+ * subscription rather than defaulted.
  */
 export function entitlementForNextPull(sub: Subscription | undefined): PullEntitlement {
-  const plan = PLANS[sub?.planId ?? DEFAULT_PLAN_ID];
+  if (!sub) {
+    return { kind: 'paid', priceUsd: LIST_INQUIRY_USD };
+  }
+
+  const plan = PLANS[sub.planId];
 
   if (!plan.hardPullsAllowed) {
     return { kind: 'refused', reason: 'plan_forbids_hard_pulls' };
   }
 
-  const used = sub?.pullsUsedThisPeriod ?? 0;
+  const used = sub.pullsUsedThisPeriod;
   if (used < plan.bundledPullsPerYear) {
     return { kind: 'bundled', remainingAfter: plan.bundledPullsPerYear - used - 1 };
   }

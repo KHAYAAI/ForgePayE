@@ -29,12 +29,14 @@
  */
 
 import { randomUUID } from 'crypto';
-import type { BillingAccount, BillingTransaction, TopUpReceipt } from './types';
+import type { BillingAccount, BillingTransaction, TopUpReceipt, Subscription, PlanId } from './types';
 import { INQUIRY_FEE_USD } from './grade';
+import { entitlementForNextPull, periodHasLapsed, DEFAULT_PLAN_ID } from './plans';
 import {
   getBillingAccount, setBillingAccount,
   recordBillingTransaction, listBillingTransactions,
   getTopUpReceipt, setTopUpReceipt,
+  getSubscription, setSubscription,
 } from './store';
 
 // ── USD <-> cents ─────────────────────────────────────────────────────────────
@@ -148,6 +150,106 @@ export function debitAccount(
 /** The one fee this bureau currently charges: a credit-file pull. */
 export function chargeInquiryFee(requestorId: string, reason: string): DebitResult {
   return debitAccount(requestorId, INQUIRY_FEE_USD, reason);
+}
+
+// ── Entitlement-aware charging ────────────────────────────────────────────────
+
+export type PullCharge =
+  | { ok: true; kind: 'bundled'; bundledRemaining: number }
+  | { ok: true; kind: 'paid'; priceUsd: number; transaction: BillingTransaction; balanceUsdCents: number }
+  | { ok: false; reason: 'plan_forbids_hard_pulls'; planId: PlanId }
+  | { ok: false; reason: 'insufficient_funds'; priceUsd: number; balanceUsdCents: number };
+
+/**
+ * Charge for one hard pull against the requestor's plan, then their balance.
+ *
+ * Replaces a flat `chargeInquiryFee` that debited $2.80 regardless of what the
+ * caller had already paid for. Two things were wrong with that: a subscriber
+ * who had bought 2,500 bundled inquiries was charged again for every one of
+ * them, and volume pricing existed nowhere, so the published discount bands
+ * were unreachable.
+ *
+ * Order matters. Bundled allocation is spent before cash, because the
+ * alternative bills someone twice for the same entitlement. A requestor with no
+ * subscription falls to the Observer plan, which forbids hard pulls outright —
+ * failing closed rather than silently granting institutional entitlement to an
+ * unsubscribed caller.
+ */
+export function chargeForPull(requestorId: string, reason: string, now = new Date()): PullCharge {
+  let sub = getSubscription(requestorId);
+
+  // Roll the entitlement year over before reading it, so a subscriber does not
+  // stay exhausted into a period they have already paid for.
+  if (sub && periodHasLapsed(sub, now)) {
+    sub = setSubscription({
+      ...sub,
+      periodStartedAt: now.toISOString(),
+      pullsUsedThisPeriod: 0,
+      updatedAt: now.toISOString(),
+    });
+  }
+
+  const entitlement = entitlementForNextPull(sub);
+
+  if (entitlement.kind === 'refused') {
+    return { ok: false, reason: 'plan_forbids_hard_pulls', planId: sub?.planId ?? DEFAULT_PLAN_ID };
+  }
+
+  if (entitlement.kind === 'bundled') {
+    // No cash moves. The pull is already paid for by the subscription.
+    setSubscription({
+      ...sub!,
+      pullsUsedThisPeriod: sub!.pullsUsedThisPeriod + 1,
+      updatedAt: now.toISOString(),
+    });
+    return { ok: true, kind: 'bundled', bundledRemaining: entitlement.remainingAfter };
+  }
+
+  const debit = debitAccount(requestorId, entitlement.priceUsd, reason);
+  if (!debit.ok) {
+    return {
+      ok: false,
+      reason: 'insufficient_funds',
+      priceUsd: entitlement.priceUsd,
+      balanceUsdCents: debit.balanceUsdCents,
+    };
+  }
+
+  // Counted even though it was paid in cash: the counter is what advances the
+  // volume band, so a subscriber's price steps down as their annual volume
+  // grows rather than resetting on every call.
+  if (sub) {
+    setSubscription({
+      ...sub,
+      pullsUsedThisPeriod: sub.pullsUsedThisPeriod + 1,
+      updatedAt: now.toISOString(),
+    });
+  }
+
+  return {
+    ok: true,
+    kind: 'paid',
+    priceUsd: entitlement.priceUsd,
+    transaction: debit.transaction,
+    balanceUsdCents: debit.account.balanceUsdCents,
+  };
+}
+
+/** Assign or change a requestor's plan. Admin-only at the route layer. */
+export function setPlan(requestorId: string, planId: PlanId, now = new Date()): Subscription {
+  const existing = getSubscription(requestorId);
+  if (existing) {
+    return setSubscription({ ...existing, planId, status: 'active', updatedAt: now.toISOString() });
+  }
+  return setSubscription({
+    requestorId,
+    planId,
+    periodStartedAt: now.toISOString(),
+    pullsUsedThisPeriod: 0,
+    status: 'active',
+    createdAt: now.toISOString(),
+    updatedAt: now.toISOString(),
+  });
 }
 
 export function billingHistory(requestorId: string): BillingTransaction[] {

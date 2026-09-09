@@ -51,7 +51,13 @@ import { resolveDispute, withEscalationCheck, furnisherForEvent, type DisputeCor
 import {
   getAccountSummary, creditAccount, chargeInquiryFee, billingHistory,
   requestTopUp, confirmTopUp, centsToUsd, usdToCents,
+  chargeForPull, setPlan,
 } from './billing';
+import { PLANS, getPlan, planAnnualUsdCents, LIST_INQUIRY_USD, FURNISHER_SHARE_OF_LIST_USD, VOLUME_BANDS } from './plans';
+import {
+  compensateInquiry, furnisherStatement, redeemCredits, creditBalanceFor,
+  compensationPhase, cashMonthsRemaining, reverseAttribution,
+} from './furnisher-comp';
 import { isRedisEnabled, getRedisClient } from './redis';
 
 import {
@@ -59,7 +65,9 @@ import {
   getReport, setReport, getContributor, setContributor, listDisputes,
   listProfiles, bureauStats, profiles, contributors, initPersistence, deriveScoreFields,
   getLenderReport, setLenderReport, listLenderReports,
+  getSubscription, listAttributionsForContributor,
 } from './store';
+import type { PlanId } from './types';
 import {
   buildLenderReport, renderLenderReportMarkdown,
   REASON_CODE_CATALOG, LENDER_REPORT_SCHEMA_VERSION,
@@ -630,13 +638,34 @@ async function buildApp() {
 
     // Charged before the inquiry is recorded, for the same reason consent is
     // checked first: a declined charge must leave no trace on the file.
-    const charge = chargeInquiryFee(requestorId, `inquiry_fee:${agentId}:${purpose}`);
+    //
+    // Entitlement-aware: a subscriber's bundled allocation is spent before
+    // their prepaid balance, and cash pulls are priced by volume band rather
+    // than at a flat list rate. See billing.ts/chargeForPull.
+    const charge = chargeForPull(requestorId, `inquiry_fee:${agentId}:${purpose}`);
     if (!charge.ok) {
+      if (charge.reason === 'plan_forbids_hard_pulls') {
+        input.log.warn(
+          { agentId, requestorId, purpose, planId: charge.planId },
+          'credit report refused — plan does not include hard pulls',
+        );
+        return {
+          ok: false,
+          status: 403,
+          body: {
+            error:   'PlanForbidsHardPulls',
+            planId:  charge.planId,
+            message: `The ${charge.planId} plan includes soft pulls only. A full report requires a ` +
+                     `plan with an inquiry allocation — see GET /v1/plans.`,
+          },
+        };
+      }
+
       input.log.warn(
         {
           agentId, requestorId, purpose,
           balanceUsd: centsToUsd(charge.balanceUsdCents),
-          requiredUsd: centsToUsd(charge.requiredUsdCents),
+          requiredUsd: charge.priceUsd,
         },
         'credit report refused — insufficient prepaid balance',
       );
@@ -646,9 +675,9 @@ async function buildApp() {
         body: {
           error:       'PaymentRequired',
           message:     `Insufficient prepaid balance: $${centsToUsd(charge.balanceUsdCents)} available, ` +
-                       `$${centsToUsd(charge.requiredUsdCents)} required per pull.`,
+                       `$${charge.priceUsd.toFixed(2)} required for this pull.`,
           balanceUsd:  centsToUsd(charge.balanceUsdCents),
-          requiredUsd: centsToUsd(charge.requiredUsdCents),
+          requiredUsd: charge.priceUsd,
           topUpHint:   'POST /v1/billing/:requestorId/topup to fund this account via x402 USDC, ' +
                        'or contact the bureau operator for a manual credit.',
         },
@@ -668,7 +697,10 @@ async function buildApp() {
       // jti is the durable, non-replayable reference that ties this inquiry to
       // the authorisation that permitted it.
       consentToken:  consent.payload!.jti,
-      billingTransactionId: charge.transaction.id,
+      // A bundled pull moves no cash and therefore has no billing transaction
+      // to reference. The inquiry is still recorded — it happened, and it still
+      // affects inquiry velocity — it simply was not separately charged.
+      ...(charge.kind === 'paid' ? { billingTransactionId: charge.transaction.id } : {}),
     });
 
     // Recompute score after inquiry (may slightly reduce it)
@@ -733,6 +765,22 @@ async function buildApp() {
     }
 
     setReport(report);
+
+    // The fee has settled; now record what each furnisher earned from it.
+    // Deliberately after setReport: an attribution entry references a report
+    // that must already exist for a dispute to be able to reverse it later.
+    //
+    // Uses the unredacted profile — in ZK mode `report.profile.creditHistory`
+    // is emptied for the caller's benefit, and attributing against that would
+    // silently pay no furnisher anything on privacy-preserving pulls.
+    const compensation = compensateInquiry(report.reportId, agentId, profile.creditHistory);
+    if (compensation.unattributedUsdCents > 0) {
+      req.log.info(
+        { reportId: report.reportId, unattributedUsdCents: compensation.unattributedUsdCents },
+        'inquiry furnisher pool partially unattributed — events lack provenance',
+      );
+    }
+
     return reply.status(201).send({ data: report });
   });
 
@@ -1069,6 +1117,141 @@ async function buildApp() {
           balanceUsd:       centsToUsd(outcome.account.balanceUsdCents),
         },
       });
+    },
+  );
+
+  // ── Plans and subscriptions ────────────────────────────────────────────────
+
+  // GET /v1/plans — the published rate card. Public, like the grade scale: a
+  // buyer should not need credentials to find out what something costs.
+  app.get('/v1/plans', async (_req, reply) => {
+    return reply.send({
+      data: {
+        currency: 'USD',
+        plans: Object.values(PLANS).map(p => ({
+          id:                  p.id,
+          name:                p.name,
+          monthlyUsd:          p.monthlyUsdCents / 100,
+          annualUsd:           planAnnualUsdCents(p.id) / 100,
+          bundledPullsPerYear: p.bundledPullsPerYear,
+          hardPullsAllowed:    p.hardPullsAllowed,
+          includes:            p.includes,
+          builtFor:            p.builtFor,
+        })),
+        inquiryPricing: {
+          listUsd: LIST_INQUIRY_USD,
+          volumeBands: VOLUME_BANDS.map(b => ({
+            upToAnnualPulls: b.upTo === Number.MAX_SAFE_INTEGER ? null : b.upTo,
+            pricePerPullUsd: b.pricePerPullUsd,
+          })),
+          furnisherShareUsd: FURNISHER_SHARE_OF_LIST_USD,
+          furnisherShareNote:
+            'A fixed 25% of list price, paid on every inquiry regardless of the volume discount ' +
+            'the buyer received. Discounts come out of the bureau\'s margin, never the furnisher\'s share.',
+        },
+      },
+    });
+  });
+
+  // GET /v1/subscriptions/:requestorId — a requestor's own plan and usage.
+  app.get<{ Params: { requestorId: string } }>('/v1/subscriptions/:requestorId', async (req, reply) => {
+    const denied = contributorAccessError(req.auth, req.params.requestorId);
+    if (denied) return reply.status(403).send(denied);
+
+    const sub = getSubscription(req.params.requestorId);
+    if (!sub) {
+      return reply.send({
+        data: {
+          requestorId: req.params.requestorId,
+          planId: 'observer',
+          note: 'No subscription on file — soft pulls only. See GET /v1/plans.',
+        },
+      });
+    }
+
+    const plan = getPlan(sub.planId);
+    return reply.send({
+      data: {
+        ...sub,
+        planName:         plan.name,
+        monthlyUsd:       plan.monthlyUsdCents / 100,
+        bundledRemaining: Math.max(0, plan.bundledPullsPerYear - sub.pullsUsedThisPeriod),
+      },
+    });
+  });
+
+  // PUT /v1/subscriptions/:requestorId — admin assigns a plan.
+  //
+  // Unlisted in ROUTE_SCOPES, so deny-by-default already requires `admin`.
+  // Plan assignment follows a signed commercial agreement; it is not something
+  // a requestor may do to itself.
+  app.put<{ Params: { requestorId: string }; Body: { planId?: string } }>(
+    '/v1/subscriptions/:requestorId', async (req, reply) => {
+      const planId = req.body?.planId;
+      if (!planId || !(planId in PLANS)) {
+        return reply.status(400).send({
+          error: 'ValidationError',
+          message: `planId must be one of: ${Object.keys(PLANS).join(', ')}`,
+        });
+      }
+      const sub = setPlan(req.params.requestorId, planId as PlanId);
+      return reply.send({ data: sub });
+    },
+  );
+
+  // ── Furnisher compensation ─────────────────────────────────────────────────
+
+  // GET /v1/contributors/:id/statement — what this furnisher has earned.
+  app.get<{ Params: { id: string } }>('/v1/contributors/:id/statement', async (req, reply) => {
+    const denied = contributorAccessError(req.auth, req.params.id);
+    if (denied) return reply.status(403).send(denied);
+
+    const contributor = getContributor(req.params.id);
+    if (!contributor) {
+      return reply.status(404).send({ error: 'NotFound', message: `Contributor ${req.params.id} not found` });
+    }
+
+    const statement = furnisherStatement(req.params.id, listAttributionsForContributor(req.params.id));
+    const phase = compensationPhase(contributor);
+
+    return reply.send({
+      data: {
+        ...statement,
+        cashOwedUsd: centsToUsd(statement.cashOwedUsdCents),
+        phase,
+        phaseNote: phase === 'cash'
+          ? `Cash share for the first 12 months after activation. ` +
+            `${statement.cashMonthsRemaining === Infinity
+                ? 'Held on cash by operator agreement.'
+                : `${statement.cashMonthsRemaining.toFixed(1)} months remaining, after which ` +
+                  `compensation continues as inquiry credits.`}`
+          : 'Reciprocity phase — compensation accrues as inquiry credits at list value, ' +
+            'redeemable against hard pulls.',
+      },
+    });
+  });
+
+  // POST /v1/contributors/:id/credits/redeem — spend credits on a hard pull.
+  app.post<{ Params: { id: string }; Body: { credits?: number } }>(
+    '/v1/contributors/:id/credits/redeem', async (req, reply) => {
+      const denied = contributorAccessError(req.auth, req.params.id);
+      if (denied) return reply.status(403).send(denied);
+
+      const credits = req.body?.credits ?? 1;
+      if (!Number.isInteger(credits) || credits < 1) {
+        return reply.status(400).send({ error: 'ValidationError', message: 'credits must be a positive integer' });
+      }
+
+      const result = redeemCredits(req.params.id, credits);
+      if (!result.ok) {
+        return reply.status(402).send({
+          error:     'InsufficientCredits',
+          available: result.available,
+          requested: credits,
+          message:   `${result.available.toFixed(2)} credits available, ${credits} requested.`,
+        });
+      }
+      return reply.send({ data: result.balance });
     },
   );
 
