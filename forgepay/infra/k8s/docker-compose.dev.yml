@@ -143,6 +143,19 @@ services:
       INTERNAL_WEBHOOK_SECRET:         dev-internal-secret-change-me
       # Dev-only 32-byte key — override with real value in production
       PRIVATE_KEY_ENCRYPTION_KEY:      "dededededededededededededededededededededededededededededededede"
+      #
+      # ── Outbound payout signer (Base Sepolia testnet) ──────────────────────
+      # Off unless PAYOUT_SIGNER_ENABLED is exactly "true" -- see payout-signer.ts.
+      PAYOUT_SIGNER_ENABLED:           "true"
+      PAYOUT_SIGNER_CHAIN:             base-sepolia
+      PAYOUT_SIGNER_RPC_URL:           https://sepolia.base.org
+      # Deliberately small on testnet -- this is the control that bounds the
+      # wallet, not any single transfer. Raise it only after watching a real
+      # settlement period run correctly.
+      PAYOUT_SIGNER_DAILY_MAX_USD:     "50"
+      # From a local, gitignored .env in this directory -- never hardcoded
+      # here, same reasoning as SETTLEMENT_PRIVATE_KEY on agent-credit-bureau.
+      PAYOUT_SIGNER_PRIVATE_KEY:       ${PAYOUT_SIGNER_PRIVATE_KEY}
     ports:
       - "8020:8020"
     depends_on:
