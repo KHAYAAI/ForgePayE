@@ -134,7 +134,7 @@ openssl rand -hex 32
 ### 2.4 Prove it
 
 ```bash
-curl -s https://<your-bureau>/healthz
+curl -s https://<your-bureau>/health
 curl -s https://<your-bureau>/v1/plans          # public, no auth
 ```
 

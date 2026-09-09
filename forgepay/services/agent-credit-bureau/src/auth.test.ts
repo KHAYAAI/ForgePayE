@@ -46,6 +46,20 @@ describe('unauthenticated access', () => {
     expect(res.statusCode).toBe(200);
   });
 
+  // Regression: the route carried a comment saying "Public, like the grade
+  // scale: a buyer should not need credentials to find out what something
+  // costs" but was never added to PUBLIC_ROUTES, so deny-by-default silently
+  // put it behind admin — the walk-the-route-table test below does not catch
+  // this class of bug, because "requires admin" is a valid, non-erroring
+  // resolution for an unlisted route. A prospect has to be able to see
+  // pricing before they have a key at all.
+  it('serves the rate card without credentials', async () => {
+    const res = await app.inject({ method: 'GET', url: '/v1/plans' });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.data.plans.length).toBeGreaterThan(0);
+  });
+
   it('refuses to read a score', async () => {
     const res = await app.inject({ method: 'GET', url: '/v1/agents/agent_prime_001/score' });
     expect(res.statusCode).toBe(401);
@@ -201,7 +215,7 @@ describe('every route has an explicit access decision', () => {
     // being public, so the invariant is simply: nothing resolves to a scope
     // that no principal could ever hold, and public routes are deliberate.
     const unexpectedlyPublic = routes.filter(
-      r => isPublicRoute(r.method, r.url) && !['/health', '/metrics'].includes(r.url),
+      r => isPublicRoute(r.method, r.url) && !['/health', '/metrics', '/v1/plans'].includes(r.url),
     );
     expect(unexpectedlyPublic, `unexpected public routes: ${JSON.stringify(unexpectedlyPublic)}`).toEqual([]);
 

@@ -161,6 +161,12 @@ export function contributorAccessError(
 const PUBLIC_ROUTES = new Set<string>([
   'GET /health',
   'GET /metrics',
+  // The rate card. index.ts already carries the comment "Public, like the
+  // grade scale: a buyer should not need credentials to find out what
+  // something costs" — deny-by-default silently overrode that intent since
+  // this set is the only thing that actually exempts a route. A prospect
+  // has to be able to see pricing before they have an API key at all.
+  'GET /v1/plans',
 ]);
 
 /**
