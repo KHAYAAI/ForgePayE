@@ -14,6 +14,9 @@ import type {
   BillingAccount,
   BillingTransaction,
   TopUpReceipt,
+  Subscription,
+  AttributionEntry,
+  CreditBalance,
 } from './types';
 import { computeScore } from './scorer';
 import { hashApiKey } from './hash';
@@ -51,6 +54,19 @@ export const billingAccounts = new Map<string, BillingAccount>();
 export const billingTransactions = new Map<string, BillingTransaction>();
 export const topUpReceipts = new Map<string, TopUpReceipt>();
 
+/** Subscriptions — see plans.ts for tiers and entitlement. */
+export const subscriptions = new Map<string, Subscription>();
+
+/**
+ * Furnisher compensation — see furnisher-comp.ts.
+ *
+ * Attribution entries are keyed by their own id rather than by report, because
+ * one report produces one entry per contributing furnisher and a dispute
+ * reverses them individually.
+ */
+export const attributions = new Map<string, AttributionEntry>();
+export const creditBalances = new Map<string, CreditBalance>();
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 export const getProfile  = (id: string) => profiles.get(id);
@@ -79,6 +95,31 @@ export const listBillingTransactions = (requestorId: string) =>
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 export const getTopUpReceipt = (receiptId: string) => topUpReceipts.get(receiptId);
 export const setTopUpReceipt = (r: TopUpReceipt) => { topUpReceipts.set(r.receiptId, r); if (isDbEnabled()) upsertTopUpReceipt(r).catch(persistErr('topup receipt')); return r; };
+
+// ── Subscriptions ─────────────────────────────────────────────────────────────
+
+export const getSubscription = (requestorId: string) => subscriptions.get(requestorId);
+export const setSubscription = (s: Subscription) => { subscriptions.set(s.requestorId, s); return s; };
+export const listSubscriptions = () => Array.from(subscriptions.values());
+
+// ── Furnisher compensation ────────────────────────────────────────────────────
+
+/**
+ * Write an attribution entry. Also used to persist a *reversal*, which rewrites
+ * the same id with `reversedAt` set rather than deleting it — a clawback has to
+ * leave a record, not erase one.
+ */
+export const recordAttribution = (e: AttributionEntry) => { attributions.set(e.id, e); return e; };
+export const listAttributions = () => Array.from(attributions.values());
+export const listAttributionsForReport = (reportId: string) =>
+  Array.from(attributions.values()).filter(e => e.reportId === reportId);
+export const listAttributionsForContributor = (contributorId: string) =>
+  Array.from(attributions.values())
+    .filter(e => e.contributorId === contributorId)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+export const getCreditBalance = (contributorId: string) => creditBalances.get(contributorId);
+export const setCreditBalance = (b: CreditBalance) => { creditBalances.set(b.contributorId, b); return b; };
 
 export function listDisputes(filter?: { status?: string; agentId?: string }) {
   let all = Array.from(disputes.values());

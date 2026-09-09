@@ -243,6 +243,28 @@ export interface DataContributor {
    */
   windowStartedAt?: string;
   recordsThisWindow?: number;
+
+  /**
+   * When this furnisher first became active — the start of its cash-share year.
+   *
+   * Set by the activation route, not by registration: a contributor registers
+   * as `pending` and cannot ingest until an admin activates it, so the cash
+   * clock should start when it can actually furnish, not when it applied.
+   */
+  activatedAt?: string;
+
+  /**
+   * Overrides the automatic switch to reciprocity after the cash year.
+   *
+   * The reciprocity phase pays in inquiry credits, which are only worth
+   * something to a furnisher that actually reads credit files. That is true of
+   * a lending protocol and false of a payment rail — x402 furnishes the
+   * highest-frequency signal on the network and has little use for a credit
+   * report. Rather than force credits on a furnisher that cannot spend them,
+   * an admin can keep a specific contributor on cash indefinitely. Deliberately
+   * an explicit exception, never a default.
+   */
+  cashEligibleOverride?: boolean;
 }
 
 // ── Dual-Mode Scoring Types ───────────────────────────────────────────────────
@@ -377,4 +399,84 @@ export interface TopUpReceipt {
   status: 'pending' | 'confirmed';
   createdAt: string;
   confirmedAt?: string;
+}
+
+// ── Subscription plans ────────────────────────────────────────────────────────
+
+export type PlanId = 'observer' | 'growth' | 'institutional' | 'network';
+
+/**
+ * A requestor's subscription. Prior to this the bureau had no plan concept at
+ * all: the published R8,500/mo subscription was a line on a rate card that
+ * nothing in the service checked, so a caller with an API key and a prepaid
+ * balance received exactly what a paying subscriber did.
+ */
+export interface Subscription {
+  requestorId: string;
+  planId: PlanId;
+  /** Start of the current entitlement year — bundled pulls reset from here. */
+  periodStartedAt: string;
+  /** Bundled pulls already consumed in the current period. */
+  pullsUsedThisPeriod: number;
+  status: 'active' | 'cancelled';
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ── Furnisher compensation ────────────────────────────────────────────────────
+
+/**
+ * How a furnisher is compensated right now.
+ *
+ * `cash` for the first COMPENSATION_CASH_MONTHS after activation, then
+ * `reciprocity`. The switch is deliberate: cash solves the cold-start problem
+ * (a furnisher has no reason to build an integration for a network that is not
+ * yet worth reading), reciprocity is what sustains every real bureau once the
+ * network itself is the reason to participate.
+ */
+export type CompensationPhase = 'cash' | 'reciprocity';
+
+/**
+ * One furnisher's earned share of one paid inquiry.
+ *
+ * Written per inquiry rather than aggregated, because a dispute has to be able
+ * to reverse the specific attribution a specific event produced — an aggregate
+ * counter cannot be clawed back accurately.
+ */
+export interface AttributionEntry {
+  id: string;
+  contributorId: string;
+  /** The report whose fee produced this entry. */
+  reportId: string;
+  agentId: string;
+  /** Share of the inquiry's furnisher pool, 0–1. */
+  share: number;
+  /** Cash owed, in integer USD cents. Zero during the reciprocity phase. */
+  amountUsdCents: number;
+  /** Inquiry credits accrued. Zero during the cash phase. */
+  creditsAccrued: number;
+  phase: CompensationPhase;
+  createdAt: string;
+  /** Set when a dispute reverses this attribution. */
+  reversedAt?: string;
+  reversalReason?: string;
+}
+
+/**
+ * A furnisher's balance of inquiry credits — the reciprocity-phase currency.
+ *
+ * One credit redeems for one hard pull at list price. Credits are deliberately
+ * non-transferable and expiring: a transferable credit becomes a secondary
+ * market in discounted inquiries that undercuts the bureau's own list price,
+ * and a non-expiring one is an unbounded claim on future capacity already sold
+ * to paying subscribers.
+ */
+export interface CreditBalance {
+  contributorId: string;
+  creditsAvailable: number;
+  creditsRedeemed: number;
+  creditsExpired: number;
+  /** Credits accrued before this date have expired. */
+  oldestUnexpiredAt: string;
+  updatedAt: string;
 }
