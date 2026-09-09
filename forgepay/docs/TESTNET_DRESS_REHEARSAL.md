@@ -199,7 +199,7 @@ This is the first time the product does its actual job.
 ```bash
 curl -s -X POST localhost:3018/v1/billing/test_lender/credit \
   -H "X-API-Key: dev-bureau-admin-key" -H "content-type: application/json" \
-  -d '{"amountUsd": 100}'
+  -d '{"amountUsd": 100, "reason": "testnet dress rehearsal"}'
 ```
 
 **Expect:** a balance of 10000 cents.
