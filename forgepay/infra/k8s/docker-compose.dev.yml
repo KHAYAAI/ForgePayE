@@ -143,6 +143,14 @@ services:
       INTERNAL_WEBHOOK_SECRET:         dev-internal-secret-change-me
       # Dev-only 32-byte key — override with real value in production
       PRIVATE_KEY_ENCRYPTION_KEY:      "dededededededededededededededededededededededededededededededede"
+      # This service's default RPC URLs (config.ts) are unconfigured public
+      # placeholders -- fine for never using them, not fine for running a
+      # background monitor against them. Confirmed live: the Arbitrum one
+      # rate-limited, and the resulting error reached the process-wide
+      # unhandled-rejection handler and crashed the container in a loop. We
+      # have no inbound mainnet deposits to watch on testnet anyway --
+      # everything here is Base Sepolia via PAYOUT_SIGNER_* below.
+      DEPOSIT_MONITOR_CHAINS:          ""
       #
       # ── Outbound payout signer (Base Sepolia testnet) ──────────────────────
       # Off unless PAYOUT_SIGNER_ENABLED is exactly "true" -- see payout-signer.ts.

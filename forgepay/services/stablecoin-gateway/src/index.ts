@@ -173,7 +173,25 @@ async function main() {
   }
 
   // Start EVM chain monitors (fire-and-forget — don't block server startup)
-  const chains = ['ethereum', 'polygon', 'base', 'arbitrum'] as const;
+  //
+  // Configurable, defaulting to the original fixed set of four so nothing
+  // that already relies on all-chains-on-by-default changes behavior. Exists
+  // because these monitors use ethers' background polling/subscription
+  // machinery, which has async paths deep enough that a flaky RPC can still
+  // reach the process-wide unhandled-rejection handler despite the
+  // defenses in monitor.ts — a real gap, not yet fully closed. A deployment
+  // with no real, working RPC provider for a given chain (e.g. this
+  // service's own default public endpoints, meant as placeholders — see
+  // config.ts) should not run that chain's monitor until it has one.
+  const ALL_MONITORED_CHAINS = ['ethereum', 'polygon', 'base', 'arbitrum'] as const;
+  type MonitoredChain = (typeof ALL_MONITORED_CHAINS)[number];
+  const isMonitoredChain = (c: string): c is MonitoredChain =>
+    (ALL_MONITORED_CHAINS as readonly string[]).includes(c);
+
+  const configuredChains = process.env['DEPOSIT_MONITOR_CHAINS'];
+  const chains = configuredChains !== undefined
+    ? configuredChains.split(',').map((c) => c.trim()).filter(isMonitoredChain)
+    : ALL_MONITORED_CHAINS;
   for (const chain of chains) {
     startChainMonitor(chain, db).catch((err) =>
       console.error(`Chain monitor failed for ${chain}:`, err),
