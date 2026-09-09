@@ -28,6 +28,15 @@ class Settings(BaseSettings):
     jwt_secret: str = Field(default="change-me-in-production", alias="JWT_SECRET")
     internal_service_secret: str = Field(default="", alias="INTERNAL_SERVICE_SECRET")
     api_key_header: str = Field(default="X-Compliance-API-Key", alias="API_KEY_HEADER")
+    # Comma-separated "key:merchant_id" pairs, registered into the in-memory
+    # API key store at startup. This is the dev/test counterpart to the
+    # production path register_api_key()'s own docstring already promises
+    # ("Production: populate from Redis or database at startup") -- until
+    # now nothing implemented either half, so no caller could ever
+    # authenticate with an API key at all, in any environment. Never read in
+    # production (see model_post_init below): a real deployment provisions
+    # keys through the database, not an environment variable.
+    dev_api_keys: str = Field(default="", alias="DEV_API_KEYS")
 
     # ── Upstream services ─────────────────────────────────────────────────────
     payment_engine_url: str = Field(
@@ -92,6 +101,22 @@ class Settings(BaseSettings):
     def high_risk_countries_set(self) -> set[str]:
         return {c.strip().upper() for c in self.high_risk_countries.split(",") if c.strip()}
 
+    @property
+    def dev_api_keys_list(self) -> list[tuple[str, str]]:
+        """Parsed (raw_key, merchant_id) pairs from DEV_API_KEYS. Malformed
+        entries -- a segment with no ':' -- are skipped rather than raising,
+        since a startup crash over one bad entry in a dev-only convenience
+        variable would be a worse failure mode than ignoring it."""
+        pairs: list[tuple[str, str]] = []
+        for entry in self.dev_api_keys.split(","):
+            entry = entry.strip()
+            if not entry or ":" not in entry:
+                continue
+            key, merchant_id = entry.split(":", 1)
+            if key.strip() and merchant_id.strip():
+                pairs.append((key.strip(), merchant_id.strip()))
+        return pairs
+
     def model_post_init(self, __context: object) -> None:
         # SECURITY: never boot production with the well-known dev JWT secret.
         if self.environment == "production":
@@ -100,6 +125,12 @@ class Settings(BaseSettings):
                 errors.append("JWT_SECRET must be set to a strong value (>= 32 chars) in production")
             if not self.internal_service_secret:
                 errors.append("INTERNAL_SERVICE_SECRET must be set in production")
+            if self.dev_api_keys:
+                errors.append(
+                    "DEV_API_KEYS must not be set in production — API keys belong in the "
+                    "database, provisioned through register_api_key() at runtime, not baked "
+                    "into a deploy manifest as plaintext."
+                )
             if errors:
                 raise ValueError(
                     "Production startup aborted — insecure configuration:\n"

@@ -44,6 +44,7 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
+from src.auth import register_api_key
 from src.config import get_settings
 from src.kyc.manager import KycManager
 from src.monitoring.engine import TransactionMonitoringEngine
@@ -115,6 +116,21 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
       4. Stop the scheduler cleanly.
     """
     logger.info("compliance_monitor.startup", port=settings.port)
+
+    # ── Dev-only API key seeding ─────────────────────────────────────────────
+    # register_api_key()'s own docstring has always said "called at startup or
+    # when a key is provisioned" -- nothing ever called it. The store stayed
+    # permanently empty, so no caller could authenticate via API key in any
+    # environment: every request either carried a valid JWT or got a 401.
+    # Refused in production by config.py's model_post_init; this only ever
+    # runs against DEV_API_KEYS, which cannot be set there.
+    for raw_key, merchant_id in settings.dev_api_keys_list:
+        register_api_key(raw_key, merchant_id)
+        logger.warning(
+            "auth.dev_api_key_registered",
+            merchant_id=merchant_id,
+            note="DEV_API_KEYS seeding -- never used in production",
+        )
 
     # ── Redis client (for OFAC feed caching) ──────────────────────────────────
     import redis.asyncio as redis

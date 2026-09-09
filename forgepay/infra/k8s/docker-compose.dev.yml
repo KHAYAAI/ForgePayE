@@ -291,6 +291,11 @@ services:
       REDIS_URL: redis://redis:6379
       AGENT_IDENTITY_URL: http://agent-identity:3010
       COMPLIANCE_MONITOR_URL: http://compliance-monitor:8003
+      # Matches DEV_API_KEYS on compliance-monitor below. Without this the
+      # bureau's sanctions calls are unauthenticated, get a real 401 from
+      # compliance-monitor, and every report declines with "compliance"
+      # rather than screening successfully.
+      COMPLIANCE_MONITOR_API_KEY: dev-bureau-compliance-key
       BUREAU_ADMIN_API_KEY: dev-bureau-admin-key
       CONSENT_SIGNING_SECRET: dev-consent-signing-secret
       # Required for both halves of the money path: x402 top-ups, and the
@@ -298,7 +303,6 @@ services:
       # it top-ups 503 and settlement refuses with `not_configured` rather than
       # silently dropping what is owed.
       STABLECOIN_GATEWAY_URL: http://stablecoin-gateway:8020
-      # Unset here: COMPLIANCE_MONITOR_API_KEY (screening skips with a warning in dev).
       #
       # ── Mode 2 on-chain bridge (Base Sepolia testnet) ──────────────────────
       # CHAIN_ID is set explicitly on purpose — it defaults to 84532 if unset,
@@ -342,6 +346,12 @@ services:
       LOG_LEVEL: INFO
       REDIS_URL: redis://redis:6379/2
       JWT_SECRET: dev-compliance-monitor-jwt-secret
+      # register_api_key() was never called from anywhere -- the API-key auth
+      # path could not authenticate a single caller in any environment. This
+      # seeds one dev key for agent-credit-bureau at startup; DEV_API_KEYS is
+      # refused at boot if ENVIRONMENT=production. Matches
+      # COMPLIANCE_MONITOR_API_KEY below on agent-credit-bureau.
+      DEV_API_KEYS: "dev-bureau-compliance-key:agent-credit-bureau"
       # Free government sources — no vendor account needed for these two.
       OFAC_SDN_URL: https://www.treasury.gov/ofac/downloads/sdn.xml
       EU_SANCTIONS_URL: https://webgate.ec.europa.eu/fsd/fsf/public/files/xmlFullSanctionsList_1_1/content
