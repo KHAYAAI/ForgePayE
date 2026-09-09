@@ -350,11 +350,21 @@ With 10 agents settling daily:
 - TOTAL: R154K/month
 - FORGE saves: R114K/month = R1.37M/year
 
-CREDIT BUREAU (R8.5K/mo + 25% inquiry revenue):
-- Base cost: R8.5K
-- Inquiry revenue (100 agents × 20 inquiries/mo × R100 × 25%): +R50K
-- NET: +R41.5K/month profit
+CREDIT BUREAU ($4,000/mo Institutional + 25% inquiry revenue, year one):
+- Base cost: $4,000
+- Inquiry revenue (100 agents × 20 inquiries/mo = 2,000 pulls × $2.80 × 25%): +$1,400
+- NET: -$2,600/month
 ```
+
+> **This block was rewritten for the enterprise repricing and its sign changed.**
+> The old figures (R8.5K base, R100 per inquiry) produced +R41.5K/month; at the
+> enforced prices the same scenario is negative, because the subscription rose
+> ~8.7× while the furnisher share per pull did not move. That is not
+> necessarily wrong — the Institutional tier also includes 2,500 bundled pulls a
+> year, which this scenario never draws on, and a furnisher earning the share is
+> usually not the same party paying the subscription. It does mean the
+> break-even scenario needs re-deriving against real customer shapes rather than
+> being carried forward. Do not quote this line to a customer until that is done.
 
 **Monitoring:**
 - Discount redemption rate (target: 100% of first 100 customers)
