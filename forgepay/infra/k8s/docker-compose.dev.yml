@@ -53,8 +53,12 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./migrations:/docker-entrypoint-initdb.d:ro
+    # Host-side port only -- containers reach this over the compose network as
+    # postgres:5432 regardless. Mapped off the default 5432 because a Mac dev
+    # machine commonly already has Postgres.app or a Homebrew postgres bound
+    # to it, and this stack should not depend on nothing else being installed.
     ports:
-      - "5432:5432"
+      - "5433:5432"
     networks: [forgepay]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U forgepay"]
@@ -66,8 +70,11 @@ services:
     image: redis:7-alpine
     volumes:
       - redis_data:/data
+    # Same reasoning as postgres above: host-side only, off the default 6379
+    # since that is exactly where this failed the first time -- a local Redis
+    # was already bound to it.
     ports:
-      - "6379:6379"
+      - "6380:6379"
     networks: [forgepay]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
