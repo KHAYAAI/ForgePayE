@@ -295,3 +295,61 @@ describe('previewPeriod', () => {
     expect(listAttributions().every(e => !e.settlementId)).toBe(true);
   });
 });
+
+// ── The route that clears a blocked furnisher ────────────────────────────────
+
+describe('payout destination', () => {
+  it('unblocks a furnisher that was owed cash with nowhere to send it', async () => {
+    // The gap this covers: payoutAddress existed on the type and settlement
+    // reported `no_payout_address`, but nothing could set it. The share was
+    // computed, owed, and permanently undeliverable.
+    const { buildApp } = await import('./index');
+    setContributor(contributor('c_blocked', { payoutAddress: undefined }));
+    recordAttribution(entry('c_blocked', 70));
+
+    expect(previewPeriod(PERIOD)[0]!.blocked).toBe('no_payout_address');
+
+    const app = await buildApp();
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/v1/contributors/c_blocked/payout-destination',
+      headers: { 'x-api-key': process.env['BUREAU_ADMIN_API_KEY'] ?? 'dev-bureau-admin-key' },
+      payload: { payoutAddress: ADDRESS, payoutChain: 'base-sepolia' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(previewPeriod(PERIOD)[0]!.blocked).toBeUndefined();
+    await app.close();
+  });
+
+  it('refuses a malformed address rather than storing it', async () => {
+    // A typo here sends money nowhere recoverable.
+    const { buildApp } = await import('./index');
+    setContributor(contributor('c_typo'));
+    const app = await buildApp();
+
+    for (const bad of ['not-an-address', '0x123', '', ADDRESS + 'ff']) {
+      const res = await app.inject({
+        method: 'PUT',
+        url: '/v1/contributors/c_typo/payout-destination',
+        headers: { 'x-api-key': process.env['BUREAU_ADMIN_API_KEY'] ?? 'dev-bureau-admin-key' },
+        payload: { payoutAddress: bad },
+      });
+      expect(res.statusCode).toBe(400);
+    }
+    await app.close();
+  });
+
+  it('404s for a contributor that does not exist', async () => {
+    const { buildApp } = await import('./index');
+    const app = await buildApp();
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/v1/contributors/nope/payout-destination',
+      headers: { 'x-api-key': process.env['BUREAU_ADMIN_API_KEY'] ?? 'dev-bureau-admin-key' },
+      payload: { payoutAddress: ADDRESS },
+    });
+    expect(res.statusCode).toBe(404);
+    await app.close();
+  });
+});

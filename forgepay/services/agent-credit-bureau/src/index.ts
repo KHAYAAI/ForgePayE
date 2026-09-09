@@ -257,6 +257,18 @@ const IssueConsentSchema = z.object({
   ttlSeconds:  z.number().int().positive().max(86_400).optional(),
 });
 
+/**
+ * A furnisher's payout destination.
+ *
+ * Validated as a checksummed-length EVM address rather than accepted as free
+ * text: this is where money is sent, and a typo here is unrecoverable in a way
+ * a typo in a display name is not.
+ */
+const PayoutDestinationSchema = z.object({
+  payoutAddress: z.string().regex(/^0x[0-9a-fA-F]{40}$/, 'must be a 0x-prefixed 20-byte EVM address'),
+  payoutChain:   z.string().min(1).optional(),
+});
+
 const RevokeConsentSchema = z.object({
   jti: z.string().min(1),
   exp: z.number().int().positive(),
@@ -1611,6 +1623,56 @@ async function buildApp() {
 
     return reply.send({
       data: { ...redactContributor(contributor), previousStatus: previous },
+    });
+  });
+
+  // PUT /v1/contributors/:id/payout-destination — where this furnisher's cash
+  // share is sent.
+  //
+  // Without this there was no way to set the address at all: the type carried
+  // the field, settlement reported a furnisher as `no_payout_address` and
+  // blocked, and nothing could ever clear that block. The revenue share was
+  // computed, owed, and undeliverable.
+  //
+  // Admin-only by deny-by-default, deliberately. A furnisher must not be able
+  // to redirect its own payouts using its own furnishing key — that key exists
+  // to submit data, and letting it move money would make a stolen ingest
+  // credential a theft of every future payout.
+  app.put<{ Params: { id: string } }>('/v1/contributors/:id/payout-destination', async (req, reply) => {
+    const parse = PayoutDestinationSchema.safeParse(req.body);
+    if (!parse.success) {
+      return reply.status(400).send({ error: 'ValidationError', details: parse.error.flatten() });
+    }
+
+    const contributor = getContributor(req.params.id);
+    if (!contributor) {
+      return reply.status(404).send({ error: 'NotFound', message: 'Contributor not found' });
+    }
+
+    const previous = contributor.payoutAddress;
+    contributor.payoutAddress = parse.data.payoutAddress;
+    if (parse.data.payoutChain) contributor.payoutChain = parse.data.payoutChain;
+    setContributor(contributor);
+
+    // Logged as a change, with the old value, because redirecting where money
+    // goes is exactly the action an audit needs to be able to reconstruct.
+    req.log.warn(
+      {
+        contributorId: contributor.id,
+        from: previous ?? '(unset)',
+        to: contributor.payoutAddress,
+        chain: contributor.payoutChain ?? '(default)',
+      },
+      'furnisher payout destination changed',
+    );
+
+    return reply.send({
+      data: {
+        contributorId: contributor.id,
+        payoutAddress: contributor.payoutAddress,
+        payoutChain:   contributor.payoutChain ?? null,
+        previousAddress: previous ?? null,
+      },
     });
   });
 
