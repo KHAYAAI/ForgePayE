@@ -40,6 +40,34 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ── Platform deployment invariants ──────────────────────────────────────────
+  # Cross-service guards for the faults that made services unbootable while
+  # every per-service job below stayed green: Fastify plugin majors mismatched
+  # against the Fastify major, Dockerfiles that never set NODE_ENV (so
+  # production guards silently disengaged), .sql migrations left out of dist,
+  # and pino-pretty used but undeclared.
+  #
+  # Deliberately first and deliberately static — it reads manifests rather than
+  # booting containers, covers every service in seconds, and fails the build
+  # before the per-service jobs spend time proving that code nobody can deploy
+  # is correct.
+  platform-invariants:
+    name: "platform — deployment invariants"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: forgepay/tests/platform-invariants
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - run: npm install --no-audit --no-fund
+      - run: npm run type-check
+      - run: npm test
+
   # ── Unified Router (TypeScript) ─────────────────────────────────────────────
   unified-router:
     name: "unified-router — lint + type-check + test"
