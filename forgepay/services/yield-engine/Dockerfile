@@ -28,6 +28,14 @@ RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=builder /app/dist ./dist
 
 # Drop to non-root
+# Must be set explicitly. config defaults NODE_ENV to 'development', so without
+# this the shipped container ran as a development build in two ways that both
+# mattered: it crashed on boot looking for the pino-pretty transport (which
+# `--omit=dev` does not install), and every production guard silently
+# disengaged -- fail-closed secret checks, CORS, and simulation refusals all
+# key off NODE_ENV === 'production'.
+ENV NODE_ENV=production
+
 USER yield-engine
 
 EXPOSE 3007

@@ -15,6 +15,7 @@ const uuid_1 = require("uuid");
 const store_1 = require("../store");
 const sweepService_1 = require("../services/sweepService");
 const positionTracker_1 = require("../services/positionTracker");
+const auth_1 = require("../lib/auth");
 // ── Validation schemas ────────────────────────────────────────────────────────
 const CreatePositionSchema = zod_1.z.object({
     merchantId: zod_1.z.string().min(1),
@@ -25,22 +26,16 @@ const CreatePositionSchema = zod_1.z.object({
 const WithdrawSchema = zod_1.z.object({
     amountUsd: zod_1.z.number().positive().optional(),
 }).optional();
-// ── Helpers ───────────────────────────────────────────────────────────────────
-/**
- * Extract merchantId from either JWT claims or the `x-merchant-id` header.
- * In production the JWT middleware populates `req.user.merchantId`.
- */
-function getMerchantId(req) {
-    if (req.user?.merchantId)
-        return req.user.merchantId;
-    const header = req.headers['x-merchant-id'];
-    return typeof header === 'string' ? header : null;
-}
 // ── Routes ────────────────────────────────────────────────────────────────────
+// Merchant identity is always derived from the verified JWT via
+// getMerchantId() (../lib/auth.ts) — never from a client-suppliable header.
+// The global auth gate registered in index.ts already rejects any request
+// without a valid token before it reaches these handlers, so the `if
+// (!merchantId)` checks below are defense in depth, not the primary guard.
 async function buildPositionRoutes(app) {
     // ── List positions ─────────────────────────────────────────────────────────
     app.get('/', async (req, reply) => {
-        const merchantId = getMerchantId(req);
+        const merchantId = (0, auth_1.getMerchantId)(req);
         if (!merchantId) {
             return reply.status(401).send({ error: 'Missing merchant identity' });
         }
@@ -49,7 +44,7 @@ async function buildPositionRoutes(app) {
     });
     // ── Portfolio summary ──────────────────────────────────────────────────────
     app.get('/portfolio', async (req, reply) => {
-        const merchantId = getMerchantId(req);
+        const merchantId = (0, auth_1.getMerchantId)(req);
         if (!merchantId) {
             return reply.status(401).send({ error: 'Missing merchant identity' });
         }
@@ -58,7 +53,7 @@ async function buildPositionRoutes(app) {
     });
     // ── Position detail ────────────────────────────────────────────────────────
     app.get('/:id', async (req, reply) => {
-        const merchantId = getMerchantId(req);
+        const merchantId = (0, auth_1.getMerchantId)(req);
         if (!merchantId) {
             return reply.status(401).send({ error: 'Missing merchant identity' });
         }
@@ -77,7 +72,7 @@ async function buildPositionRoutes(app) {
     });
     // ── Open a manual deposit ──────────────────────────────────────────────────
     app.post('/', async (req, reply) => {
-        const merchantId = getMerchantId(req);
+        const merchantId = (0, auth_1.getMerchantId)(req);
         if (!merchantId) {
             return reply.status(401).send({ error: 'Missing merchant identity' });
         }
@@ -132,7 +127,7 @@ async function buildPositionRoutes(app) {
     });
     // ── Initiate withdrawal ────────────────────────────────────────────────────
     app.delete('/:id', async (req, reply) => {
-        const merchantId = getMerchantId(req);
+        const merchantId = (0, auth_1.getMerchantId)(req);
         if (!merchantId) {
             return reply.status(401).send({ error: 'Missing merchant identity' });
         }

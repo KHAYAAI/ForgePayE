@@ -20,7 +20,10 @@
  *
  * Auth:
  *   JWT (@fastify/jwt) for inbound requests from the dashboard / mor-layer.
- *   The `x-merchant-id` header is accepted as a fallback in dev mode.
+ *   Merchant identity always comes from the verified token's `merchantId`
+ *   claim — there is no client-suppliable header override. A missing or
+ *   invalid token is rejected with 401 before any handler runs. See
+ *   ./lib/auth.ts for the full auth gate.
  *
  * Internal service communication:
  *   Reads from stablecoin-gateway (balance queries) via HTTP.
@@ -63,6 +66,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.buildApp = buildApp;
 require("dotenv/config");
 const fastify_1 = __importDefault(require("fastify"));
 const helmet_1 = __importDefault(require("@fastify/helmet"));
@@ -80,7 +84,10 @@ const positionTracker_1 = require("./services/positionTracker");
 const apyAggregator_1 = require("./services/apyAggregator");
 const db_1 = require("./db");
 const store_1 = require("./store");
+const auth_1 = require("./lib/auth");
 // ── Build app ─────────────────────────────────────────────────────────────────
+// Exported so tests can build a fully-wired app (auth included) with
+// `.inject()` without starting the DB, cron scheduler, or HTTP listener.
 async function buildApp() {
     const app = (0, fastify_1.default)({
         logger: {
@@ -108,22 +115,14 @@ async function buildApp() {
     await app.register(jwt_1.default, {
         secret: config_1.config.jwtSecret,
     });
-    // ── JWT auth decorator ─────────────────────────────────────────────────────
-    // Adds req.user when a valid Bearer token is present.
-    // Routes that need auth call await req.jwtVerify() themselves.
-    // Unauthenticated routes (healthz, /yields/apys) skip this.
-    app.addHook('preHandler', async (req) => {
-        const authHeader = req.headers.authorization;
-        if (authHeader?.startsWith('Bearer ')) {
-            try {
-                await req.jwtVerify();
-            }
-            catch {
-                // Invalid token — we don't reject here because some routes are public.
-                // Routes that require auth check req.user explicitly.
-            }
-        }
-    });
+    // ── JWT auth gate ───────────────────────────────────────────────────────────
+    // Deny-by-default: every route except the explicit public allowlist in
+    // lib/auth.ts (healthz/readyz/metrics, vault catalogue, /yields/apys)
+    // requires a valid Bearer JWT with a merchantId claim, or the request is
+    // rejected with 401 before any handler runs. See lib/auth.ts for details
+    // on why the old client-suppliable `x-merchant-id` fallback was removed
+    // rather than gated.
+    (0, auth_1.registerMerchantAuth)(app);
     // ── Routes ────────────────────────────────────────────────────────────────
     await app.register(vaults_1.buildVaultRoutes, { prefix: '/api/v1/vaults' });
     await app.register(positions_1.buildPositionRoutes, { prefix: '/api/v1/positions' });
@@ -132,9 +131,7 @@ async function buildApp() {
     // Convenience alias: GET /api/v1/portfolio → same handler as
     // GET /api/v1/positions/portfolio (aggregate summary, no prefix overlap)
     app.get('/api/v1/portfolio', async (req, reply) => {
-        const merchantId = req.user?.merchantId ??
-            req.headers['x-merchant-id'] ??
-            null;
+        const merchantId = (0, auth_1.getMerchantId)(req);
         if (!merchantId) {
             return reply.status(401).send({ error: 'Missing merchant identity' });
         }
@@ -241,8 +238,17 @@ async function main() {
     await app.listen({ port: config_1.config.port, host: '0.0.0.0' });
     console.log(`[yield-engine] Listening on :${config_1.config.port}`);
 }
-main().catch((err) => {
-    console.error('[yield-engine] Fatal startup error:', err);
-    process.exit(1);
-});
+// Only auto-start when this file is the process entry point (`node
+// dist/index.js` / `tsx src/index.ts`) — not when it's imported as a module,
+// e.g. by tests importing `buildApp`. Without this guard, importing index.ts
+// unconditionally started a second HTTP listener on config.port, a live cron
+// scheduler, and process-exiting `unhandledRejection`/`uncaughtException`
+// handlers as a side effect of the import — the latter can tear down an
+// entire test worker on an unrelated rejection.
+if (require.main === module) {
+    main().catch((err) => {
+        console.error('[yield-engine] Fatal startup error:', err);
+        process.exit(1);
+    });
+}
 //# sourceMappingURL=index.js.map

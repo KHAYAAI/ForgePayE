@@ -10,14 +10,10 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.buildYieldRoutes = buildYieldRoutes;
 const store_1 = require("../store");
 const apyAggregator_1 = require("../services/apyAggregator");
-// ── Helpers ───────────────────────────────────────────────────────────────────
-function getMerchantId(req) {
-    if (req.user?.merchantId)
-        return req.user.merchantId;
-    const header = req.headers['x-merchant-id'];
-    return typeof header === 'string' ? header : null;
-}
+const auth_1 = require("../lib/auth");
 // ── Routes ────────────────────────────────────────────────────────────────────
+// Merchant identity is always derived from the verified JWT via
+// getMerchantId() (../lib/auth.ts) — never from a client-suppliable header.
 async function buildYieldRoutes(app) {
     // ── Current APYs ───────────────────────────────────────────────────────────
     app.get('/apys', async (_req, reply) => {
@@ -48,7 +44,7 @@ async function buildYieldRoutes(app) {
     });
     // ── Yield accrual history ──────────────────────────────────────────────────
     app.get('/history', async (req, reply) => {
-        const merchantId = getMerchantId(req);
+        const merchantId = (0, auth_1.getMerchantId)(req);
         if (!merchantId) {
             return reply.status(401).send({ error: 'Missing merchant identity' });
         }
@@ -72,7 +68,7 @@ async function buildYieldRoutes(app) {
     });
     // ── Full transaction log ───────────────────────────────────────────────────
     app.get('/transactions', async (req, reply) => {
-        const merchantId = getMerchantId(req);
+        const merchantId = (0, auth_1.getMerchantId)(req);
         if (!merchantId) {
             return reply.status(401).send({ error: 'Missing merchant identity' });
         }

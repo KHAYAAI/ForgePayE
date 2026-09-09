@@ -35,6 +35,7 @@ const db_1 = require("../db");
 const config_1 = require("../config");
 const aave_1 = require("../adapters/aave");
 const compound_1 = require("../adapters/compound");
+const simulation_guard_1 = require("../lib/simulation-guard");
 const logger = (0, pino_1.default)({ name: 'sweep-service' });
 /**
  * Fetch the current idle stablecoin balance for a merchant from the
@@ -63,7 +64,7 @@ async function executeOnChainDeposit(vaultId, amountUsd) {
     if (!vault)
         return null;
     if (!config_1.config.signerPrivateKey) {
-        logger.warn('No SIGNER_PRIVATE_KEY configured — simulating deposit');
+        (0, simulation_guard_1.refuseSimulationInProduction)('on-chain deposit', 'SIGNER_PRIVATE_KEY is not configured, so no transaction can be signed');
         return `0xsimulated_${Date.now().toString(16)}`;
     }
     const rpcUrl = config_1.config.rpc[vault.chain];
@@ -275,8 +276,12 @@ async function scheduleWithdrawal(merchantId, positionId, amountUsd) {
         (0, db_1.upsertTransaction)(tx).catch((err) => logger.warn({ txId, err }, 'Failed to persist withdrawal transaction to DB'));
     }
     logger.info({ merchantId, positionId, withdrawAmount }, 'Withdrawal scheduled');
-    // In production: push to a job queue (BullMQ / SQS) so the withdrawal is
-    // processed asynchronously with retry logic.  Here we simulate confirmation.
+    // Withdrawal has no execution path at all: `AaveAdapter.withdraw` and
+    // `CompoundAdapter.withdraw` are implemented but never called, so this
+    // fabricates a hash and marks the transaction confirmed regardless of
+    // whether a signer is configured. Until it is wired to a job queue and the
+    // adapters, production must not record a withdrawal that did not happen.
+    (0, simulation_guard_1.refuseSimulationInProduction)('vault withdrawal', 'no execution path is wired — the adapter withdraw methods have no callers');
     const simTxHash = `0xwd_${Date.now().toString(16)}`;
     const confirmed = {
         ...tx,

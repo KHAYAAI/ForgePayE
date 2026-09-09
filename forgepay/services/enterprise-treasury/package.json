@@ -1,7 +1,7 @@
 {
   "name": "@forgepay/enterprise-treasury",
   "version": "0.2.0",
-  "description": "ForgePay Enterprise Treasury Module \u2014 multi-account consolidation, rules engine, and intercompany netting",
+  "description": "ForgePay Enterprise Treasury Module — multi-account consolidation, rules engine, and intercompany netting",
   "type": "commonjs",
   "main": "dist/index.js",
   "scripts": {
@@ -23,6 +23,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.11.20",
+    "pino-pretty": "^11.2.1",
     "tsx": "^4.7.1",
     "typescript": "^5.4.2",
     "vitest": "^1.3.1"

@@ -38,6 +38,19 @@
  *   POST /v1/redemptions/:id/cancel   — cancel pending redemption
  *   POST /v1/nav/refresh          — manually trigger NAV refresh
  */
+/**
+ * Resolve the CORS origin allowlist.
+ *
+ * `CORS_ORIGIN` defaulted to `*` unconditionally, which in production would
+ * let any website's browser JS read every response this service returns —
+ * including merchant RWA positions, cost basis, and redemption history. Same
+ * class of "safe default that is unsafe in production" already guarded for
+ * the API key. Comma-separated origins are supported so a real deployment can
+ * list every trusted caller rather than being forced back to `*`.
+ *
+ * @throws in production when CORS_ORIGIN is unset or still `*`.
+ */
+export declare function resolveCorsOrigin(): string | string[];
 declare function buildApp(): Promise<import("fastify").FastifyInstance<import("http").Server<typeof import("http").IncomingMessage, typeof import("http").ServerResponse>, import("http").IncomingMessage, import("http").ServerResponse<import("http").IncomingMessage>, import("fastify").FastifyBaseLogger, import("fastify").FastifyTypeProviderDefault>>;
 export { buildApp };
 //# sourceMappingURL=index.d.ts.map

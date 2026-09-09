@@ -12,6 +12,7 @@ exports.buildSweepRoutes = buildSweepRoutes;
 const zod_1 = require("zod");
 const store_1 = require("../store");
 const sweepService_1 = require("../services/sweepService");
+const auth_1 = require("../lib/auth");
 // ── Validation ────────────────────────────────────────────────────────────────
 const SweepConfigSchema = zod_1.z.object({
     enabled: zod_1.z.boolean(),
@@ -20,18 +21,13 @@ const SweepConfigSchema = zod_1.z.object({
     keepReserveUsd: zod_1.z.number().nonnegative(),
     autoCompound: zod_1.z.boolean(),
 });
-// ── Helpers ───────────────────────────────────────────────────────────────────
-function getMerchantId(req) {
-    if (req.user?.merchantId)
-        return req.user.merchantId;
-    const header = req.headers['x-merchant-id'];
-    return typeof header === 'string' ? header : null;
-}
 // ── Routes ────────────────────────────────────────────────────────────────────
+// Merchant identity is always derived from the verified JWT via
+// getMerchantId() (../lib/auth.ts) — never from a client-suppliable header.
 async function buildSweepRoutes(app) {
     // ── Get sweep config ───────────────────────────────────────────────────────
     app.get('/config', async (req, reply) => {
-        const merchantId = getMerchantId(req);
+        const merchantId = (0, auth_1.getMerchantId)(req);
         if (!merchantId) {
             return reply.status(401).send({ error: 'Missing merchant identity' });
         }
@@ -53,7 +49,7 @@ async function buildSweepRoutes(app) {
     });
     // ── Create / update sweep config ───────────────────────────────────────────
     app.put('/config', async (req, reply) => {
-        const merchantId = getMerchantId(req);
+        const merchantId = (0, auth_1.getMerchantId)(req);
         if (!merchantId) {
             return reply.status(401).send({ error: 'Missing merchant identity' });
         }
@@ -77,7 +73,7 @@ async function buildSweepRoutes(app) {
     });
     // ── Manually trigger a sweep ───────────────────────────────────────────────
     app.post('/run', async (req, reply) => {
-        const merchantId = getMerchantId(req);
+        const merchantId = (0, auth_1.getMerchantId)(req);
         if (!merchantId) {
             return reply.status(401).send({ error: 'Missing merchant identity' });
         }
@@ -105,7 +101,7 @@ async function buildSweepRoutes(app) {
     });
     // ── Sweep history ──────────────────────────────────────────────────────────
     app.get('/history', async (req, reply) => {
-        const merchantId = getMerchantId(req);
+        const merchantId = (0, auth_1.getMerchantId)(req);
         if (!merchantId) {
             return reply.status(401).send({ error: 'Missing merchant identity' });
         }

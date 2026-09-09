@@ -1,12 +1,12 @@
 {
   "name": "@forgepay/chain-sync",
   "version": "0.1.0",
-  "description": "ForgePay Chain Sync \u2014 polls on-chain ZK contract state (Merkle roots + nullifiers) across all EVM chains",
+  "description": "ForgePay Chain Sync — polls on-chain ZK contract state (Merkle roots + nullifiers) across all EVM chains",
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc",
+    "build": "tsc && mkdir -p dist/db/migrations && cp src/db/migrations/*.sql dist/db/migrations/",
     "start": "node dist/index.js",
     "type-check": "tsc --noEmit",
     "lint": "eslint src",
@@ -23,11 +23,12 @@
   "devDependencies": {
     "@types/node": "^20.14.0",
     "@types/pg": "^8.11.6",
-    "typescript": "^5.5.3",
-    "tsx": "^4.16.0",
-    "vitest": "^1.6.0",
-    "eslint": "^8.57.0",
     "@typescript-eslint/eslint-plugin": "^7.14.1",
-    "@typescript-eslint/parser": "^7.14.1"
+    "@typescript-eslint/parser": "^7.14.1",
+    "eslint": "^8.57.0",
+    "pino-pretty": "^11.2.1",
+    "tsx": "^4.16.0",
+    "typescript": "^5.5.3",
+    "vitest": "^1.6.0"
   }
 }

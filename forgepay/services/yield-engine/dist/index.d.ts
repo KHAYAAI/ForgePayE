@@ -19,11 +19,15 @@
  *
  * Auth:
  *   JWT (@fastify/jwt) for inbound requests from the dashboard / mor-layer.
- *   The `x-merchant-id` header is accepted as a fallback in dev mode.
+ *   Merchant identity always comes from the verified token's `merchantId`
+ *   claim — there is no client-suppliable header override. A missing or
+ *   invalid token is rejected with 401 before any handler runs. See
+ *   ./lib/auth.ts for the full auth gate.
  *
  * Internal service communication:
  *   Reads from stablecoin-gateway (balance queries) via HTTP.
  *   Writes to EVM chains via ethers.js JsonRpcProvider.
  */
 import 'dotenv/config';
+export declare function buildApp(): Promise<import("fastify").FastifyInstance<import("http").Server<typeof import("http").IncomingMessage, typeof import("http").ServerResponse>, import("http").IncomingMessage, import("http").ServerResponse<import("http").IncomingMessage>, import("fastify").FastifyBaseLogger, import("fastify").FastifyTypeProviderDefault>>;
 //# sourceMappingURL=index.d.ts.map
