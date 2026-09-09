@@ -11,7 +11,7 @@
     "type-check": "tsc --noEmit",
     "lint": "eslint src",
     "test": "vitest run",
-    "preflight:signer": "tsx src/cli/signer-preflight.ts"
+    "preflight:signer": "node dist/cli/signer-preflight.js"
   },
   "dependencies": {
     "fastify": "^5.0.0",
@@ -24,6 +24,7 @@
     "ethers": "^6.12.1",
     "uuid": "^10.0.0",
     "pino": "^9.2.0",
+    "pino-pretty": "^11.2.1",
     "prom-client": "^15.1.0"
   },
   "devDependencies": {
@@ -32,7 +33,6 @@
     "@types/uuid": "^10.0.0",
     "typescript": "^5.5.3",
     "tsx": "^4.16.0",
-    "pino-pretty": "^11.2.1",
     "vitest": "^1.6.0",
     "eslint": "^8.57.0",
     "@typescript-eslint/eslint-plugin": "^7.14.1",
