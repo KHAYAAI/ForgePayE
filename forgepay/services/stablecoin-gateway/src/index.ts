@@ -136,6 +136,24 @@ async function main() {
   const app = await buildApp();
   const db = getDb();
 
+  // Run migrations before accepting traffic.
+  //
+  // src/db/migrate.ts has always existed and was never called, so on a fresh
+  // database none of this service's tables were created: deposits, the
+  // shielded tables, and — since the outbound rail landed — `payouts`. The
+  // payout ledger is durable by design and was unreachable in practice,
+  // failing at the first request with "relation payouts does not exist".
+  //
+  // Same shape as unified-router: fatal in production, a warning in dev so an
+  // offline run without Postgres still boots.
+  try {
+    const { runMigrations } = await import('./db/migrate.js');
+    await runMigrations(db);
+  } catch (err) {
+    if (config.env === 'production') throw err;
+    console.warn('[stablecoin-gateway] Migrations failed — continuing (dev only):', err);
+  }
+
   // Start EVM chain monitors (fire-and-forget — don't block server startup)
   const chains = ['ethereum', 'polygon', 'base', 'arbitrum'] as const;
   for (const chain of chains) {
