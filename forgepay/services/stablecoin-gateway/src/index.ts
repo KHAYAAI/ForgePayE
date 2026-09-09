@@ -24,6 +24,7 @@
  *   x402_payments        — one row per x402 micropayment
  */
 
+import { pathToFileURL } from 'node:url';
 import Fastify from 'fastify';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
@@ -33,6 +34,7 @@ import { getDb } from './lib/db.js';
 import { startChainMonitor } from './lib/monitor.js';
 import { buildDepositRoutes } from './routes/deposits.js';
 import { buildX402Routes } from './routes/x402.js';
+import { buildPayoutRoutes } from './routes/payouts.js';
 import { buildX402ShieldedRoutes } from './routes/x402-shielded.js';
 import { buildShieldedDepositRoutes } from './routes/shielded-deposits.js';
 import { startShieldedMonitor, startShieldedRecoveryPoller } from './lib/shielded-monitor.js';
@@ -76,6 +78,11 @@ export async function buildApp() {
   // Register routes
   await app.register(buildDepositRoutes,         { prefix: '/deposits' });
   await app.register(buildX402Routes,            { prefix: '/x402' });
+
+  // Outbound. The inverse of /x402 — the rail the credit bureau uses to pay
+  // furnishers the revenue share it computes. Submission is refused rather than
+  // simulated when no signer is configured; see lib/payouts.ts.
+  await app.register(buildPayoutRoutes,          { prefix: '/payouts' });
 
   // Shielded (ZK-proof) routes are gated behind SHIELDED_PAYMENTS_ENABLED.
   // verifyGroth16Proof() in lib/proof-verifier.ts is currently a stub that
@@ -173,7 +180,16 @@ async function main() {
   console.log(`[stablecoin-gateway] Listening on :${config.port}`);
 }
 
-main().catch((err) => {
-  console.error('Fatal startup error:', err);
-  process.exit(1);
-});
+// Only boot when this module is the process entrypoint.
+//
+// buildApp() was split out of main() so tests could assemble the real app
+// without binding a port or starting chain monitors — but an unconditional
+// main() at module scope defeated that entirely: merely importing buildApp
+// listened on :8020 and spun up seven chain pollers as a side effect. Guarding
+// on argv[1] is what makes the split above actually mean anything.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((err) => {
+    console.error('Fatal startup error:', err);
+    process.exit(1);
+  });
+}
