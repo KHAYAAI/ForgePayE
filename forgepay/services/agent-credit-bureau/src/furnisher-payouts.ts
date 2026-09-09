@@ -141,6 +141,18 @@ function gatewayUrl(): string | undefined {
   return process.env['STABLECOIN_GATEWAY_URL'];
 }
 
+/**
+ * Same convention as sanctions.ts's authHeaders() for compliance-monitor:
+ * stablecoin-gateway's apiKeyAuthPlugin rejects any request with no key at
+ * all before its dev-permissive fallback even applies, so this call must
+ * always carry one. Optional in code only so tests can omit it; real
+ * environments always set STABLECOIN_GATEWAY_API_KEY.
+ */
+function gatewayAuthHeaders(): Record<string, string> {
+  const key = process.env['STABLECOIN_GATEWAY_API_KEY'];
+  return key ? { 'x-api-key': key } : {};
+}
+
 const DEFAULT_CHAIN = process.env['FURNISHER_PAYOUT_CHAIN'] ?? 'base';
 
 interface GatewayPayoutResponse {
@@ -239,7 +251,11 @@ export async function settleFurnisherPeriod(period: string, now: Date = new Date
     try {
       const res = await fetch(`${root}/payouts`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-forge-service': 'agent-credit-bureau' },
+        headers: {
+          'content-type': 'application/json',
+          'x-forge-service': 'agent-credit-bureau',
+          ...gatewayAuthHeaders(),
+        },
         body: JSON.stringify({
           external_id:   payoutExternalId(line.contributorId, period),
           payee_id:      line.contributorId,

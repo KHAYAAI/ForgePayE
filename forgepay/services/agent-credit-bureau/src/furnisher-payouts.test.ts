@@ -176,6 +176,23 @@ describe('settleFurnisherPeriod — paying a closed period', () => {
     if (result.ok) expect(result.totalPaidUsdCents).toBe(125);
   });
 
+  it('authenticates to the gateway rather than sending a bare request', async () => {
+    // stablecoin-gateway's apiKeyAuthPlugin 401s any request with no key at all,
+    // before its dev-permissive fallback even runs. A settlement call with no
+    // credential would fail against a real gateway even though this mock can't
+    // tell the difference.
+    process.env['STABLECOIN_GATEWAY_API_KEY'] = 'test-gateway-key';
+    setContributor(contributor('c1'));
+    recordAttribution(entry('c1', 70));
+    const fetchMock = mockGateway();
+
+    await settleFurnisherPeriod(PERIOD, NOW);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const headers = fetchMock.mock.calls[0]![1].headers;
+    expect(headers['x-api-key']).toBe('test-gateway-key');
+  });
+
   it('uses a stable per-period idempotency key', () => {
     expect(payoutExternalId('c1', '2026-08')).toBe('furnisher_c1_2026-08');
     expect(payoutExternalId('c1', '2026-08')).toBe(payoutExternalId('c1', '2026-08'));

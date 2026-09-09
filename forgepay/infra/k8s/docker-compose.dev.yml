@@ -316,6 +316,11 @@ services:
       # it top-ups 503 and settlement refuses with `not_configured` rather than
       # silently dropping what is owed.
       STABLECOIN_GATEWAY_URL: http://stablecoin-gateway:8020
+      # stablecoin-gateway's apiKeyAuthPlugin 401s any request with no key at
+      # all -- its dev-permissive fallback only applies once a key is present.
+      # No specific value is required here since VALID_API_KEYS is unset on
+      # stablecoin-gateway below, so any non-empty key authenticates as admin.
+      STABLECOIN_GATEWAY_API_KEY: dev-bureau-payout-key
       #
       # ── Mode 2 on-chain bridge (Base Sepolia testnet) ──────────────────────
       # CHAIN_ID is set explicitly on purpose — it defaults to 84532 if unset,
