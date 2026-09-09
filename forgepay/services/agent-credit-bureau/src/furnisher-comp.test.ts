@@ -17,7 +17,7 @@ import {
 import { FURNISHER_SHARE_OF_LIST_USD, LIST_INQUIRY_USD } from './plans';
 import {
   setContributor, contributors, attributions, creditBalances,
-  listAttributionsForContributor,
+  listAttributionsForContributor, recordAttribution,
 } from './store';
 import type { CreditEvent, CreditEventType, DataContributor } from './types';
 
@@ -266,6 +266,31 @@ describe('reverseAttribution — the dispute clawback', () => {
 
     const statementAfter = furnisherStatement('c_bad', listAttributionsForContributor('c_bad'), NOW);
     expect(statementAfter.cashOwedUsdCents).toBe(0);
+  });
+
+  it('stops showing cash as owed once a settlement has actually paid it', () => {
+    // The gap this covers: a real payout landed (proven live on Base Sepolia
+    // during the testnet rehearsal), and the statement still reported the
+    // same cash as owed — cashOwedUsdCents summed every unreversed entry
+    // regardless of whether furnisher-payouts.ts had already settled it.
+    // That is the exact "promise published, money never moves" failure mode
+    // this module exists to prevent, just visible one layer up.
+    contributor('c_paid', { activatedAt: monthsAgo(1) });
+    compensateInquiry('rep_paid', 'agent_test', [event('c_paid', 'payment_on_time')], NOW);
+
+    const before = furnisherStatement('c_paid', listAttributionsForContributor('c_paid'), NOW);
+    expect(before.cashOwedUsdCents).toBe(70);
+    expect(before.inquiriesInformed).toBe(1);
+
+    for (const e of listAttributionsForContributor('c_paid')) {
+      recordAttribution({ ...e, settlementId: 'settle_1', settledAt: NOW.toISOString() });
+    }
+
+    const after = furnisherStatement('c_paid', listAttributionsForContributor('c_paid'), NOW);
+    expect(after.cashOwedUsdCents).toBe(0);
+    // Paid does not mean it never happened — the inquiry count is a lifetime
+    // total, not a balance.
+    expect(after.inquiriesInformed).toBe(1);
   });
 
   it('claws back credits, but never below zero once they have been spent', () => {

@@ -410,7 +410,14 @@ export interface FurnisherStatement {
  *
  * Reversed entries are excluded from both totals — a statement that still
  * counted clawed-back revenue would be the same asymmetry this module exists
- * to close.
+ * to close. Entries a settlement already paid (settlementId set) are
+ * excluded from cashOwedUsdCents the same way furnisher-payouts.ts's
+ * unsettledEntriesFor() excludes them from what a settlement run pays —
+ * otherwise this statement would keep reporting cash as owed forever after
+ * it was actually sent, which is the exact "promise published, money never
+ * moves" problem furnisher-payouts.ts exists to close, just showing up one
+ * layer up. inquiriesInformed stays a lifetime count over `mine`: whether an
+ * inquiry has been paid for doesn't change whether it happened.
  */
 export function furnisherStatement(
   contributorId: string,
@@ -418,6 +425,7 @@ export function furnisherStatement(
   now = new Date(),
 ): FurnisherStatement {
   const mine = allEntries.filter(e => e.contributorId === contributorId && !e.reversedAt);
+  const unpaid = mine.filter(e => !e.settlementId);
   const contributor = getContributor(contributorId);
   const balance = creditBalanceFor(contributorId, now);
 
@@ -425,7 +433,7 @@ export function furnisherStatement(
     contributorId,
     phase: contributor ? compensationPhase(contributor, now) : 'cash',
     cashMonthsRemaining: contributor ? cashMonthsRemaining(contributor, now) : COMPENSATION_CASH_MONTHS,
-    cashOwedUsdCents: mine.reduce((sum, e) => sum + e.amountUsdCents, 0),
+    cashOwedUsdCents: unpaid.reduce((sum, e) => sum + e.amountUsdCents, 0),
     creditsAvailable: balance.creditsAvailable,
     creditsRedeemed: balance.creditsRedeemed,
     inquiriesInformed: mine.length,
