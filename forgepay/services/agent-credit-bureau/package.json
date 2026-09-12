@@ -11,7 +11,7 @@
     "start": "node dist/index.js",
     "type-check": "tsc --noEmit",
     "test": "vitest run",
-    "preflight": "tsx src/cli/preflight.ts"
+    "preflight": "node dist/cli/preflight.js"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.0",
