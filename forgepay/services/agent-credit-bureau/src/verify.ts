@@ -15,12 +15,17 @@
  *   6. history_stability     — no open delinquencies, no defaults on record
  *   7. sanctions_screen      — no sanctions hits, profile not frozen
  *   8. minimum_score         — score ≥ 500 (above DEEP_SUBPRIME floor)
+ *
+ * Separately from the eight, the result carries `operatorEligibility` — the
+ * JURISTIC_OPERATORS_ONLY gate from kyb.ts. It is not a ninth check; see the
+ * field's own comment for why a compliance gate is kept out of a score.
  */
 
 import type { AgentCreditProfile } from './types';
 import { creditGrade, type CreditGrade } from './grade';
 import { screenAddress, screenEntity, type ScreenOutcome } from './sanctions';
 import { checkAgentIdentity } from './identity';
+import { operatorEligibility, type OperatorEligibility } from './kyb';
 
 export type VerificationStatus =
   | 'VERIFIED'
@@ -44,6 +49,20 @@ export interface VerificationResult {
   score: number;
   grade: CreditGrade;
   verifiedAt: string;
+  /**
+   * Whether the operator behind this agent may hold credit at all.
+   *
+   * Deliberately *not* one of the eight checks. The checks are a score — each
+   * contributes a fraction of a grade — and a compliance gate is not a
+   * fraction of anything: an operator the bureau will not accept is not
+   * "seven-eighths verified", it is ineligible. Folding it into the battery
+   * would also have silently re-weighted every existing consumer's grade,
+   * including deployments that never turned the policy on.
+   *
+   * With JURISTIC_OPERATORS_ONLY off this always reports allowed, so the
+   * field is informational until the policy is adopted.
+   */
+  operatorEligibility: OperatorEligibility;
 }
 
 export interface SanctionsResult {
@@ -224,9 +243,16 @@ export async function verifyAgent(profile: AgentCreditProfile): Promise<Verifica
   ];
 
   const checksPassed = checks.filter(c => c.passed).length;
+  const operator = operatorEligibility(profile);
 
   let status: VerificationStatus;
   if (!sanctions.clear) status = 'SUSPICIOUS';
+  // An operator the bureau will not accept cannot be reported as VERIFIED,
+  // whatever the eight checks say — they measure the agent's history, and
+  // this is about whether there is an accountable company behind it at all.
+  // Capped rather than folded into the count so the checks keep meaning what
+  // they meant. Ranks below SUSPICIOUS: a sanctions hit is the worse finding.
+  else if (!operator.allowed) status = 'UNVERIFIED';
   else if (checksPassed === checks.length) status = 'VERIFIED';
   else if (checksPassed >= 6) status = 'PARTIALLY_VERIFIED';
   else status = 'UNVERIFIED';
@@ -241,5 +267,6 @@ export async function verifyAgent(profile: AgentCreditProfile): Promise<Verifica
     score:        profile.currentScore,
     grade:        creditGrade(profile.currentScore),
     verifiedAt:   new Date().toISOString(),
+    operatorEligibility: operator,
   };
 }

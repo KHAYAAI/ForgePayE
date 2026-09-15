@@ -37,6 +37,30 @@ export interface AgentCreditProfile {
    * checking, which it reports honestly rather than silently.
    */
   operatorLegalName?: string;
+  /**
+   * ISO 3166-1 alpha-2 country of the operator's registration.
+   *
+   * Required to verify a juristic operator at all: a company registry is
+   * per-country, and a registration number without a jurisdiction is not a
+   * lookup, it is a string. `operatorEntityId` alone ("EIN/VAT/TRN") cannot
+   * stand in — it does not say which register to ask.
+   */
+  operatorCountry?: string;
+  /**
+   * The registration number as the register itself holds it, kept separate
+   * from `operatorEntityId` on purpose. `operatorEntityId` is the bureau's
+   * own free-text handle for the operator and has never been validated
+   * against anything; this field is only ever written from a registry answer
+   * or from a caller asserting a number we are about to go and check.
+   */
+  operatorRegistrationNumber?: string;
+  /**
+   * What a company register actually said about this operator, if asked.
+   *
+   * Absent means never checked — which is not the same as checked-and-clean,
+   * and `operatorEligibility()` treats the two differently.
+   */
+  operatorVerification?: OperatorVerification;
   currentScore: number;             // 0–1000
   tier: CreditTier;
   scoreFactors: ScoreFactor[];      // Top 4 reasons for score
@@ -50,6 +74,39 @@ export interface AgentCreditProfile {
   createdAt: string;                // ISO8601
   lastUpdatedAt: string;
   frozenAt?: string;                // If credit is frozen (e.g., sanctions)
+}
+
+/**
+ * The outcome of asking a company register about an operator.
+ *
+ * The three failure states are deliberately distinct. "We asked and it does
+ * not exist" is a reason to refuse an operator; "we asked and it is
+ * dissolved" is a reason to freeze one that already passed; "we could not
+ * ask" is neither — it is an outage, and treating it as either a pass or a
+ * permanent rejection would be wrong.
+ */
+export type OperatorVerificationStatus =
+  /** Found, and the register lists it as active. */
+  | 'verified'
+  /** The register answered and holds no such company. */
+  | 'not_found'
+  /** Found, but deregistered, dissolved, or otherwise not in good standing. */
+  | 'inactive'
+  /** No register reachable for that country, or the provider failed. Retryable. */
+  | 'registry_unavailable';
+
+export interface OperatorVerification {
+  status: OperatorVerificationStatus;
+  checkedAt: string;                // ISO8601
+  /** Which provider answered, e.g. 'didit'. Recorded so a disputed verification is traceable. */
+  provider?: string;
+  /** The register that answered, e.g. 'CIPC'. */
+  registry?: string;
+  /** The name as the register holds it — may differ from operatorLegalName, which is why both are kept. */
+  registeredName?: string;
+  registrationNumber?: string;
+  /** Free-text status string from the register, preserved unmapped for audit. */
+  registryStatus?: string;
 }
 
 export interface ScoreFactor {

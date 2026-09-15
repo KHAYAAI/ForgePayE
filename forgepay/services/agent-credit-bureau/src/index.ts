@@ -90,6 +90,7 @@ import type {
 } from './types';
 import { creditGrade, GRADE_SCALE, INQUIRY_FEE_USD } from './grade';
 import { verifyAgent, sanctionsScreen } from './verify';
+import { operatorEligibility, verifyOperator } from './kyb';
 import { getChainClient, didToAddress } from './chain';
 import {
   runSettlement, startSettlementScheduler, hydrateSettlements,
@@ -155,6 +156,13 @@ const CreateProfileSchema = z.object({
   // which screens by name. Without this, sanctionsScreen() can only run its
   // address check (if evmAddress is set) or falls back to local-only.
   operatorLegalName:   z.string().min(1).max(300).optional(),
+  // ISO 3166-1 alpha-2. Required to verify a juristic operator at all — a
+  // company register is per-country. Uppercased so 'za' and 'ZA' are the same
+  // jurisdiction rather than two.
+  operatorCountry:     z.string().length(2).regex(/^[A-Za-z]{2}$/, {
+    message: 'Must be an ISO 3166-1 alpha-2 country code, e.g. ZA',
+  }).transform(s => s.toUpperCase()).optional(),
+  operatorRegistrationNumber: z.string().min(1).max(100).optional(),
 });
 
 const RecordEventSchema = z.object({
@@ -401,6 +409,8 @@ async function buildApp() {
       operatorEntityId:    parse.data.operatorEntityId,
       operatorEntityType:  parse.data.operatorEntityType,
       operatorLegalName:   parse.data.operatorLegalName,
+      operatorCountry:     parse.data.operatorCountry,
+      operatorRegistrationNumber: parse.data.operatorRegistrationNumber,
       currentScore:        650, // initial neutral score
       tier:                'PRIME',
       scoreFactors:        [],
@@ -415,6 +425,27 @@ async function buildApp() {
       lastUpdatedAt:       now,
     };
 
+    // Refuse an operator the bureau can never accept, at the door.
+    //
+    // Only the permanent refusals: an unverified-but-verifiable operator is
+    // allowed to exist precisely so it *can* be verified — a new profile has
+    // no registry record yet by definition, so refusing every unverified one
+    // would make onboarding impossible. Verification gates use (reports,
+    // settlement) rather than existence, the same way the sanctions screen
+    // does. `retryable` is exactly that distinction.
+    const eligibility = operatorEligibility(profile);
+    if (!eligibility.allowed && !eligibility.retryable) {
+      req.log.warn(
+        { agentId: profile.agentId, reason: eligibility.reason },
+        'agent profile refused — operator not eligible',
+      );
+      return reply.status(422).send({
+        error:   'OperatorNotEligible',
+        reason:  eligibility.reason,
+        message: eligibility.detail,
+      });
+    }
+
     const { score, factors } = computeScore(profile);
     profile.currentScore  = score;
     profile.tier          = scoreTier(score);
@@ -422,6 +453,51 @@ async function buildApp() {
 
     setProfile(profile);
     return reply.status(201).send({ data: profile });
+  });
+
+  // POST /v1/agents/:agentId/operator-verification — ask a company register
+  // about this agent's operator and record what it said.
+  //
+  // Admin-only by deny-by-default, deliberately: an operator must not be able
+  // to write its own verification record. Separate from profile creation
+  // because it calls an external register — slow, and subject to outages that
+  // must not block onboarding (see the creation route's `retryable` note).
+  app.post<{ Params: { agentId: string } }>('/v1/agents/:agentId/operator-verification', async (req, reply) => {
+    const profile = getProfile(req.params.agentId);
+    if (!profile) {
+      return reply.status(404).send({ error: 'NotFound', message: 'Agent profile not found' });
+    }
+
+    const outcome = await verifyOperator(profile);
+    if (!outcome.ok) {
+      // 422 rather than 400: the request is well-formed, but the profile does
+      // not carry what a register needs. Fix the profile, not the request.
+      return reply.status(422).send({
+        error: 'NotVerifiable', reason: outcome.reason, message: outcome.message,
+      });
+    }
+
+    profile.operatorVerification = outcome.verification;
+    profile.lastUpdatedAt = new Date().toISOString();
+    setProfile(profile);
+
+    // Logged at warn with the old and new status for the same reason the
+    // payout-destination change is: this record decides whether an operator
+    // can hold credit, so an audit needs to be able to reconstruct it.
+    req.log.warn(
+      {
+        agentId: profile.agentId,
+        status: outcome.verification.status,
+        registry: outcome.verification.registry ?? '(none)',
+        provider: outcome.verification.provider ?? '(none)',
+      },
+      'operator verification recorded',
+    );
+
+    return reply.send({
+      data: outcome.verification,
+      eligibility: operatorEligibility(profile),
+    });
   });
 
   // GET /v1/agents/:agentId/score
