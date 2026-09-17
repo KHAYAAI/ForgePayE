@@ -2,6 +2,7 @@ import Link from 'next/link';
 
 const FOOTER_LINKS = {
   Product: [
+    { label: 'Platform',     href: '/platform' },
     { label: 'Features',     href: '#features' },
     { label: 'Pricing',      href: '#pricing' },
     { label: 'Changelog',    href: '/changelog' },
