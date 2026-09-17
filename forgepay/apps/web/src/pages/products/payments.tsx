@@ -1,66 +1,174 @@
+/**
+ * ARCH: FORGE Payments — product page
+ * ──────────────────────────────────────────────────────────────────────────────
+ * Rebuilt to match the site's design system, replacing generic "beats Stripe
+ * by 40%" copy with what the platform actually does: stablecoin rails
+ * (services/stablecoin-gateway) and crypto invoicing (services/crypto-gateway).
+ *
+ * Deliberately does NOT claim card processing — nothing in this codebase
+ * builds or proves that, and the previous copy's "R15K/mo, ZAR/USD/EUR"
+ * pricing didn't correspond to anything real either. If card support ships,
+ * add it here then, backed by what actually exists.
+ */
+
 'use client';
 
 import Link from 'next/link';
+import { Coins, Zap, ShieldCheck, Repeat, Bitcoin, Gauge } from 'lucide-react';
+import Navbar from '@/components/Navbar';
+import Footer from '@/components/Footer';
+
+const CAPABILITIES = [
+  {
+    icon: Coins,
+    title: 'USDC / USDT rails',
+    description:
+      'Inbound deposits and outbound payouts across EVM chains and Solana. The same rail that pays FORGE Credit Bureau furnishers, real USDC, confirmed on-chain.',
+  },
+  {
+    icon: Zap,
+    title: 'x402 micropayments',
+    description:
+      'HTTP-native, agent-to-agent payments. An agent pays for a resource inline with the request — no separate billing flow, no human in the loop.',
+  },
+  {
+    icon: Gauge,
+    title: 'Bounded payouts',
+    description:
+      'A rolling daily spend ceiling on the signing wallet, and human-approval thresholds above a configurable amount. The control that bounds the wallet, not just the transfer.',
+  },
+  {
+    icon: Repeat,
+    title: 'Idempotent settlement',
+    description:
+      'Every payout carries a stable external ID. A retried request returns the original result — it never sends money twice, enforced by the database, not application memory.',
+  },
+  {
+    icon: Bitcoin,
+    title: 'Crypto invoicing',
+    description:
+      'Invoice-based acceptance for BTC, ETH, LTC, and XMR — for merchants who want to accept crypto directly, alongside or instead of stablecoins.',
+  },
+  {
+    icon: ShieldCheck,
+    title: 'Screened by default',
+    description:
+      'Payout destinations and counterparties run through sanctions screening before funds move — the same fail-closed compliance layer behind the Credit Bureau.',
+  },
+];
 
 export default function PaymentsPage() {
   return (
-    <div className="min-h-screen bg-white">
+    <main className="min-h-screen bg-forge-bg">
+      <Navbar />
+
       {/* Hero */}
-      <section className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white py-20">
-        <div className="max-w-4xl mx-auto px-4 text-center">
-          <h1 className="text-5xl font-bold mb-4">FORGE Payments</h1>
-          <p className="text-xl mb-8">
-            Payment processing that's 40% cheaper than Stripe, with instant settlements
+      <section className="relative pt-32 pb-20 px-8 overflow-hidden">
+        <div
+          className="absolute inset-0 opacity-[0.03]"
+          style={{
+            backgroundImage:
+              'linear-gradient(#39D353 1px, transparent 1px), linear-gradient(90deg, #39D353 1px, transparent 1px)',
+            backgroundSize: '48px 48px',
+          }}
+        />
+        <div className="relative z-10 max-w-4xl mx-auto text-left">
+          <div className="inline-flex items-center gap-2 border border-[#1E1E1E] bg-[#111111] px-3 py-1 mb-8">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#39D353] animate-pulse-green inline-block" />
+            <span className="text-[10px] font-mono text-[#6B7280] tracking-widest uppercase">
+              // STABLECOIN &amp; CRYPTO PAYMENT RAILS
+            </span>
+          </div>
+
+          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold font-mono tracking-tight leading-[1.1] mb-6">
+            <span className="text-white">Payment rails built</span>
+            <span className="text-[#39D353] animate-blink">_</span>
+            <br />
+            <span className="text-[#6B7280]">for agents that move money.</span>
+          </h1>
+
+          <p className="text-sm font-mono text-[#6B7280] max-w-2xl mb-3 leading-relaxed">
+            USDC and USDT across EVM chains and Solana, x402 for inline agent-to-agent payments,
+            and crypto invoicing when you need it — with bounded, idempotent, sanctions-screened
+            payouts by default.
           </p>
-          <Link
-            href="/checkout/payments?tier=growth"
-            className="inline-block px-8 py-3 bg-white text-blue-600 font-semibold rounded-lg hover:bg-gray-100"
-          >
-            Start Free Trial
-          </Link>
-        </div>
-      </section>
+          <p className="text-sm font-mono text-[#6B7280] max-w-2xl mb-12 leading-relaxed">
+            This is the same rail FORGE Credit Bureau uses to pay furnishers — not a demo, the
+            production payout path.
+          </p>
 
-      {/* Features */}
-      <section className="py-16 px-4 max-w-4xl mx-auto">
-        <h2 className="text-3xl font-bold mb-12 text-center">Why FORGE?</h2>
-        <div className="grid md:grid-cols-3 gap-8">
-          {[
-            { title: 'Lower Fees', desc: '1.2% + R5/tx vs Stripe 2.9% + R2/tx' },
-            { title: 'Instant Settlements', desc: 'Daily payouts to your bank account' },
-            { title: 'Multi-Currency', desc: 'ZAR, USD, EUR, plus crypto support' },
-          ].map((feature, i) => (
-            <div key={i} className="p-6 border border-gray-200 rounded-lg">
-              <h3 className="font-bold text-lg mb-2">{feature.title}</h3>
-              <p className="text-gray-600">{feature.desc}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* Pricing */}
-      <section className="bg-gray-50 py-16 px-4">
-        <div className="max-w-4xl mx-auto">
-          <h2 className="text-3xl font-bold mb-12 text-center">Simple Pricing</h2>
-          <div className="grid md:grid-cols-2 gap-8">
-            {[
-              { name: 'Free', price: '0', desc: '14-day trial, then free forever' },
-              { name: 'Growth', price: '15K/mo', desc: 'Best for scaling businesses' },
-            ].map((plan, i) => (
-              <div key={i} className="bg-white p-8 rounded-lg border border-gray-200">
-                <h3 className="text-2xl font-bold mb-2">R{plan.price}</h3>
-                <p className="text-gray-600 mb-4">{plan.desc}</p>
-                <Link
-                  href={`/checkout/payments?tier=${i === 0 ? 'free' : 'growth'}`}
-                  className="inline-block px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-                >
-                  Choose
-                </Link>
-              </div>
-            ))}
+          <div className="flex flex-row items-center gap-4">
+            <Link
+              href="/checkout/payments"
+              className="text-[#39D353] text-xs font-mono border border-[#39D353] px-6 py-2.5 hover:bg-[#39D35310] transition-colors tracking-wider glow-green"
+            >
+              GET API ACCESS →
+            </Link>
+            <Link
+              href="/docs"
+              className="text-[#6B7280] text-xs font-mono border border-[#1E1E1E] px-6 py-2.5 hover:text-white hover:border-[#333] transition-colors tracking-wider"
+            >
+              READ THE DOCS
+            </Link>
           </div>
         </div>
       </section>
-    </div>
+
+      {/* Capabilities */}
+      <section className="py-20 px-8 border-t border-[#1A1A1A]">
+        <div className="max-w-7xl mx-auto">
+          <div className="mb-12">
+            <p className="text-xs font-mono text-[#39D353] tracking-widest mb-3">// CAPABILITIES</p>
+            <h2 className="text-2xl sm:text-3xl font-mono font-bold text-white mb-3 tracking-tight">
+              Not a wrapper around someone else's rail.
+            </h2>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-[#1E1E1E]">
+            {CAPABILITIES.map((cap) => {
+              const Icon = cap.icon;
+              return (
+                <div
+                  key={cap.title}
+                  className="group bg-[#111111] p-6 border border-[#1E1E1E] hover:border-[#39D35330] transition-colors duration-200"
+                >
+                  <div className="flex items-center gap-2 mb-4">
+                    <span className="text-[#39D353] text-xs font-mono">&gt;</span>
+                    <Icon size={14} className="text-[#39D353]" />
+                  </div>
+                  <h3 className="text-sm font-mono font-bold text-white mb-2 tracking-tight">
+                    {cap.title}
+                  </h3>
+                  <p className="text-xs font-mono text-[#6B7280] leading-relaxed">
+                    {cap.description}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
+      {/* Proven, not promised */}
+      <section className="py-20 px-8 border-t border-[#1A1A1A]">
+        <div className="max-w-4xl mx-auto">
+          <p className="text-xs font-mono text-[#39D353] tracking-widest mb-3">
+            // PROVEN, NOT PROMISED
+          </p>
+          <h2 className="text-2xl sm:text-3xl font-mono font-bold text-white mb-6 tracking-tight">
+            Real signed transfers, not simulated ones.
+          </h2>
+          <p className="text-sm font-mono text-[#6B7280] max-w-2xl mb-8 leading-relaxed">
+            The outbound signer refuses to fabricate a transaction hash — no signer configured
+            means no payout, ever, never a simulated success. On Base Sepolia testnet we created,
+            approved, and submitted a real payout end to end: signed, broadcast, and confirmed
+            on-chain, with a second identical request correctly deduplicated rather than sending
+            twice.
+          </p>
+        </div>
+      </section>
+
+      <Footer />
+    </main>
   );
 }
