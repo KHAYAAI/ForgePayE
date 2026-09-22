@@ -1,0 +1,648 @@
+<title>FORGE Launch Film</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:ital,wght@0,400;0,500;0,600;1,400;1,500&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root{
+    --ink:#0B0B0B;
+    --page:#070707;
+    --bone:#F2F0EB;
+    --bone-2:#B4B1AB;
+    --bone-3:#76736E;
+    --rule:#262421;
+    --sans:'Archivo','Helvetica Neue',Helvetica,Arial,sans-serif;
+    --mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;background:var(--page);color:var(--bone);
+    font-family:var(--sans);-webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1180px;margin:0 auto;padding-inline:16px;padding-block:26px 44px}
+
+  .masthead{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:14px}
+  .masthead .wm{display:flex;align-items:center;gap:.34em;font-size:17px;font-weight:600;letter-spacing:-.01em}
+  .masthead .wm .rg{width:.78em;height:.78em;display:block;color:var(--bone)}
+  .masthead .cap{font-family:var(--mono);font-size:10px;letter-spacing:.24em;color:var(--bone-3)}
+
+  /* ── stage ─────────────────────────────────────────── */
+  .stage{
+    position:relative;width:100%;aspect-ratio:16/9;background:var(--ink);
+    overflow:hidden;font-size:11px;user-select:none;color:var(--bone);
+  }
+  .grain{
+    position:absolute;inset:0;pointer-events:none;opacity:.045;mix-blend-mode:screen;
+    background-image:radial-gradient(circle at 1px 1px, #fff 1px, transparent 0);
+    background-size:3px 3px;
+  }
+  .frame{position:absolute;inset:0;padding:4.6% 5.4%;display:flex;flex-direction:column}
+
+  .fhead{display:flex;align-items:flex-start;justify-content:space-between;gap:2em}
+  .eyebrow{font-family:var(--mono);font-size:1.02em;letter-spacing:.26em;color:var(--bone-3);
+           text-transform:uppercase;white-space:nowrap}
+  .markbox{width:3.5em;height:3.5em;flex:none;color:var(--bone)}
+  .markbox svg{width:100%;height:100%;display:block}
+
+  .fbody{flex:1;position:relative}
+  .ffoot{display:flex;align-items:center;justify-content:space-between;gap:1em;
+         padding-top:1.4em;border-top:1px solid var(--rule)}
+  .ffoot span{font-family:var(--mono);font-size:.98em;letter-spacing:.24em;color:var(--bone-3);
+              text-transform:uppercase}
+
+  /* scenes sit inside fbody */
+  /* bottom offset keeps the last line clear of the footer rule — without it
+     the tall scenes (four-line display type, the pricing table) sit flush
+     against it and the frame stops reading as a composed poster. */
+  .scene{position:absolute;left:0;right:0;bottom:2.6em;opacity:0}
+  .scene[data-on="1"]{opacity:1}
+
+  /* typographic mask reveal: type rises from behind a line */
+  .mask{display:inline-block;overflow:hidden;vertical-align:bottom;padding-bottom:.06em}
+  .in{display:inline-block}
+  .dline{display:block}
+
+  .display{font-size:5.9em;font-weight:600;line-height:1.0;letter-spacing:-.035em}
+  .display .it{font-style:italic;font-weight:500;letter-spacing:-.028em}
+  .mid{font-size:3.5em;font-weight:600;line-height:1.08;letter-spacing:-.028em}
+  .mid .it{font-style:italic;font-weight:500}
+  .body{font-size:1.52em;font-weight:400;line-height:1.5;color:var(--bone-2);letter-spacing:-.004em;max-width:34em}
+  .mlabel{font-family:var(--mono);font-size:1.0em;letter-spacing:.24em;color:var(--bone-3);text-transform:uppercase}
+
+  .stack{display:flex;flex-direction:column;gap:1.5em}
+  .cols{display:flex;gap:7%}
+  .col{flex:1;min-width:0}
+  .hr{height:1px;background:var(--rule);margin:1.5em 0}
+
+  /* pricing table, editorial not card-y */
+  .ptable{display:flex;flex-direction:column}
+  .prow{display:flex;align-items:baseline;gap:1.4em;padding:1.05em 0;border-top:1px solid var(--rule);opacity:0}
+  .prow:last-child{border-bottom:1px solid var(--rule)}
+  .prow .tier{font-family:var(--mono);font-size:1.02em;letter-spacing:.24em;color:var(--bone-3);
+              text-transform:uppercase;width:13em;flex:none}
+  .prow .amt{font-size:2.5em;font-weight:600;letter-spacing:-.03em;width:5.6em;flex:none}
+  .prow .inc{font-size:1.32em;color:var(--bone-2);font-weight:400}
+  .prow.hi .amt,.prow.hi .tier{color:var(--bone)}
+
+  .ticks{display:flex;gap:3.6em;margin-top:.4em}
+  .tk{display:flex;align-items:baseline;gap:.7em;opacity:0}
+  .tk em{font-style:normal;font-family:var(--mono);font-size:.96em;letter-spacing:.2em;color:var(--bone-3)}
+  .tk span{font-size:1.72em;font-weight:500;letter-spacing:-.02em}
+
+  .lock{display:flex;flex-direction:column;align-items:flex-start;gap:1.15em}
+  .lockwm{display:flex;align-items:center;gap:.3em;font-size:5.2em;font-weight:600;letter-spacing:-.03em;opacity:0}
+  .lockwm .rg{width:.76em;height:.76em;display:block;color:var(--bone)}
+
+  /* poster */
+  .poster{position:absolute;inset:0;z-index:6;background:var(--ink);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1.5em;
+    padding:0 7%;text-align:center;transition:opacity .4s ease}
+  .poster[hidden]{display:none!important}
+  .poster .pwm{display:flex;align-items:center;gap:.3em;font-size:4.4em;font-weight:600;letter-spacing:-.03em}
+  .poster .pwm .rg{width:.76em;height:.76em;display:block}
+  .poster .psub{font-family:var(--mono);font-size:1.06em;letter-spacing:.3em;color:var(--bone-3);text-transform:uppercase}
+  .pbtn{margin-top:.8em;display:inline-flex;align-items:center;gap:.85em;background:transparent;
+    border:1px solid #3A3733;color:var(--bone);font-family:var(--mono);font-size:1.12em;
+    letter-spacing:.24em;text-transform:uppercase;padding:.9em 2em;cursor:pointer;
+    transition:border-color .2s ease,background .2s ease}
+  .pbtn:hover{border-color:var(--bone);background:#ffffff0a}
+  .pbtn:focus-visible{outline:2px solid var(--bone);outline-offset:3px}
+  .pbtn .tri{width:0;height:0;border-left:.66em solid var(--bone);
+             border-top:.4em solid transparent;border-bottom:.4em solid transparent}
+
+  /* ── transport ─────────────────────────────────────── */
+  .transport{display:flex;align-items:center;gap:13px;margin-top:15px;flex-wrap:wrap}
+  .btn{background:transparent;border:1px solid #232120;color:var(--bone-3);font-family:var(--mono);
+    font-size:10px;letter-spacing:.2em;text-transform:uppercase;padding:9px 14px;cursor:pointer;
+    transition:color .18s,border-color .18s;white-space:nowrap}
+  .btn:hover{color:var(--bone);border-color:#3A3733}
+  .btn:focus-visible{outline:2px solid var(--bone);outline-offset:2px}
+  .btn.primary{color:var(--bone);border-color:#3A3733}
+
+  .scrub{flex:1;min-width:190px;position:relative;height:26px;cursor:pointer;display:flex;align-items:center}
+  .scrub:focus-visible{outline:2px solid var(--bone);outline-offset:2px}
+  .track{position:absolute;left:0;right:0;height:2px;background:#1C1A19}
+  .fill{position:absolute;left:0;height:2px;background:var(--bone);width:0}
+  .mark{position:absolute;width:1px;height:8px;background:#2E2B29;top:50%;transform:translateY(-50%)}
+  .head{position:absolute;width:2px;height:14px;background:var(--bone);top:50%;transform:translate(-1px,-50%);left:0}
+  .time{font-family:var(--mono);font-size:10px;color:var(--bone-3);font-variant-numeric:tabular-nums;letter-spacing:.14em;white-space:nowrap}
+  .time b{color:var(--bone);font-weight:400}
+
+  .chapters{display:flex;gap:5px;flex-wrap:wrap;margin-top:13px}
+  .chip{background:transparent;border:1px solid #232120;color:var(--bone-3);font-family:var(--mono);
+    font-size:9px;letter-spacing:.16em;text-transform:uppercase;padding:7px 10px;cursor:pointer;
+    transition:color .18s,border-color .18s}
+  .chip:hover{color:var(--bone);border-color:#3A3733}
+  .chip:focus-visible{outline:2px solid var(--bone);outline-offset:2px}
+  .chip[aria-current="true"]{color:var(--bone);border-color:var(--bone)}
+  .chip u{color:#4A4744;text-decoration:none;margin-right:6px;font-variant-numeric:tabular-nums}
+  .chip[aria-current="true"] u{color:var(--bone)}
+
+  .foot{margin-top:24px;padding-top:16px;border-top:1px solid #1C1A19;font-family:var(--mono);
+    font-size:10.5px;color:var(--bone-3);line-height:1.85;max-width:70ch;letter-spacing:.02em}
+  .foot b{color:var(--bone-2);font-weight:400}
+
+  @media (max-width:600px){
+    .masthead .cap{display:none}
+    .btn{padding:8px 11px}
+  }
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <mask id="ringmask">
+      <rect x="0" y="0" width="100" height="100" fill="#fff"/>
+      <rect x="-2" y="42.5" width="22" height="15" fill="#000"/>
+      <rect x="80" y="42.5" width="22" height="15" fill="#000"/>
+    </mask>
+    <symbol id="ring" viewBox="0 0 100 100">
+      <circle cx="50" cy="50" r="35" fill="none" stroke="currentColor" stroke-width="13" mask="url(#ringmask)"/>
+    </symbol>
+  </defs>
+</svg>
+
+<div class="wrap">
+
+  <div class="masthead">
+    <div class="wm">F<svg class="rg"><use href="#ring"/></svg>RGE</div>
+    <div class="cap">Launch film · SKU 01 · 0:55</div>
+  </div>
+
+  <div class="stage" id="stage">
+    <div class="frame">
+      <div class="fhead">
+        <div class="eyebrow" id="eyebrow">SKU 01 · Forge Credit</div>
+        <div class="markbox" id="markbox"><svg><use href="#ring"/></svg></div>
+      </div>
+
+      <div class="fbody">
+
+        <!-- 1 ── the problem (cold open) -->
+        <section class="scene" id="s2">
+          <div class="display">
+            <span class="dline"><span class="mask"><span class="in" id="s2a">An agent with no</span></span></span>
+            <span class="dline"><span class="mask"><span class="in" id="s2b">credit history is an</span></span></span>
+            <span class="dline"><span class="mask"><span class="in" id="s2c">agent nobody will</span></span></span>
+            <span class="dline"><span class="mask"><span class="in it" id="s2d">transact with.</span></span></span>
+          </div>
+        </section>
+
+        <!-- 3 ── the reveal -->
+        <section class="scene" id="s3">
+          <div class="stack">
+            <div class="display">
+              <span class="dline"><span class="mask"><span class="in" id="s3a">The credit bureau</span></span></span>
+              <span class="dline"><span class="mask"><span class="in" id="s3b">for&nbsp;</span></span><span class="mask"><span class="in it" id="s3c">AI agents.</span></span></span>
+            </div>
+            <div class="body" id="s3d">Verifiable reputation from on-chain data. Any protocol can read an
+              agent's trustworthiness before extending credit.</div>
+          </div>
+        </section>
+
+        <!-- 4 ── architecture -->
+        <section class="scene" id="s4">
+          <div class="cols">
+            <div class="col" id="s4L">
+              <div class="mlabel">Mode 01</div>
+              <div class="hr"></div>
+              <div class="mid">Off-chain, in <span class="it">fifteen milliseconds</span>.</div>
+              <div class="body" style="margin-top:.85em;font-size:1.34em">Payment history, volume, age, risk.
+                Nothing blocks the request.</div>
+            </div>
+            <div class="col" id="s4R">
+              <div class="mlabel">Mode 02</div>
+              <div class="hr"></div>
+              <div class="mid">On-chain, settled to <span class="it">Base</span>.</div>
+              <div class="body" style="margin-top:.85em;font-size:1.34em">A tamper-evident history a lender
+                can read directly. Not a black box.</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 5 ── settlement -->
+        <section class="scene" id="s5">
+          <div class="stack">
+            <div class="mid" id="s5a">Every report screened.<br>Every furnisher <span class="it">paid</span>.</div>
+            <div class="mlabel" id="s5b">OFAC · EU Consolidated · Fails closed</div>
+            <div class="body" id="s5c">$0.70 of every inquiry returns to the protocol whose data made
+              it possible — in USDC, automatically, with no reconciliation.</div>
+          </div>
+        </section>
+
+        <!-- 6 ── verification -->
+        <section class="scene" id="s6">
+          <div class="stack">
+            <div class="display">
+              <span class="dline"><span class="mask"><span class="in" id="s6a">Not a</span></span>&nbsp;<span class="mask"><span class="in it" id="s6b">demonstration.</span></span></span>
+            </div>
+            <div class="ticks">
+              <div class="tk" id="s6t1"><em>01</em><span>Signed</span></div>
+              <div class="tk" id="s6t2"><em>02</em><span>Broadcast</span></div>
+              <div class="tk" id="s6t3"><em>03</em><span>Confirmed</span></div>
+            </div>
+            <div class="mlabel" id="s6h">0xC3E407EF…914B87BF · Base Sepolia</div>
+          </div>
+        </section>
+
+        <!-- 7 ── pricing -->
+        <section class="scene" id="s7">
+          <div class="stack" style="gap:1.1em">
+            <div class="ptable">
+              <div class="prow" id="p1"><span class="tier">Observer</span><span class="amt">$0</span><span class="inc">Soft pulls, grade band only</span></div>
+              <div class="prow" id="p2"><span class="tier">Growth</span><span class="amt">$1,000</span><span class="inc">250 inquiries a year</span></div>
+              <div class="prow hi" id="p3"><span class="tier">Institutional</span><span class="amt">$4,000</span><span class="inc">2,500 inquiries a year</span></div>
+              <div class="prow" id="p4"><span class="tier">Network</span><span class="amt">$12,000</span><span class="inc">10,000 inquiries a year</span></div>
+            </div>
+            <div class="body" id="s7s" style="opacity:0;font-size:1.36em">Or $2.80 per pull, falling to
+              $2.00 <span style="font-style:italic">at volume</span>.</div>
+          </div>
+        </section>
+
+        <!-- 8 ── close -->
+        <section class="scene" id="s8">
+          <div class="lock">
+            <div class="lockwm" id="s8w">F<svg class="rg"><use href="#ring"/></svg>RGE</div>
+            <div class="mlabel" id="s8s">Credit Bureau · Forgepay.io</div>
+          </div>
+        </section>
+
+      </div>
+
+      <div class="ffoot">
+        <span>@forgepay</span>
+        <span>MMXXVI</span>
+        <span>forgepay.io</span>
+      </div>
+    </div>
+
+    <div class="grain"></div>
+
+    <div class="poster" id="poster">
+      <div class="pwm">F<svg class="rg"><use href="#ring"/></svg>RGE</div>
+      <div class="psub">Credit Bureau · Launch Film</div>
+      <button class="pbtn" id="play"><span class="tri"></span>Play</button>
+    </div>
+  </div>
+
+  <div class="transport">
+    <button class="btn primary" id="toggle">Play</button>
+    <button class="btn" id="restart">Restart</button>
+    <button class="btn" id="mute" aria-pressed="false">Sound on</button>
+    <div class="scrub" id="scrub" role="slider" tabindex="0"
+         aria-label="Timeline position" aria-valuemin="0" aria-valuemax="55" aria-valuenow="0">
+      <div class="track"></div><div class="fill" id="fill"></div><div class="head" id="head"></div>
+    </div>
+    <div class="time"><b id="tnow">0:00</b> / 0:55</div>
+  </div>
+
+  <div class="chapters" id="chapters"></div>
+
+  <div class="foot">
+    Every figure is taken from the running system, not written for the edit. The <b>$0.70</b>
+    furnisher share and the <b>$2.80 / $2.40 / $2.00</b> volume bands come from the bureau's own
+    pricing module; the transaction in scene six is the <b>real Base Sepolia payout</b> from the
+    testnet rehearsal — signed, broadcast and confirmed on-chain. Mainnet deployment is still in
+    progress, and the film does not claim otherwise.
+  </div>
+</div>
+
+<script>
+(function(){
+  var RM=false; try{RM=window.matchMedia('(prefers-reduced-motion: reduce)').matches;}catch(e){}
+  var K = RM ? 0.25 : 1;
+
+  var TOTAL=55000;
+  var stage=document.getElementById('stage');
+  var BASE=11;
+  function sizeStage(){
+    var w=stage.getBoundingClientRect().width;
+    if(!w)return; BASE=w/100; stage.style.fontSize=BASE+'px';
+  }
+  sizeStage();
+  window.addEventListener('resize',function(){sizeStage();render(t);});
+
+  var SCENES=[
+    {id:'s2',a:0,    b:9000, p:5200, label:'The problem', eye:'The problem'},
+    {id:'s3',a:9000, b:18000,p:14200,label:'The bureau',  eye:'SKU 01 · Forge Credit'},
+    {id:'s4',a:18000,b:27000,p:23000,label:'Architecture',eye:'Architecture'},
+    {id:'s5',a:27000,b:36000,p:32200,label:'Settlement',  eye:'Settlement'},
+    {id:'s6',a:36000,b:44500,p:42000,label:'Verification',eye:'Verification'},
+    {id:'s7',a:44500,b:51000,p:48600,label:'Pricing',     eye:'Pricing'},
+    {id:'s8',a:51000,b:55000,p:53600,label:'Close',       eye:'Forge Credit'}
+  ];
+  var sceneEls=SCENES.map(function(s){return document.getElementById(s.id);});
+
+  function outQuint(p){return 1-Math.pow(1-p,5);}
+  function outCubic(p){return 1-Math.pow(1-p,3);}
+  function linear(p){return p;}
+  var EASE={outQuint:outQuint,outCubic:outCubic,linear:linear};
+
+  var tracks=[];
+  function tr(id,t0,dur,from,to,ease){
+    var el=document.getElementById(id); if(!el)return;
+    tracks.push({el:el,t0:t0,dur:dur,from:from,to:to,ease:EASE[ease||'outQuint']});
+  }
+  function lerp(a,b,p){return a+(b-a)*p;}
+  function applyTrack(k,t){
+    var p=(t-k.t0)/k.dur; p=p<0?0:(p>1?1:p);
+    var e=k.ease(p),f=k.from,o=k.to,el=k.el;
+    var y=('y' in f||'y' in o)?lerp(f.y||0,('y' in o?o.y:0),e):null;
+    var x=('x' in f||'x' in o)?lerp(f.x||0,('x' in o?o.x:0),e):null;
+    if(y!==null||x!==null){
+      el.style.transform='translate3d('+((x||0)*BASE*K).toFixed(2)+'px,'+((y||0)*BASE*K).toFixed(2)+'px,0)';
+    }
+    if('o' in f||'o' in o){el.style.opacity=lerp(('o' in f?f.o:0),('o' in o?o.o:1),e).toFixed(3);}
+  }
+  // rise: type climbs out from behind its mask
+  function rise(id,t0,dur,dist){ tr(id,t0,dur||900,{y:dist||6.4},{y:0},'outQuint'); }
+  function fade(id,t0,dur,a,b){ tr(id,t0,dur,{o:a},{o:b},'outCubic'); }
+
+  // ═ 1 ═ the problem — their own line, cold open, italic lands last
+  rise('s2a',  300,1000,6.6);
+  rise('s2b',  480,1000,6.6);
+  rise('s2c',  660,1000,6.6);
+  rise('s2d', 1000,1100,6.6);
+  fade('s2',  8400,600,1,0);
+
+  // ═ 2 ═ the bureau
+  rise('s3a', 9300,1000,6.6);
+  rise('s3b', 9480,1000,6.6);
+  rise('s3c', 9820,1100,6.6);   // the italic, a clear beat later
+  tr('s3d',  10900,1000,{o:0,y:1.3},{o:1,y:0},'outQuint');
+  fade('s3', 17400,600,1,0);
+
+  // ═ 3 ═ architecture
+  tr('s4L',18300,1000,{o:0,y:1.7},{o:1,y:0},'outQuint');
+  tr('s4R',18650,1000,{o:0,y:1.7},{o:1,y:0},'outQuint');
+  fade('s4',26400,600,1,0);
+
+  // ═ 4 ═ settlement
+  tr('s5a',27300,1000,{o:0,y:1.7},{o:1,y:0},'outQuint');
+  tr('s5b',28100,900, {o:0,y:1.1},{o:1,y:0},'outQuint');
+  tr('s5c',28700,1000,{o:0,y:1.3},{o:1,y:0},'outQuint');
+  fade('s5',35400,600,1,0);
+
+  // ═ 5 ═ verification
+  rise('s6a',36400,1000,6.6);
+  rise('s6b',36760,1100,6.6);
+  tr('s6t1',38200,800,{o:0,y:1.1},{o:1,y:0},'outQuint');
+  tr('s6t2',38600,800,{o:0,y:1.1},{o:1,y:0},'outQuint');
+  tr('s6t3',39000,800,{o:0,y:1.1},{o:1,y:0},'outQuint');
+  tr('s6h', 39900,1000,{o:0,y:.9},{o:1,y:0},'outQuint');
+  fade('s6',43900,600,1,0);
+
+  // ═ 6 ═ pricing
+  tr('p1',44800,800,{o:0,y:1.2},{o:1,y:0},'outQuint');
+  tr('p2',45020,800,{o:0,y:1.2},{o:1,y:0},'outQuint');
+  tr('p3',45240,800,{o:0,y:1.2},{o:1,y:0},'outQuint');
+  tr('p4',45460,800,{o:0,y:1.2},{o:1,y:0},'outQuint');
+  tr('s7s',46300,900,{o:0,y:1.0},{o:1,y:0},'outQuint');
+  fade('s7',50400,600,1,0);
+
+  // ═ 7 ═ close
+  tr('s8w',51300,1100,{o:0,y:1.6},{o:1,y:0},'outQuint');
+  tr('s8s',51900,1000,{o:0,y:1.0},{o:1,y:0},'outQuint');
+
+  /* ── score ──────────────────────────────────────────────────────────────
+     Synthesised in the browser rather than loaded as a file: the artifact
+     CSP blocks external audio entirely, and a generated score can be
+     anchored to film time so it stays in sync when you scrub or replay.
+     120bpm, A minor, arrangement follows the scene structure. ───────────── */
+  var A={ctx:null,master:null,noise:null,on:true,idx:0,filmAnchor:0,ctxAnchor:0};
+  var BPM=120, BEAT=60000/BPM, STEP=BEAT/4, BAR=BEAT*4;
+
+  // Am · F · C · G, one bar each
+  var ROOTS=[110.00, 87.31, 130.81, 98.00];
+  var CHORD=[[440.00,523.25,659.25],[349.23,440.00,523.25],
+             [523.25,659.25,783.99],[392.00,493.88,587.33]];
+  var PADCH=[[220,261.63,329.63],[174.61,220,261.63],
+             [261.63,329.63,392.00],[196,246.94,293.66]];
+
+  // per-section density, aligned to the scenes above
+  var BANDS=[
+    {a:0,     b:9000,  kick:0, hat:'soft', arp:0, pad:0},  // the problem — tense, sparse
+    {a:9000,  b:18000, kick:1, hat:'8',    arp:1, pad:0},  // the bureau — lift
+    {a:18000, b:27000, kick:1, hat:'16',   arp:1, pad:0},  // architecture — full
+    {a:27000, b:36000, kick:1, hat:'16',   arp:1, pad:1},  // settlement
+    {a:36000, b:40500, kick:1, hat:'none', arp:0, pad:1},  // verification — strip back
+    {a:40500, b:44500, kick:1, hat:'8',    arp:1, pad:1},  // rebuild
+    {a:44500, b:51000, kick:1, hat:'16',   arp:1, pad:1},  // pricing — peak
+    {a:51000, b:55000, kick:0, hat:'none', arp:0, pad:1}   // close — resolve
+  ];
+  function bandAt(ms){
+    for(var i=0;i<BANDS.length;i++) if(ms>=BANDS[i].a && ms<BANDS[i].b) return BANDS[i];
+    return null;
+  }
+
+  var EV=[];
+  (function buildScore(){
+    for(var ms=0; ms<TOTAL; ms+=STEP){
+      var band=bandAt(ms); if(!band) continue;
+      var step=Math.round(ms/STEP), inBar=step%16, bar=Math.floor(ms/BAR)%4;
+      if(band.kick && inBar%4===0) EV.push({t:ms,k:'kick'});
+      if(inBar===0){
+        EV.push({t:ms,k:'bass',f:ROOTS[bar]});
+        if(band.pad && Math.floor(ms/BAR)%2===0) EV.push({t:ms,k:'pad',c:PADCH[bar]});
+      }
+      if(band.hat==='soft' && inBar%8===4) EV.push({t:ms,k:'hat',v:0.05});
+      if(band.hat==='8'    && inBar%4===2) EV.push({t:ms,k:'hat',v:0.12});
+      if(band.hat==='16'   && inBar%2===1) EV.push({t:ms,k:'hat',v:inBar%4===3?0.14:0.07});
+      if(band.arp && inBar%2===0){
+        var ch=CHORD[bar];
+        EV.push({t:ms,k:'pluck',f:ch[(step/2)%3|0],v:inBar===0?0.16:0.10});
+      }
+    }
+    EV.push({t:51000,k:'pluck',f:440,v:0.2});
+    EV.push({t:51000,k:'bass',f:110,d:3.4});
+    EV.sort(function(a,b){return a.t-b.t;});
+  })();
+
+  function audioInit(){
+    if(A.ctx) return;
+    var AC=window.AudioContext||window.webkitAudioContext;
+    if(!AC){ A.on=false; return; }
+    A.ctx=new AC();
+    A.master=A.ctx.createGain();
+    A.master.gain.value=A.on?0.5:0;
+    A.master.connect(A.ctx.destination);
+    var n=Math.floor(A.ctx.sampleRate*0.3);
+    A.noise=A.ctx.createBuffer(1,n,A.ctx.sampleRate);
+    var d=A.noise.getChannelData(0);
+    for(var i=0;i<n;i++) d[i]=Math.random()*2-1;
+  }
+  function kick(at){
+    var o=A.ctx.createOscillator(), g=A.ctx.createGain();
+    o.type='sine';
+    o.frequency.setValueAtTime(155,at);
+    o.frequency.exponentialRampToValueAtTime(47,at+0.10);
+    g.gain.setValueAtTime(0.85,at);
+    g.gain.exponentialRampToValueAtTime(0.0008,at+0.21);
+    o.connect(g); g.connect(A.master); o.start(at); o.stop(at+0.23);
+  }
+  function hat(at,v){
+    var s=A.ctx.createBufferSource(); s.buffer=A.noise;
+    var hp=A.ctx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=7600;
+    var g=A.ctx.createGain();
+    g.gain.setValueAtTime(v,at);
+    g.gain.exponentialRampToValueAtTime(0.0008,at+0.042);
+    s.connect(hp); hp.connect(g); g.connect(A.master); s.start(at); s.stop(at+0.06);
+  }
+  function bass(at,f,dur){
+    dur=dur||1.55;
+    var o=A.ctx.createOscillator(), g=A.ctx.createGain(), lp=A.ctx.createBiquadFilter();
+    o.type='sine'; o.frequency.value=f;
+    lp.type='lowpass'; lp.frequency.value=320;
+    g.gain.setValueAtTime(0.0001,at);
+    g.gain.exponentialRampToValueAtTime(0.40,at+0.03);
+    g.gain.exponentialRampToValueAtTime(0.0008,at+dur);
+    o.connect(lp); lp.connect(g); g.connect(A.master); o.start(at); o.stop(at+dur+0.06);
+  }
+  function pluck(at,f,v){
+    var o=A.ctx.createOscillator(), g=A.ctx.createGain(), lp=A.ctx.createBiquadFilter();
+    o.type='triangle'; o.frequency.value=f;
+    lp.type='lowpass';
+    lp.frequency.setValueAtTime(2800,at);
+    lp.frequency.exponentialRampToValueAtTime(760,at+0.19);
+    g.gain.setValueAtTime(0.0001,at);
+    g.gain.exponentialRampToValueAtTime(v,at+0.007);
+    g.gain.exponentialRampToValueAtTime(0.0008,at+0.30);
+    o.connect(lp); lp.connect(g); g.connect(A.master); o.start(at); o.stop(at+0.33);
+  }
+  function pad(at,ch){
+    for(var i=0;i<ch.length;i++){
+      var o=A.ctx.createOscillator(), g=A.ctx.createGain(), lp=A.ctx.createBiquadFilter();
+      o.type='sawtooth'; o.frequency.value=ch[i]; o.detune.value=(i-1)*6;
+      lp.type='lowpass'; lp.frequency.value=820;
+      g.gain.setValueAtTime(0.0001,at);
+      g.gain.linearRampToValueAtTime(0.038,at+1.1);
+      g.gain.linearRampToValueAtTime(0.0001,at+3.9);
+      o.connect(lp); lp.connect(g); g.connect(A.master); o.start(at); o.stop(at+4.0);
+    }
+  }
+  function firstEvent(ms){
+    for(var i=0;i<EV.length;i++) if(EV[i].t>=ms) return i;
+    return EV.length;
+  }
+  function audioAnchor(ms){
+    if(!A.ctx) return;
+    A.filmAnchor=ms; A.ctxAnchor=A.ctx.currentTime; A.idx=firstEvent(ms);
+  }
+  function audioSchedule(ms){
+    if(!A.ctx || A.ctx.state!=='running') return;
+    var horizon=ms+160;
+    while(A.idx<EV.length && EV[A.idx].t<horizon){
+      var e=EV[A.idx++];
+      var at=A.ctxAnchor+(e.t-A.filmAnchor)/1000;
+      if(at<A.ctx.currentTime) at=A.ctx.currentTime;
+      if(e.k==='kick') kick(at);
+      else if(e.k==='hat') hat(at,e.v);
+      else if(e.k==='bass') bass(at,e.f,e.d);
+      else if(e.k==='pluck') pluck(at,e.f,e.v);
+      else if(e.k==='pad') pad(at,e.c);
+    }
+  }
+
+  var t=0,playing=false,last=0;
+  var fill=document.getElementById('fill'),head=document.getElementById('head');
+  var tnow=document.getElementById('tnow'),scrub=document.getElementById('scrub');
+  var toggle=document.getElementById('toggle'),poster=document.getElementById('poster');
+  var eyebrow=document.getElementById('eyebrow');
+
+  function currentScene(time){
+    for(var i=SCENES.length-1;i>=0;i--){if(time>=SCENES[i].a)return i;}
+    return 0;
+  }
+  function fmt(ms){
+    var s=Math.max(0,Math.min(TOTAL,ms))/1000;
+    var m=Math.floor(s/60),r=Math.floor(s%60);
+    return m+':'+(r<10?'0':'')+r;
+  }
+  function render(time){
+    for(var i=0;i<tracks.length;i++)applyTrack(tracks[i],time);
+    for(var s=0;s<SCENES.length;s++){
+      var on=(time>=SCENES[s].a&&time<SCENES[s].b)?'1':'0';
+      if(sceneEls[s].getAttribute('data-on')!==on)sceneEls[s].setAttribute('data-on',on);
+    }
+    var ci=currentScene(time);
+    if(eyebrow.textContent!==SCENES[ci].eye)eyebrow.textContent=SCENES[ci].eye;
+    var pct=(time/TOTAL)*100;
+    fill.style.width=pct+'%'; head.style.left=pct+'%';
+    tnow.textContent=fmt(time);
+    scrub.setAttribute('aria-valuenow',(time/1000).toFixed(0));
+    for(var c=0;c<chips.length;c++)chips[c].setAttribute('aria-current',c===ci?'true':'false');
+  }
+
+  var chapEl=document.getElementById('chapters');
+  var chips=SCENES.map(function(s,i){
+    var b=document.createElement('button');
+    b.className='chip'; b.type='button';
+    b.innerHTML='<u>'+(i+1)+'</u>'+s.label;
+    b.addEventListener('click',function(){seek(s.p);});
+    chapEl.appendChild(b);
+    var m=document.createElement('div');
+    m.className='mark'; m.style.left=((s.a/TOTAL)*100)+'%';
+    scrub.appendChild(m);
+    return b;
+  });
+
+  function frame(now){
+    if(!playing)return;
+    if(!last)last=now;
+    var dt=now-last; last=now; t+=dt;
+    if(t>=TOTAL){t=TOTAL;render(t);stop(true);return;}
+    render(t); audioSchedule(t); requestAnimationFrame(frame);
+  }
+  function start(){
+    if(playing)return;
+    if(t>=TOTAL)t=0;
+    poster.hidden=true; playing=true; last=0;
+    toggle.textContent='Pause';
+    audioInit();
+    if(A.ctx && A.ctx.state==='suspended') A.ctx.resume();
+    audioAnchor(t);
+    requestAnimationFrame(frame);
+  }
+  function stop(atEnd){
+    playing=false; last=0;
+    toggle.textContent=atEnd?'Replay':'Play';
+    if(atEnd){
+      poster.querySelector('.pbtn').lastChild.nodeValue='Replay';
+      poster.hidden=false;
+    }
+  }
+  function seek(ms){
+    t=Math.max(0,Math.min(TOTAL,ms));
+    if(!poster.hidden&&t>0)poster.hidden=true;
+    render(t);
+    audioAnchor(t); // re-anchor so the score follows the scrub instead of drifting
+  }
+
+  var muteBtn=document.getElementById('mute');
+  muteBtn.addEventListener('click',function(){
+    A.on=!A.on;
+    if(A.master) A.master.gain.value=A.on?0.5:0;
+    muteBtn.textContent=A.on?'Sound on':'Sound off';
+    muteBtn.setAttribute('aria-pressed',A.on?'false':'true');
+  });
+
+  toggle.addEventListener('click',function(){playing?stop(false):start();});
+  document.getElementById('play').addEventListener('click',start);
+  document.getElementById('restart').addEventListener('click',function(){t=0;render(0);if(!playing)start();});
+
+  function scrubTo(cx){
+    var r=scrub.getBoundingClientRect();
+    seek(((cx-r.left)/r.width)*TOTAL);
+  }
+  var dragging=false;
+  scrub.addEventListener('pointerdown',function(e){dragging=true;scrub.setPointerCapture(e.pointerId);scrubTo(e.clientX);});
+  scrub.addEventListener('pointermove',function(e){if(dragging)scrubTo(e.clientX);});
+  scrub.addEventListener('pointerup',function(){dragging=false;});
+  scrub.addEventListener('keydown',function(e){
+    if(e.key==='ArrowRight'){seek(t+1000);e.preventDefault();}
+    if(e.key==='ArrowLeft'){seek(t-1000);e.preventDefault();}
+  });
+  document.addEventListener('keydown',function(e){
+    if(e.target&&/^(BUTTON|INPUT|TEXTAREA)$/.test(e.target.tagName)&&e.key!==' ')return;
+    if(e.key===' '){e.preventDefault();playing?stop(false):start();}
+  });
+
+  render(0);
+})();
+</script>
