@@ -1,4 +1,5 @@
 <title>FORGE Launch Film</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:ital,wght@0,400;0,500;0,600;1,400;1,500&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <style>
   :root{
@@ -12,9 +13,11 @@
     --mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
   }
   *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
   body{
     margin:0;background:var(--page);color:var(--bone);
     font-family:var(--sans);-webkit-font-smoothing:antialiased;
+    overflow-x:hidden;
   }
   .wrap{max-width:1180px;margin:0 auto;padding-inline:16px;padding-block:26px 44px}
 
@@ -56,7 +59,7 @@
 
   /* typographic mask reveal: type rises from behind a line */
   .mask{display:inline-block;overflow:hidden;vertical-align:bottom;padding-bottom:.06em}
-  .in{display:inline-block}
+  .in{display:inline-block;max-width:100%;overflow-wrap:anywhere}
   .dline{display:block}
 
   .display{font-size:5.9em;font-weight:600;line-height:1.0;letter-spacing:-.035em}
@@ -139,9 +142,82 @@
     font-size:10.5px;color:var(--bone-3);line-height:1.85;max-width:70ch;letter-spacing:.02em}
   .foot b{color:var(--bone-2);font-weight:400}
 
-  @media (max-width:600px){
+  @media (max-width:680px){
+    .wrap{padding-inline:14px;padding-block:18px 32px}
     .masthead .cap{display:none}
-    .btn{padding:8px 11px}
+    .masthead .wm{font-size:15px}
+
+    /* taller, portrait frame — a 16:9 box left phone-width type at
+       sub-10px sizes with no room to grow; a 4:5 box gives the same
+       width-driven type scale roughly 2x the vertical space to sit in. */
+    /* tuned against 390px and only just cleared it — real phones run
+       narrower (360-375px is a common Android/iPhone SE width), and at
+       that width the same content needs meaningfully more headroom, not
+       a few more px. going taller here rather than re-fighting each
+       scene's margin individually. */
+    .stage{aspect-ratio:3/5}
+
+    /* the display headline is sized for desktop's much wider stage; at
+       phone width a single long word ("demonstration.") is wider than
+       the frame with nowhere to break, since inline-block masks can't
+       wrap inside a single unbroken word. shrink it so the longest
+       word in any scene actually fits. */
+    .display{font-size:3.1em;line-height:1.16}
+    /* every phrase here was authored assuming it stays on one line, so
+       line-height:1.0 was never tested against a wrap. at phone width
+       several phrases now wrap to 2 lines inside one .in span, and the
+       tight leading lets descenders/dots collide with the line below —
+       give wrapped lines room without ballooning the single-line case */
+    .mid{line-height:1.22;font-size:2.4em}
+
+    /* the two-mode architecture scene: side-by-side columns at phone
+       width crush "fifteen milliseconds" into single-word lines. stack
+       them and shrink the heading so both still fit one composed frame. */
+    .cols{flex-direction:column;gap:1em}
+    .col{flex:none}
+    /* desktop's 1.5em hr margin × 2 columns × top+bottom is real
+       vertical cost the stacked mobile layout doesn't have spare —
+       same shortfall class as the pricing rows above */
+    .hr{margin:.7em 0}
+    .stack{gap:1em}
+
+    /* the verification scene's three ticks: 3.6em of gap alone is most
+       of a phone's width once you take out frame padding */
+    .ticks{gap:1.6em;flex-wrap:wrap}
+
+    /* pricing rows: let tier+amount share a line and description wrap
+       under, instead of forcing three fixed-width columns onto one row */
+    /* desktop's 1.05em row padding, ×4 rows, is more vertical space
+       than the mobile frame's pricing scene actually has: the scene
+       isn't itself clipped, so any shortfall spills upward over the
+       fhead row above it instead of failing visibly at the frame edge */
+    .prow{flex-wrap:wrap;row-gap:.3em;padding:.6em 0}
+    .prow .tier{width:auto;flex:1 1 auto}
+    .prow .amt{width:auto}
+    .prow .inc{flex-basis:100%}
+
+    /* touch targets: the desktop sizes are mouse-tuned (~28px tall);
+       44px is the accessibility-guideline floor for a tap target */
+    .transport{gap:10px}
+    .btn{padding:15px 16px;font-size:11px}
+    .chip{padding:14px 14px;font-size:10px}
+    .scrub{height:44px;min-width:120px}
+    .pbtn{padding:1.05em 1.8em}
+
+    .foot{font-size:12px;line-height:1.7}
+  }
+
+  /* short/landscape phones: the tall portrait box above would push most
+     of the frame off-screen vertically, so fall back to a wide, short
+     box when height rather than width is the binding constraint. the
+     JS font-size floor (below) is gated on this same condition — a
+     short viewport needs smaller type, not the portrait floor. */
+  @media (max-width:680px) and (max-height:520px){
+    .stage{aspect-ratio:16/9}
+    .cols{flex-direction:row;gap:5%}
+    .col{flex:1}
+    .cols .mid{font-size:2.1em}
+    .display{font-size:2.6em}
   }
 </style>
 
@@ -189,7 +265,7 @@
           <div class="stack">
             <div class="display">
               <span class="dline"><span class="mask"><span class="in" id="s3a">The credit bureau</span></span></span>
-              <span class="dline"><span class="mask"><span class="in" id="s3b">for&nbsp;</span></span><span class="mask"><span class="in it" id="s3c">AI agents.</span></span></span>
+              <span class="dline"><span class="mask"><span class="in" id="s3b">for</span></span> <span class="mask"><span class="in it" id="s3c">AI agents.</span></span></span>
             </div>
             <div class="body" id="s3d">Verifiable reputation from on-chain data. Any protocol can read an
               agent's trustworthiness before extending credit.</div>
@@ -230,7 +306,7 @@
         <section class="scene" id="s6">
           <div class="stack">
             <div class="display">
-              <span class="dline"><span class="mask"><span class="in" id="s6a">Not a</span></span>&nbsp;<span class="mask"><span class="in it" id="s6b">demonstration.</span></span></span>
+              <span class="dline"><span class="mask"><span class="in" id="s6a">Not a</span></span> <span class="mask"><span class="in it" id="s6b">demonstration.</span></span></span>
             </div>
             <div class="ticks">
               <div class="tk" id="s6t1"><em>01</em><span>Signed</span></div>
@@ -313,10 +389,23 @@
   var BASE=11;
   function sizeStage(){
     var w=stage.getBoundingClientRect().width;
-    if(!w)return; BASE=w/100; stage.style.fontSize=BASE+'px';
+    if(!w)return;
+    // type is sized in em off this base, purely proportional to stage width.
+    // that reads fine on a desktop-width stage, but on a phone-width stage
+    // (~350-430px) it puts body copy under 6px. floor it below the same
+    // 680px breakpoint the CSS switches layout at, so mobile gets legible
+    // type instead of a shrunk desktop poster — except in the short/
+    // landscape fallback (matching that same CSS media query), where the
+    // portrait-tuned floor is too large for a wide-but-short viewport and
+    // the plain width-proportional size is the better fit.
+    var h = window.innerHeight;
+    var mobile = w<680, short = mobile && h<=520;
+    BASE = (mobile && !short) ? Math.max(w/100,13) : w/100;
+    stage.style.fontSize=BASE+'px';
   }
   sizeStage();
   window.addEventListener('resize',function(){sizeStage();render(t);});
+  window.addEventListener('orientationchange',function(){setTimeout(function(){sizeStage();render(t);},60);});
 
   var SCENES=[
     {id:'s2',a:0,    b:9000, p:5200, label:'The problem', eye:'The problem'},
@@ -350,8 +439,13 @@
     }
     if('o' in f||'o' in o){el.style.opacity=lerp(('o' in f?f.o:0),('o' in o?o.o:1),e).toFixed(3);}
   }
-  // rise: type climbs out from behind its mask
-  function rise(id,t0,dur,dist){ tr(id,t0,dur||900,{y:dist||6.4},{y:0},'outQuint'); }
+  // rise: type climbs out from behind its mask. paired with an opacity
+  // fade rather than relying on the y-offset alone to clear the mask:
+  // that offset is a fixed pixel distance tuned for a one-line mask, and
+  // at phone width several of these phrases wrap to two lines inside
+  // the same mask — a fixed shift that fully hides one line doesn't
+  // necessarily clear two, letting the pre-reveal text show through.
+  function rise(id,t0,dur,dist){ tr(id,t0,dur||900,{y:dist||6.4,o:0},{y:0,o:1},'outQuint'); }
   function fade(id,t0,dur,a,b){ tr(id,t0,dur,{o:a},{o:b},'outCubic'); }
 
   // ═ 1 ═ the problem — their own line, cold open, italic lands last
