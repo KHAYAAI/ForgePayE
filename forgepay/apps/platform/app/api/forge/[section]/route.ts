@@ -1,7 +1,8 @@
 /**
  * Console data proxy — GET /api/forge/:section
  *
- * Sections: custody | wallet | treasury | bureau | ontology | overview
+ * Sections: custody | wallet | treasury | bureau | bureau-agent-detail |
+ * bureau-scores | bureau-disputes | ontology | overview
  *
  * Always returns 200 with { live, data } — a dead service is a normal
  * state the console renders (fallback to demo fixtures), not an error.
@@ -9,6 +10,9 @@
 
 import { NextResponse } from 'next/server';
 import {
+  getBureauAgentDetail,
+  getBureauDisputes,
+  getBureauDualScores,
   getBureauStats,
   getCustodySummary,
   getOntologyEvents,
@@ -19,7 +23,7 @@ import {
 export const dynamic = 'force-dynamic';
 
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: { section: string } },
 ) {
   switch (params.section) {
@@ -31,6 +35,15 @@ export async function GET(
       return NextResponse.json(await getTreasurySummary());
     case 'bureau':
       return NextResponse.json(await getBureauStats());
+    case 'bureau-agent-detail': {
+      const agentId = new URL(req.url).searchParams.get('agentId');
+      if (!agentId) return NextResponse.json({ live: false, data: null, error: 'missing agentId' }, { status: 400 });
+      return NextResponse.json(await getBureauAgentDetail(agentId));
+    }
+    case 'bureau-scores':
+      return NextResponse.json(await getBureauDualScores());
+    case 'bureau-disputes':
+      return NextResponse.json(await getBureauDisputes());
     case 'ontology':
       return NextResponse.json(await getOntologyEvents());
     case 'overview': {

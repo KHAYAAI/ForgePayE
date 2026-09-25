@@ -8,9 +8,11 @@ import {
   Pill,
   DataTable,
   Grid2,
+  LivePill,
   Mono,
   Addr,
 } from '@/components/forge/ui';
+import { useForge } from '@/components/forge/useForge';
 import { gradeFor, gradeTone } from '@/lib/credit-grade';
 
 /* ────────────────────────────────────────────────────────────────
@@ -21,19 +23,43 @@ import { gradeFor, gradeTone } from '@/lib/credit-grade';
    Mirrors GET /v1/agents/:id/dual-score + /v1/settlement/status.
    ──────────────────────────────────────────────────────────────── */
 
-const DUAL_ROWS = [
-  { did: 'did:forge:agent_001', operator: 'Umuntu Group', mode1: 820, mode2: 805, consensus: 'HIGH' as const, decision: 'approve', settled: true },
-  { did: 'did:forge:agent_114', operator: 'SnapPay', mode1: 750, mode2: 772, consensus: 'HIGH' as const, decision: 'approve', settled: true },
-  { did: 'did:forge:agent_231', operator: 'ComputeRent', mode1: 705, mode2: 640, consensus: 'MEDIUM' as const, decision: 'approve_with_conditions', settled: true },
-  { did: 'did:forge:agent_078', operator: 'AfroBiz Lending', mode1: 630, mode2: 498, consensus: 'LOW' as const, decision: 'manual_review', settled: false },
-  { did: 'did:forge:agent_009', operator: 'Umuntu Group', mode1: 340, mode2: 361, consensus: 'HIGH' as const, decision: 'decline', settled: false },
-];
+interface DualRow {
+  did: string;
+  operator: string;
+  mode1: number;
+  mode2: number;
+  consensus: 'HIGH' | 'MEDIUM' | 'LOW';
+  decision: string;
+  settled: boolean;
+}
 
-const SETTLEMENTS = [
-  { did: 'did:forge:agent_001', txHash: '0x8c1f…a2e4', block: 18_442_071, chain: 'base', settledAt: '14:02' },
-  { did: 'did:forge:agent_114', txHash: '0x77b0…19dd', block: 18_442_071, chain: 'base', settledAt: '14:02' },
-  { did: 'did:forge:agent_231', txHash: '0x51ac…f003', block: 18_437_990, chain: 'base', settledAt: '08:02' },
-];
+interface Settlement {
+  did: string;
+  txHash: string;
+  block: number;
+  chain: string;
+  settledAt: string;
+}
+
+interface ScoresSummary {
+  dualRows: DualRow[];
+  settlements: Settlement[];
+}
+
+const DEMO: ScoresSummary = {
+  dualRows: [
+    { did: 'did:forge:agent_001', operator: 'Umuntu Group', mode1: 820, mode2: 805, consensus: 'HIGH', decision: 'approve', settled: true },
+    { did: 'did:forge:agent_114', operator: 'SnapPay', mode1: 750, mode2: 772, consensus: 'HIGH', decision: 'approve', settled: true },
+    { did: 'did:forge:agent_231', operator: 'ComputeRent', mode1: 705, mode2: 640, consensus: 'MEDIUM', decision: 'approve_with_conditions', settled: true },
+    { did: 'did:forge:agent_078', operator: 'AfroBiz Lending', mode1: 630, mode2: 498, consensus: 'LOW', decision: 'manual_review', settled: false },
+    { did: 'did:forge:agent_009', operator: 'Umuntu Group', mode1: 340, mode2: 361, consensus: 'HIGH', decision: 'decline', settled: false },
+  ],
+  settlements: [
+    { did: 'did:forge:agent_001', txHash: '0x8c1f…a2e4', block: 18_442_071, chain: 'base', settledAt: '14:02' },
+    { did: 'did:forge:agent_114', txHash: '0x77b0…19dd', block: 18_442_071, chain: 'base', settledAt: '14:02' },
+    { did: 'did:forge:agent_231', txHash: '0x51ac…f003', block: 18_437_990, chain: 'base', settledAt: '08:02' },
+  ],
+};
 
 const CONSENSUS_TONE: Record<string, 'ok' | 'warn' | 'danger'> = {
   HIGH: 'ok',
@@ -49,10 +75,14 @@ const DECISION_TONE: Record<string, 'ok' | 'warn' | 'danger' | 'accent'> = {
 };
 
 export default function BureauScores() {
-  const variances = DUAL_ROWS.map((r) => Math.abs(r.mode1 - r.mode2));
-  const flagged = DUAL_ROWS.filter((r) => r.consensus !== 'HIGH').length;
-  const avgMode1 = Math.round(DUAL_ROWS.reduce((s, r) => s + r.mode1, 0) / DUAL_ROWS.length);
-  const avgMode2 = Math.round(DUAL_ROWS.reduce((s, r) => s + r.mode2, 0) / DUAL_ROWS.length);
+  const { data, live } = useForge<ScoresSummary>('bureau-scores', DEMO);
+  const dualRows = data.dualRows?.length ? data.dualRows : DEMO.dualRows;
+  const settlements = data.settlements ?? DEMO.settlements;
+
+  const variances = dualRows.map((r) => Math.abs(r.mode1 - r.mode2));
+  const flagged = dualRows.filter((r) => r.consensus !== 'HIGH').length;
+  const avgMode1 = Math.round(dualRows.reduce((s, r) => s + r.mode1, 0) / dualRows.length);
+  const avgMode2 = Math.round(dualRows.reduce((s, r) => s + r.mode2, 0) / dualRows.length);
 
   return (
     <>
@@ -64,6 +94,7 @@ export default function BureauScores() {
           </>
         }
         lede="Every dual-score pull computes Mode 1 (FORGE FICO — the lending decision) and Mode 2 (operational behavior) side by side. Agreement builds confidence; divergence flags the agent before credit is extended."
+        actions={<LivePill live={live} />}
       />
 
       <StatGrid>
@@ -71,13 +102,13 @@ export default function BureauScores() {
         <Stat label="Avg Mode 2 score" value={`${avgMode2}`} delta={`${gradeFor(avgMode2).grade} · operational lens`} />
         <Stat label="Variance flags" value={flagged} deltaTone={flagged > 0 ? 'down' : undefined} delta="consensus below HIGH" />
         <Stat label="Max variance" value={`${Math.max(...variances)} pts`} delta=">100 pts → manual review" />
-        <Stat label="Settled on-chain" value={SETTLEMENTS.length} delta="external verification" />
+        <Stat label="Settled on-chain" value={settlements.length} delta="external verification" />
       </StatGrid>
 
       <Panel title="Dual-Score Register" label="GET /v1/agents/:id/dual-score · Mode 1 is authoritative" style={{ marginBottom: 20 }}>
         <DataTable
           columns={['Agent DID', 'Operator', 'Mode 1', 'Grade', 'Mode 2', 'Grade', 'Variance', 'Consensus', 'Decision']}
-          rows={DUAL_ROWS.map((r) => {
+          rows={dualRows.map((r) => {
             const g1 = gradeFor(r.mode1);
             const g2 = gradeFor(r.mode2);
             const variance = Math.abs(r.mode1 - r.mode2);
@@ -120,7 +151,7 @@ export default function BureauScores() {
         <Panel title="On-Chain Settlement" label="Mode 2 scores settle for external verification" ink>
           <DataTable
             columns={['Agent', 'Tx', 'Block', 'Chain', 'Settled']}
-            rows={SETTLEMENTS.map((s) => [
+            rows={settlements.map((s) => [
               <Addr key="d">{s.did}</Addr>,
               <Mono key="t">{s.txHash}</Mono>,
               <Mono key="b">{s.block.toLocaleString('en-US')}</Mono>,

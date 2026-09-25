@@ -98,13 +98,26 @@ const IMPACT_TONE: Record<string, 'ok' | 'warn' | 'danger'> = {
 
 const money = (n: number) => `R${n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : `${Math.round(n / 1000)}K`}`;
 
+interface AgentFile {
+  factors: Array<{ code: string; impact: 'positive' | 'negative' | 'neutral'; weight: number; description: string }>;
+  events: Array<{ at: string; type: string; detail: string; amount?: string }>;
+}
+
+const EMPTY_FILE: AgentFile = { factors: [], events: [] };
+
 export default function BureauAgents() {
   const { data, live } = useForge<BureauSummary>('bureau', DEMO);
   const [selected, setSelected] = useState('agent_114');
 
   const agents = data.agents?.length ? data.agents : DEMO.agents;
   const agent = agents.find((a) => a.agentId === selected) ?? agents[0];
-  const file = FILES[agent.agentId] ?? FILES['agent_114'];
+
+  // Per-agent credit file — factors + history — fetched separately per
+  // selection since the register (above) carries only summary fields.
+  const { data: liveFile, live: fileLive } = useForge<AgentFile>(
+    `bureau-agent-detail?agentId=${encodeURIComponent(agent.agentId)}`, EMPTY_FILE,
+  );
+  const file = fileLive && liveFile.factors.length ? liveFile : (FILES[agent.agentId] ?? FILES['agent_114']!);
   const g = gradeFor(agent.currentScore);
 
   return (

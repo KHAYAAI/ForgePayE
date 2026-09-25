@@ -7,10 +7,25 @@ import {
   Pill,
   DataTable,
   Grid2,
+  LivePill,
   Mono,
   Addr,
 } from '@/components/forge/ui';
+import { useForge } from '@/components/forge/useForge';
 import { GRADE_SCALE, gradeTone } from '@/lib/credit-grade';
+
+interface AgentOption {
+  agentId: string;
+  did: string;
+}
+
+const DEMO_AGENTS: { agents: AgentOption[] } = {
+  agents: [
+    { agentId: 'agent_114', did: 'did:forge:agent_114' },
+    { agentId: 'agent_078', did: 'did:forge:agent_078' },
+    { agentId: 'agent_009', did: 'did:forge:agent_009' },
+  ],
+};
 
 /* ────────────────────────────────────────────────────────────────
    Agent Credit Bureau — Verify.
@@ -78,10 +93,32 @@ const VERIFY_TONE: Record<string, 'ok' | 'warn' | 'danger' | 'accent'> = {
 };
 
 export default function BureauVerify() {
-  const [did, setDid] = useState('did:forge:agent_114');
-  const [ran, setRan] = useState<string | null>('did:forge:agent_114');
+  const { data: agentsData, live: agentsLive } = useForge<{ agents: AgentOption[] }>('bureau', DEMO_AGENTS);
+  const agents = agentsData.agents?.length ? agentsData.agents : DEMO_AGENTS.agents;
 
-  const result = ran ? RESULTS[ran] : null;
+  const [agentId, setAgentId] = useState(agents[0]!.agentId);
+  const [ran, setRan] = useState<string | null>(null);
+  const [liveResult, setLiveResult] = useState<CheckRun | null>(null);
+  const [running, setRunning] = useState(false);
+
+  const did = agents.find((a) => a.agentId === agentId)?.did ?? agentId;
+  const result = liveResult ?? (ran ? RESULTS[ran] : null);
+
+  const runVerify = async () => {
+    setRunning(true);
+    setRan(did);
+    setLiveResult(null);
+    if (agentsLive) {
+      const res = await fetch('/api/forge/bureau-verify', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ agentId }),
+      }).catch(() => null);
+      const body = res?.ok ? await res.json().catch(() => null) : null;
+      if (body?.live && body.data) setLiveResult(body.data as CheckRun);
+    }
+    setRunning(false);
+  };
 
   return (
     <>
@@ -93,13 +130,14 @@ export default function BureauVerify() {
           </>
         }
         lede="Verification runs identity, history, sanctions and score checks in one $2.80 pull. Any sanctions exposure returns SUSPICIOUS regardless of the other seven."
+        actions={<LivePill live={agentsLive} />}
       />
 
       <Panel title="Run a Verification" label="POST /v1/agents/:id/verify · metered at $2.80" style={{ marginBottom: 20 }}>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
           <select
-            value={did}
-            onChange={(e) => setDid(e.target.value)}
+            value={agentId}
+            onChange={(e) => setAgentId(e.target.value)}
             style={{
               border: '1px solid var(--hair)',
               background: 'var(--paper)',
@@ -110,12 +148,12 @@ export default function BureauVerify() {
               minWidth: 260,
             }}
           >
-            {Object.keys(RESULTS).map((d) => (
-              <option key={d} value={d}>{d}</option>
+            {agents.map((a) => (
+              <option key={a.agentId} value={a.agentId}>{a.did}</option>
             ))}
           </select>
-          <button className="btn-ghost btn-sm" onClick={() => setRan(did)}>
-            Run 8-check verify → $2.80
+          <button className="btn-ghost btn-sm" onClick={runVerify} disabled={running}>
+            {running ? 'Running…' : 'Run 8-check verify → $2.80'}
           </button>
           {result && ran && (
             <span style={{ display: 'inline-flex', gap: 10, alignItems: 'center', marginLeft: 8 }}>
