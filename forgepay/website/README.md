@@ -18,17 +18,20 @@ Deploy-ready static website for AWS (S3 + CloudFront).
 │   ├── treasury.html       (FORGE Treasury — CFOs, enterprise)
 │   ├── custody.html        (FORGE Custody — institutional threshold signing)
 │   └── wallet.html         (FORGE Wallet — keyless wallets & agent identity)
+├── features/               (nine deep-dive pages, linked from every nav & footer)
+│   ├── ontology.html             (Revenue Ontology — the canonical event bus)
+│   ├── agents.html                (Agentic Commerce — the six-service agent stack)
+│   ├── mor.html                    (Global Tax & MoR)
+│   ├── privacy.html                (Privacy & ZK — honestly marked in development)
+│   ├── traditional-finance.html
+│   ├── crypto-stablecoins.html
+│   ├── agentic-economy.html
+│   ├── rwas.html                   (Real-World Assets)
+│   └── billing.html                (Subscriptions)
 ├── aws-deploy.sh
 ├── cloudfront-distribution-config.json
 └── README.md               (This file)
 ```
-
-**Known gap:** every page's nav dropdown and footer link to a `features/*.html`
-set (Revenue Ontology, Agentic Commerce, Global Tax & MoR, Privacy & ZK,
-Traditional Finance, Crypto & Stablecoins, Agentic Economy, Real-World Assets,
-Subscriptions/billing) that does not exist yet in this directory — those links
-currently 404. Either build the nine feature pages or remove the links before
-this goes live.
 
 ## Deployment to AWS
 

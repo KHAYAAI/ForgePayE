@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <title>FORGE Global Tax & Merchant of Record</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="description" content="FORGE acts as merchant of record in 200+ countries: automatic VAT/GST/sales tax calculation, collection and remittance, with hosted and embedded checkout."/>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:ital,wght@0,200;0,300;0,400;0,500;0,600;0,700;1,300;1,400;1,500&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+  <style>
+    :root {
+      --ink: #0A0A0A; --ink-2: #1A1A1A;
+      --paper: #F4F2EE; --paper-deep: #ECE8E0; --paper-soft: #EFEBE3;
+      --steel: #6F6A62; --steel-2: #8B8579;
+      --hair: #C9C3B7; --hair-dark: #2A2A2A;
+      --pad: clamp(20px, 4vw, 64px); --maxw: 1320px;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body { background: var(--paper); color: var(--ink); font-family: 'Inter Tight', sans-serif; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+    .mono { font-family: 'JetBrains Mono', monospace; letter-spacing: 1.4px; text-transform: uppercase; font-size: 11px; color: var(--steel); }
+    .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 var(--pad); }
+    a { color: inherit; text-decoration: none; }
+    .eye { display: flex; align-items: center; gap: 12px; }
+    .eye .tick { width: 24px; height: 1px; background: var(--steel); }
+    .eye-light .tick { background: rgba(244,242,238,0.5); }
+    .eye-light .mono { color: rgba(244,242,238,0.5); }
+    .mark { display: inline-flex; align-items: center; color: var(--ink); }
+    .mark svg { display: block; }
+
+    nav.top { position: sticky; top: 0; z-index: 50; background: rgba(244,242,238,0.86); backdrop-filter: saturate(180%) blur(12px); -webkit-backdrop-filter: saturate(180%) blur(12px); border-bottom: 1px solid var(--hair); }
+    nav.top .row { display: flex; align-items: center; justify-content: space-between; height: 64px; gap: 24px; }
+    nav.top ul { display: flex; gap: 24px; list-style: none; padding: 0; margin: 0; align-items: center; }
+    nav.top ul a { font-size: 13px; color: var(--ink); transition: opacity .15s; }
+    nav.top ul a:hover { opacity: 0.55; }
+    .dropdown { position: relative; }
+    .dropdown > button { background: none; border: 0; padding: 0; font: inherit; cursor: pointer; font-size: 13px; color: var(--ink); display: inline-flex; align-items: center; gap: 6px; }
+    .dropdown > button::after { content: "↓"; font-family: 'JetBrains Mono', monospace; font-size: 10px; opacity: 0.6; }
+    .dropdown:hover .menu, .dropdown:focus-within .menu { display: grid; }
+    .dropdown .menu { display: none; position: absolute; top: calc(100% + 16px); left: -16px; background: var(--paper); border: 1px solid var(--hair); padding: 18px; min-width: 580px; grid-template-columns: 1fr 1fr; gap: 0 24px; box-shadow: 0 12px 40px rgba(10,10,10,0.08); }
+    .dropdown .menu .menu-section-wide { grid-column: 1 / -1; margin-top: 14px; }
+    .menu-section .menu-section-h { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--steel); padding: 0 12px 12px; border-bottom: 1px solid var(--hair); margin-bottom: 4px; }
+    .dropdown .menu a { display: block; padding: 10px 12px; font-size: 13px; transition: background .12s; }
+    .dropdown .menu a:hover { background: var(--paper-deep); opacity: 1; }
+    .dropdown .menu a .mn { display: block; font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 1.4px; color: var(--steel); margin-top: 2px; text-transform: uppercase; }
+    nav.top .cta { font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 2px; text-transform: uppercase; padding: 10px 16px; background: var(--ink); color: var(--paper); transition: opacity .15s; }
+    nav.top .cta:hover { opacity: 0.82; }
+    @media (max-width: 880px) { nav.top ul { display: none; } }
+
+    .btn-ink, .btn-ghost { font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 2px; text-transform: uppercase; padding: 14px 22px; cursor: pointer; border: 1px solid var(--ink); display: inline-block; transition: opacity .15s; }
+    .btn-ink { background: var(--ink); color: var(--paper); }
+    .btn-ghost { background: transparent; color: var(--ink); }
+    .btn-ink:hover, .btn-ghost:hover { opacity: 0.82; }
+
+    section { padding: clamp(64px, 9vw, 120px) 0; border-bottom: 1px solid var(--hair); }
+    section.ink { background: var(--ink); color: var(--paper); border-bottom: 0; }
+    section.deep { background: var(--paper-deep); }
+    .on-ink .mono { color: rgba(244,242,238,0.5); }
+    .lede { font-size: clamp(15px, 1.6vw, 18px); line-height: 1.55; color: var(--steel); max-width: 560px; }
+    .on-ink .lede { color: rgba(244,242,238,0.78); }
+
+    .hero { padding: clamp(60px, 9vw, 130px) 0 clamp(56px, 8vw, 110px); }
+    .hero .meta-top { display: flex; justify-content: space-between; margin-bottom: clamp(40px, 8vw, 90px); flex-wrap: wrap; gap: 16px; }
+    .hero h1 { font-weight: 500; font-size: clamp(52px, 9.6vw, 150px); line-height: 0.9; letter-spacing: -3.5px; margin: 0 0 32px; }
+    .hero h1 em { font-style: italic; font-weight: 300; }
+    .hero .lede { max-width: 680px; margin-bottom: 38px; }
+    .hero .actions { display: flex; gap: 12px; flex-wrap: wrap; }
+
+    .head-split { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; align-items: end; margin-bottom: clamp(40px, 6vw, 64px); }
+    @media (max-width: 880px) { .head-split { grid-template-columns: 1fr; } }
+    h2.big { font-size: clamp(36px, 5.4vw, 72px); line-height: 0.98; letter-spacing: -1.6px; font-weight: 500; margin: 16px 0 0; }
+    h2.big em { font-style: italic; font-weight: 300; }
+
+    .feature-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--hair); border: 1px solid var(--hair); margin-top: 48px; }
+    .feature-grid .cell { background: var(--paper); padding: clamp(24px, 2.4vw, 36px); }
+    .feature-grid h3 { font-size: clamp(16px, 1.8vw, 20px); font-weight: 500; margin: 0 0 12px; letter-spacing: -0.2px; }
+    .feature-grid p { font-size: 13.5px; color: var(--steel); line-height: 1.55; margin: 0; }
+    @media (max-width: 880px) { .feature-grid { grid-template-columns: 1fr; } }
+
+    /* PIPELINE STEPS */
+    .pipeline { display: flex; flex-direction: column; gap: 0; margin-top: 48px; }
+    .pstep { display: grid; grid-template-columns: 60px 1fr; gap: 24px; padding: 22px 0; border-top: 1px solid var(--hair); }
+    .pstep:last-child { border-bottom: 1px solid var(--hair); }
+    .pstep .pn { font-family: 'JetBrains Mono', monospace; font-size: 20px; color: var(--steel); font-weight: 500; }
+    .pstep h3 { font-size: 17px; font-weight: 500; margin: 0 0 6px; letter-spacing: -0.2px; }
+    .pstep p { font-size: 13.5px; color: var(--steel); line-height: 1.55; margin: 0; max-width: 640px; }
+
+    /* CAUTION BAND */
+    .caution { background: var(--ink); color: var(--paper); border-bottom: 0; }
+    .caution .box { border: 1px solid rgba(244,242,238,0.22); padding: clamp(28px,4vw,48px); display: grid; grid-template-columns: 140px 1fr; gap: 32px; align-items: start; }
+    .caution .box .status { font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 1.6px; text-transform: uppercase; padding: 6px 12px; background: rgba(255,94,94,0.12); color: #ff8a8a; display: inline-flex; align-items: center; gap: 8px; }
+    .caution .box .status::before { content: "●"; font-size: 9px; animation: pulse 1.6s infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+    .caution .box p { font-size: 15px; line-height: 1.6; color: rgba(244,242,238,0.82); margin: 0 0 12px; max-width: 640px; }
+    .caution .box p:last-child { margin-bottom: 0; }
+    @media (max-width: 720px) { .caution .box { grid-template-columns: 1fr; } }
+
+    /* STAT band */
+    .stats { background: var(--ink); color: var(--paper); border-bottom: 0; }
+    .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; border-top: 1px solid rgba(244,242,238,0.2); }
+    .stat-cell { padding: clamp(28px, 4vw, 48px) 0; padding-right: 24px; border-right: 1px solid rgba(244,242,238,0.2); }
+    .stat-cell:last-child { border-right: 0; }
+    .stat-cell .v { font-family: 'Inter Tight', sans-serif; font-weight: 300; font-size: clamp(48px, 6.4vw, 84px); line-height: 0.9; letter-spacing: -2px; }
+    .stat-cell .k { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: rgba(244,242,238,0.5); margin-top: 16px; }
+    .stat-cell p { font-size: 13.5px; color: rgba(244,242,238,0.7); margin: 10px 0 0; line-height: 1.5; max-width: 280px; }
+    @media (max-width: 880px) { .stat-grid { grid-template-columns: 1fr; } .stat-cell { border-right: 0; border-bottom: 1px solid rgba(244,242,238,0.2); padding-right: 0; } .stat-cell:last-child { border-bottom: 0; } }
+
+    .closer { padding: clamp(80px, 12vw, 160px) 0 clamp(60px, 8vw, 100px); }
+    .closer .lab { display: flex; justify-content: space-between; margin-bottom: clamp(40px, 6vw, 72px); flex-wrap: wrap; gap: 16px; }
+    .closer h2 { font-size: clamp(56px, 9vw, 132px); font-weight: 500; line-height: 0.9; letter-spacing: -3px; margin: 0 0 24px; }
+    .closer h2 em { font-style: italic; font-weight: 300; }
+    .closer .keybox { display: flex; align-items: stretch; border: 1px solid var(--ink); margin-top: 44px; max-width: 640px; }
+    .closer .keybox .label { flex: 1; padding: 18px 22px; font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--steel); letter-spacing: 1px; }
+    .closer .keybox .btn { background: var(--ink); color: var(--paper); padding: 18px 26px; font-family: 'JetBrains Mono', monospace; font-size: 12px; letter-spacing: 2px; text-transform: uppercase; cursor: pointer; border: 0; }
+
+    footer { background: var(--ink); color: var(--paper); padding: clamp(48px, 6vw, 80px) 0 32px; }
+    footer .grid { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr 1fr; gap: 32px; margin-bottom: 48px; }
+    footer h4 { font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: rgba(244,242,238,0.5); margin: 0 0 16px; font-weight: 500; }
+    footer ul { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; }
+    footer ul a { font-size: 13px; color: rgba(244,242,238,0.85); }
+    footer ul a:hover { color: var(--paper); }
+    footer .brand p { color: rgba(244,242,238,0.6); font-size: 13px; line-height: 1.55; max-width: 320px; margin: 16px 0 0; }
+    footer .meta { display: flex; justify-content: space-between; align-items: center; padding-top: 24px; border-top: 1px solid rgba(244,242,238,0.18); flex-wrap: wrap; gap: 16px; }
+    footer .meta .mono { color: rgba(244,242,238,0.5); }
+    @media (max-width: 880px) { footer .grid { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 480px) { footer .grid { grid-template-columns: 1fr; } }
+      /* MOBILE NAV */
+    .nav-toggle{display:none;background:none;border:1px solid var(--hair);width:44px;height:44px;align-items:center;justify-content:center;cursor:pointer;padding:0;color:inherit}
+    .nav-toggle span{display:block;width:18px;height:1.5px;background:currentColor;position:relative;transition:transform .2s,opacity .2s}
+    .nav-toggle span::before,.nav-toggle span::after{content:"";position:absolute;left:0;width:18px;height:1.5px;background:currentColor;transition:transform .2s}
+    .nav-toggle span::before{top:-6px}.nav-toggle span::after{top:6px}
+    nav.top.open .nav-toggle span{transform:rotate(45deg)}
+    nav.top.open .nav-toggle span::before{transform:rotate(-90deg) translateX(6px)}
+    nav.top.open .nav-toggle span::after{opacity:0}
+    @media (max-width:880px){
+      .nav-toggle{display:flex}
+      nav.top .row{flex-wrap:wrap;row-gap:0}
+      nav.top ul{display:none;flex-direction:column;width:100%;order:9;gap:0;padding:8px 0 12px;margin:12px 0 0;border-top:1px solid var(--hair)}
+      nav.top.open ul{display:flex}
+      nav.top ul li{width:100%;border-bottom:1px solid var(--hair)}
+      nav.top ul li:last-child{border-bottom:0}
+      nav.top ul li a,nav.top .dropdown>button{display:flex;align-items:center;width:100%;min-height:48px;padding:12px 2px;font-size:15px;text-align:left;background:none;border:0;color:inherit;font-family:inherit;cursor:pointer}
+      nav.top .dropdown{position:static}
+      nav.top .dropdown .menu{position:static;display:none;grid-template-columns:1fr;min-width:0;width:100%;box-shadow:none;border:0;border-radius:0;padding:0 0 10px 14px;margin:0;background:transparent;transform:none;opacity:1;visibility:visible}
+      nav.top .dropdown.open .menu{display:grid}
+      nav.top .dropdown .menu a{min-height:44px;padding:10px 0;font-size:14px}
+      nav.top .cta{order:2;min-height:40px;display:inline-flex;align-items:center}
+      .hero h1,h2.big{letter-spacing:-1px}
+      pre{font-size:11.5px}
+    }
+    @media (max-width:520px){
+      nav.top .cta{display:none}
+      table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch}
+    }
+  </style>
+</head>
+<body>
+
+  <!-- NAV -->
+  <nav class="top">
+    <div class="wrap row">
+      <a href="../index.html" class="mark" aria-label="FORGE home">
+        <svg viewBox="0 0 520 100" height="22" aria-hidden="true">
+          <path d="M0 4 L60 4 L60 18 L16 18 L16 44 L52 44 L52 58 L16 58 L16 96 L0 96 Z" fill="currentColor"/>
+          <g transform="translate(72,4)"><circle cx="46" cy="46" r="42" fill="none" stroke="currentColor" stroke-width="14"/><line x1="-6" y1="46" x2="98" y2="46" stroke="#F4F2EE" stroke-width="2"/></g>
+          <path d="M180 4 L232 4 C250 4 260 16 260 32 C260 44 254 54 244 58 L262 96 L244 96 L228 62 L196 62 L196 96 L180 96 Z M196 18 L196 48 L230 48 C238 48 244 42 244 33 C244 24 238 18 230 18 Z" fill="currentColor"/>
+          <path d="M276 50 C276 22 296 2 324 2 C342 2 358 10 366 24 L353 32 C347 22 336 16 324 16 C305 16 292 30 292 50 C292 70 305 84 324 84 C340 84 352 74 354 60 L326 60 L326 46 L370 46 L370 96 L358 96 L356 84 C350 92 338 98 322 98 C295 98 276 78 276 50 Z" fill="currentColor"/>
+          <path d="M384 4 L448 4 L448 18 L400 18 L400 44 L444 44 L444 58 L400 58 L400 82 L450 82 L450 96 L384 96 Z" fill="currentColor"/>
+        </svg>
+      </a>
+      <ul>
+        <li class="dropdown">
+          <button type="button">Products</button>
+          <div class="menu">
+            <div class="menu-section">
+              <div class="menu-section-h">Five SKUs</div>
+              <a href="../products/credit-bureau.html">FORGE Credit Bureau<span class="mn">AI agent identity &amp; credit</span></a>
+              <a href="../products/payments.html">FORGE Payments<span class="mn">Card · Bank · Stablecoin checkout</span></a>
+              <a href="../products/treasury.html">FORGE Treasury<span class="mn">Enterprise cash management</span></a>
+              <a href="../products/custody.html">FORGE Custody<span class="mn">Institutional threshold signing</span></a>
+              <a href="../products/wallet.html">FORGE Wallet<span class="mn">Keyless wallets &amp; agent identity</span></a>
+            </div>
+            <div class="menu-section">
+              <div class="menu-section-h">Deep dive</div>
+              <a href="../features/ontology.html">Revenue Ontology<span class="mn">The unified ledger</span></a>
+              <a href="../features/agents.html">Agentic Commerce<span class="mn">Six-part stack for AI</span></a>
+              <a href="../features/mor.html">Global Tax &amp; MoR<span class="mn">200+ countries automated</span></a>
+              <a href="../features/privacy.html">Privacy &amp; ZK<span class="mn">Coming soon</span></a>
+            </div>
+            <div class="menu-section menu-section-wide">
+              <div class="menu-section-h">Company</div>
+              <a href="../about.html">About<span class="mn">Who we are</span></a>
+              <a href="../thesis.html">Thesis<span class="mn">Why we are building this</span></a>
+              <a href="../contact.html">Contact<span class="mn">Talk to the team</span></a>
+            </div>
+          </div>
+        </li>
+        <li><a href="../index.html#how">How it works</a></li>
+        <li><a href="../index.html#pricing">Pricing</a></li>
+        <li><a href="../index.html#developers">Developers</a></li>
+      </ul>
+      <a href="#cta" class="cta">Coming soon →</a>
+    </div>
+  </nav>
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="wrap">
+      <div style="max-width: 720px;">
+        <div class="eye" style="margin-bottom: 32px;"><span class="mono">Global Tax & MoR</span><span class="tick"></span><span class="mono">Merchant of Record</span></div>
+        <h1>We're on the invoice.<br/>Not <em>you</em>.</h1>
+        <p class="lede">FORGE acts as the legal seller of record in 200+ countries calculating, collecting and remitting VAT, GST and sales tax automatically, so a company selling globally doesn't need a tax team to do it.</p>
+        <div class="actions">
+          <a href="#" class="btn-ink">Get Started →</a>
+          <a href="https://docs.forgepay.io" class="btn-ghost">Read Docs →</a>
+        </div>
+      </div>
+    </div>
+  </section>
+  <section class="">
+    <div class="wrap">
+      <div class="head-split">
+        <div>
+          <div class="eye" style="margin-bottom: 24px;"><span class="mono">What's included</span><span class="tick"></span><span class="mono">Merchant of record, end to end</span></div>
+          <h2 class="big">Tax handled.<br/>Not <em>bolted on</em>.</h2>
+        </div>
+        <p class="lede">Jurisdiction detection runs on every transaction; the tax provider and checkout experience are configurable, not one-size-fits-all.</p>
+      </div>
+      <div class="feature-grid" style="grid-template-columns: repeat(3, 1fr);">
+        <div class="cell"><h3>Jurisdiction detection</h3><p>Every transaction is classified by buyer location before tax is calculated no manual mapping required.</p></div>
+        <div class="cell"><h3>VAT / GST / sales tax</h3><p>Calculated, collected and remitted automatically across supported jurisdictions, on the applicable filing cadence.</p></div>
+        <div class="cell"><h3>Configurable tax provider</h3><p>Avalara, TaxJar, or an internal rules engine whichever fits the jurisdiction and volume best.</p></div>
+        <div class="cell"><h3>Hosted & embedded checkout</h3><p>A checkout flow that already knows the tax-inclusive price, in either a hosted page or embedded in your own UI.</p></div>
+        <div class="cell"><h3>Customer & developer portal</h3><p>Buyers manage their own subscriptions; developers get a portal for testing and configuration.</p></div>
+        <div class="cell"><h3>Filing cadence</h3><p>Monthly, quarterly or annual filing, matched to what each jurisdiction actually requires.</p></div>
+      </div>
+    </div>
+  </section>
+  <!-- CTA -->
+  <section class="closer" id="cta">
+    <div class="wrap">
+      <div class="lab">
+        <div class="eye"><span class="mono">Get started</span></div>
+      </div>
+      <h2>Ship globally.<br/>File <em>nowhere</em>.</h2>
+      <p class="lede">We're the merchant of record on the invoice, not you which is the whole point.</p>
+      <div class="keybox">
+        <div class="label">forgepay.io/mor</div>
+        <a href="#" class="btn">Get in touch →</a>
+      </div>
+    </div>
+  </section>
+  <footer>
+    <div class="wrap">
+      <div class="grid">
+        <div class="brand">
+          <a href="../index.html" class="mark" style="color:var(--paper);">
+            <svg viewBox="0 0 520 100" height="22"><path d="M0 4 L60 4 L60 18 L16 18 L16 44 L52 44 L52 58 L16 58 L16 96 L0 96 Z" fill="currentColor"/><g transform="translate(72,4)"><circle cx="46" cy="46" r="42" fill="none" stroke="currentColor" stroke-width="14"/><line x1="-6" y1="46" x2="98" y2="46" stroke="#0A0A0A" stroke-width="2"/></g><path d="M180 4 L232 4 C250 4 260 16 260 32 C260 44 254 54 244 58 L262 96 L244 96 L228 62 L196 62 L196 96 L180 96 Z M196 18 L196 48 L230 48 C238 48 244 42 244 33 C244 24 238 18 230 18 Z" fill="currentColor"/><path d="M276 50 C276 22 296 2 324 2 C342 2 358 10 366 24 L353 32 C347 22 336 16 324 16 C305 16 292 30 292 50 C292 70 305 84 324 84 C340 84 352 74 354 60 L326 60 L326 46 L370 46 L370 96 L358 96 L356 84 C350 92 338 98 322 98 C295 98 276 78 276 50 Z" fill="currentColor"/><path d="M384 4 L448 4 L448 18 L400 18 L400 44 L444 44 L444 58 L400 58 L400 82 L450 82 L450 96 L384 96 Z" fill="currentColor"/></svg>
+          </a>
+          <p>The Revenue Ontology. Financial and value orchestration for traditional finance, crypto, autonomous agents and tokenized real-world assets across 200+ countries.</p>
+        </div>
+        <div>
+          <h4>Products</h4>
+          <ul>
+            <li><a href="../products/credit-bureau.html">FORGE Credit</a></li>
+            <li><a href="../products/payments.html">FORGE Payments</a></li>
+            <li><a href="../products/treasury.html">FORGE Treasury</a></li>
+            <li><a href="../products/custody.html">FORGE Custody</a></li>
+            <li><a href="../products/wallet.html">FORGE Wallet</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4>Platform</h4>
+          <ul>
+            <li><a href="../features/ontology.html">Revenue Ontology</a></li>
+            <li><a href="../features/traditional-finance.html">Traditional Finance</a></li>
+            <li><a href="../features/crypto-stablecoins.html">Crypto &amp; Stablecoins</a></li>
+            <li><a href="../features/agentic-economy.html">Agentic Economy</a></li>
+            <li><a href="../features/rwas.html">Real-World Assets</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4>Developers</h4>
+          <ul>
+            <li><a href="../features/mor.html">Global Tax &amp; MoR</a></li>
+            <li><a href="../features/billing.html">Subscriptions</a></li>
+            <li><a href="../features/agents.html">Forge Agent</a></li>
+            <li><a href="../features/privacy.html">Private Payments</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4>Company</h4>
+          <ul>
+            <li><a href="../about.html">About</a></li>
+            <li><a href="../thesis.html">Thesis</a></li>
+            <li><a href="../contact.html">Contact</a></li>
+            <li><a href="../about.html#careers">Careers</a></li>
+            <li><a href="../about.html#press">Press</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="meta" style="gap:20px;">
+        <span class="mono">© MMXXVI Forge Pay (Pty) Ltd. Johannesburg, ZA</span>
+        <span style="display:flex;flex-wrap:wrap;align-items:center;gap:18px;">
+          <a class="mono" href="../privacy-policy.html">Privacy Policy</a>
+          <a class="mono" href="../terms.html">Terms of Service</a>
+          <a class="mono" href="https://x.com/myforgepay" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:7px;"><svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>@myforgepay</a>
+        </span>
+        <span class="mono">All systems nominal · v0.9.0</span>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    (function () {
+      var dropdown = document.querySelector('.dropdown');
+      if (!dropdown) return;
+      var button = dropdown.querySelector('button');
+      var menu = dropdown.querySelector('.menu');
+      if (!button || !menu) return;
+      var hoverTimeout;
+      button.addEventListener('click', function (e) {
+        e.preventDefault();
+        menu.style.display = menu.style.display === 'grid' ? 'none' : 'grid';
+      });
+      dropdown.addEventListener('mouseenter', function () {
+        clearTimeout(hoverTimeout);
+        menu.style.display = 'grid';
+      });
+      dropdown.addEventListener('mouseleave', function () {
+        hoverTimeout = setTimeout(function () { menu.style.display = 'none'; }, 100);
+      });
+      menu.addEventListener('mouseenter', function () {
+        clearTimeout(hoverTimeout);
+        menu.style.display = 'grid';
+      });
+      menu.addEventListener('mouseleave', function () {
+        hoverTimeout = setTimeout(function () { menu.style.display = 'none'; }, 100);
+      });
+      menu.querySelectorAll('a').forEach(function (link) {
+        link.addEventListener('click', function () { menu.style.display = 'none'; });
+      });
+    })();
+  </script>
+  <script>
+    (function(){
+      var nav=document.querySelector("nav.top");if(!nav)return;
+      var row=nav.querySelector(".row");var list=nav.querySelector("ul");if(!row||!list)return;
+      var btn=document.createElement("button");
+      btn.type="button";btn.className="nav-toggle";btn.setAttribute("aria-label","Menu");btn.setAttribute("aria-expanded","false");
+      btn.innerHTML="<span></span>";
+      row.appendChild(btn);
+      function isMobile(){return window.matchMedia("(max-width:880px)").matches}
+      btn.addEventListener("click",function(){
+        var open=nav.classList.toggle("open");
+        btn.setAttribute("aria-expanded",open?"true":"false");
+        if(!open){var d=nav.querySelector(".dropdown.open");if(d)d.classList.remove("open");}
+      });
+      var dd=nav.querySelector(".dropdown");
+      if(dd){
+        var ddBtn=dd.querySelector("button");var ddMenu=dd.querySelector(".menu");
+        if(ddBtn&&ddMenu){
+          ddBtn.addEventListener("click",function(e){
+            if(!isMobile())return;
+            e.preventDefault();e.stopImmediatePropagation();
+            ddMenu.style.display="";
+            dd.classList.toggle("open");
+          },true);
+        }
+      }
+      list.querySelectorAll("a").forEach(function(a){
+        a.addEventListener("click",function(){nav.classList.remove("open");btn.setAttribute("aria-expanded","false");});
+      });
+      window.addEventListener("resize",function(){
+        if(!isMobile()){nav.classList.remove("open");var d=nav.querySelector(".dropdown.open");if(d)d.classList.remove("open");}
+      });
+    })();
+  </script>
+</body>
+</html>
