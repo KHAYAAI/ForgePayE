@@ -28,9 +28,12 @@ vi.mock('./verify', async () => {
 });
 
 // Imported after the mock so buildApp's own `import { sanctionsScreen } from
-// './verify'` resolves to the mocked binding above.
-const { buildApp } = await import('./index');
-const { getReport } = await import('./store');
+// './verify'` resolves to the mocked binding above. Deferred to beforeAll
+// (rather than top-level await) because the project's tsconfig targets
+// CommonJS, which tsc rejects top-level await under — matching the same
+// deferred-import pattern used by persistence.test.ts and furnisher-payouts.test.ts.
+let buildApp: typeof import('./index').buildApp;
+let getReport: typeof import('./store').getReport;
 
 const ADMIN = 'dev-bureau-admin-key';
 const AGENT = 'agent_prime_001'; // seeded, unfrozen, funded via credit below
@@ -57,6 +60,8 @@ describe('POST /v1/reports — sanctions screening', () => {
   let app: FastifyInstance;
 
   beforeAll(async () => {
+    ({ buildApp } = await import('./index'));
+    ({ getReport } = await import('./store'));
     app = await buildApp();
     await app.ready();
   });
