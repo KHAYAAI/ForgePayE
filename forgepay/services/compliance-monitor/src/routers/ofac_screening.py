@@ -9,6 +9,7 @@ Routes:
 
 from __future__ import annotations
 
+from datetime import UTC
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -25,12 +26,26 @@ router = APIRouter(prefix="/v1", tags=["OFAC Screening"])
 
 
 def _screening_engine(request: Request) -> TransactionScreeningEngine:
-    """Dependency to retrieve the screening engine from app state."""
-    engine = getattr(request.app.state, "screening_engine", None)
+    """
+    Dependency to retrieve the *transaction* screening engine from app state.
+
+    main.py attaches two different engines to app.state: `screening_engine`
+    (a ScreeningEngine — entity/address lookups only, no `screen_transaction`
+    method) and `transaction_screening_engine` (a TransactionScreeningEngine —
+    the one this router's handlers actually call `.screen_transaction()` /
+    `.batch_screen()` on). This previously read `screening_engine`, so every
+    call to POST /v1/screening raised AttributeError before ever reaching a
+    real sanctions check — the transaction-screening endpoint has never
+    actually worked. See test_ofac_screening_router.py for the regression
+    test: it goes through this dependency via a TestClient request, not by
+    constructing TransactionScreeningEngine directly, which is what let the
+    wrong-engine bug ship unnoticed in the first place.
+    """
+    engine = getattr(request.app.state, "transaction_screening_engine", None)
     if not engine:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Screening engine not initialized",
+            detail="Transaction screening engine not initialized",
         )
     return engine
 
@@ -254,7 +269,7 @@ async def refresh_sanctions_feeds(
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Feed refresh failed: {str(exc)}",
+            detail=f"Feed refresh failed: {exc!s}",
         )
 
 
@@ -295,10 +310,10 @@ async def ofac_status(
     # First try to get status from OFAC feed manager (CSV-based, real-time)
     ofac_feed_manager = getattr(request.app.state, "ofac_feed_manager", None)
     if ofac_feed_manager:
-        from datetime import datetime, timezone
+        from datetime import datetime
         feed_status = ofac_feed_manager.get_feed_status()
         return {
-            "last_refresh": datetime.now(timezone.utc).isoformat(),
+            "last_refresh": datetime.now(UTC).isoformat(),
             "feeds": feed_status,
             "source": "csv_feeds",
         }
@@ -311,9 +326,9 @@ async def ofac_status(
             detail="OFAC manager not initialized",
         )
 
-    from datetime import datetime, timezone
+    from datetime import datetime
     return {
-        "last_refresh": datetime.now(timezone.utc).isoformat(),
+        "last_refresh": datetime.now(UTC).isoformat(),
         "ofac_age_hours": round(ofac_manager.get_list_age_hours(), 2),
         "ofac_entry_count": ofac_manager.entry_count(),
         "source": "xml_feed",

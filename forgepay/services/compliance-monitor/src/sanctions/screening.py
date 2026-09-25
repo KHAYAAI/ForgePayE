@@ -15,7 +15,7 @@ Match algorithms:
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -188,7 +188,7 @@ class ScreeningResult:
         self.is_match = is_match
         self.matched_entries = matched_entries or []
         self.hit_reasons = hit_reasons or []
-        self.screened_at = datetime.now(timezone.utc).isoformat()
+        self.screened_at = datetime.now(UTC).isoformat()
 
     def dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -374,14 +374,21 @@ class TransactionScreeningEngine:
                 transaction_id=transaction_id,
                 error=str(exc),
             )
-            # Return a neutral result on error
+            # Fail closed, not neutral: a screening call that errored has not
+            # established the counterparty is clean, so it must not be
+            # reported as risk_score=0/is_match=False, which the caller
+            # (and ScreenTransactionResponse._recommend_action's 40/80
+            # thresholds) reads as "screened, allow." risk_score=50 lands
+            # in the same "review" band the sibling entity/address engine
+            # (screening/engine.py) uses for its own error path, so a
+            # screening outage surfaces as "needs a human," not "clean."
             return ScreeningResult(
                 transaction_id=transaction_id,
                 agent_id=agent_id,
                 counterparty_name=counterparty_name,
                 amount_usd=amount_usd,
-                risk_score=0,
-                is_match=False,
+                risk_score=50,
+                is_match=True,
                 matched_entries=[],
                 hit_reasons=["screening_error: " + str(exc)],
             )
