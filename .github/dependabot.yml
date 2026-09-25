@@ -37,12 +37,6 @@ updates:
       minor-and-patch:
         update-types: ["minor", "patch"]
   - package-ecosystem: "npm"
-    directory: "/forgepay/apps/dashboard"
-    schedule: { interval: "weekly" }
-    groups:
-      minor-and-patch:
-        update-types: ["minor", "patch"]
-  - package-ecosystem: "npm"
     directory: "/forgepay/apps/web"
     schedule: { interval: "weekly" }
     groups:

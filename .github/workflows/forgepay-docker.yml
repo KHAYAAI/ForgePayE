@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       service:
-        description: "Service to build (all | web | dashboard | unified-router | mor-layer | billing-engine | stablecoin-gateway | crypto-gateway | agent-identity | agent-negotiation | rwa-registry | enterprise-treasury | bank-whitelabel)"
+        description: "Service to build (all | web | unified-router | mor-layer | billing-engine | stablecoin-gateway | crypto-gateway | agent-identity | agent-negotiation | rwa-registry | enterprise-treasury | bank-whitelabel)"
         required: false
         default: "all"
 
@@ -23,7 +23,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       web:                    ${{ steps.filter.outputs.web }}
-      dashboard:              ${{ steps.filter.outputs.dashboard }}
       unified-router:         ${{ steps.filter.outputs.unified-router }}
       mor-layer:              ${{ steps.filter.outputs.mor-layer }}
       billing-engine:         ${{ steps.filter.outputs.billing-engine }}
@@ -42,8 +41,6 @@ jobs:
           filters: |
             web:
               - 'forgepay/apps/web/**'
-            dashboard:
-              - 'forgepay/apps/dashboard/**'
             unified-router:
               - 'forgepay/services/unified-router/**'
             mor-layer:
@@ -79,9 +76,6 @@ jobs:
           - service: web
             context: forgepay/apps/web
             condition: ${{ needs.changes.outputs.web == 'true' }}
-          - service: dashboard
-            context: forgepay/apps/dashboard
-            condition: ${{ needs.changes.outputs.dashboard == 'true' }}
           - service: unified-router
             context: forgepay/services/unified-router
             condition: ${{ needs.changes.outputs.unified-router == 'true' }}

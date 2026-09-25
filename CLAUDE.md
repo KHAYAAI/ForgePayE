@@ -17,7 +17,7 @@ All development goes on `claude/forgepay-platform-design-gEkgE`. Push there.
 |---|---|---|
 | `crates/router` | Rust | Hyperswitch payment router — core payment API |
 | `forgepay/apps/web` | Next.js 14 | Marketing site |
-| `forgepay/apps/dashboard` | Next.js 14 | Merchant dashboard (Polar fork) |
+| `forgepay/apps/platform` | Next.js 14 | Console — custody, wallet, treasury, credit bureau |
 | `forgepay/services/unified-router` | TypeScript/Fastify | Webhook normalizer |
 | `forgepay/services/mor-layer` | Python FastAPI | MoR, tax, checkout (Polar fork) |
 | `forgepay/services/billing-engine` | Java/Kill Bill | Subscriptions & billing |

@@ -4,7 +4,7 @@
 #   unified-router  → lint + tsc + vitest
 #   mor-layer       → ruff + mypy + pytest
 #   web             → tsc + next build
-#   dashboard       → tsc + next build
+#   platform        → tsc + next build
 #   sdk-js          → tsc + vitest + tsup build
 #   sdk-python      → ruff + mypy + pytest
 #   helm-lint       → helm lint (forgepay-stack + unified-router + monitoring)
@@ -377,43 +377,35 @@ jobs:
       - run: npm run type-check
       - run: npm run build
 
-  # ── Dashboard (Next.js) ─────────────────────────────────────────────────────
+  # ── Platform console (Next.js) ───────────────────────────────────────────────
   #
-  # Unlike every other job here, this one installs with pnpm from the workspace
-  # root. The dashboard depends on @forgepay/forge-agent via `workspace:*`, a
-  # protocol npm has never supported — `npm ci` fails outright with
-  # EUNSUPPORTEDPROTOCOL, so this job could not pass as originally written.
-  #
-  # forge-agent also has to be compiled before the dashboard type-checks: its
-  # package.json points at ./dist, which does not exist in a fresh checkout.
-  dashboard:
-    name: "dashboard — type-check + build"
+  # apps/dashboard (the old console) is retired — apps/platform is the one
+  # console now, and unlike dashboard it installs with plain npm; nothing here
+  # depends on the pnpm workspace protocol.
+  platform:
+    name: "platform — type-check + build"
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: forgepay
+        working-directory: forgepay/apps/platform
     steps:
       - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9
 
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: "pnpm"
-          cache-dependency-path: forgepay/pnpm-lock.yaml
+          cache: "npm"
+          cache-dependency-path: forgepay/apps/platform/package-lock.json
 
-      - run: pnpm install --frozen-lockfile
-
-      # Produces the dist/ that @forgepay/forge-agent's types resolve through.
-      - run: pnpm --filter @forgepay/forge-agent build
-
-      - run: pnpm --filter @forgepay/dashboard type-check
-      - run: pnpm --filter @forgepay/dashboard build
+      - run: npm ci
+      - run: npm run type-check
+      # next build always runs as NODE_ENV=production regardless of the shell
+      # env, which trips lib/jwt-secret.ts's production guard against booting
+      # with no signing secret. CI only builds the app, never serves it, so a
+      # throwaway value is fine here — it is never a real deployment secret.
+      - run: npm run build
         env:
-          NEXT_PUBLIC_FORGEPAY_ENV: test
+          JWT_SECRET: ci-build-only-not-a-real-secret-000000000000
 
   # ── @forgepay/sdk ────────────────────────────────────────────────────────────
   sdk-js:
