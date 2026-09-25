@@ -262,6 +262,57 @@ jobs:
           MOR_DATABASE_URL: "postgresql+asyncpg://test:test@localhost/test"
           MOR_REDIS_URL: "redis://localhost:6379/0"
 
+  # ── Compliance Monitor (Python) ─────────────────────────────────────────────
+  #
+  # Previously had no job at all, and no database — SAR/CTR filings, KYC
+  # records and AML alerts lived in plain in-process dicts, lost on every
+  # restart, unsynchronized across replicas. Both gaps are fixed together in
+  # the same change: real Postgres persistence (src/db/) plus this job, so
+  # the 133-test suite that proves it actually gates merges from here on.
+  #
+  # Deliberately test-only, unlike mor-layer's lint + type-check + test: ruff
+  # and mypy report pre-existing findings across this service unrelated to
+  # the persistence work that added this job (verified against the
+  # unmodified baseline before adding it — 70 mypy findings either way).
+  # Gating on checks that start red teaches people to ignore the gate rather
+  # than fix it — tracked separately, added here once clean, same convention
+  # as liquidity-forecaster below.
+  #
+  # No Postgres/Redis service container needed: the persistence suite runs
+  # against a temp-file sqlite database (aiosqlite) and an in-process fake
+  # Redis (see tests/conftest.py, tests/test_persistence.py) rather than real
+  # services — the ORM models are written to be Postgres/sqlite-portable
+  # specifically so this job doesn't need one. Production is always
+  # Postgres/asyncpg (src/db/session.py, src/config.py's fail-closed check).
+  compliance-monitor:
+    name: "compliance-monitor — test"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: forgepay/services/compliance-monitor
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: snok/install-poetry@v1
+        with:
+          version: "1.8.3"
+          virtualenvs-in-project: true
+
+      - name: Cache Poetry virtualenv
+        uses: actions/cache@v4
+        with:
+          path: forgepay/services/compliance-monitor/.venv
+          key: compliance-monitor-venv-${{ hashFiles('forgepay/services/compliance-monitor/poetry.lock') }}
+
+      - run: poetry install
+
+      - name: Test (pytest)
+        run: poetry run pytest tests/ -v --tb=short
+
   # ── Liquidity Forecaster (Python) ───────────────────────────────────────────
   #
   # Previously had no job at all — a readiness audit found it had no
