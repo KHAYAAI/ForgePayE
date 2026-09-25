@@ -125,7 +125,7 @@ The **Unified Router** service (`forgepay/services/unified-router`, TypeScript/F
 
 ### 4.4 Merchant Dashboard
 
-The merchant dashboard (`forgepay/apps/dashboard`, Next.js 14) provides:
+The merchant dashboard (`forgepay/apps/platform`, Next.js 14) provides:
 - Real-time transaction monitoring
 - Payout and settlement reporting
 - Dispute and chargeback management
@@ -250,7 +250,7 @@ Merchant API Request
 **Additional services:**
 - **MoR Layer** (`forgepay/services/mor-layer`, Python/FastAPI): Merchant of Record tax calculation, checkout, and compliance
 - **Billing Engine** (`forgepay/services/billing-engine`, Java/Kill Bill): Subscription management
-- **Dashboard** (`forgepay/apps/dashboard`, Next.js 14): Merchant self-service portal
+- **Dashboard** (`forgepay/apps/platform`, Next.js 14): Merchant self-service portal
 - **Marketing Site** (`forgepay/apps/web`, Next.js 14): Public-facing marketing
 
 ### 7.2 Infrastructure Security

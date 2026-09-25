@@ -82,7 +82,7 @@ The following ForgePay services are **out of scope** because they have no connec
 | Service | Directory | Why Out of Scope |
 |---------|-----------|-----------------|
 | Marketing site | `forgepay/apps/web` | Static Next.js app; no payment processing; no connection to CDE namespace |
-| Merchant dashboard | `forgepay/apps/dashboard` | Merchant-facing UI; accesses payment tokens only via API (never raw CHD) |
+| Merchant dashboard | `forgepay/apps/platform` | Merchant-facing UI; accesses payment tokens only via API (never raw CHD) |
 | Unified router | `forgepay/services/unified-router` | Webhook normalizer; receives payment events with tokens only, never raw PANs |
 | MoR/tax/checkout layer | `forgepay/services/mor-layer` | Handles tax calculation and checkout flow; passes tokens, not raw PANs |
 | Billing engine | `forgepay/services/billing-engine` | Subscription management; uses stored payment method tokens only |

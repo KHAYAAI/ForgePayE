@@ -547,10 +547,10 @@ for merchant in merchants:
 
 ### Test Pricing Calculator Locally
 
-```bash
-cd forgepay/apps/dashboard
-npm run test -- PricingCalculator.test.tsx
-```
+`apps/dashboard` (and its `PricingCalculator.tsx`) has been retired — `apps/platform`
+is the current console and has no equivalent calculator component yet. Verify pricing
+changes against `forgepay/config/pricing.yaml` and `forgepay/apps/web/src/lib/pricing.ts`
+directly until one is built.
 
 ## Common Issues & Solutions
 
@@ -586,5 +586,4 @@ npm run test -- PricingCalculator.test.tsx
 - Pricing config: `forgepay/config/pricing.yaml`
 - Marketing pricing: `forgepay/apps/web/src/lib/pricing.ts`
 - Website pricing page: `forgepay/apps/web/src/components/Pricing.tsx`
-- Dashboard calculator: `forgepay/apps/dashboard/src/components/PricingCalculator.tsx`
 - Strategy & economics: `forgepay/docs/PRICING_STRATEGY.md`

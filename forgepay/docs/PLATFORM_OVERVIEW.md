@@ -446,11 +446,13 @@ Next.js 14, React 18, Tailwind CSS with brand colors (Navy `#0A2540`, Cyan `#00F
 
 **Status:** Functional shell, content population needed.
 
-### 3.2 Merchant Dashboard (`forgepay/apps/dashboard` — Port 3001)
+### 3.2 Platform Console (`forgepay/apps/platform`)
 
-Next.js 14, React 18, next-auth, `@anthropic-ai/sdk` integration, Polar fork. Analytics views, webhook configuration, agent management, real-time event streaming.
+Next.js 14, React 18. The merchant/operator console — custody, wallet, treasury, agent credit bureau (Agents, Scores, Verify, Disputes), ontology events. Reads and writes proxy server-side to each backend service via `/api/forge/*`, falling back to demo fixtures when a service is unreachable.
 
-**Status:** ~10% complete — largest remaining frontend gap.
+`forgepay/apps/dashboard` was an earlier, parallel console build; it was retired once `apps/platform` reached feature parity and was wired to live data, to avoid maintaining two consoles.
+
+**Status:** Live-wired to the bureau, custody, wallet and treasury services.
 
 ### 3.3 VS Code Extension (`forgepay/apps/vscode-extension`)
 

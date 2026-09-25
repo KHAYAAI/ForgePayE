@@ -401,5 +401,5 @@ Free tier customers cannot negotiate volume discounts. Forces upgrade to Standar
 
 - PRICING_TIERS definition: `forgepay/apps/web/src/lib/pricing.ts`
 - Pricing component: `forgepay/apps/web/src/components/Pricing.tsx`
-- Dashboard tier display: `forgepay/apps/dashboard/src/components/BillingTierCard.tsx` (to be created)
-- Upgrade flow: `forgepay/apps/dashboard/src/routes/settings/billing` (to be created)
+- Console tier display: `forgepay/apps/platform` (to be created — apps/dashboard, where this was originally planned, has been retired)
+- Upgrade flow: `forgepay/apps/platform/app/dashboard/settings` (to be created)

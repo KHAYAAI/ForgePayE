@@ -68,7 +68,7 @@ The penetration tester must attempt to:
 | Payment-engine REST API (payment processing endpoints) | External (from internet) | Authentication, authorization, injection, business logic |
 | payment-engine admin API (if applicable) | Internal | Privilege escalation, IDOR |
 | Hyperswitch vault API (internal) | Internal | Unauthorized token access, brute force |
-| Merchant dashboard (forgepay/apps/dashboard) | External | XSS, CSRF, authentication |
+| Merchant dashboard (forgepay/apps/platform) | External | XSS, CSRF, authentication |
 | Checkout hosted page (if applicable) | External | XSS, card skimming, Magecart-style attack |
 
 ### 2.4 Out-of-Scope Systems (Excluded from Test)

@@ -48,7 +48,7 @@ This document describes the technical controls implemented to protect cardholder
 | Billing Engine | Java / Kill Bill | `forgepay/services/billing-engine` | Subscriptions; recurring billing |
 | Stablecoin Gateway | TypeScript | `forgepay/services/stablecoin-gateway` | USDC/USDT; x402 protocol |
 | Crypto Gateway | TypeScript | `forgepay/services/crypto-gateway` | BTC/ETH/LTC/XMR |
-| Merchant Dashboard | Next.js 14 | `forgepay/apps/dashboard` | Merchant portal |
+| Merchant Dashboard | Next.js 14 | `forgepay/apps/platform` | Merchant portal |
 | Marketing Site | Next.js 14 | `forgepay/apps/web` | Public website |
 
 ### 2.3 Network Architecture

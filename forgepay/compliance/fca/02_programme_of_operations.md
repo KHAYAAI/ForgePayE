@@ -127,7 +127,7 @@ ForgePay publishes client libraries in:
 
 ### 5.3 Merchant Dashboard
 
-A Next.js 14 web dashboard (`forgepay/apps/dashboard`) enables:
+A Next.js 14 web dashboard (`forgepay/apps/platform`) enables:
 - Merchant self-service onboarding (KYB flow)
 - Transaction monitoring and reporting
 - Payout management and scheduling

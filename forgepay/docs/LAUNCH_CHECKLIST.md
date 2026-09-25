@@ -298,7 +298,7 @@ ForgePay has completed its core infrastructure, integrated all payment gateways,
 | DEVOPS_LAUNCH_PLAN.md | Infrastructure deployment steps | DevOps |
 | forgepay/apps/web/src/lib/pricing.ts | Pricing constants | Engineering |
 | forgepay/config/pricing.yaml | Operational tier limits | Product/Engineering |
-| forgepay/apps/dashboard/src/components/PricingCalculator.tsx | Dashboard calculator | Engineering |
+| forgepay/apps/platform (dashboard/agent-credit-bureau/*) | Console pricing/tier displays | Engineering |
 | forgepay/infra/helm/forgepay-stack/ | Production K8s charts | DevOps |
 
 ---
