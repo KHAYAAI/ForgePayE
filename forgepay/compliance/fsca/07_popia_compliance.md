@@ -154,10 +154,10 @@ ForgePay has conducted a data mapping exercise to identify all personal informat
 | Data subjects | Website visitors (forgepay.co.za); marketing leads |
 | Personal information categories | IP address; browser type; pages visited; form submissions (name, email, company); cookie identifiers |
 | Special information | None |
-| Collection method | Web analytics (Next.js 14 marketing site); contact forms; email marketing |
+| Collection method | Web analytics (static marketing site); contact via mailto: links; email marketing |
 | Lawful basis | Section 11(1)(a): Consent (cookie banner); Section 11(1)(f): Legitimate interest (security, fraud prevention) |
 | Primary purpose | Website analytics; lead generation; marketing |
-| Systems | Marketing site (forgepay/apps/web); analytics tool ([Vendor — ensure SA or adequate jurisdiction]) |
+| Systems | Marketing site (forgepay/website); analytics tool ([Vendor — ensure SA or adequate jurisdiction]) |
 | Third-party sharing | Analytics vendor; email marketing platform |
 | Retention period | 3 years (marketing); 90 days (raw logs) |
 | Data residency | [Confirm — analytics vendor must be POPIA-compliant] |

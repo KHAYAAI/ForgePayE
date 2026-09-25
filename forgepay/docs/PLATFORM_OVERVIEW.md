@@ -440,11 +440,13 @@ Subscription lifecycle (trial → active → dunning → cancelled), metered bil
 
 ## 3. Frontend Applications
 
-### 3.1 Marketing Site (`forgepay/apps/web` — Port 3000)
+### 3.1 Marketing Site (`forgepay/website`)
 
-Next.js 14, React 18, Tailwind CSS with brand colors (Navy `#0A2540`, Cyan `#00F0FF`), Inter font. Marketing landing page, pricing, docs entry point.
+Static HTML/CSS/JS, deployed to AWS S3 + CloudFront (see `forgepay/website/README.md` and `aws-deploy.sh`). Fifteen pages: homepage, about, contact, thesis, legal, five product deep-dives, nine feature deep-dives. No build step, no framework, no separate stylesheet — every page ships fully inline.
 
-**Status:** Functional shell, content population needed.
+`forgepay/apps/web` (the earlier Next.js marketing site) was retired once this site reached full content coverage and was fact-checked against the real platform, to avoid maintaining two marketing sites. Its real checkout/onboarding backend logic was not ported — pricing pages here link out (`mailto:`) rather than process a payment.
+
+**Status:** Content complete and fact-checked. Not yet wired to a live checkout flow.
 
 ### 3.2 Platform Console (`forgepay/apps/platform`)
 

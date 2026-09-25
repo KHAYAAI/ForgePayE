@@ -36,27 +36,21 @@ forgepay/
 
 ### 1. Marketing Website Pricing Page
 
-The website displays pricing using `forgepay/apps/web/src/lib/pricing.ts`:
+`forgepay/apps/web` (which displayed pricing via a shared `lib/pricing.ts` constants
+file imported by both `Pricing.tsx` and `Features.tsx`, so the two could never
+drift apart) is retired. The current marketing site, `forgepay/website`, is
+static HTML — each product page (e.g. `products/payments.html`) has its pricing
+section hand-authored directly in the page, with no shared constants file
+enforcing agreement between pages.
 
-```typescript
-import { PRICING } from '@/lib/pricing';
-
-// Access tier details
-PRICING.tiers.free.monthlyFee        // "$0"
-PRICING.tiers.free.transaction_fees.card  // "2.8% + $0.24"
-PRICING.tiers.standard.monthlyFee    // "$28"
-PRICING.tiers.standard.features      // Array of feature strings
-```
-
-**Component**: `forgepay/apps/web/src/components/Pricing.tsx`
-- Displays pricing cards with feature comparisons
-- Shows competitor pricing (Stripe, Paddle)
-- Responsive design (mobile, tablet, desktop)
-
-To update pricing:
-1. Edit `PRICING_TIERS` in `forgepay/apps/web/src/lib/pricing.ts`
-2. Update `PLANS` array in `Pricing.tsx` to match new features/limits
-3. Deploy website
+**This means pricing changes no longer propagate automatically.** To update
+pricing:
+1. Edit `forgepay/config/pricing.yaml` (the backend's source of truth).
+2. Manually edit the matching `<div class="pricing-card">`/`<div class="plan">`
+   markup in every `forgepay/website/**/*.html` page that displays that number —
+   grep the site for the old value first (e.g. `grep -rn '2\.8%' forgepay/website/`)
+   to find every place it appears.
+3. Re-deploy via `forgepay/website/aws-deploy.sh`.
 
 ### 2. Dashboard Pricing Calculator
 
@@ -509,9 +503,9 @@ GROUP BY upgrade_trigger;
 ## Deployment Checklist
 
 - [ ] Update `forgepay/config/pricing.yaml` with new tier structure
-- [ ] Update `forgepay/apps/web/src/lib/pricing.ts` with tier constants
-- [ ] Update pricing page component (`Pricing.tsx`)
-- [ ] Deploy pricing calculator to dashboard
+- [ ] Manually update every pricing section in `forgepay/website/**/*.html`
+      that shows the old numbers (no shared constants file — see above)
+- [ ] Deploy pricing calculator to dashboard (apps/platform; not yet built)
 - [ ] Implement tier limit enforcement in payment processing
 - [ ] Implement feature access control based on tier
 - [ ] Set up automatic upgrade trigger checks
@@ -548,9 +542,9 @@ for merchant in merchants:
 ### Test Pricing Calculator Locally
 
 `apps/dashboard` (and its `PricingCalculator.tsx`) has been retired — `apps/platform`
-is the current console and has no equivalent calculator component yet. Verify pricing
-changes against `forgepay/config/pricing.yaml` and `forgepay/apps/web/src/lib/pricing.ts`
-directly until one is built.
+is the current console and has no equivalent calculator component yet.
+`apps/web` (the old marketing site) is retired too. Verify pricing changes against
+`forgepay/config/pricing.yaml` directly until a calculator is built.
 
 ## Common Issues & Solutions
 
@@ -584,6 +578,5 @@ directly until one is built.
 ## References
 
 - Pricing config: `forgepay/config/pricing.yaml`
-- Marketing pricing: `forgepay/apps/web/src/lib/pricing.ts`
-- Website pricing page: `forgepay/apps/web/src/components/Pricing.tsx`
+- Website pricing pages: `forgepay/website/products/*.html` (hand-authored, no shared constants — see above)
 - Strategy & economics: `forgepay/docs/PRICING_STRATEGY.md`

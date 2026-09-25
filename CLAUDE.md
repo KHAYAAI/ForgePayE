@@ -16,7 +16,7 @@ All development goes on `claude/forgepay-platform-design-gEkgE`. Push there.
 | Directory | Language | Purpose |
 |---|---|---|
 | `crates/router` | Rust | Hyperswitch payment router — core payment API |
-| `forgepay/apps/web` | Next.js 14 | Marketing site |
+| `forgepay/website` | Static HTML/CSS/JS | Marketing site (S3 + CloudFront) |
 | `forgepay/apps/platform` | Next.js 14 | Console — custody, wallet, treasury, credit bureau |
 | `forgepay/services/unified-router` | TypeScript/Fastify | Webhook normalizer |
 | `forgepay/services/mor-layer` | Python FastAPI | MoR, tax, checkout (Polar fork) |
@@ -31,8 +31,9 @@ All development goes on `claude/forgepay-platform-design-gEkgE`. Push there.
 cargo build --release
 cargo test
 
-# Marketing site
-cd forgepay/apps/web && npm run dev
+# Marketing site — static, no build step
+open forgepay/website/index.html
+# or: cd forgepay/website && python3 -m http.server 8000
 
 # Unified router
 cd forgepay/services/unified-router && npm run dev

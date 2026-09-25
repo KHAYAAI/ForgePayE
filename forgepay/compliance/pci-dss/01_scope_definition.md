@@ -81,7 +81,7 @@ The following ForgePay services are **out of scope** because they have no connec
 
 | Service | Directory | Why Out of Scope |
 |---------|-----------|-----------------|
-| Marketing site | `forgepay/apps/web` | Static Next.js app; no payment processing; no connection to CDE namespace |
+| Marketing site | `forgepay/website` | Static HTML/CSS/JS; no payment processing; no connection to CDE namespace |
 | Merchant dashboard | `forgepay/apps/platform` | Merchant-facing UI; accesses payment tokens only via API (never raw CHD) |
 | Unified router | `forgepay/services/unified-router` | Webhook normalizer; receives payment events with tokens only, never raw PANs |
 | MoR/tax/checkout layer | `forgepay/services/mor-layer` | Handles tax calculation and checkout flow; passes tokens, not raw PANs |
@@ -200,7 +200,7 @@ Beyond Kubernetes NetworkPolicy, AWS VPC security groups and subnet routing prov
 ### 5.1 New Payment — Card Entry to Token
 
 ```
-1. Customer enters card on checkout page (forgepay/apps/web or merchant SDK)
+1. Customer enters card via a merchant's own checkout, integrated through the FORGE SDK/API (forgepay/website is a static marketing site only — it has no checkout flow of its own)
 2. Card data transmitted via HTTPS (TLS 1.3) to AWS ALB
 3. ALB forwards to Hyperswitch payment-engine (internal mTLS)
 4. payment-engine sends PAN + CVV to Hyperswitch PCI vault via internal API

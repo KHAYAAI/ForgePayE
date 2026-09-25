@@ -49,7 +49,7 @@ This document describes the technical controls implemented to protect cardholder
 | Stablecoin Gateway | TypeScript | `forgepay/services/stablecoin-gateway` | USDC/USDT; x402 protocol |
 | Crypto Gateway | TypeScript | `forgepay/services/crypto-gateway` | BTC/ETH/LTC/XMR |
 | Merchant Dashboard | Next.js 14 | `forgepay/apps/platform` | Merchant portal |
-| Marketing Site | Next.js 14 | `forgepay/apps/web` | Public website |
+| Marketing Site | Static HTML/CSS/JS | `forgepay/website` | Public website |
 
 ### 2.3 Network Architecture
 

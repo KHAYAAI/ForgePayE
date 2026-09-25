@@ -36,12 +36,6 @@ updates:
     groups:
       minor-and-patch:
         update-types: ["minor", "patch"]
-  - package-ecosystem: "npm"
-    directory: "/forgepay/apps/web"
-    schedule: { interval: "weekly" }
-    groups:
-      minor-and-patch:
-        update-types: ["minor", "patch"]
 
   # ── Node/TypeScript services — money-moving and identity-critical first ──
   - package-ecosystem: "npm"

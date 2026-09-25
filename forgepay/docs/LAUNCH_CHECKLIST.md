@@ -296,7 +296,7 @@ ForgePay has completed its core infrastructure, integrated all payment gateways,
 | PRICING_QUICK_REFERENCE.md | Sales/support talking points | Sales |
 | PRICING_IMPLEMENTATION_GUIDE.md | Developer integration guide | Engineering |
 | DEVOPS_LAUNCH_PLAN.md | Infrastructure deployment steps | DevOps |
-| forgepay/apps/web/src/lib/pricing.ts | Pricing constants | Engineering |
+| forgepay/config/pricing.yaml | Pricing constants (apps/web, the old marketing site, is retired — forgepay/website's pricing sections are manually authored HTML, not read from this file programmatically) | Engineering |
 | forgepay/config/pricing.yaml | Operational tier limits | Product/Engineering |
 | forgepay/apps/platform (dashboard/agent-credit-bureau/*) | Console pricing/tier displays | Engineering |
 | forgepay/infra/helm/forgepay-stack/ | Production K8s charts | DevOps |

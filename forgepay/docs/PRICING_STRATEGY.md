@@ -381,7 +381,7 @@ Free tier customers cannot negotiate volume discounts. Forces upgrade to Standar
 
 ## Implementation Checklist
 
-- [x] Define Free and Standard tiers in `forgepay/apps/web/src/lib/pricing.ts`
+- [x] Define Free and Standard tiers in `forgepay/apps/web/src/lib/pricing.ts` (apps/web has since been retired in favor of forgepay/website)
 - [x] Update pricing page component (`Pricing.tsx`) with new tiers
 - [x] Update marketing messaging on homepage
 - [x] Create this pricing strategy document
@@ -399,7 +399,7 @@ Free tier customers cannot negotiate volume discounts. Forces upgrade to Standar
 
 ## References
 
-- PRICING_TIERS definition: `forgepay/apps/web/src/lib/pricing.ts`
-- Pricing component: `forgepay/apps/web/src/components/Pricing.tsx`
+- Pricing config (source of truth): `forgepay/config/pricing.yaml`
+- Website pricing pages: `forgepay/website/products/*.html` — apps/web, which originally held `PRICING_TIERS`/`Pricing.tsx`, has been retired; the static site has no equivalent shared constants file
 - Console tier display: `forgepay/apps/platform` (to be created — apps/dashboard, where this was originally planned, has been retired)
 - Upgrade flow: `forgepay/apps/platform/app/dashboard/settings` (to be created)
