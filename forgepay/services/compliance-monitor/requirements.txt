@@ -47,3 +47,12 @@ pycparser==2.22
 slowapi==0.1.9
 limits==3.13.0
 prometheus-client==0.20.0
+
+# ── Persistence (SAR/CTR/KYC/AML alerts — Postgres, async, SQLAlchemy 2.0) ──
+# Pinned to match forgepay/services/mor-layer's pyproject.toml so the two
+# services don't diverge on major versions for no reason.
+sqlalchemy==2.0.31
+greenlet==3.5.6  # sqlalchemy.ext.asyncio requires this to import at all, unconditionally --
+                 # declared explicitly rather than relying on another package pulling it in
+alembic==1.13.2
+asyncpg==0.29.0

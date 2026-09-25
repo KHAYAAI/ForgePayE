@@ -9,9 +9,9 @@ Routes:
 
 from __future__ import annotations
 
+import asyncio
 from typing import Annotated
 
-import asyncio
 from fastapi import APIRouter, Depends, Query, Request
 
 from src.auth import require_auth

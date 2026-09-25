@@ -1,17 +1,20 @@
 """
 KYC (Know Your Customer) / CDD (Customer Due Diligence) record management.
 
-Stores KYC records in memory (prod: back with Postgres or Redis).
-Provides status updates, expiry tracking, and risk level computation.
+Backed by the `kyc_records` Postgres table (src/db/models.py). Provides
+status updates, expiry tracking, and risk level computation.
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import structlog
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from src.db.models import KycRecordRow
 from src.models import KycRecord
 
 logger = structlog.get_logger(__name__)
@@ -53,38 +56,54 @@ _EXPIRY_DAYS: dict[str, int] = {
 }
 
 
+def _record_from_row(row: KycRecordRow) -> KycRecord:
+    return KycRecord(
+        entity_id=row.entity_id,
+        entity_type=row.entity_type,
+        status=row.status,
+        risk_level=row.risk_level,
+        verified_at=row.verified_at,
+        expires_at=row.expires_at,
+        documents_provided=list(row.documents_provided or []),
+        aml_risk_factors=list(row.aml_risk_factors or []),
+        last_reviewed_at=row.last_reviewed_at,
+        reviewer_notes=row.reviewer_notes,
+    )
+
+
 class KycManager:
     """
-    In-memory KYC record store with risk-level computation.
+    PostgreSQL-backed KYC record store with risk-level computation.
 
-    Production note: swap `_store` for a PostgreSQL-backed repository or
-    a Redis hash store with TTL aligned to the expiry dates.
+    `session_factory` is an `async_sessionmaker[AsyncSession]` -- normally
+    `src.db.session.get_session_factory()`, injected explicitly (see
+    src/main.py) so tests can point a manager at an isolated database.
     """
 
-    def __init__(self) -> None:
-        # entity_id → KycRecord
-        self._store: dict[str, KycRecord] = {}
+    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+        self._session_factory = session_factory
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
-    def get_kyc_status(self, entity_id: str) -> KycRecord | None:
+    async def get_kyc_status(self, entity_id: str) -> KycRecord | None:
         """Return the KYC record for `entity_id`, or None if not found."""
-        record = self._store.get(entity_id)
-        if record is None:
-            return None
+        async with self._session_factory() as session:
+            row = await session.get(KycRecordRow, entity_id)
+            if row is None:
+                return None
 
-        # Auto-expire: mark as expired if past expiry date
-        if record.expires_at and record.status not in ("rejected", "expired"):
-            expires_dt = datetime.fromisoformat(record.expires_at.replace("Z", "+00:00"))
-            if datetime.now(timezone.utc) > expires_dt:
-                record = record.model_copy(update={"status": "expired"})
-                self._store[entity_id] = record
+            # Auto-expire: mark as expired if past expiry date
+            if row.expires_at and row.status not in ("rejected", "expired"):
+                expires_dt = datetime.fromisoformat(row.expires_at.replace("Z", "+00:00"))
+                if datetime.now(UTC) > expires_dt:
+                    row.status = "expired"
+                    await session.commit()
 
-        return record
+            return _record_from_row(row)
 
-    def update_kyc_status(
+    async def update_kyc_status(
         self,
         entity_id: str,
         status: str,
@@ -102,38 +121,64 @@ class KycManager:
         - expires_at (based on risk_level)
         - last_reviewed_at (always now)
         """
-        now = datetime.now(timezone.utc).isoformat()
-        existing = self._store.get(entity_id)
+        now = datetime.now(UTC).isoformat()
 
-        verified_at = existing.verified_at if existing else None
-        if status == "approved" and (not existing or existing.status != "approved"):
-            verified_at = now
+        async with self._session_factory() as session:
+            row = await session.get(KycRecordRow, entity_id)
+            existing = _record_from_row(row) if row is not None else None
 
-        expires_at: str | None = None
-        if status == "approved":
-            expiry_days = _EXPIRY_DAYS.get(risk_level, 365)
-            expires_dt = datetime.now(timezone.utc) + timedelta(days=expiry_days)
-            expires_at = expires_dt.isoformat()
-        elif existing:
-            expires_at = existing.expires_at
+            verified_at = existing.verified_at if existing else None
+            if status == "approved" and (not existing or existing.status != "approved"):
+                verified_at = now
 
-        record = KycRecord(
-            entity_id=entity_id,
-            entity_type=entity_type if not existing else existing.entity_type,
-            status=status,
-            risk_level=risk_level,
-            verified_at=verified_at,
-            expires_at=expires_at,
-            documents_provided=documents_provided
-            if documents_provided is not None
-            else (existing.documents_provided if existing else []),
-            aml_risk_factors=aml_risk_factors
-            if aml_risk_factors is not None
-            else (existing.aml_risk_factors if existing else []),
-            last_reviewed_at=now,
-            reviewer_notes=reviewer_notes,
-        )
-        self._store[entity_id] = record
+            expires_at: str | None = None
+            if status == "approved":
+                expiry_days = _EXPIRY_DAYS.get(risk_level, 365)
+                expires_dt = datetime.now(UTC) + timedelta(days=expiry_days)
+                expires_at = expires_dt.isoformat()
+            elif existing:
+                expires_at = existing.expires_at
+
+            new_documents = (
+                documents_provided
+                if documents_provided is not None
+                else (existing.documents_provided if existing else [])
+            )
+            new_risk_factors = (
+                aml_risk_factors
+                if aml_risk_factors is not None
+                else (existing.aml_risk_factors if existing else [])
+            )
+            new_entity_type = entity_type if not existing else existing.entity_type
+
+            if row is None:
+                row = KycRecordRow(
+                    entity_id=entity_id,
+                    entity_type=new_entity_type,
+                    status=status,
+                    risk_level=risk_level,
+                    verified_at=verified_at,
+                    expires_at=expires_at,
+                    documents_provided=new_documents,
+                    aml_risk_factors=new_risk_factors,
+                    last_reviewed_at=now,
+                    reviewer_notes=reviewer_notes,
+                )
+                session.add(row)
+            else:
+                row.entity_type = new_entity_type
+                row.status = status
+                row.risk_level = risk_level
+                row.verified_at = verified_at
+                row.expires_at = expires_at
+                row.documents_provided = new_documents
+                row.aml_risk_factors = new_risk_factors
+                row.last_reviewed_at = now
+                row.reviewer_notes = reviewer_notes
+
+            await session.commit()
+            record = _record_from_row(row)
+
         logger.info(
             "kyc.status_updated",
             entity_id=entity_id,
@@ -142,20 +187,23 @@ class KycManager:
         )
         return record
 
-    def get_expiring_soon(self, days: int = 30) -> list[KycRecord]:
+    async def get_expiring_soon(self, days: int = 30) -> list[KycRecord]:
         """Return KYC records whose expiry falls within the next `days` days."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         cutoff = now + timedelta(days=days)
+
+        async with self._session_factory() as session:
+            stmt = select(KycRecordRow).where(KycRecordRow.status == "approved")
+            rows = (await session.execute(stmt)).scalars().all()
+
         result: list[KycRecord] = []
-        for record in self._store.values():
-            if record.status not in ("approved",):
-                continue
-            if not record.expires_at:
+        for row in rows:
+            if not row.expires_at:
                 continue
             try:
-                exp_dt = datetime.fromisoformat(record.expires_at.replace("Z", "+00:00"))
+                exp_dt = datetime.fromisoformat(row.expires_at.replace("Z", "+00:00"))
                 if now <= exp_dt <= cutoff:
-                    result.append(record)
+                    result.append(_record_from_row(row))
             except ValueError:
                 pass
         result.sort(key=lambda r: r.expires_at or "")
@@ -165,6 +213,8 @@ class KycManager:
         """
         Compute a risk level ("low" | "medium" | "high" | "very_high")
         based on entity attributes.
+
+        Pure function -- touches no storage, so it stays synchronous.
 
         Entity dict keys (all optional):
             jurisdiction: str        — ISO-3166 alpha-2 country code
@@ -205,6 +255,8 @@ class KycManager:
             return "medium"
         return "low"
 
-    def list_all(self) -> list[KycRecord]:
+    async def list_all(self) -> list[KycRecord]:
         """Return all KYC records (for internal use / admin dashboards)."""
-        return list(self._store.values())
+        async with self._session_factory() as session:
+            rows = (await session.execute(select(KycRecordRow))).scalars().all()
+        return [_record_from_row(r) for r in rows]

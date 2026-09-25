@@ -10,7 +10,7 @@ Routes:
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
@@ -107,4 +107,4 @@ async def screening_history(
     check_rate_limit(request, "120/minute")
 
     engine = _engine(request)
-    return engine.get_history(entity_id)
+    return await engine.get_history(entity_id)

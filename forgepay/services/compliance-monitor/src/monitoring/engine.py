@@ -8,18 +8,36 @@ fetches unscreened transactions from the payment engine and evaluates each.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
 import structlog
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.config import get_settings
+from src.db.models import AmlAlertRow
 from src.models import MonitoringRule, TransactionMonitoringResult
 from src.monitoring.rules import Rule, build_default_ruleset
 
 logger = structlog.get_logger(__name__)
 settings = get_settings()
+
+
+def _alert_from_row(row: AmlAlertRow) -> TransactionMonitoringResult:
+    return TransactionMonitoringResult(
+        transaction_id=row.transaction_id,
+        merchant_id=row.merchant_id,
+        amount=row.amount,
+        currency=row.currency,
+        evaluated_at=row.evaluated_at,
+        rules_triggered=[MonitoringRule(**r) for r in (row.rules_triggered or [])],
+        risk_score=row.risk_score,
+        decision=row.decision,
+        requires_sar=row.requires_sar,
+    )
 
 # ---------------------------------------------------------------------------
 # Severity → numeric weight
@@ -65,15 +83,21 @@ class TransactionMonitoringEngine:
     Evaluates payment transactions against the AML rule set.
 
     The engine maintains an in-memory set of already-evaluated transaction IDs
-    to avoid double-processing during the monitoring cycle.
+    to avoid double-processing during the monitoring cycle (this is a
+    same-process dedup optimisation, not a regulatory record, so it stays a
+    plain set rather than moving to Postgres). Generated alerts themselves are
+    persisted to the `aml_alerts` table (src/db/models.py) -- see
+    _persist_alert()/get_alerts().
     """
 
     def __init__(
         self,
+        session_factory: async_sessionmaker[AsyncSession],
         rules: list[Rule] | None = None,
         payment_engine_url: str | None = None,
         sar_threshold: int | None = None,
     ) -> None:
+        self._session_factory = session_factory
         self._rules: list[Rule] = rules or build_default_ruleset(
             structuring_threshold=settings.structuring_threshold_usd,
             large_txn_threshold=settings.large_transaction_threshold_usd,
@@ -82,8 +106,6 @@ class TransactionMonitoringEngine:
         self._payment_engine_url = payment_engine_url or settings.payment_engine_url
         self._sar_threshold = sar_threshold or settings.sar_auto_threshold_score
         self._evaluated_ids: set[str] = set()
-        # In-memory alert store: merchant_id → list[TransactionMonitoringResult]
-        self._alerts: dict[str, list[TransactionMonitoringResult]] = {}
 
     # ------------------------------------------------------------------
     # Public API
@@ -143,7 +165,7 @@ class TransactionMonitoringEngine:
             merchant_id=merchant_id,
             amount=float(transaction.get("amount", 0)),
             currency=transaction.get("currency", "USD"),
-            evaluated_at=datetime.now(timezone.utc).isoformat(),
+            evaluated_at=datetime.now(UTC).isoformat(),
             rules_triggered=triggered,
             risk_score=risk_score,
             decision=decision,
@@ -153,7 +175,7 @@ class TransactionMonitoringEngine:
         self._evaluated_ids.add(txn_id)
 
         if triggered or risk_score >= 30:
-            self._alerts.setdefault(merchant_id, []).append(result)
+            await self._persist_alert(result)
 
         logger.info(
             "monitoring.evaluated",
@@ -187,13 +209,42 @@ class TransactionMonitoringEngine:
             logger.exception("monitoring.cycle.error", error=str(exc))
         logger.info("monitoring.cycle.done")
 
-    def get_alerts(
+    async def _persist_alert(self, result: TransactionMonitoringResult) -> None:
+        """
+        Persist a generated alert to the `aml_alerts` table.
+
+        Split out from evaluate_transaction() so tests can seed an alert
+        directly (mirroring what the old `_alerts` dict poke used to do)
+        without going through full rule evaluation.
+        """
+        row = AmlAlertRow(
+            id=str(uuid.uuid4()),
+            transaction_id=result.transaction_id,
+            merchant_id=result.merchant_id,
+            amount=result.amount,
+            currency=result.currency,
+            evaluated_at=result.evaluated_at,
+            rules_triggered=[r.model_dump() for r in result.rules_triggered],
+            risk_score=result.risk_score,
+            decision=result.decision,
+            requires_sar=result.requires_sar,
+        )
+        async with self._session_factory() as session:
+            session.add(row)
+            await session.commit()
+
+    async def get_alerts(
         self, merchant_id: str | None = None
     ) -> list[TransactionMonitoringResult]:
-        """Return active monitoring alerts, optionally filtered by merchant."""
+        """Return persisted monitoring alerts, optionally filtered by merchant."""
+        stmt = select(AmlAlertRow)
         if merchant_id:
-            return list(self._alerts.get(merchant_id, []))
-        return [r for results in self._alerts.values() for r in results]
+            stmt = stmt.where(AmlAlertRow.merchant_id == merchant_id)
+        stmt = stmt.order_by(AmlAlertRow.evaluated_at)
+
+        async with self._session_factory() as session:
+            rows = (await session.execute(stmt)).scalars().all()
+        return [_alert_from_row(r) for r in rows]
 
     def list_rules(self) -> list[dict[str, Any]]:
         return [
@@ -278,14 +329,14 @@ class TransactionMonitoringEngine:
 def _days_ago_iso(days: int) -> str:
     from datetime import timedelta
 
-    dt = datetime.now(timezone.utc) - timedelta(days=days)
+    dt = datetime.now(UTC) - timedelta(days=days)
     return dt.isoformat()
 
 
 def _minutes_ago_iso(minutes: int) -> str:
     from datetime import timedelta
 
-    dt = datetime.now(timezone.utc) - timedelta(minutes=minutes)
+    dt = datetime.now(UTC) - timedelta(minutes=minutes)
     return dt.isoformat()
 
 

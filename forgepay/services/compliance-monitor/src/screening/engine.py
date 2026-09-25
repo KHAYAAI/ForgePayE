@@ -8,16 +8,20 @@ in parallel and computes a composite risk score.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
+import redis.asyncio as redis
 import structlog
 
-from src.models import ScreeningResult, SanctionsMatch
+from src.models import SanctionsMatch, ScreeningResult
 from src.sanctions.eu_list import EuSanctionsManager
 from src.sanctions.ofac import OfacListManager
 
 logger = structlog.get_logger(__name__)
+
+_CACHE_KEY_PREFIX = "compliance-monitor:screening:"
+_DEFAULT_CACHE_TTL_SECONDS = 86_400  # 24 hours
 
 # ---------------------------------------------------------------------------
 # Risk score weights
@@ -29,7 +33,7 @@ _HIGH_RISK_PROGRAMS: frozenset[str] = frozenset(
         "UKRAINE-EO13662", "BELARUS", "SDT", "SDGT", "CYBER", "DARKNETS",
         "TRANSNATIONAL-CRIMINAL-ORGANIZATIONS", "WMD",
         # EU programme labels
-        "IRAN", "DPRK", "SYRIA", "RUSSIA", "UKRAINE", "BELARUS",
+        "UKRAINE",
     }
 )
 
@@ -91,22 +95,27 @@ class ScreeningEngine:
     """
     Orchestrates parallel screening across all active sanctions lists.
 
-    Results are stored in an in-memory dict (keyed by entity_id) with a
-    simple TTL mechanism.  In production this store should be backed by
-    Redis with a 24h TTL.
+    Results are cached in Redis (keyed by entity_id) with a 24h TTL -- this
+    is a cache, not a regulatory record, so unlike SAR/CTR/KYC/AML-alert
+    persistence (Postgres, and required) a Redis outage degrades screening
+    history/re-lookup rather than failing the request: screen_entity() and
+    screen_crypto_address() always compute and return a fresh result even if
+    the cache read/write itself fails (see _store()/_get_cached()).
     """
 
     def __init__(
         self,
         ofac: OfacListManager,
         eu: EuSanctionsManager,
+        redis_client: redis.Redis,
         threshold: float = 0.85,
+        cache_ttl_seconds: int = _DEFAULT_CACHE_TTL_SECONDS,
     ) -> None:
         self._ofac = ofac
         self._eu = eu
         self._threshold = threshold
-        # entity_id → (ScreeningResult, unix_timestamp)
-        self._cache: dict[str, tuple[ScreeningResult, float]] = {}
+        self._redis = redis_client
+        self._cache_ttl_seconds = cache_ttl_seconds
 
     # ------------------------------------------------------------------
     # Public API
@@ -150,7 +159,7 @@ class ScreeningEngine:
                 entity_id=entity_id,
                 entity_type=entity_type,
                 name=name,
-                screened_at=datetime.now(timezone.utc).isoformat(),
+                screened_at=datetime.now(UTC).isoformat(),
                 result=_classify_result(all_matches),
                 matches=all_matches,
                 risk_score=risk_score,
@@ -162,14 +171,14 @@ class ScreeningEngine:
                 entity_id=entity_id,
                 entity_type=entity_type,
                 name=name,
-                screened_at=datetime.now(timezone.utc).isoformat(),
+                screened_at=datetime.now(UTC).isoformat(),
                 result=_RESULT_ERROR,
                 matches=[],
                 risk_score=0,
                 recommended_action="review",
             )
 
-        self._store(entity_id, result)
+        await self._store(entity_id, result)
         return result
 
     async def screen_crypto_address(self, address: str) -> ScreeningResult:
@@ -183,7 +192,7 @@ class ScreeningEngine:
                 entity_id=address,
                 entity_type="crypto_address",
                 name=address,
-                screened_at=datetime.now(timezone.utc).isoformat(),
+                screened_at=datetime.now(UTC).isoformat(),
                 result=_classify_result(matches),
                 matches=matches,
                 risk_score=risk_score,
@@ -195,14 +204,14 @@ class ScreeningEngine:
                 entity_id=address,
                 entity_type="crypto_address",
                 name=address,
-                screened_at=datetime.now(timezone.utc).isoformat(),
+                screened_at=datetime.now(UTC).isoformat(),
                 result=_RESULT_ERROR,
                 matches=[],
                 risk_score=0,
                 recommended_action="review",
             )
 
-        self._store(address, result)
+        await self._store(address, result)
         return result
 
     async def batch_screen(
@@ -226,21 +235,49 @@ class ScreeningEngine:
         ]
         return list(await asyncio.gather(*tasks))
 
-    def get_history(self, entity_id: str) -> list[ScreeningResult]:
-        """Return cached screening results for the given entity_id."""
-        import time
-
-        cached = self._cache.get(entity_id)
+    async def get_history(self, entity_id: str) -> list[ScreeningResult]:
+        """Return the cached screening result for the given entity_id, if any."""
+        cached = await self._get_cached(entity_id)
         if cached is None:
             return []
-        result, _ts = cached
-        return [result]
+        return [cached]
 
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
 
-    def _store(self, entity_id: str, result: ScreeningResult) -> None:
-        import time
+    def _cache_key(self, entity_id: str) -> str:
+        return f"{_CACHE_KEY_PREFIX}{entity_id}"
 
-        self._cache[entity_id] = (result, time.time())
+    async def _store(self, entity_id: str, result: ScreeningResult) -> None:
+        """
+        Cache the latest screening result for `entity_id` with a 24h TTL.
+
+        Best-effort: a Redis outage is logged, not raised -- the caller
+        already has the freshly-computed `result` either way.
+        """
+        try:
+            await self._redis.setex(
+                self._cache_key(entity_id),
+                self._cache_ttl_seconds,
+                result.model_dump_json(),
+            )
+        except Exception as exc:
+            logger.warning("screening.cache_store_failed", entity_id=entity_id, error=str(exc))
+
+    async def _get_cached(self, entity_id: str) -> ScreeningResult | None:
+        try:
+            raw = await self._redis.get(self._cache_key(entity_id))
+        except Exception as exc:
+            logger.warning("screening.cache_read_failed", entity_id=entity_id, error=str(exc))
+            return None
+
+        if raw is None:
+            return None
+        if isinstance(raw, bytes):
+            raw = raw.decode("utf-8")
+        try:
+            return ScreeningResult.model_validate_json(raw)
+        except Exception as exc:
+            logger.warning("screening.cache_decode_failed", entity_id=entity_id, error=str(exc))
+            return None

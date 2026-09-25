@@ -117,7 +117,17 @@ class SarReport(BaseModel):
     merchant_id: str
     transaction_ids: list[str] = Field(default_factory=list)
     filing_type: str = Field(description='"initial" | "supplemental"')
-    status: str = Field(description='"draft" | "submitted" | "acknowledged"')
+    status: str = Field(
+        description=(
+            '"draft" — not yet submitted. '
+            '"submitted_unfiled" — submit_sar() was called but no real '
+            "FincenFilingProvider is configured, so this SAR has NOT actually "
+            "reached FinCEN; do not treat it as filed. "
+            '"filed" — a real FincenFilingProvider reported FinCEN actually '
+            "accepted the filing. "
+            '"acknowledged" — FinCEN has acknowledged the filing (webhook/poll).'
+        )
+    )
     activity_description: str
     suspicious_activity_type: list[str] = Field(default_factory=list)
     total_amount: float
@@ -125,6 +135,14 @@ class SarReport(BaseModel):
     activity_end_date: str = Field(description="ISO-8601 date string")
     created_at: str = Field(description="ISO-8601 UTC timestamp")
     submitted_at: str | None = None
+    fincen_acknowledgement_id: str | None = Field(
+        default=None,
+        description=(
+            "Acknowledgement id returned by a real FinCEN BSA e-filing "
+            "submission. Always None while only UnconfiguredFincenFilingProvider "
+            "is wired up -- never fabricated."
+        ),
+    )
 
 
 class CtrReport(BaseModel):

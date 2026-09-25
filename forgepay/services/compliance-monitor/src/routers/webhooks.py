@@ -14,8 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
@@ -195,7 +194,7 @@ def _chainalysis_to_transaction(
         "payment_method": "crypto",
         "payer_country": alert.metadata.get("country", ""),
         "payer_ip_country": "",
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
         "metadata": {
             "source": "chainalysis_kyt",
             "alert_type": alert.alert_type,
@@ -220,7 +219,7 @@ def _elliptic_to_transaction(alert: WebhookEllipticAlert) -> dict[str, Any]:
         "payment_method": "crypto",
         "payer_country": alert.metadata.get("country", ""),
         "payer_ip_country": "",
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
         "metadata": {
             "source": "elliptic",
             "tx_hash": alert.hash,

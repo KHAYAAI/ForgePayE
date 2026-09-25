@@ -63,10 +63,17 @@ class TestProductionRefusesDevKeys:
     def test_production_is_fine_with_dev_api_keys_unset(self) -> None:
         # Confirms the new check is additive -- does not break the existing
         # production-boot path when DEV_API_KEYS is simply absent.
+        #
+        # database_url must be a real (non-default) value here too: this
+        # test predates the DATABASE_URL fail-closed check added alongside
+        # SAR/CTR/KYC/AML persistence, and without it this Settings() call
+        # would correctly fail for an unrelated reason, defeating the point
+        # of this specific test (isolating dev_api_keys behavior).
         Settings(
             environment="production",
             jwt_secret="a" * 32,
             internal_service_secret="something",
+            database_url="postgresql+asyncpg://real:realpass@prod-db.internal:5432/compliance_monitor",
         )
 
 

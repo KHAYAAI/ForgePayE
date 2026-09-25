@@ -26,6 +26,7 @@ from typing import Any
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from src.auth import create_access_token
 from src.monitoring.engine import TransactionMonitoringEngine
@@ -47,13 +48,19 @@ def _auth_headers(merchant_id: str, scopes: list[str]) -> dict[str, str]:
 
 
 @pytest.fixture
-def app() -> FastAPI:
+def app(session_factory: async_sessionmaker) -> FastAPI:
+    """
+    `session_factory` (tests/conftest.py) is a sqlite-backed
+    async_sessionmaker with the sars/ctrs/kyc_records/aml_alerts schema
+    already created -- SarManager and TransactionMonitoringEngine are now
+    real DB-backed managers, not bare no-arg in-memory stores.
+    """
     application = FastAPI()
     application.include_router(monitoring.router)
     application.include_router(reporting.router)
 
-    application.state.monitoring_engine = TransactionMonitoringEngine()
-    application.state.sar_manager = SarManager()
+    application.state.monitoring_engine = TransactionMonitoringEngine(session_factory=session_factory)
+    application.state.sar_manager = SarManager(session_factory=session_factory)
     application.state.ofac_manager = OfacListManager(sdn_url="https://fake.treasury.gov/sdn.xml")
     application.state.eu_manager = EuSanctionsManager(list_url="https://fake.eu/list.xml")
     return application
@@ -64,8 +71,8 @@ def client(app: FastAPI) -> TestClient:
     return TestClient(app)
 
 
-def _seed_alert(app: FastAPI, merchant_id: str, txn_id: str) -> None:
-    """Directly populate the in-memory alert store (avoids network calls)."""
+async def _seed_alert(app: FastAPI, merchant_id: str, txn_id: str) -> None:
+    """Directly persist an alert row (avoids network calls / rule evaluation)."""
     from src.models import TransactionMonitoringResult
     from datetime import datetime, timezone
 
@@ -80,11 +87,11 @@ def _seed_alert(app: FastAPI, merchant_id: str, txn_id: str) -> None:
         decision="review",
         requires_sar=False,
     )
-    app.state.monitoring_engine._alerts.setdefault(merchant_id, []).append(result)
+    await app.state.monitoring_engine._persist_alert(result)
 
 
-def _create_sar(app: FastAPI, merchant_id: str) -> Any:
-    return app.state.sar_manager.create_draft_sar(
+async def _create_sar(app: FastAPI, merchant_id: str) -> Any:
+    return await app.state.sar_manager.create_draft_sar(
         merchant_id=merchant_id,
         transaction_ids=["txn-1"],
         activity_description="test",
@@ -92,8 +99,8 @@ def _create_sar(app: FastAPI, merchant_id: str) -> Any:
     )
 
 
-def _create_ctr(app: FastAPI, merchant_id: str) -> Any:
-    return app.state.sar_manager.create_ctr(
+async def _create_ctr(app: FastAPI, merchant_id: str) -> Any:
+    return await app.state.sar_manager.create_ctr(
         merchant_id=merchant_id,
         transaction_id="txn-1",
         amount=15000.0,
@@ -107,17 +114,17 @@ def _create_ctr(app: FastAPI, merchant_id: str) -> Any:
 # ---------------------------------------------------------------------------
 
 
-def test_alerts_cross_merchant_denied(app: FastAPI, client: TestClient) -> None:
-    _seed_alert(app, MERCHANT_A, "txn-a1")
-    _seed_alert(app, MERCHANT_B, "txn-b1")
+async def test_alerts_cross_merchant_denied(app: FastAPI, client: TestClient) -> None:
+    await _seed_alert(app, MERCHANT_A, "txn-a1")
+    await _seed_alert(app, MERCHANT_B, "txn-b1")
 
     headers = _auth_headers(MERCHANT_A, scopes=["*"])
     resp = client.get(f"/api/v1/monitoring/alerts?merchant_id={MERCHANT_B}", headers=headers)
     assert resp.status_code == 403
 
 
-def test_alerts_same_merchant_allowed(app: FastAPI, client: TestClient) -> None:
-    _seed_alert(app, MERCHANT_A, "txn-a1")
+async def test_alerts_same_merchant_allowed(app: FastAPI, client: TestClient) -> None:
+    await _seed_alert(app, MERCHANT_A, "txn-a1")
 
     headers = _auth_headers(MERCHANT_A, scopes=["*"])
     resp = client.get(f"/api/v1/monitoring/alerts?merchant_id={MERCHANT_A}", headers=headers)
@@ -126,9 +133,9 @@ def test_alerts_same_merchant_allowed(app: FastAPI, client: TestClient) -> None:
     assert all(a["merchant_id"] == MERCHANT_A for a in body)
 
 
-def test_alerts_no_filter_defaults_to_own_merchant(app: FastAPI, client: TestClient) -> None:
-    _seed_alert(app, MERCHANT_A, "txn-a1")
-    _seed_alert(app, MERCHANT_B, "txn-b1")
+async def test_alerts_no_filter_defaults_to_own_merchant(app: FastAPI, client: TestClient) -> None:
+    await _seed_alert(app, MERCHANT_A, "txn-a1")
+    await _seed_alert(app, MERCHANT_B, "txn-b1")
 
     headers = _auth_headers(MERCHANT_A, scopes=["*"])
     resp = client.get("/api/v1/monitoring/alerts", headers=headers)
@@ -137,9 +144,9 @@ def test_alerts_no_filter_defaults_to_own_merchant(app: FastAPI, client: TestCli
     assert body and all(a["merchant_id"] == MERCHANT_A for a in body)
 
 
-def test_alerts_admin_can_see_any_merchant(app: FastAPI, client: TestClient) -> None:
-    _seed_alert(app, MERCHANT_A, "txn-a1")
-    _seed_alert(app, MERCHANT_B, "txn-b1")
+async def test_alerts_admin_can_see_any_merchant(app: FastAPI, client: TestClient) -> None:
+    await _seed_alert(app, MERCHANT_A, "txn-a1")
+    await _seed_alert(app, MERCHANT_B, "txn-b1")
 
     headers = _auth_headers("ops-admin", scopes=["admin"])
     resp = client.get(f"/api/v1/monitoring/alerts?merchant_id={MERCHANT_B}", headers=headers)
@@ -212,51 +219,58 @@ def test_sar_list_cross_merchant_denied(client: TestClient) -> None:
     assert resp.status_code == 403
 
 
-def test_sar_list_same_merchant_allowed(app: FastAPI, client: TestClient) -> None:
-    _create_sar(app, MERCHANT_A)
+async def test_sar_list_same_merchant_allowed(app: FastAPI, client: TestClient) -> None:
+    await _create_sar(app, MERCHANT_A)
     headers = _auth_headers(MERCHANT_A, scopes=["*"])
     resp = client.get(f"/api/v1/reporting/sar?merchant_id={MERCHANT_A}", headers=headers)
     assert resp.status_code == 200
     assert all(s["merchant_id"] == MERCHANT_A for s in resp.json())
 
 
-def test_sar_detail_cross_merchant_denied(app: FastAPI, client: TestClient) -> None:
-    sar = _create_sar(app, MERCHANT_B)
+async def test_sar_detail_cross_merchant_denied(app: FastAPI, client: TestClient) -> None:
+    sar = await _create_sar(app, MERCHANT_B)
     headers = _auth_headers(MERCHANT_A, scopes=["*"])
     resp = client.get(f"/api/v1/reporting/sar/{sar.id}", headers=headers)
     assert resp.status_code == 403
 
 
-def test_sar_detail_same_merchant_allowed(app: FastAPI, client: TestClient) -> None:
-    sar = _create_sar(app, MERCHANT_A)
+async def test_sar_detail_same_merchant_allowed(app: FastAPI, client: TestClient) -> None:
+    sar = await _create_sar(app, MERCHANT_A)
     headers = _auth_headers(MERCHANT_A, scopes=["*"])
     resp = client.get(f"/api/v1/reporting/sar/{sar.id}", headers=headers)
     assert resp.status_code == 200
     assert resp.json()["merchant_id"] == MERCHANT_A
 
 
-def test_sar_detail_admin_allowed(app: FastAPI, client: TestClient) -> None:
-    sar = _create_sar(app, MERCHANT_B)
+async def test_sar_detail_admin_allowed(app: FastAPI, client: TestClient) -> None:
+    sar = await _create_sar(app, MERCHANT_B)
     headers = _auth_headers("ops-admin", scopes=["admin"])
     resp = client.get(f"/api/v1/reporting/sar/{sar.id}", headers=headers)
     assert resp.status_code == 200
 
 
-def test_sar_submit_cross_merchant_denied(app: FastAPI, client: TestClient) -> None:
-    sar = _create_sar(app, MERCHANT_B)
+async def test_sar_submit_cross_merchant_denied(app: FastAPI, client: TestClient) -> None:
+    sar = await _create_sar(app, MERCHANT_B)
     headers = _auth_headers(MERCHANT_A, scopes=["*"])
     resp = client.put(f"/api/v1/reporting/sar/{sar.id}/submit", headers=headers)
     assert resp.status_code == 403
     # And the SAR must not have been mutated.
-    assert app.state.sar_manager.get_sar(sar.id).status == "draft"
+    persisted = await app.state.sar_manager.get_sar(sar.id)
+    assert persisted.status == "draft"
 
 
-def test_sar_submit_same_merchant_allowed(app: FastAPI, client: TestClient) -> None:
-    sar = _create_sar(app, MERCHANT_A)
+async def test_sar_submit_same_merchant_allowed(app: FastAPI, client: TestClient) -> None:
+    sar = await _create_sar(app, MERCHANT_A)
     headers = _auth_headers(MERCHANT_A, scopes=["*"])
     resp = client.put(f"/api/v1/reporting/sar/{sar.id}/submit", headers=headers)
     assert resp.status_code == 200
-    assert resp.json()["status"] == "submitted"
+    # No real FincenFilingProvider is configured (UnconfiguredFincenFilingProvider
+    # is the default), so this must land on the distinct "submitted_unfiled"
+    # status -- never the same "submitted"/"filed" value a real FinCEN
+    # acceptance would produce. See src/reporting/fincen.py.
+    body = resp.json()
+    assert body["status"] == "submitted_unfiled"
+    assert body["fincen_acknowledgement_id"] is None
 
 
 def test_create_sar_for_other_merchant_denied(client: TestClient) -> None:
@@ -288,8 +302,8 @@ def test_ctr_list_cross_merchant_denied(client: TestClient) -> None:
     assert resp.status_code == 403
 
 
-def test_ctr_list_admin_allowed(app: FastAPI, client: TestClient) -> None:
-    _create_ctr(app, MERCHANT_B)
+async def test_ctr_list_admin_allowed(app: FastAPI, client: TestClient) -> None:
+    await _create_ctr(app, MERCHANT_B)
     headers = _auth_headers("ops-admin", scopes=["admin"])
     resp = client.get(f"/api/v1/reporting/ctr?merchant_id={MERCHANT_B}", headers=headers)
     assert resp.status_code == 200

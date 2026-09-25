@@ -31,8 +31,8 @@ Upstream services:
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
 
 import structlog
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -41,18 +41,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from slowapi import Limiter
-from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 from src.auth import register_api_key
 from src.config import get_settings
+from src.db.session import dispose_engine, get_session_factory
 from src.kyc.manager import KycManager
 from src.monitoring.engine import TransactionMonitoringEngine
 from src.observability.metrics import prometheus_registry
 from src.observability.middleware import PrometheusMiddleware
-from src.ofac.feed import ListType, OfacFeedManager
+from src.ofac.feed import OfacFeedManager
 from src.reporting.sar import SarManager
-from src.routers import monitoring, reporting, sanctions, screening, webhooks, ofac_screening
+from src.routers import monitoring, ofac_screening, reporting, sanctions, screening, webhooks
 from src.sanctions.eu_list import EuSanctionsManager
 from src.sanctions.ofac import OfacListManager
 from src.sanctions.screening import TransactionScreeningEngine
@@ -142,17 +143,31 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.warning("redis.connection_failed", error=str(exc))
         redis_client = None
 
+    # ── Database (SAR/CTR/KYC/AML alerts — real regulatory records) ────────────
+    # settings.database_url is required in production (see config.py's
+    # model_post_init fail-closed check); no in-memory fallback exists here.
+    session_factory = get_session_factory()
+
     # ── Singletons ────────────────────────────────────────────────────────────
     ofac_manager = OfacListManager(sdn_url=settings.ofac_sdn_url)
     eu_manager = EuSanctionsManager(list_url=settings.eu_sanctions_url)
+    # The screening result cache is just that -- a cache, not a regulatory
+    # record -- so unlike the DB-backed managers below it tolerates a
+    # not-yet-connected Redis client: real calls are attempted lazily and
+    # failures are caught per-call inside ScreeningEngine (see its docstring).
+    screening_redis_client = redis_client or redis.from_url(
+        settings.redis_url, decode_responses=False
+    )
     screening_engine = ScreeningEngine(
         ofac=ofac_manager,
         eu=eu_manager,
+        redis_client=screening_redis_client,
         threshold=settings.fuzzy_match_threshold,
+        cache_ttl_seconds=settings.screening_cache_ttl,
     )
-    monitoring_engine = TransactionMonitoringEngine()
-    kyc_manager = KycManager()
-    sar_manager = SarManager()
+    monitoring_engine = TransactionMonitoringEngine(session_factory=session_factory)
+    kyc_manager = KycManager(session_factory=session_factory)
+    sar_manager = SarManager(session_factory=session_factory)
 
     # ── OFAC real-time feed manager (for CSV-based screening) ──────────────────
     ofac_feed_manager = None
@@ -278,6 +293,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # ── Shutdown ──────────────────────────────────────────────────────────────
     logger.info("compliance_monitor.shutdown")
     scheduler.shutdown(wait=False)
+    await dispose_engine()
 
 
 # ---------------------------------------------------------------------------
@@ -356,11 +372,16 @@ async def health() -> dict:
         status: "ok"
         ofac_list_age_hours: hours since last OFAC SDN refresh (inf = never loaded)
         eu_list_age_hours: hours since last EU list refresh
-        monitored_entities: count of entities in the screening result cache
+
+    Note: the screening result cache moved from an in-memory dict to Redis
+    (see src/screening/engine.py), so a live count of cached entities is no
+    longer a cheap in-process read -- it would need a Redis SCAN over the
+    "compliance-monitor:screening:*" keyspace, which is too expensive to do
+    on every liveness probe. The "monitored_entities" field this endpoint
+    used to report has been dropped rather than kept as a fake/expensive stat.
     """
     ofac: OfacListManager = app.state.ofac_manager
     eu: EuSanctionsManager = app.state.eu_manager
-    screening: ScreeningEngine = app.state.screening_engine
 
     return {
         "status": "ok",
@@ -369,7 +390,6 @@ async def health() -> dict:
         "eu_list_age_hours": round(eu.get_list_age_hours(), 2),
         "ofac_entry_count": ofac.entry_count(),
         "eu_entry_count": eu.entry_count(),
-        "monitored_entities": len(screening._cache),
     }
 
 
@@ -383,8 +403,9 @@ async def readyz() -> dict:
     ofac_ok = ofac.get_list_age_hours() < 25.0
 
     if not ofac_ok:
-        from fastapi import Response
         import json
+
+        from fastapi import Response
 
         return Response(
             content=json.dumps(

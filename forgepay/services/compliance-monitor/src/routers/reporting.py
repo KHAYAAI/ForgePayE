@@ -41,7 +41,7 @@ async def create_sar(
     require_merchant_access(caller, body.merchant_id)
 
     mgr = _sar_manager(request)
-    return mgr.create_draft_sar(
+    return await mgr.create_draft_sar(
         merchant_id=body.merchant_id,
         transaction_ids=body.transaction_ids,
         activity_description=body.activity_description,
@@ -66,7 +66,7 @@ async def list_sars(
 ) -> list[SarReport]:
     mgr = _sar_manager(request)
     effective_merchant_id = scoped_merchant_id(caller, merchant_id)
-    return mgr.get_sars(merchant_id=effective_merchant_id, status=sar_status)
+    return await mgr.get_sars(merchant_id=effective_merchant_id, status=sar_status)
 
 
 @router.get(
@@ -80,7 +80,7 @@ async def get_sar(
     caller: Annotated[dict, Depends(require_auth)],
 ) -> SarReport:
     mgr = _sar_manager(request)
-    sar = mgr.get_sar(sar_id)
+    sar = await mgr.get_sar(sar_id)
     if sar is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -101,11 +101,11 @@ async def submit_sar(
     caller: Annotated[dict, Depends(require_auth)],
 ) -> SarReport:
     mgr = _sar_manager(request)
-    existing = mgr.get_sar(sar_id)
+    existing = await mgr.get_sar(sar_id)
     if existing is not None:
         require_merchant_access(caller, existing.merchant_id)
     try:
-        return mgr.submit_sar(sar_id)
+        return await mgr.submit_sar(sar_id)
     except KeyError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
@@ -129,7 +129,7 @@ async def list_ctrs(
 ) -> list[CtrReport]:
     mgr = _sar_manager(request)
     effective_merchant_id = scoped_merchant_id(caller, merchant_id)
-    return mgr.get_ctrs(merchant_id=effective_merchant_id, status=ctr_status)
+    return await mgr.get_ctrs(merchant_id=effective_merchant_id, status=ctr_status)
 
 
 @router.get(
@@ -146,8 +146,8 @@ async def dashboard(
     ofac = request.app.state.ofac_manager
     eu = request.app.state.eu_manager
 
-    stats = sar_mgr.get_dashboard_stats()
-    all_alerts = monitoring_engine.get_alerts()
+    stats = await sar_mgr.get_dashboard_stats()
+    all_alerts = await monitoring_engine.get_alerts()
 
     stats["monitoring"] = {
         "total_alerts": len(all_alerts),

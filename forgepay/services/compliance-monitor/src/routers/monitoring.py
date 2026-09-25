@@ -58,7 +58,7 @@ async def list_alerts(
 ) -> list[TransactionMonitoringResult]:
     engine = _engine(request)
     effective_merchant_id = scoped_merchant_id(caller, merchant_id)
-    return engine.get_alerts(merchant_id=effective_merchant_id)
+    return await engine.get_alerts(merchant_id=effective_merchant_id)
 
 
 @router.get(

@@ -47,6 +47,21 @@ class Settings(BaseSettings):
     )
     redis_url: str = Field(default="redis://localhost:6379/2", alias="REDIS_URL")
 
+    # ── Database ──────────────────────────────────────────────────────────────
+    # SAR/CTR filings, KYC records and AML alerts are real regulatory records --
+    # they live in Postgres, not in a process-local dict. The value below is a
+    # local-dev default only; model_post_init below refuses to boot production
+    # with it still set (same "fail closed" convention as jwt_secret above).
+    database_url: str = Field(
+        default="postgresql+asyncpg://forgepay:devpassword@localhost:5432/compliance_monitor_dev",
+        alias="DATABASE_URL",
+    )
+
+    # ── Screening cache (Redis) ──────────────────────────────────────────────
+    screening_cache_ttl: int = Field(
+        default=86_400, alias="SCREENING_CACHE_TTL"
+    )  # 24 hours in seconds -- see src/screening/engine.py
+
     # ── Sanctions list URLs ───────────────────────────────────────────────────
     ofac_sdn_url: str = Field(
         default="https://www.treasury.gov/ofac/downloads/sdn.xml",
@@ -130,6 +145,16 @@ class Settings(BaseSettings):
                     "DEV_API_KEYS must not be set in production — API keys belong in the "
                     "database, provisioned through register_api_key() at runtime, not baked "
                     "into a deploy manifest as plaintext."
+                )
+            if self.database_url == (
+                "postgresql+asyncpg://forgepay:devpassword@localhost:5432/compliance_monitor_dev"
+            ):
+                errors.append(
+                    "DATABASE_URL must be set to a real production database in production "
+                    "(current value is the local-dev default). SAR/CTR filings, KYC records "
+                    "and AML alerts are regulatory records -- this service must never boot "
+                    "against a placeholder database, and must never silently fall back to an "
+                    "in-memory store."
                 )
             if errors:
                 raise ValueError(
