@@ -119,7 +119,13 @@ fabric.properties
 .envrc
 
 ### dotenv ###
-.env
+# Bare `.env` only matched the literal filename — .env.local, .env.test,
+# .env.sepolia and similar variants were never covered and got committed
+# for real (forgepay/infra/contracts/.env.test held what looks like a real
+# private key). `.env*` catches every variant; `.env*.example` opts the
+# example/template files (which are meant to be committed) back in.
+.env*
+!.env*.example
 .oneclick-setup.env
 
 ### Linux ###
