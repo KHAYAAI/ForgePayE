@@ -1,0 +1,1054 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <title>FORGE The Revenue Ontology</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="description" content="FORGE is the Revenue Ontology a financial operating system that normalizes cards, stablecoins, crypto, autonomous agents and tokenized real-world assets into one canonical event."/>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:ital,wght@0,200;0,300;0,400;0,500;0,600;0,700;1,300;1,400;1,500&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+
+  <template id="__bundler_thumbnail" data-bg-color="#F4F2EE">
+    <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+      <rect width="200" height="200" fill="#F4F2EE"/>
+      <g transform="translate(50, 50)">
+        <text x="50" y="60" font-family="JetBrains Mono" font-size="36" font-weight="700" text-anchor="middle" fill="#0A0A0A" letter-spacing="2">FORGE</text>
+        <line x1="30" y1="80" x2="70" y2="80" stroke="#6F6A62" stroke-width="1"/>
+        <circle cx="50" cy="50" r="35" fill="none" stroke="#0A0A0A" stroke-width="2"/>
+      </g>
+    </svg>
+  </template>
+  <style>
+    :root {
+      --ink: #0A0A0A; --ink-2: #1A1A1A;
+      --paper: #F4F2EE; --paper-deep: #ECE8E0; --paper-soft: #EFEBE3;
+      --steel: #6F6A62; --steel-2: #8B8579;
+      --hair: #C9C3B7; --hair-dark: #2A2A2A;
+      --pad: clamp(20px, 4vw, 64px); --maxw: 1320px;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body { background: var(--paper); color: var(--ink); font-family: 'Inter Tight', sans-serif; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+    .mono { font-family: 'JetBrains Mono', monospace; letter-spacing: 1.4px; text-transform: uppercase; font-size: 11px; color: var(--steel); }
+    .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 var(--pad); }
+    a { color: inherit; text-decoration: none; }
+    .eye { display: flex; align-items: center; gap: 12px; }
+    .eye .tick { width: 24px; height: 1px; background: var(--steel); }
+    .eye-light .tick { background: rgba(244,242,238,0.5); }
+    .eye-light .mono { color: rgba(244,242,238,0.5); }
+    .mark { display: inline-flex; align-items: center; color: var(--ink); }
+    .mark svg { display: block; }
+
+    /* NAV */
+    nav.top { position: sticky; top: 0; z-index: 50; background: rgba(244,242,238,0.86); backdrop-filter: saturate(180%) blur(12px); -webkit-backdrop-filter: saturate(180%) blur(12px); border-bottom: 1px solid var(--hair); }
+    nav.top .row { display: flex; align-items: center; justify-content: space-between; height: 64px; gap: 24px; }
+    nav.top ul { display: flex; gap: 24px; list-style: none; padding: 0; margin: 0; align-items: center; }
+    nav.top ul a { font-size: 13px; color: var(--ink); transition: opacity .15s; }
+    nav.top ul a:hover { opacity: 0.55; }
+    .dropdown { position: relative; }
+    .dropdown > button { background: none; border: 0; padding: 0; font: inherit; cursor: pointer; font-size: 13px; color: var(--ink); display: inline-flex; align-items: center; gap: 6px; }
+    .dropdown > button::after { content: "↓"; font-family: 'JetBrains Mono', monospace; font-size: 10px; opacity: 0.6; }
+    .dropdown:hover .menu, .dropdown:focus-within .menu { display: grid; }
+    .dropdown .menu { display: none; position: absolute; top: calc(100% + 16px); left: -16px; background: var(--paper); border: 1px solid var(--hair); padding: 18px; min-width: 580px; grid-template-columns: 1fr 1fr; gap: 0 24px; box-shadow: 0 12px 40px rgba(10,10,10,0.08); }
+    .dropdown .menu .menu-section-wide { grid-column: 1 / -1; margin-top: 14px; }
+    .menu-section .menu-section-h { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--steel); padding: 0 12px 12px; border-bottom: 1px solid var(--hair); margin-bottom: 4px; }
+    .dropdown .menu a { display: block; padding: 10px 12px; font-size: 13px; transition: background .12s; }
+    .dropdown .menu a:hover { background: var(--paper-deep); opacity: 1; }
+    .dropdown .menu a .mn { display: block; font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 1.4px; color: var(--steel); margin-top: 2px; text-transform: uppercase; }
+    nav.top .cta { font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 2px; text-transform: uppercase; padding: 10px 16px; background: var(--ink); color: var(--paper); transition: opacity .15s; }
+    nav.top .cta:hover { opacity: 0.82; }
+    @media (max-width: 880px) { nav.top ul { display: none; } }
+
+    /* buttons */
+    .btn-ink, .btn-ghost { font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 2px; text-transform: uppercase; padding: 14px 22px; cursor: pointer; border: 1px solid var(--ink); display: inline-block; transition: opacity .15s; }
+    .btn-ink { background: var(--ink); color: var(--paper); }
+    .btn-ghost { background: transparent; color: var(--ink); }
+    .btn-ink:hover, .btn-ghost:hover { opacity: 0.82; }
+
+    /* generic */
+    section { padding: clamp(64px, 9vw, 120px) 0; border-bottom: 1px solid var(--hair); }
+    section.ink { background: var(--ink); color: var(--paper); border-bottom: 0; }
+    section.deep { background: var(--paper-deep); }
+    .on-ink .mono { color: rgba(244,242,238,0.5); }
+    .lede { font-size: clamp(15px, 1.6vw, 18px); line-height: 1.55; color: var(--steel); max-width: 560px; }
+    .on-ink .lede { color: rgba(244,242,238,0.78); }
+
+    /* HERO */
+    .hero { padding: clamp(60px, 9vw, 130px) 0 clamp(56px, 8vw, 110px); position: relative; overflow: hidden; }
+    .hero-art { position: absolute; top: 50%; right: -4%; transform: translateY(-46%); width: clamp(280px, 34vw, 460px); opacity: 0.92; pointer-events: none; z-index: 0; }
+    .hero .wrap { position: relative; z-index: 1; }
+    @media (max-width: 760px) { .hero-art { display: none; } }
+    .hero .meta-top { display: flex; justify-content: space-between; margin-bottom: clamp(40px, 8vw, 90px); flex-wrap: wrap; gap: 16px; }
+    .hero h1 { font-weight: 500; font-size: clamp(52px, 9.6vw, 150px); line-height: 0.9; letter-spacing: -3.5px; margin: 0 0 32px; }
+    .hero h1 em { font-style: italic; font-weight: 300; }
+    .hero .lede { max-width: 680px; margin-bottom: 38px; }
+    .hero .actions { display: flex; gap: 12px; flex-wrap: wrap; }
+    .hero .stamp { margin-top: clamp(48px, 7vw, 88px); padding-top: 24px; border-top: 1px solid var(--hair); display: grid; grid-template-columns: repeat(5, 1fr); gap: 24px; }
+    .hero .stamp .k { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--steel); }
+    .hero .stamp .v { font-size: clamp(22px, 2.4vw, 30px); font-weight: 500; margin-top: 6px; letter-spacing: -0.4px; }
+    @media (max-width: 780px) { .hero .stamp { grid-template-columns: repeat(2, 1fr); } }
+
+    /* MOAT / institutional statement band */
+    .statement { background: var(--ink); color: var(--paper); border-bottom: 0; }
+    .statement .lab { display: flex; justify-content: space-between; align-items: center; margin-bottom: clamp(36px, 5vw, 56px); flex-wrap: wrap; gap: 16px; }
+    .statement h2 { font-size: clamp(44px, 7.4vw, 116px); font-weight: 500; letter-spacing: -2.8px; line-height: 0.92; margin: 0; max-width: 16ch; }
+    .statement h2 em { font-style: italic; font-weight: 300; }
+    .statement .row2 { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: clamp(28px, 6vw, 96px); margin-top: clamp(40px, 6vw, 72px); align-items: end; }
+    .statement .row2 p { font-size: clamp(15px, 1.6vw, 17px); line-height: 1.55; color: rgba(244,242,238,0.78); max-width: 520px; margin: 0; }
+    .statement .row2 p + p { margin-top: 18px; }
+    .statement .right .item { display: grid; grid-template-columns: 40px 1fr; gap: 16px; padding: 14px 0; border-top: 1px solid rgba(244,242,238,0.18); }
+    .statement .right .item:last-child { border-bottom: 1px solid rgba(244,242,238,0.18); }
+    .statement .right .n { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: rgba(244,242,238,0.55); letter-spacing: 1.5px; }
+    .statement .right .body strong { font-weight: 500; font-size: 15px; display: block; margin-bottom: 4px; }
+    .statement .right .body span { font-size: 13px; color: rgba(244,242,238,0.65); line-height: 1.5; }
+    @media (max-width: 880px) { .statement .row2 { grid-template-columns: 1fr; } }
+
+    /* PILLARS */
+    .head-split { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; align-items: end; margin-bottom: clamp(40px, 6vw, 64px); }
+    @media (max-width: 880px) { .head-split { grid-template-columns: 1fr; } }
+    h2.big { font-size: clamp(36px, 5.4vw, 72px); line-height: 0.98; letter-spacing: -1.6px; font-weight: 500; margin: 16px 0 0; }
+    h2.big em { font-style: italic; font-weight: 300; }
+    .pillars { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--hair); border: 1px solid var(--hair); }
+    .pillar { background: var(--paper); padding: clamp(22px, 2.4vw, 36px); display: flex; flex-direction: column; gap: 14px; min-height: 280px; }
+    .pillar .pn { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 1.6px; color: var(--steel); text-transform: uppercase; }
+    .pillar h3 { font-size: clamp(20px, 2vw, 26px); font-weight: 500; letter-spacing: -0.4px; margin: 0; line-height: 1.05; }
+    .pillar p { font-size: 13.5px; color: var(--steel); line-height: 1.55; margin: 0; }
+    .pillar .tags { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.6px; color: var(--steel); line-height: 1.7; margin-top: auto; }
+    .pillar a.read { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--ink); border-bottom: 1px solid var(--ink); align-self: flex-start; padding-bottom: 2px; }
+    .pillar a.read:hover { opacity: 0.6; }
+    @media (max-width: 880px) { .pillars { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 520px) { .pillars { grid-template-columns: 1fr; } }
+
+    /* FEATURE GRID (Agentic Commerce Stack, etc.) */
+    .feature-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: rgba(244,242,238,0.14); border: 1px solid rgba(244,242,238,0.14); margin-top: 8px; }
+    .feature-grid .cell { background: var(--ink); padding: clamp(24px, 2.4vw, 34px); display: flex; flex-direction: column; gap: 10px; min-height: 220px; }
+    .feature-grid .cell .num { width: 34px; height: 34px; border: 1px solid rgba(244,242,238,0.3); display: flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: rgba(244,242,238,0.75); margin-bottom: 4px; }
+    .feature-grid .label { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: rgba(244,242,238,0.5); }
+    .feature-grid .cell h3 { font-size: clamp(17px, 1.9vw, 21px); font-weight: 500; letter-spacing: -0.3px; margin: 0; color: var(--paper); }
+    .feature-grid .cell p { font-size: 13.5px; line-height: 1.55; color: rgba(244,242,238,0.68); margin: 0; }
+    @media (max-width: 880px) { .feature-grid { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 520px) { .feature-grid { grid-template-columns: 1fr; } }
+    .products-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 1px; background: var(--hair); border: 1px solid var(--hair); }
+    .products-grid .pillar { grid-column: span 2; }
+    .products-grid .pillar:nth-child(4), .products-grid .pillar:nth-child(5) { grid-column: span 3; }
+    @media (max-width: 880px) { .products-grid { grid-template-columns: repeat(2, 1fr); } .products-grid .pillar, .products-grid .pillar:nth-child(4), .products-grid .pillar:nth-child(5) { grid-column: span 1; } }
+    @media (max-width: 520px) { .products-grid { grid-template-columns: 1fr; } }
+
+    /* DIAGRAM (how it works) */
+    .diagram { display: flex; flex-direction: column; gap: 0; }
+    .row-cells { display: grid; gap: 10px; }
+    .cell-box { background: var(--paper); border: 1px solid var(--ink); padding: 18px; display: flex; flex-direction: column; justify-content: space-between; min-height: 92px; }
+    .cell-box.ink { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+    .cell-box.ghost { background: repeating-linear-gradient(45deg, var(--paper-soft), var(--paper-soft) 4px, var(--paper-deep) 4px, var(--paper-deep) 8px); border-color: var(--hair); }
+    .cell-box .name { font-size: 16px; font-weight: 500; letter-spacing: -0.2px; }
+    .cell-box .desc { font-size: 12px; color: var(--steel); line-height: 1.5; margin-top: 6px; }
+    .cell-box.ink .desc { color: rgba(244,242,238,0.65); }
+    .cell-box .tag { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--steel); margin-bottom: 4px; }
+    .cell-box.ink .tag { color: rgba(244,242,238,0.55); }
+    .cell-box .pill { display: inline-block; margin-top: 8px; padding: 2px 8px; background: var(--ink); color: var(--paper); font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: 1.4px; text-transform: uppercase; align-self: flex-start; }
+    .arrow { display: flex; align-items: center; justify-content: center; color: var(--steel); font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 1.5px; gap: 8px; padding: 14px 0; }
+    .arrow::before, .arrow::after { content: ""; flex: 1; height: 1px; background: var(--hair); max-width: 100px; }
+    .row-a { grid-template-columns: 1fr; max-width: 360px; margin: 0 auto; }
+    .row-b { grid-template-columns: repeat(5, 1fr); }
+    .row-c { grid-template-columns: 1fr; max-width: 520px; margin: 0 auto; }
+    .row-e { grid-template-columns: 1fr; max-width: 380px; margin: 0 auto; }
+    @media (max-width: 880px) { .row-b { grid-template-columns: repeat(2, 1fr); } }
+
+    /* DEV cards */
+    .dev-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--hair); border: 1px solid var(--hair); }
+    .dev-card { background: var(--ink); color: var(--paper); padding: clamp(22px, 2.4vw, 32px); display: flex; flex-direction: column; gap: 16px; }
+    .dev-card .dl { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 1.6px; text-transform: uppercase; color: rgba(244,242,238,0.5); }
+    .dev-card h3 { font-size: clamp(20px, 2vw, 26px); font-weight: 500; letter-spacing: -0.4px; margin: 0; line-height: 1.05; }
+    .dev-card h3 em { font-style: italic; font-weight: 300; }
+    .dev-card pre { font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.8; margin: 0; background: rgba(244,242,238,0.05); border: 1px solid rgba(244,242,238,0.12); padding: 16px; overflow-x: auto; color: var(--paper); }
+    .dev-card pre .c { color: rgba(244,242,238,0.45); }
+    .dev-card pre .k { color: rgba(244,242,238,0.6); }
+    .dev-card pre b { font-weight: 700; }
+    @media (max-width: 880px) { .dev-grid { grid-template-columns: 1fr; } }
+
+    /* STAT band */
+    .stats { background: var(--ink); color: var(--paper); border-bottom: 0; }
+    .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; border-top: 1px solid rgba(244,242,238,0.2); }
+    .stat-cell { padding: clamp(28px, 4vw, 48px) 0; padding-right: 24px; border-right: 1px solid rgba(244,242,238,0.2); }
+    .stat-cell:last-child { border-right: 0; }
+    .stat-cell .v { font-family: 'Inter Tight', sans-serif; font-weight: 300; font-size: clamp(64px, 9vw, 132px); line-height: 0.82; letter-spacing: -3px; }
+    .stat-cell .v span { font-weight: 200; color: rgba(244,242,238,0.45); }
+    .stat-cell .k { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: rgba(244,242,238,0.5); margin-top: 16px; }
+    .stat-cell p { font-size: 13.5px; color: rgba(244,242,238,0.7); margin: 10px 0 0; line-height: 1.5; max-width: 280px; }
+    @media (max-width: 880px) { .stat-grid { grid-template-columns: 1fr; } .stat-cell { border-right: 0; border-bottom: 1px solid rgba(244,242,238,0.2); padding-right: 0; } .stat-cell:last-child { border-bottom: 0; } }
+
+    /* OS LAYERS */
+    .os-layers { display: flex; flex-direction: column; }
+    .os-layer { display: grid; grid-template-columns: 130px 1fr; gap: 24px; padding: 18px 0; border-top: 1px solid var(--hair); align-items: baseline; }
+    .os-layer:last-child { border-bottom: 1px solid var(--hair); }
+    .os-layer .ln { font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--steel); }
+    .os-layer .ld { font-size: clamp(16px, 1.8vw, 21px); font-weight: 500; letter-spacing: -0.3px; }
+    .os-layer .ld span { color: var(--steel); font-weight: 400; font-size: 14px; }
+
+    /* PRICING */
+    .plans { display: grid; grid-template-columns: 1fr 1fr; gap: 0; border: 1px solid var(--ink); }
+    .plan { padding: clamp(28px, 4vw, 48px); border-right: 1px solid var(--ink); display: flex; flex-direction: column; gap: 20px; }
+    .plan:last-child { border-right: 0; background: var(--ink); color: var(--paper); }
+    .plan .tier { font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: var(--steel); }
+    .plan:last-child .tier { color: rgba(244,242,238,0.55); }
+    .plan h3 { font-size: clamp(36px, 5vw, 56px); font-weight: 500; letter-spacing: -1.2px; margin: 0; }
+    .plan h3 em { font-style: italic; font-weight: 300; }
+    .plan .price { display: flex; align-items: baseline; gap: 8px; padding-bottom: 16px; border-bottom: 1px solid var(--hair); }
+    .plan:last-child .price { border-bottom-color: rgba(244,242,238,0.2); }
+    .plan .price .num { font-size: 48px; font-weight: 500; letter-spacing: -1.2px; }
+    .plan .price .per { font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--steel); }
+    .plan:last-child .price .per { color: rgba(244,242,238,0.55); }
+    .plan ul { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0; }
+    .plan ul li { display: grid; grid-template-columns: 120px 1fr; gap: 12px; font-size: 14px; padding: 11px 0; border-bottom: 1px solid var(--hair); }
+    .plan:last-child ul li { border-bottom-color: rgba(244,242,238,0.18); }
+    .plan ul li:last-child { border-bottom: 0; }
+    .plan ul li .k { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--steel); padding-top: 3px; }
+    .plan:last-child ul li .k { color: rgba(244,242,238,0.55); }
+    .plan ul li .v.no { color: var(--steel); }
+    .plan:last-child ul li .v.no { color: rgba(244,242,238,0.5); }
+    .plan .foot { margin-top: auto; padding-top: 8px; }
+    .plans.veiled .plan { filter: blur(5px); opacity: 0.42; user-select: none; pointer-events: none; }
+    .plans-veil { position: relative; }
+    .plans-veil .veil-note { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; z-index: 2; }
+    .plans-veil .veil-note .soon-badge { position: static; }
+    @media (max-width: 720px) { .plans { grid-template-columns: 1fr; } .plan { border-right: 0; border-bottom: 1px solid var(--ink); } .plan:last-child { border-bottom: 0; } }
+
+    /* ZK band */
+    .zk { background: var(--ink); color: var(--paper); border-bottom: 0; }
+    .zk .lab { display: flex; justify-content: space-between; margin-bottom: clamp(36px, 5vw, 56px); flex-wrap: wrap; gap: 16px; align-items: center; }
+    .zk h2 { font-size: clamp(48px, 8.4vw, 128px); font-weight: 500; letter-spacing: -3px; line-height: 0.9; margin: 0; max-width: 12ch; }
+    .zk h2 em { font-style: italic; font-weight: 300; }
+    .zk .grid { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(28px, 5vw, 64px); align-items: stretch; margin-top: 40px; }
+    .zk p { font-size: 15px; line-height: 1.55; color: rgba(244,242,238,0.78); max-width: 460px; }
+    .cipher { background: rgba(244,242,238,0.04); border: 1px solid rgba(244,242,238,0.18); padding: 24px; font-family: 'JetBrains Mono', monospace; font-size: 11px; line-height: 1.7; letter-spacing: 1px; min-height: 260px; position: relative; overflow: hidden; }
+    .cipher::after { content: "TRANSMISSION INTERRUPTED"; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(10,10,10,0.55); color: #ff5e5e; font-size: 12px; letter-spacing: 4px; animation: scan 2.4s linear infinite; }
+    @keyframes scan { 0%,45% { opacity: 0; } 50% { opacity: 1; } 55%,100% { opacity: 0; } }
+    .cipher .h { display: flex; justify-content: space-between; padding-bottom: 12px; border-bottom: 1px solid rgba(244,242,238,0.18); margin-bottom: 12px; }
+    .cipher .h span { color: rgba(244,242,238,0.5); }
+    .cipher .body { color: rgba(244,242,238,0.6); }
+    @media (max-width: 880px) { .zk .grid { grid-template-columns: 1fr; } }
+    .soon-badge { display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px; background: var(--paper); color: var(--ink); font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 1.6px; text-transform: uppercase; vertical-align: middle; margin-left: 12px; }
+    .soon-badge::before { content: "●"; color: #ff5e5e; font-size: 9px; animation: pulse 1.6s infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+    /* glitch */
+    .glitch { position: relative; display: inline-block; line-height: 1; }
+    .glitch::before, .glitch::after { content: attr(data-text); position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+    .glitch.on-ink::before { color: #ff5e5e; mix-blend-mode: screen; animation: g1 3.2s infinite linear alternate-reverse; transform: translate(-2px,0); clip-path: polygon(0 0,100% 0,100% 45%,0 45%); }
+    .glitch.on-ink::after { color: #00d1ff; mix-blend-mode: screen; animation: g2 2.4s infinite linear alternate-reverse; transform: translate(2px,0); clip-path: polygon(0 55%,100% 55%,100% 100%,0 100%); }
+    @keyframes g1 { 0%{clip-path:polygon(0 0,100% 0,100% 8%,0 8%);transform:translate(-3px,0);} 50%{clip-path:polygon(0 30%,100% 30%,100% 38%,0 38%);} 100%{clip-path:polygon(0 18%,100% 18%,100% 42%,0 42%);transform:translate(2px,0);} }
+    @keyframes g2 { 0%{clip-path:polygon(0 60%,100% 60%,100% 66%,0 66%);transform:translate(3px,0);} 50%{clip-path:polygon(0 72%,100% 72%,100% 88%,0 88%);} 100%{clip-path:polygon(0 80%,100% 80%,100% 95%,0 95%);transform:translate(-2px,0);} }
+
+    /* CTA */
+    .closer { padding: clamp(80px, 12vw, 160px) 0 clamp(60px, 8vw, 100px); }
+    .closer .lab { display: flex; justify-content: space-between; margin-bottom: clamp(40px, 6vw, 72px); flex-wrap: wrap; gap: 16px; }
+    .closer h2 { font-size: clamp(56px, 9vw, 132px); font-weight: 500; line-height: 0.9; letter-spacing: -3px; margin: 0 0 24px; }
+    .closer h2 em { font-style: italic; font-weight: 300; }
+    .closer .keybox { display: flex; align-items: stretch; border: 1px solid var(--ink); margin-top: 44px; max-width: 640px; }
+    .closer .keybox .label { flex: 1; padding: 18px 22px; font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--steel); letter-spacing: 1px; }
+    .closer .keybox .btn { background: var(--ink); color: var(--paper); padding: 18px 26px; font-family: 'JetBrains Mono', monospace; font-size: 12px; letter-spacing: 2px; text-transform: uppercase; cursor: pointer; border: 0; }
+
+    /* FOOTER */
+    footer { background: var(--ink); color: var(--paper); padding: clamp(48px, 6vw, 80px) 0 32px; }
+    footer .grid { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr 1fr; gap: 32px; margin-bottom: 48px; }
+    footer h4 { font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: rgba(244,242,238,0.5); margin: 0 0 16px; font-weight: 500; }
+    footer ul { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; }
+    footer ul a { font-size: 13px; color: rgba(244,242,238,0.85); }
+    footer ul a:hover { color: var(--paper); }
+    footer .brand p { color: rgba(244,242,238,0.6); font-size: 13px; line-height: 1.55; max-width: 320px; margin: 16px 0 0; }
+    footer .meta { display: flex; justify-content: space-between; align-items: center; padding-top: 24px; border-top: 1px solid rgba(244,242,238,0.18); flex-wrap: wrap; gap: 16px; }
+    footer .meta .mono { color: rgba(244,242,238,0.5); }
+    @media (max-width: 880px) { footer .grid { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 480px) { footer .grid { grid-template-columns: 1fr; } }
+      /* ISO 3D PRODUCT FLOW */
+    .iso-stage{position:relative;margin:22px 0 12px;height:470px;perspective:1500px;perspective-origin:50% 42%}
+    .iso-world{position:absolute;left:50%;top:56%;width:520px;height:520px;margin:-260px 0 0 -260px;transform:rotateX(58deg) rotateZ(-38deg);transform-style:preserve-3d}
+    .iso-plane{position:absolute;inset:0;border:1px solid var(--hair);background-image:linear-gradient(var(--hair) 1px,transparent 1px),linear-gradient(90deg,var(--hair) 1px,transparent 1px);background-size:52px 52px;opacity:.55}
+    .iso-hub{position:absolute;left:50%;top:50%;width:112px;height:112px;margin:-56px 0 0 -56px;transform-style:preserve-3d}
+    .iso-hub-plate{position:absolute;inset:0;border:1.5px solid var(--ink);background:var(--paper);box-shadow:0 0 0 7px rgba(10,10,10,.05)}
+    .beam{position:absolute;left:50%;top:50%;width:212px;height:1.5px;background:rgba(10,10,10,.22);transform-origin:0 50%;overflow:hidden}
+    .beam i{position:absolute;top:0;left:0;width:46px;height:100%;background:var(--ink);animation:beamrun 3.4s linear infinite}
+    .beam.b1{transform:rotate(-90deg)}.beam.b1 i{animation-delay:0s}
+    .beam.b2{transform:rotate(-18deg)}.beam.b2 i{animation-delay:.5s}
+    .beam.b3{transform:rotate(54deg)}.beam.b3 i{animation-delay:1s}
+    .beam.b4{transform:rotate(126deg)}.beam.b4 i{animation-delay:1.5s}
+    .beam.b5{transform:rotate(198deg)}.beam.b5 i{animation-delay:2s}
+    @keyframes beamrun{0%{transform:translateX(-46px);opacity:0}12%{opacity:1}88%{opacity:1}100%{transform:translateX(212px);opacity:0}}
+    .node{position:absolute;left:50%;top:50%;width:0;height:0;transform-style:preserve-3d}
+    .node .stem{position:absolute;left:-1px;bottom:0;width:2px;height:var(--h);background:var(--ink);opacity:.5;transform-origin:50% 100%;transform:rotateX(-90deg)}
+    .node .cap{position:absolute;left:-31px;top:-31px;width:62px;height:62px;border:1.5px solid var(--ink);background:var(--paper);display:flex;align-items:center;justify-content:center;transform-style:preserve-3d;transform:translateZ(var(--h));transition:transform .28s cubic-bezier(.2,.7,.3,1),background .2s,color .2s}
+    .node .cap b{display:none}
+    .iso-labels{position:absolute;inset:0;pointer-events:none}
+    .iso-lab{position:absolute;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:2px;font-family:'JetBrains Mono',monospace;line-height:1;white-space:nowrap;transition:opacity .2s}
+    .iso-lab .n{font-size:13px;font-weight:600;letter-spacing:1px}
+    .iso-lab .t{font-size:9.5px;letter-spacing:1.5px;text-transform:uppercase;color:var(--steel)}
+    .node.lit~.iso-labels .iso-lab{opacity:1}
+    .node.lit .cap{background:var(--ink);color:var(--paper);transform:translateZ(calc(var(--h) + 26px))}
+    .node.lit .stem{opacity:.8}
+    .node.n1{--h:98px;transform:rotate(-90deg) translateX(212px) rotate(90deg)}
+    .node.n2{--h:70px;transform:rotate(-18deg) translateX(212px) rotate(18deg)}
+    .node.n3{--h:86px;transform:rotate(54deg) translateX(212px) rotate(-54deg)}
+    .node.n4{--h:62px;transform:rotate(126deg) translateX(212px) rotate(-126deg)}
+    .node.n5{--h:78px;transform:rotate(198deg) translateX(212px) rotate(-198deg)}
+    .iso-legend{display:flex;align-items:center;gap:10px;margin-top:64px;font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:1.6px;text-transform:uppercase;color:var(--steel)}
+    .pillar{transition:border-color .2s}
+    .pillar.lit{border-color:var(--ink)}
+    @media (max-width:1000px){.iso-stage{height:380px}.iso-world{top:58%;transform:scale(.76) rotateX(58deg) rotateZ(-38deg)}}
+    @media (max-width:700px){.iso-stage,.iso-legend{display:none}}
+    @media (prefers-reduced-motion:reduce){.beam i{animation:none;opacity:.35}}
+    .nav-toggle{display:none;background:none;border:1px solid var(--hair);width:44px;height:44px;align-items:center;justify-content:center;cursor:pointer;padding:0;color:inherit}
+    .nav-toggle span{display:block;width:18px;height:1.5px;background:currentColor;position:relative;transition:transform .2s,opacity .2s}
+    .nav-toggle span::before,.nav-toggle span::after{content:"";position:absolute;left:0;width:18px;height:1.5px;background:currentColor;transition:transform .2s}
+    .nav-toggle span::before{top:-6px}.nav-toggle span::after{top:6px}
+    nav.top.open .nav-toggle span{transform:rotate(45deg)}
+    nav.top.open .nav-toggle span::before{transform:rotate(-90deg) translateX(6px)}
+    nav.top.open .nav-toggle span::after{opacity:0}
+    @media (max-width:880px){
+      .nav-toggle{display:flex}
+      nav.top .row{flex-wrap:wrap;row-gap:0}
+      nav.top ul{display:none;flex-direction:column;width:100%;order:9;gap:0;padding:8px 0 12px;margin:12px 0 0;border-top:1px solid var(--hair)}
+      nav.top.open ul{display:flex}
+      nav.top ul li{width:100%;border-bottom:1px solid var(--hair)}
+      nav.top ul li:last-child{border-bottom:0}
+      nav.top ul li a,nav.top .dropdown>button{display:flex;align-items:center;width:100%;min-height:48px;padding:12px 2px;font-size:15px;text-align:left;background:none;border:0;color:inherit;font-family:inherit;cursor:pointer}
+      nav.top .dropdown{position:static}
+      nav.top .dropdown .menu{position:static;display:none;grid-template-columns:1fr;min-width:0;width:100%;box-shadow:none;border:0;border-radius:0;padding:0 0 10px 14px;margin:0;background:transparent;transform:none;opacity:1;visibility:visible}
+      nav.top .dropdown.open .menu{display:grid}
+      nav.top .dropdown .menu a{min-height:44px;padding:10px 0;font-size:14px}
+      nav.top .cta{order:2;min-height:40px;display:inline-flex;align-items:center}
+      .hero h1,h2.big{letter-spacing:-1px}
+      pre{font-size:11.5px}
+    }
+    @media (max-width:520px){
+      nav.top .cta{display:none}
+      table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch}
+    }
+  </style>
+</head>
+<body>
+
+  <!-- NAV -->
+  <nav class="top">
+    <div class="wrap row">
+      <a href="#top" class="mark" aria-label="FORGE home">
+        <svg viewBox="0 0 520 100" height="22" aria-hidden="true">
+          <path d="M0 4 L60 4 L60 18 L16 18 L16 44 L52 44 L52 58 L16 58 L16 96 L0 96 Z" fill="currentColor"/>
+          <g transform="translate(72,4)"><circle cx="46" cy="46" r="42" fill="none" stroke="currentColor" stroke-width="14"/><line x1="-6" y1="46" x2="98" y2="46" stroke="#F4F2EE" stroke-width="2"/></g>
+          <path d="M180 4 L232 4 C250 4 260 16 260 32 C260 44 254 54 244 58 L262 96 L244 96 L228 62 L196 62 L196 96 L180 96 Z M196 18 L196 48 L230 48 C238 48 244 42 244 33 C244 24 238 18 230 18 Z" fill="currentColor"/>
+          <path d="M276 50 C276 22 296 2 324 2 C342 2 358 10 366 24 L353 32 C347 22 336 16 324 16 C305 16 292 30 292 50 C292 70 305 84 324 84 C340 84 352 74 354 60 L326 60 L326 46 L370 46 L370 96 L358 96 L356 84 C350 92 338 98 322 98 C295 98 276 78 276 50 Z" fill="currentColor"/>
+          <path d="M384 4 L448 4 L448 18 L400 18 L400 44 L444 44 L444 58 L400 58 L400 82 L450 82 L450 96 L384 96 Z" fill="currentColor"/>
+        </svg>
+      </a>
+      <ul>
+        <li class="dropdown">
+          <button type="button">Products</button>
+          <div class="menu">
+            <div class="menu-section">
+              <div class="menu-section-h">Five SKUs</div>
+              <a href="products/credit-bureau.html">FORGE Credit Bureau<span class="mn">AI agent identity &amp; credit</span></a>
+              <a href="products/payments.html">FORGE Payments<span class="mn">Card · Bank · Stablecoin checkout</span></a>
+              <a href="products/treasury.html">FORGE Treasury<span class="mn">Enterprise cash management</span></a>
+              <a href="products/custody.html">FORGE Custody<span class="mn">Institutional threshold signing</span></a>
+              <a href="products/wallet.html">FORGE Wallet<span class="mn">Keyless wallets &amp; agent identity</span></a>
+            </div>
+            <div class="menu-section">
+              <div class="menu-section-h">Deep dive</div>
+              <a href="features/ontology.html">Revenue Ontology<span class="mn">The unified ledger</span></a>
+              <a href="features/agents.html">Agentic Commerce<span class="mn">Six-part stack for AI</span></a>
+              <a href="features/mor.html">Global Tax &amp; MoR<span class="mn">200+ countries automated</span></a>
+              <a href="features/privacy.html">Privacy &amp; ZK<span class="mn">Coming soon</span></a>
+            </div>
+            <div class="menu-section menu-section-wide">
+              <div class="menu-section-h">Company</div>
+              <a href="about.html">About<span class="mn">Who we are</span></a>
+              <a href="thesis.html">Thesis<span class="mn">Why we are building this</span></a>
+              <a href="contact.html">Contact<span class="mn">Talk to the team</span></a>
+            </div>
+          </div>
+        </li>
+        <li><a href="#how">How it works</a></li>
+        <li><a href="#pricing">Pricing</a></li>
+        <li><a href="#developers">Developers</a></li>
+      </ul>
+      <a href="#cta" class="cta">Coming soon →</a>
+    </div>
+  </nav>
+
+  <!-- HERO -->
+  <section class="hero" id="top">
+    <div class="wrap">
+      <div class="meta-top">
+        <div class="eye"><span class="mono">MMXXVI</span></div>
+        <span class="mono">The Revenue Ontology</span>
+      </div>
+      <h1>Every form<br/>of <em>value.</em><br/>One platform.</h1>
+      <p class="lede">The Revenue Ontology.<br/>The asset becomes a parameter.<br/>The financial infrastructure company for the agentic age.</p>
+      <div class="actions">
+        <a class="btn-ink" href="#cta">Coming soon →</a>
+        <a class="btn-ghost" href="#how">See how it works</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- AGENTIC COMMERCE STACK -->
+  <section class="ink on-ink">
+    <div class="wrap">
+      <div class="head-split">
+        <div>
+          <div class="eye eye-light"><span class="mono">I</span><span class="tick"></span><span class="mono">Financial infrastructure for autonomous agents</span></div>
+          <h2 class="big" style="color:var(--paper);">The credit bureau<br/>for <em>AI agents</em>.</h2>
+        </div>
+        <p class="lede">FORGE computes verifiable reputation scores from on-chain transaction data. Any protocol can read an agent's trustworthiness before extending credit, insurance, or access. Agents transact with identity, earn reputation, and borrow autonomously no human approval required.</p>
+      </div>
+      
+      <div class="feature-grid">
+        <div class="cell">
+          <div class="num">01</div>
+          <span class="label">Agent Identity</span>
+          <h3>DID Registry</h3>
+          <p>A unique, verifiable digital identifier every agent's passport in the digital economy.</p>
+        </div>
+        <div class="cell">
+          <div class="num">02</div>
+          <span class="label">Reputation &amp; Trust</span>
+          <h3>Transparent scoring</h3>
+          <p>Transactions build a live score. Agents climb from "New" to "Premium," unlocking better terms.</p>
+        </div>
+        <div class="cell">
+          <div class="num">03</div>
+          <span class="label">Decision Framework</span>
+          <h3>Real-time risk engine</h3>
+          <p>Every transaction is checked against your rules and auto-approved, flagged, or declined instantly.</p>
+        </div>
+        <div class="cell">
+          <div class="num">04</div>
+          <span class="label">Negotiation &amp; Escrow</span>
+          <h3>Agent-to-agent deals</h3>
+          <p>Agents quote, agree terms, and lock funds in escrow released only when both sides fulfill.</p>
+        </div>
+        <div class="cell">
+          <div class="num">05</div>
+          <span class="label">Liquidity Manager</span>
+          <h3>Automatic rebalancing</h3>
+          <p>Multi-asset holdings rebalance on their own, so an agent always holds the right token.</p>
+        </div>
+        <div class="cell">
+          <div class="num">06</div>
+          <span class="label">Agent Credit Lines</span>
+          <h3>Autonomous borrowing</h3>
+          <p>Reputation earns a credit line. Agents spend on net terms, becoming true financial participants.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PRODUCT SKUs -->
+  <section id="products">
+    <div class="wrap">
+      <div class="head-split">
+        <div>
+          <div class="eye"><span class="mono">II</span><span class="tick"></span><span class="mono">Five products · one platform</span></div>
+          <h2 class="big">Pick your<br/><em>entry point</em>.</h2>
+        </div>
+        <p class="lede">Start with agent credit, add payments, layer in treasury, custody and wallets. Each product is self-contained but shares the same Revenue Ontology underneath.</p>
+      </div>
+      <div class="iso-legend"><span class="mono">Revenue Ontology</span><span class="tick"></span><span class="mono">one canonical event, five surfaces</span></div>
+      <div class="iso-stage" aria-hidden="true">
+        <div class="iso-labels"></div>
+        <div class="iso-world">
+          <div class="iso-plane"></div>
+          <div class="iso-hub"><span class="iso-hub-plate"></span></div>
+          <div class="beam b1"><i></i></div>
+          <div class="beam b2"><i></i></div>
+          <div class="beam b3"><i></i></div>
+          <div class="beam b4"><i></i></div>
+          <div class="beam b5"><i></i></div>
+          <div class="node n1" data-node="1" data-name="Credit Bureau"><span class="stem"></span><span class="cap"></span></div>
+          <div class="node n2" data-node="2" data-name="Payments"><span class="stem"></span><span class="cap"></span></div>
+          <div class="node n3" data-node="3" data-name="Treasury"><span class="stem"></span><span class="cap"></span></div>
+          <div class="node n4" data-node="4" data-name="Custody"><span class="stem"></span><span class="cap"></span></div>
+          <div class="node n5" data-node="5" data-name="Wallet"><span class="stem"></span><span class="cap"></span></div>
+        </div>
+        <div class="iso-labels"></div>
+      </div>
+      <div class="products-grid">
+        <div class="pillar" data-pillar="1">
+          <span class="pn">01</span>
+          <h3>FORGE Credit Bureau</h3>
+          <p>Verifiable reputation scores from on-chain data. DID identity, autonomous credit lines, agent-to-agent escrow. Any protocol can read an agent's trustworthiness before extending credit.</p>
+          <div class="tags">DID · REPUTATION · CREDIT<br/>ESCROW · LIQUIDITY</div>
+          <a class="read" href="products/credit-bureau.html">Explore →</a>
+        </div>
+        <div class="pillar" data-pillar="2">
+          <span class="pn">02</span>
+          <h3>FORGE Payments</h3>
+          <p>Accept card, bank transfer, stablecoin and x402 AI micropayments. One API, one dashboard, one settlement account. Real-time reconciliation, tax-ready reporting.</p>
+          <div class="tags">CARD · BANK · STABLECOIN<br/>x402 · INVOICING · WEBHOOKS</div>
+          <a class="read" href="products/payments.html">Explore →</a>
+        </div>
+        <div class="pillar" data-pillar="3">
+          <span class="pn">03</span>
+          <h3>FORGE Treasury</h3>
+          <p>Consolidate incoming payments across all rails into one account. Auto-reconcile, net across currencies, sweep idle cash to yield. One ledger. One source of truth.</p>
+          <div class="tags">CONSOLIDATION · NETTING<br/>YIELD SWEEP · COMPLIANCE</div>
+          <a class="read" href="products/treasury.html">Explore →</a>
+        </div>
+        <div class="pillar" data-pillar="4">
+          <span class="pn">04</span>
+          <h3>FORGE Custody</h3>
+          <p>Institutional 4-of-7 threshold signing for large transfers. Policy engine, multi-approver sign-off and an immutable audit trail no single point of key control.</p>
+          <div class="tags">THRESHOLD SIGNING · POLICY<br/>MULTI-APPROVAL · AUDIT LOG</div>
+          <a class="read" href="products/custody.html">Explore →</a>
+        </div>
+        <div class="pillar" data-pillar="5">
+          <span class="pn">05</span>
+          <h3>FORGE Wallet</h3>
+          <p>Keyless wallets for people and AI agents alike. Every wallet carries a verifiable digital identity the rest of FORGE builds reputation and credit on top of.</p>
+          <div class="tags">NO SEED PHRASE · did:forge<br/>SOCIAL RECOVERY · AGENT-READY</div>
+          <a class="read" href="products/wallet.html">Explore →</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- STATEMENT: the log is the moat -->
+  <section class="statement on-ink">
+    <div class="wrap">
+      <div class="lab">
+        <div class="eye eye-light"><span class="mono">III</span><span class="tick"></span><span class="mono">The thesis</span></div>
+        <span class="mono">A new category</span>
+      </div>
+      <h2>The log<br/>is the <em>moat.</em></h2>
+      <div class="row2">
+        <div>
+          <p>Most businesses run payments out of five systems that don't speak to each other a card processor, a tax tool, a billing engine, a crypto wallet, and a spreadsheet holding it together. Each integration is a tax you pay forever.</p>
+          <p>FORGE inverts the stack. Every payment, on every rail, appends to one immutable, signed event log the <strong style="color: var(--paper);">Revenue Ontology</strong>. We define the schema; the underlying networks become interchangeable. Routing intelligence, agent reputation and tax classification all compound on top of it.</p>
+        </div>
+        <div class="right">
+          <div class="item"><div class="n">01</div><div class="body"><strong>One canonical event</strong><span>Cards, USDC, Bitcoin, renewals, refunds and tax all speak the same signed schema.</span></div></div>
+          <div class="item"><div class="n">02</div><div class="body"><strong>One source of truth</strong><span>Replace dozens of vendor webhooks with a single deduplicated, replayable delivery.</span></div></div>
+          <div class="item"><div class="n">03</div><div class="body"><strong>Compounding network effect</strong><span>Day 30: 2.6M events. Year 1: 36.5B. The data is the engine and the moat.</span></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FOUR PILLARS -->
+  <section id="solutions">
+    <div class="wrap">
+      <div class="head-split">
+        <div>
+          <div class="eye"><span class="mono">IV</span><span class="tick"></span><span class="mono">Four pillars · one ontology</span></div>
+          <h2 class="big">However value<br/>moves we <em>route</em> it.</h2>
+        </div>
+        <p class="lede">Four product surfaces, one canonical event stream underneath. Everything below the seam is interchangeable; the ontology above it is the contract.</p>
+      </div>
+      <div class="pillars">
+        <div class="pillar">
+          <span class="pn">Pillar · 01</span>
+          <h3>Traditional Finance</h3>
+          <p>Card acquiring smart-routed across 100+ processors, bank rails, subscriptions and global tax at the lowest cost and highest approval.</p>
+          <div class="tags">CARDS · ACH · SEPA<br/>SUBSCRIPTIONS · MoR · FX</div>
+          <a class="read" href="features/traditional-finance.html">Explore →</a>
+        </div>
+        <div class="pillar">
+          <span class="pn">Pillar · 02</span>
+          <h3>Crypto &amp; Stablecoins</h3>
+          <p>USDC and USDT settled in seconds, non-custodial. Bitcoin and 50+ coins with rate locked at checkout. Direct-to-wallet, zero float.</p>
+          <div class="tags">USDC · USDT · BTC · ETH<br/>4 NETWORKS · 50+ COINS</div>
+          <a class="read" href="features/crypto-stablecoins.html">Explore →</a>
+        </div>
+        <div class="pillar">
+          <span class="pn">Pillar · 03</span>
+          <h3>Agentic Economy</h3>
+          <p>HTTP 402 made real. Autonomous agents quote, pay and settle in milliseconds. Agent identity, reputation, credit lines and escrow built in.</p>
+          <div class="tags">x402 · AGENT KYC<br/>CREDIT LINES · ESCROW</div>
+          <a class="read" href="features/agentic-economy.html">Explore →</a>
+        </div>
+        <div class="pillar">
+          <span class="pn">Pillar · 04</span>
+          <h3>Real-World Assets</h3>
+          <p>Accept tokenized treasuries, gold and equities as payment settled atomically, with tax handled. An asset is a parameter, not a product.</p>
+          <div class="tags">BUIDL · PAXG · USDY<br/>ATOMIC SETTLEMENT</div>
+          <a class="read" href="features/rwas.html">Explore →</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- HOW IT WORKS -->
+  <section id="how" class="deep">
+    <div class="wrap">
+      <div class="head-split">
+        <div>
+          <div class="eye"><span class="mono">V</span><span class="tick"></span><span class="mono">FORGE Payments · how it works</span></div>
+          <h2 class="big">One request in.<br/>One <em>event</em> out.</h2>
+        </div>
+        <p class="lede">You integrate once. Underneath, Forge routes through processors, chains, tax and a billing engine all collapsing back into a single canonical event you can trust.</p>
+      </div>
+
+      <div class="diagram">
+        <div class="row-cells row-a">
+          <div class="cell-box ink"><div><div class="tag">Step 01 · You</div><div class="name">Your application</div><div class="desc">One call: <code style="opacity:.85;">forge.payments.create()</code>. JS · PY · RS · GO.</div></div></div>
+        </div>
+        <div class="arrow">SDK · REST · WEBHOOK</div>
+        <div class="row-cells row-b">
+          <div class="cell-box"><div><div class="tag">Rail · 01</div><div class="name">Card &amp; Bank</div><div class="desc">100+ processors, auto-routed.</div></div></div>
+          <div class="cell-box"><div><div class="tag">Rail · 02</div><div class="name">Stablecoin</div><div class="desc">USDC · USDT, ~30s on L2.</div></div></div>
+          <div class="cell-box"><div><div class="tag">Rail · 03</div><div class="name">Crypto</div><div class="desc">BTC · ETH · 50+ coins.</div></div></div>
+          <div class="cell-box"><div><div class="tag">Rail · 04</div><div class="name">RWA &amp; Subs</div><div class="desc">Tokenized assets · renewals.</div></div></div>
+          <div class="cell-box ghost"><div><div class="tag">Rail · 05</div><div class="name"><span class="glitch" data-text="Private">Private</span></div><div class="desc" style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.06em;">[REDACTED] shielded settlement</div></div><span class="pill">Coming soon</span></div>
+        </div>
+        <div class="arrow">NORMALIZED · SIGNED · DEDUPED</div>
+        <div class="row-cells row-c">
+          <div class="cell-box"><div><div class="tag">Step 02 · Tax handled</div><div class="name">Merchant of Record</div><div class="desc">Jurisdiction detection, VAT/GST/sales tax, quarterly filings 200+ countries. We're on the invoice, not you.</div></div></div>
+        </div>
+        <div class="arrow">→ ONE CANONICAL EVENT</div>
+        <div class="row-cells row-e">
+          <div class="cell-box ink"><div><div class="tag">Step 03 · Your backend</div><div class="name">One ForgePayEvent</div><div class="desc">HMAC-signed, idempotent, replayable. Fulfil the order. Done.</div></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- DEVELOPERS -->
+  <section id="developers" class="ink on-ink">
+    <div class="wrap">
+      <div class="head-split">
+        <div>
+          <div class="eye eye-light"><span class="mono">VI</span><span class="tick"></span><span class="mono">For developers</span></div>
+          <h2 class="big" style="color:var(--paper);">Five lines.<br/>Any <em>rail</em>.</h2>
+        </div>
+        <p class="lede">Typed SDKs for the languages you already use. Idempotent by default. Signed webhooks with replay protection. OpenAPI 3.1 published.</p>
+      </div>
+      <div class="dev-grid">
+        <div class="dev-card">
+          <span class="dl">01 · Get started</span>
+          <h3>From install<br/>to <em>first dollar</em>.</h3>
+          <pre><span class="c">$ npm i @forgepay/sdk</span>
+<span class="k">import</span> { Forge } <span class="k">from</span> '@forgepay/sdk'
+<span class="k">const</span> f = <span class="k">new</span> Forge(key)
+<span class="k">await</span> f.payments.create({
+  amount: <b>4900</b>, rail: 'auto'
+})</pre>
+        </div>
+        <div class="dev-card">
+          <span class="dl">02 · Auto-routing</span>
+          <h3>One field.<br/>Optimal <em>route</em>.</h3>
+          <pre><span class="c">// cheapest, highest-approval route</span>
+<span class="k">await</span> f.payments.create({
+  amount: <b>4900</b>,
+  currency: 'usd',
+  rail: <b>'auto'</b>
+})
+<span class="c">// → card · ach · usdc · btc</span></pre>
+        </div>
+        <div class="dev-card">
+          <span class="dl">03 · Machine payments</span>
+          <h3>Charge what<br/>you <em>serve</em>.</h3>
+          <pre><span class="c">GET /api/analysis</span>
+<b>402 PAYMENT REQUIRED</b>
+x-forge-amount: 0.0042 USDC
+<span class="c">→ agent.pay() ✓ 142ms</span>
+<span class="c">→ settled on Base</span></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- STATS -->
+  <section class="stats on-ink">
+    <div class="wrap">
+      <div class="eye eye-light" style="margin-bottom: clamp(36px,5vw,56px);"><span class="mono">VII</span><span class="tick"></span><span class="mono">The opportunity</span></div>
+      <div class="stat-grid">
+        <div class="stat-cell">
+          <div class="v">$16<span>T</span></div>
+          <div class="k">Tokenized assets on-chain · 2030</div>
+          <p>Gold, treasuries and equities moving on-chain acceptable as payment, same checkout, same tax engine.</p>
+        </div>
+        <div class="stat-cell">
+          <div class="v">$5<span>T</span></div>
+          <div class="k">Agentic transaction flows · 2030</div>
+          <p>AI agents transacting at machine speed. Forge runs the identity, credit and settlement layer underneath.</p>
+        </div>
+        <div class="stat-cell">
+          <div class="v">200<span>+</span></div>
+          <div class="k">Jurisdictions · merchant of record</div>
+          <p>VAT, GST and sales tax calculated, filed and remitted. You ship product; we handle the paperwork.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- OS LAYERS -->
+  <section>
+    <div class="wrap">
+      <div class="head-split">
+        <div>
+          <div class="eye"><span class="mono">VIII</span><span class="tick"></span><span class="mono">The architecture · Revenue Ontology</span></div>
+          <h2 class="big">An <em>operating system</em>.</h2>
+        </div>
+        <p class="lede">Five layers, one canonical event. The same ontology that books a customer card payment books an agent credit draw and an intercompany cash sweep.</p>
+      </div>
+      <div class="os-layers">
+        <div class="os-layer"><div class="ln">Kernel</div><div class="ld">Revenue Ontology <span> the canonical ForgePayEvent</span></div></div>
+        <div class="os-layer"><div class="ln">Rails</div><div class="ld">Card · Bank · Stablecoin · Crypto · RWA</div></div>
+        <div class="os-layer"><div class="ln">Agents</div><div class="ld">Identity · Decision · Credit · Liquidity</div></div>
+        <div class="os-layer"><div class="ln">Enterprise</div><div class="ld">Treasury · Netting · Reporting <span> cost center to profit center</span></div></div>
+        <div class="os-layer"><div class="ln">Application</div><div class="ld">SDK · Dashboard · Forge Agent</div></div>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ENTERPRISE TREASURY -->
+  <section class="ink on-ink" id="treasury">
+    <div class="wrap">
+      <div class="head-split">
+        <div>
+          <div class="eye eye-light"><span class="mono">IX</span><span class="tick"></span><span class="mono">FORGE Treasury · enterprise cash</span></div>
+          <h2 class="big" style="color:var(--paper);">Cash that<br/><em>works</em> itself.</h2>
+        </div>
+        <p class="lede">Corporate cash sits idle across dozens of accounts in different currencies and countries, while wire fees and FX spreads quietly bleed margin. Forge turns the sprawl into one command centre consolidated, netted, routed and earning.</p>
+      </div>
+      <div class="pillars">
+        <a class="pillar" href="products/treasury.html" style="text-decoration:none;color:inherit;">
+          <span class="pn">01 · Consolidation</span>
+          <h3>One global view</h3>
+          <p>Real-time balances pulled from 50+ banks, wallets and gateways, normalized into a single dashboard in your base currency.</p>
+          <div class="tags">50+ SOURCES<br/>ONE BASE CURRENCY</div>
+        </a>
+        <a class="pillar" href="products/treasury.html" style="text-decoration:none;color:inherit;">
+          <span class="pn">02 · Netting</span>
+          <h3>Fewer wires</h3>
+          <p>Internal payables and receivables offset automatically, settling one net payment between entities instead of dozens.</p>
+          <div class="tags">INTERCOMPANY<br/>25–40% FEWER WIRES</div>
+        </a>
+        <a class="pillar" href="products/treasury.html" style="text-decoration:none;color:inherit;">
+          <span class="pn">03 · Routing</span>
+          <h3>Cheapest rail</h3>
+          <p>Every transfer weighs bank networks, local rails and stablecoins, then routes the cheapest, fastest option in real time.</p>
+          <div class="tags">SWIFT · LOCAL · STABLECOIN<br/>REAL-TIME</div>
+        </a>
+        <div class="pillar">
+          <span class="pn">04 · Yield sweeping</span>
+          <h3>Idle cash, earning</h3>
+          <p>Set a buffer; surplus sweeps into tokenized treasuries at 4–5% and redeems the instant you need it back.</p>
+          <div class="tags">IDLE → RWA · 4–5% APY<br/>JUST-IN-TIME</div>
+          <a class="read" style="color:var(--paper);border-bottom-color:var(--paper);" href="features/treasury.html">Explore →</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- PRICING -->
+  <section id="pricing" class="deep">
+    <div class="wrap">
+      <div class="head-split">
+        <div>
+          <div class="eye"><span class="mono">X</span><span class="tick"></span><span class="mono">FORGE Payments · Simple pricing</span></div>
+          <h2 class="big">Start free.<br/>Grow when <em>ready</em>.</h2>
+        </div>
+        <p class="lede">No quotes, no sales calls, no hidden monthly minimum. Free up to $25,000/mo then one plan that includes global tax, subscriptions and every rail.</p>
+      </div>
+      <div class="plans-veil">
+      <div class="veil-note"><h3 style="font-size:clamp(26px,3.4vw,44px);font-weight:500;letter-spacing:-1px;margin:0;"><span class="glitch" data-text="Pricing.">Pricing.</span></h3><span class="soon-badge">Coming soon</span></div>
+      <div class="plans veiled" aria-hidden="true">
+        <div class="plan">
+          <span class="tier">Free</span>
+          <h3>Free</h3>
+          <div class="price"><span class="num">$0</span><span class="per">/ month</span></div>
+          <ul>
+            <li><span class="k">Card fee</span><span class="v">2.8% + $0.24</span></li>
+            <li><span class="k">Stablecoin</span><span class="v">1.8%</span></li>
+            <li><span class="k">Crypto</span><span class="v">1.8%</span></li>
+            <li><span class="k">Volume</span><span class="v">Up to $25k / mo</span></li>
+            <li><span class="k">Global tax</span><span class="v no">Self-managed</span></li>
+            <li><span class="k">Support</span><span class="v">Community</span></li>
+          </ul>
+          <div class="foot"><a class="btn-ghost" href="#cta">Start free →</a></div>
+        </div>
+        <div class="plan">
+          <span class="tier">Standard · recommended</span>
+          <h3><em>Standard</em></h3>
+          <div class="price"><span class="num">$28</span><span class="per">/ month</span></div>
+          <ul>
+            <li><span class="k">Card fee</span><span class="v">2.4% + $0.24</span></li>
+            <li><span class="k">Stablecoin</span><span class="v">1.4%</span></li>
+            <li><span class="k">Crypto</span><span class="v">1.4%</span></li>
+            <li><span class="k">Volume</span><span class="v">Unlimited</span></li>
+            <li><span class="k">Global tax</span><span class="v">Included · 200+ countries</span></li>
+            <li><span class="k">Support</span><span class="v">Priority · 2-hour</span></li>
+          </ul>
+          <div class="foot"><a class="btn-ink" style="background:var(--paper);color:var(--ink);border-color:var(--paper);" href="#cta">Go Standard →</a></div>
+        </div>
+      </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ZK -->
+  <section class="zk on-ink" id="privacy">
+    <div class="wrap">
+      <div class="lab">
+        <div class="eye eye-light"><span class="mono">XI</span><span class="tick"></span><span class="mono">Private payments</span></div>
+        <span class="mono">Coming soon</span>
+      </div>
+      <h2 style="line-height: 1.05;"><span class="glitch on-ink" data-text="Private.">Private.</span><br/><em>And</em> still compliant.<span class="soon-badge">Coming soon</span></h2>
+      <div class="grid">
+        <div>
+          <p class="scrambled" style="color:rgba(244,242,238,0.85);margin-bottom:18px;font-family:'JetBrains Mono',monospace;font-size:14px;line-height:1.7;">▓▓▓ Take payments p̷r̷i̷v̷a̷t̷e̷l̷y̷ amounts hidden on the public record while still passing every tax check ▓▓▓</p>
+          <p>Zero-knowledge shielded settlement with auditor key escrow. Private to the world, visible to your auditor. In development we'd rather ship late than ship fragile.</p>
+          <div style="margin-top:28px;display:flex;gap:12px;flex-wrap:wrap;">
+            <a class="btn-ghost" style="border-color:var(--paper);color:var(--paper);" href="features/privacy.html">Learn more →</a>
+            <a class="btn-ink" style="background:var(--paper);color:var(--ink);border-color:var(--paper);" href="#cta">Join waitlist →</a>
+          </div>
+        </div>
+        <div class="cipher">
+          <div class="h"><span>0x · PROOF</span><span>STATUS: ▓▓▓▓</span></div>
+          <div class="body" id="cipher-body"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section class="closer" id="cta">
+    <div class="wrap">
+      <div class="lab">
+        <div class="eye"><span class="mono">XII</span><span class="tick"></span><span class="mono">General availability</span></div>
+        <span class="mono">2026</span>
+      </div>
+      <h2>Build today.<br/><em>Charge</em> tomorrow.</h2>
+      <p class="lede">Open beta. Start taking payments in five minutes free up to $25,000 a month, no card required.</p>
+      <form class="keybox" onsubmit="event.preventDefault();">
+        <div class="label">forgepay.io/start</div>
+        <button class="btn" type="submit">Coming soon →</button>
+      </form>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer>
+    <div class="wrap">
+      <div class="grid">
+        <div class="brand">
+          <a href="index.html" class="mark" style="color:var(--paper);">
+            <svg viewBox="0 0 520 100" height="22"><path d="M0 4 L60 4 L60 18 L16 18 L16 44 L52 44 L52 58 L16 58 L16 96 L0 96 Z" fill="currentColor"/><g transform="translate(72,4)"><circle cx="46" cy="46" r="42" fill="none" stroke="currentColor" stroke-width="14"/><line x1="-6" y1="46" x2="98" y2="46" stroke="#0A0A0A" stroke-width="2"/></g><path d="M180 4 L232 4 C250 4 260 16 260 32 C260 44 254 54 244 58 L262 96 L244 96 L228 62 L196 62 L196 96 L180 96 Z M196 18 L196 48 L230 48 C238 48 244 42 244 33 C244 24 238 18 230 18 Z" fill="currentColor"/><path d="M276 50 C276 22 296 2 324 2 C342 2 358 10 366 24 L353 32 C347 22 336 16 324 16 C305 16 292 30 292 50 C292 70 305 84 324 84 C340 84 352 74 354 60 L326 60 L326 46 L370 46 L370 96 L358 96 L356 84 C350 92 338 98 322 98 C295 98 276 78 276 50 Z" fill="currentColor"/><path d="M384 4 L448 4 L448 18 L400 18 L400 44 L444 44 L444 58 L400 58 L400 82 L450 82 L450 96 L384 96 Z" fill="currentColor"/></svg>
+          </a>
+          <p>The Revenue Ontology. Financial and value orchestration for traditional finance, crypto, autonomous agents and tokenized real-world assets across 200+ countries.</p>
+        </div>
+        <div>
+          <h4>Products</h4>
+          <ul>
+            <li><a href="products/credit-bureau.html">FORGE Credit Bureau</a></li>
+            <li><a href="products/payments.html">FORGE Payments</a></li>
+            <li><a href="products/treasury.html">FORGE Treasury</a></li>
+            <li><a href="products/custody.html">FORGE Custody</a></li>
+            <li><a href="products/wallet.html">FORGE Wallet</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4>Platform</h4>
+          <ul>
+            <li><a href="features/ontology.html">Revenue Ontology</a></li>
+            <li><a href="features/traditional-finance.html">Traditional Finance</a></li>
+            <li><a href="features/crypto-stablecoins.html">Crypto &amp; Stablecoins</a></li>
+            <li><a href="features/agentic-economy.html">Agentic Economy</a></li>
+            <li><a href="features/rwas.html">Real-World Assets</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4>Developers</h4>
+          <ul>
+            <li><a href="features/mor.html">Global Tax &amp; MoR</a></li>
+            <li><a href="features/billing.html">Subscriptions</a></li>
+            <li><a href="features/agents.html">Forge Agent</a></li>
+            <li><a href="features/privacy.html">Private Payments</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4>Company</h4>
+          <ul>
+            <li><a href="about.html">About</a></li>
+            <li><a href="thesis.html">Thesis</a></li>
+            <li><a href="contact.html">Contact</a></li>
+            <li><a href="about.html#careers">Careers</a></li>
+            <li><a href="about.html#press">Press</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="meta" style="gap:20px;">
+        <span class="mono">© MMXXVI Forge Pay (Pty) Ltd. Johannesburg, ZA</span>
+        <span style="display:flex;flex-wrap:wrap;align-items:center;gap:18px;">
+          <a class="mono" href="privacy-policy.html">Privacy Policy</a>
+          <a class="mono" href="terms.html">Terms of Service</a>
+          <a class="mono" href="https://x.com/myforgepay" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:7px;"><svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>@myforgepay</a>
+        </span>
+        <span class="mono">All systems nominal · v0.9.0</span>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    (function () {
+      var t = document.getElementById('cipher-body');
+      if (!t) return;
+      var chars = '0123456789ABCDEF', out = [];
+      for (var i = 0; i < 13; i++) {
+        var line = '';
+        for (var j = 0; j < 32; j++) line += chars[(i * 7 + j * 13) % 16];
+        line = line.replace(/(.{4})/g, '$1 ').trim();
+        out.push('<div>' + line + '</div>');
+      }
+      t.innerHTML = out.join('');
+    })();
+
+    // Dropdown interaction
+    (function () {
+      var dropdown = document.querySelector('.dropdown');
+      if (!dropdown) return;
+      var button = dropdown.querySelector('button');
+      var menu = dropdown.querySelector('.menu');
+      if (!button || !menu) return;
+
+      var hoverTimeout;
+
+      button.addEventListener('click', function (e) {
+        e.preventDefault();
+        menu.style.display = menu.style.display === 'grid' ? 'none' : 'grid';
+      });
+
+      dropdown.addEventListener('mouseenter', function () {
+        clearTimeout(hoverTimeout);
+        menu.style.display = 'grid';
+      });
+
+      dropdown.addEventListener('mouseleave', function () {
+        hoverTimeout = setTimeout(function () {
+          menu.style.display = 'none';
+        }, 100);
+      });
+
+      // Keep menu visible while hovering over it
+      menu.addEventListener('mouseenter', function () {
+        clearTimeout(hoverTimeout);
+        menu.style.display = 'grid';
+      });
+
+      menu.addEventListener('mouseleave', function () {
+        hoverTimeout = setTimeout(function () {
+          menu.style.display = 'none';
+        }, 100);
+      });
+
+      // Close on link click
+      menu.querySelectorAll('a').forEach(function (link) {
+        link.addEventListener('click', function () {
+          menu.style.display = 'none';
+        });
+      });
+    })();
+  </script>
+  <script>
+    (function(){
+      var nav=document.querySelector("nav.top");if(!nav)return;
+      var row=nav.querySelector(".row");var list=nav.querySelector("ul");if(!row||!list)return;
+      var btn=document.createElement("button");
+      btn.type="button";btn.className="nav-toggle";btn.setAttribute("aria-label","Menu");btn.setAttribute("aria-expanded","false");
+      btn.innerHTML="<span></span>";
+      row.appendChild(btn);
+      function isMobile(){return window.matchMedia("(max-width:880px)").matches}
+      btn.addEventListener("click",function(){
+        var open=nav.classList.toggle("open");
+        btn.setAttribute("aria-expanded",open?"true":"false");
+        if(!open){var d=nav.querySelector(".dropdown.open");if(d)d.classList.remove("open");}
+      });
+      var dd=nav.querySelector(".dropdown");
+      if(dd){
+        var ddBtn=dd.querySelector("button");var ddMenu=dd.querySelector(".menu");
+        if(ddBtn&&ddMenu){
+          ddBtn.addEventListener("click",function(e){
+            if(!isMobile())return;
+            e.preventDefault();e.stopImmediatePropagation();
+            ddMenu.style.display="";
+            dd.classList.toggle("open");
+          },true);
+        }
+      }
+      list.querySelectorAll("a").forEach(function(a){
+        a.addEventListener("click",function(){nav.classList.remove("open");btn.setAttribute("aria-expanded","false");});
+      });
+      window.addEventListener("resize",function(){
+        if(!isMobile()){nav.classList.remove("open");var d=nav.querySelector(".dropdown.open");if(d)d.classList.remove("open");}
+      });
+    })();
+  </script>
+  <script>
+    (function(){
+      var nodes=document.querySelectorAll('.node[data-node]');
+      var cards=document.querySelectorAll('.pillar[data-pillar]');
+      if(!nodes.length||!cards.length)return;
+      var stage=document.querySelector('.iso-stage');
+      var labWrap=document.querySelector('.iso-labels');
+      var labs={};
+      if(stage&&labWrap){
+        nodes.forEach(function(n){
+          var el=document.createElement('div');
+          el.className='iso-lab';
+          el.innerHTML='<span class="n">'+String(n.getAttribute('data-node')).padStart(2,'0')+'</span><span class="t">'+n.getAttribute('data-name')+'</span>';
+          labWrap.appendChild(el);
+          labs[n.getAttribute('data-node')]=el;
+        });
+        var place=function(){
+          var sr=stage.getBoundingClientRect();
+          var hub=document.querySelector('.iso-hub-plate');
+          var hr=hub?hub.getBoundingClientRect():null;
+          var hx=hr?(hr.left-sr.left+hr.width/2):sr.width/2;
+          var hy=hr?(hr.top-sr.top+hr.height/2):sr.height/2;
+          nodes.forEach(function(n){
+            var cap=n.querySelector('.cap');var el=labs[n.getAttribute('data-node')];
+            if(!cap||!el)return;
+            var r=cap.getBoundingClientRect();
+            var cxp=r.left-sr.left+r.width/2, cyp=r.top-sr.top+r.height/2;
+            var dx=cxp-hx, dy=cyp-hy, m=Math.sqrt(dx*dx+dy*dy)||1;
+            var out=r.width*0.5+26;
+            el.style.left=(cxp+dx/m*out)+'px';
+            el.style.top=(cyp+dy/m*out)+'px';
+          });
+        };
+        place();
+        window.addEventListener('resize',place);
+        window.addEventListener('load',place);
+        setInterval(place,900);
+      }
+      function pair(i,on){
+        var n=document.querySelector('.node[data-node="'+i+'"]');
+        var c=document.querySelector('.pillar[data-pillar="'+i+'"]');
+        if(n)n.classList.toggle('lit',on);
+        if(c)c.classList.toggle('lit',on);
+      }
+      cards.forEach(function(c){
+        var i=c.getAttribute('data-pillar');
+        c.addEventListener('mouseenter',function(){pair(i,true)});
+        c.addEventListener('mouseleave',function(){pair(i,false)});
+      });
+      nodes.forEach(function(n){
+        var i=n.getAttribute('data-node');
+        n.addEventListener('mouseenter',function(){pair(i,true)});
+        n.addEventListener('mouseleave',function(){pair(i,false)});
+      });
+      var k=0;
+      setInterval(function(){
+        pair(String((k%5)+1),false);
+        k++;
+        pair(String((k%5)+1),true);
+        setTimeout(function(){pair(String((k%5)+1),false)},1400);
+      },2200);
+    })();
+  </script>
+</body>
+</html>
