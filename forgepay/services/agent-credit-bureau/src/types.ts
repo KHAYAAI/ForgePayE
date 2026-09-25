@@ -226,8 +226,16 @@ export type ZKCircuit =
 export interface ZKProof {
   circuit: ZKCircuit;
   params: Record<string, number>;
-  proofHash: string;               // Groth16 proof hash (stub)
-  verified: boolean;
+  proofHash: string;               // sha256 commitment — see proofSystem
+  verified: boolean;                // the claim being made (computed on real profile data)
+  // No real Groth16 (or any) prover is wired in yet — proofHash is a plain
+  // sha256 of the plaintext inputs, not an independently-checkable proof. A
+  // lender cannot verify `verified` without trusting this service's own
+  // computation, which defeats the point of a ZK proof. These two fields
+  // exist so nothing downstream can mistake this for the real thing by
+  // reading `proofHash`/`verified` alone — see generateZKProof() in scorer.ts.
+  proofSystem: 'stub-sha256-commitment';
+  cryptographicallyVerifiable: false;
   generatedAt: string;
 }
 

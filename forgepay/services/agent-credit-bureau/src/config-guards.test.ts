@@ -8,7 +8,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { isDbEnabled, assertPersistenceConfigured } from './db';
-import { resolveCorsOrigin } from './index';
+import { resolveCorsOrigin, zkStubProofsBlocked } from './index';
 import { isRedisEnabled } from './redis';
 
 const ORIGINAL_ENV = { ...process.env };
@@ -19,6 +19,7 @@ function resetEnv() {
   delete process.env['DB_HOST'];
   delete process.env['CORS_ORIGIN'];
   delete process.env['REDIS_URL'];
+  delete process.env['ZK_STUB_PROOFS_ACKNOWLEDGED'];
 }
 
 describe('assertPersistenceConfigured', () => {
@@ -79,6 +80,29 @@ describe('resolveCorsOrigin', () => {
     process.env['NODE_ENV'] = 'production';
     process.env['CORS_ORIGIN'] = 'https://dashboard.forgepay.io, https://app.forgepay.io';
     expect(resolveCorsOrigin()).toEqual(['https://dashboard.forgepay.io', 'https://app.forgepay.io']);
+  });
+});
+
+describe('zkStubProofsBlocked', () => {
+  beforeEach(resetEnv);
+  afterEach(() => { process.env = { ...ORIGINAL_ENV }; });
+
+  it('is not blocked outside production, even unacknowledged', () => {
+    process.env['NODE_ENV'] = 'development';
+    expect(zkStubProofsBlocked()).toBeNull();
+  });
+
+  it('blocks in production when unacknowledged', () => {
+    process.env['NODE_ENV'] = 'production';
+    const blocked = zkStubProofsBlocked();
+    expect(blocked).not.toBeNull();
+    expect(blocked?.error).toBe('NotImplemented');
+  });
+
+  it('is not blocked in production once explicitly acknowledged', () => {
+    process.env['NODE_ENV'] = 'production';
+    process.env['ZK_STUB_PROOFS_ACKNOWLEDGED'] = 'true';
+    expect(zkStubProofsBlocked()).toBeNull();
   });
 });
 

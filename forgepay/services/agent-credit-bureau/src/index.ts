@@ -73,6 +73,7 @@ import {
   listProfiles, bureauStats, profiles, contributors, initPersistence, deriveScoreFields,
   getLenderReport, setLenderReport, listLenderReports,
   getSubscription, listAttributionsForContributor,
+  persistenceFailures, totalPersistenceFailures,
 } from './store';
 import type { PlanId } from './types';
 import {
@@ -103,6 +104,39 @@ import {
 const PORT               = parseInt(process.env['PORT'] ?? '3018', 10);
 const AGENT_IDENTITY_URL = process.env['AGENT_IDENTITY_URL'] ?? 'http://localhost:3010';
 const RATE_LIMIT_PER_MIN = parseInt(process.env['RATE_LIMIT_PER_MIN'] ?? '100', 10);
+
+/**
+ * generateZKProof() (scorer.ts) has no real prover behind it — proofHash is
+ * a plain sha256 commitment, not an independently-checkable ZK proof (see
+ * that function's docstring). The response is always explicit about this
+ * (proofSystem/cryptographicallyVerifiable), but a caller integrating
+ * against this API could still reasonably miss those fields and treat
+ * `verified: true` as a cryptographic guarantee it isn't.
+ *
+ * In production, refuse to serve it at all unless someone has deliberately
+ * acknowledged that — same shape as PAYOUT_SIGNER_ENABLED and
+ * JURISTIC_OPERATORS_ONLY elsewhere in this service: a safe default that's
+ * wrong for production must not reach production silently.
+ *
+ * Reads process.env fresh on every call, like resolveCorsOrigin() below —
+ * not a module-level const, so it isn't frozen at whatever NODE_ENV happened
+ * to be set at import time (config-guards.test.ts toggles env vars per test
+ * and calls this directly).
+ */
+export function zkStubProofsBlocked(): { error: string; message: string } | null {
+  const acknowledged = process.env['ZK_STUB_PROOFS_ACKNOWLEDGED'] === 'true';
+  if (process.env['NODE_ENV'] === 'production' && !acknowledged) {
+    return {
+      error: 'NotImplemented',
+      message:
+        'ZK proof generation has no real prover configured (sha256 stub only, not a ' +
+        'cryptographic proof) and is disabled in production. Set ' +
+        'ZK_STUB_PROOFS_ACKNOWLEDGED=true to serve the stub anyway, or wire a real ' +
+        'prover before offering this to lenders as verifiable.',
+    };
+  }
+  return null;
+}
 
 /**
  * Resolve the CORS origin allowlist.
@@ -343,6 +377,11 @@ async function buildApp() {
     port:            PORT,
     agentIdentityUrl: AGENT_IDENTITY_URL,
     registeredAgents: profiles.size,
+    // A write that failed even after retrying doesn't take the service
+    // down — the in-memory read path is unaffected — so this stays
+    // status:'ok' rather than failing the probe, but it needs to be visible
+    // *somewhere* other than a log line: see persist() in store.ts.
+    persistenceFailures: totalPersistenceFailures(),
     timestamp:       new Date().toISOString(),
   }));
 
@@ -362,6 +401,11 @@ async function buildApp() {
       '# HELP bureau_open_disputes Open dispute count',
       '# TYPE bureau_open_disputes gauge',
       `bureau_open_disputes ${stats.openDisputes}`,
+      '# HELP bureau_persistence_write_failures_total Writes to Postgres that failed after exhausting retries, by record kind',
+      '# TYPE bureau_persistence_write_failures_total counter',
+      ...Array.from(persistenceFailures.entries()).map(
+        ([kind, count]) => `bureau_persistence_write_failures_total{kind="${kind}"} ${count}`,
+      ),
     ];
     reply.type('text/plain; version=0.0.4; charset=utf-8').send(lines.join('\n') + '\n');
   });
@@ -816,6 +860,13 @@ async function buildApp() {
 
     const { agentId, requestorId, requestorName, purpose, consentToken, zkProofMode } = parse.data;
 
+    // Checked before anything is charged: a zkProofMode request this
+    // service can't honor honestly shouldn't cost the caller a pull fee.
+    if (zkProofMode) {
+      const blocked = zkStubProofsBlocked();
+      if (blocked) return reply.status(501).send(blocked);
+    }
+
     // `requestorId` is now a billing identity, not just a label — it is who
     // gets charged. Without this check any pull_scores-scoped caller could
     // name an arbitrary requestorId and debit a stranger's prepaid balance for
@@ -894,6 +945,9 @@ async function buildApp() {
 
   // POST /v1/reports/:reportId/zk — generate ZK proofs
   app.post<{ Params: { reportId: string } }>('/v1/reports/:reportId/zk', async (req, reply) => {
+    const blocked = zkStubProofsBlocked();
+    if (blocked) return reply.status(501).send(blocked);
+
     const report = getReport(req.params.reportId);
     if (!report) return reply.status(404).send({ error: 'NotFound', message: 'Report not found' });
 

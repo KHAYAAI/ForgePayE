@@ -36,6 +36,74 @@ import {
 const persistErr = (what: string) => (e: unknown) =>
   console.error(`[credit-bureau] failed to persist ${what}:`, e);
 
+const PERSIST_MAX_ATTEMPTS = 3;
+const PERSIST_BASE_DELAY_MS = 200;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * How many writes of each kind have failed even after retrying. Exported so
+ * /metrics can surface it and tests can assert on it directly — this
+ * codebase's own comments elsewhere insist money/regulatory records must
+ * never be silently dropped on restart, but the write path that's supposed
+ * to guarantee that previously only `console.error`'d a failure and moved
+ * on, with nothing to alert on if nobody happened to be reading logs.
+ */
+export const persistenceFailures = new Map<string, number>();
+
+function recordPersistenceFailure(what: string): void {
+  persistenceFailures.set(what, (persistenceFailures.get(what) ?? 0) + 1);
+}
+
+export function totalPersistenceFailures(): number {
+  let total = 0;
+  for (const n of persistenceFailures.values()) total += n;
+  return total;
+}
+
+/** Test-only: reset the counters between test cases. */
+export function resetPersistenceFailuresForTests(): void {
+  persistenceFailures.clear();
+}
+
+/**
+ * Persist a write with bounded retry, then fall back to persistErr + the
+ * counter above if every attempt fails. Never rejects — callers that don't
+ * care when it finishes can call this without `await` (the steady-state
+ * mutators below do exactly that, same as the fire-and-forget `.catch()`
+ * chain this replaced); `initPersistence()`'s startup rehydration, further
+ * down this file, *does* await a batch of these via `Promise.all(...)` so it
+ * doesn't log "seeded" before the seed has actually finished writing — that
+ * only works because this returns a real Promise rather than firing an
+ * un-returned async IIFE, so make sure any future change here keeps doing so.
+ *
+ * Every upsert this wraps is `ON CONFLICT (id) DO UPDATE` (last-write-wins on
+ * the entity's own id — see db.ts), so retrying a transient failure (a
+ * dropped connection, momentary pool exhaustion) is safe: it can never
+ * create a duplicate row or double-apply an effect. The in-memory Map this
+ * wraps around is already updated by the caller before `persist()` runs, so
+ * the read path is unaffected either way — this only governs whether the
+ * durable copy eventually catches up, and now makes it observable when it
+ * doesn't rather than only logging it once and moving on.
+ */
+async function persist(what: string, write: () => Promise<void>): Promise<void> {
+  for (let attempt = 1; attempt <= PERSIST_MAX_ATTEMPTS; attempt++) {
+    try {
+      await write();
+      return;
+    } catch (e) {
+      if (attempt === PERSIST_MAX_ATTEMPTS) {
+        recordPersistenceFailure(what);
+        persistErr(what)(e);
+        return;
+      }
+      await sleep(PERSIST_BASE_DELAY_MS * attempt);
+    }
+  }
+}
+
 // ── Stores ────────────────────────────────────────────────────────────────────
 
 export const profiles  = new Map<string, AgentCreditProfile>();
@@ -72,13 +140,13 @@ export const creditBalances = new Map<string, CreditBalance>();
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 export const getProfile  = (id: string) => profiles.get(id);
-export const setProfile  = (p: AgentCreditProfile) => { profiles.set(p.agentId, p); if (isDbEnabled()) upsertProfile(p).catch(persistErr('profile')); return p; };
+export const setProfile  = (p: AgentCreditProfile) => { profiles.set(p.agentId, p); if (isDbEnabled()) persist('profile', () => upsertProfile(p)); return p; };
 export const getDispute  = (id: string) => disputes.get(id);
-export const setDispute  = (d: Dispute) => { disputes.set(d.id, d); if (isDbEnabled()) upsertDispute(d).catch(persistErr('dispute')); return d; };
+export const setDispute  = (d: Dispute) => { disputes.set(d.id, d); if (isDbEnabled()) persist('dispute', () => upsertDispute(d)); return d; };
 export const getReport   = (id: string) => reports.get(id);
-export const setReport   = (r: CreditReport) => { reports.set(r.reportId, r); if (isDbEnabled()) upsertReport(r).catch(persistErr('report')); return r; };
+export const setReport   = (r: CreditReport) => { reports.set(r.reportId, r); if (isDbEnabled()) persist('report', () => upsertReport(r)); return r; };
 export const getLenderReport = (id: string) => lenderReports.get(id);
-export const setLenderReport = (r: LenderReport) => { lenderReports.set(r.reportId, r); if (isDbEnabled()) upsertLenderReport(r).catch(persistErr('lender report')); return r; };
+export const setLenderReport = (r: LenderReport) => { lenderReports.set(r.reportId, r); if (isDbEnabled()) persist('lender report', () => upsertLenderReport(r)); return r; };
 export const listLenderReports = (filter?: { agentId?: string; requestorId?: string }) => {
   let all = Array.from(lenderReports.values());
   if (filter?.agentId)     all = all.filter(r => r.agentId === filter.agentId);
@@ -86,22 +154,22 @@ export const listLenderReports = (filter?: { agentId?: string; requestorId?: str
   return all.sort((a, b) => b.generatedAt.localeCompare(a.generatedAt));
 };
 export const getContributor = (id: string) => contributors.get(id);
-export const setContributor = (c: DataContributor) => { contributors.set(c.id, c); if (isDbEnabled()) upsertContributor(c).catch(persistErr('contributor')); return c; };
+export const setContributor = (c: DataContributor) => { contributors.set(c.id, c); if (isDbEnabled()) persist('contributor', () => upsertContributor(c)); return c; };
 
 export const getBillingAccount = (requestorId: string) => billingAccounts.get(requestorId);
-export const setBillingAccount = (a: BillingAccount) => { billingAccounts.set(a.requestorId, a); if (isDbEnabled()) upsertBillingAccount(a).catch(persistErr('billing account')); return a; };
-export const recordBillingTransaction = (t: BillingTransaction) => { billingTransactions.set(t.id, t); if (isDbEnabled()) upsertBillingTransaction(t).catch(persistErr('billing transaction')); return t; };
+export const setBillingAccount = (a: BillingAccount) => { billingAccounts.set(a.requestorId, a); if (isDbEnabled()) persist('billing account', () => upsertBillingAccount(a)); return a; };
+export const recordBillingTransaction = (t: BillingTransaction) => { billingTransactions.set(t.id, t); if (isDbEnabled()) persist('billing transaction', () => upsertBillingTransaction(t)); return t; };
 export const listBillingTransactions = (requestorId: string) =>
   Array.from(billingTransactions.values())
     .filter(t => t.requestorId === requestorId)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 export const getTopUpReceipt = (receiptId: string) => topUpReceipts.get(receiptId);
-export const setTopUpReceipt = (r: TopUpReceipt) => { topUpReceipts.set(r.receiptId, r); if (isDbEnabled()) upsertTopUpReceipt(r).catch(persistErr('topup receipt')); return r; };
+export const setTopUpReceipt = (r: TopUpReceipt) => { topUpReceipts.set(r.receiptId, r); if (isDbEnabled()) persist('topup receipt', () => upsertTopUpReceipt(r)); return r; };
 
 // ── Subscriptions ─────────────────────────────────────────────────────────────
 
 export const getSubscription = (requestorId: string) => subscriptions.get(requestorId);
-export const setSubscription = (s: Subscription) => { subscriptions.set(s.requestorId, s); if (isDbEnabled()) upsertSubscription(s).catch(persistErr('subscription')); return s; };
+export const setSubscription = (s: Subscription) => { subscriptions.set(s.requestorId, s); if (isDbEnabled()) persist('subscription', () => upsertSubscription(s)); return s; };
 export const listSubscriptions = () => Array.from(subscriptions.values());
 
 // ── Furnisher compensation ────────────────────────────────────────────────────
@@ -111,7 +179,7 @@ export const listSubscriptions = () => Array.from(subscriptions.values());
  * the same id with `reversedAt` set rather than deleting it — a clawback has to
  * leave a record, not erase one.
  */
-export const recordAttribution = (e: AttributionEntry) => { attributions.set(e.id, e); if (isDbEnabled()) upsertAttribution(e).catch(persistErr('attribution')); return e; };
+export const recordAttribution = (e: AttributionEntry) => { attributions.set(e.id, e); if (isDbEnabled()) persist('attribution', () => upsertAttribution(e)); return e; };
 export const listAttributions = () => Array.from(attributions.values());
 export const listAttributionsForReport = (reportId: string) =>
   Array.from(attributions.values()).filter(e => e.reportId === reportId);
@@ -121,7 +189,7 @@ export const listAttributionsForContributor = (contributorId: string) =>
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
 export const getCreditBalance = (contributorId: string) => creditBalances.get(contributorId);
-export const setCreditBalance = (b: CreditBalance) => { creditBalances.set(b.contributorId, b); if (isDbEnabled()) upsertCreditBalance(b).catch(persistErr('credit balance')); return b; };
+export const setCreditBalance = (b: CreditBalance) => { creditBalances.set(b.contributorId, b); if (isDbEnabled()) persist('credit balance', () => upsertCreditBalance(b)); return b; };
 
 export function listDisputes(filter?: { status?: string; agentId?: string }) {
   let all = Array.from(disputes.values());
@@ -485,10 +553,10 @@ export async function initPersistence(): Promise<void> {
     // are created lazily on first credit/debit.
     seed();
     await Promise.all([
-      ...Array.from(profiles.values()).map((p) => upsertProfile(p).catch(persistErr('profile'))),
-      ...Array.from(disputes.values()).map((d) => upsertDispute(d).catch(persistErr('dispute'))),
-      ...Array.from(reports.values()).map((r) => upsertReport(r).catch(persistErr('report'))),
-      ...Array.from(contributors.values()).map((c) => upsertContributor(c).catch(persistErr('contributor'))),
+      ...Array.from(profiles.values()).map((p) => persist('profile', () => upsertProfile(p))),
+      ...Array.from(disputes.values()).map((d) => persist('dispute', () => upsertDispute(d))),
+      ...Array.from(reports.values()).map((r) => persist('report', () => upsertReport(r))),
+      ...Array.from(contributors.values()).map((c) => persist('contributor', () => upsertContributor(c))),
     ]);
     console.log(`[credit-bureau] seeded fresh database with ${profiles.size} agent profiles`);
   } else {

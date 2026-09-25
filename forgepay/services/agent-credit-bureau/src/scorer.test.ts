@@ -15,7 +15,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   computeScore, scoreTier, maxRecommendedLimit, computeMode2Score, computeDualModeScore,
-  computePaymentHistoryRate,
+  computePaymentHistoryRate, generateZKProof,
 } from './scorer';
 import { profiles } from './store';
 import type { AgentCreditProfile, Mode2Inputs } from './types';
@@ -383,5 +383,38 @@ describe('computeMode2Score + consensus classification', () => {
     const expected = v <= 50 ? 'HIGH' : v <= 100 ? 'MEDIUM' : 'LOW';
     expect(d.consensus.level).toBe(expected);
     expect(d.consensus.flagForReview).toBe(v > 50);
+  });
+});
+
+describe('generateZKProof — honesty of the stub', () => {
+  // No real prover is wired in (see the function's docstring in scorer.ts):
+  // proofHash is a plain sha256 of the plaintext inputs, not a Groth16 proof.
+  // These fields exist so nothing downstream can present it as real by
+  // reading proofHash/verified in isolation — this test is the regression
+  // guard for that, plus the production-serving guard in
+  // index.ts::zkStubProofsBlocked (covered in config-guards.test.ts).
+  const profile = baseProfile({
+    currentScore: 750,
+    totalDebt: 500,
+    utilizationRate: 0.1,
+  }) as unknown as AgentCreditProfile;
+
+  it('always marks itself as an unverifiable stub, never as a real proof', () => {
+    const proof = generateZKProof(profile, 'score_above', { threshold: 700 });
+    expect(proof.proofSystem).toBe('stub-sha256-commitment');
+    expect(proof.cryptographicallyVerifiable).toBe(false);
+  });
+
+  it('still computes the claimed property correctly against real profile data', () => {
+    expect(generateZKProof(profile, 'score_above', { threshold: 700 }).verified).toBe(true);
+    expect(generateZKProof(profile, 'score_above', { threshold: 800 }).verified).toBe(false);
+    expect(generateZKProof(profile, 'debt_under', { amount: 1000 }).verified).toBe(true);
+    expect(generateZKProof(profile, 'debt_under', { amount: 100 }).verified).toBe(false);
+  });
+
+  it('proofHash changes when the claim or its inputs change — not a fixed placeholder', () => {
+    const a = generateZKProof(profile, 'score_above', { threshold: 700 });
+    const b = generateZKProof(profile, 'score_above', { threshold: 800 });
+    expect(a.proofHash).not.toBe(b.proofHash);
   });
 });

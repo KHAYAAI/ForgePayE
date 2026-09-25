@@ -267,6 +267,25 @@ export function simulateScore(
 }
 
 // ── ZK Proof stub ─────────────────────────────────────────────────────────────
+//
+// No real prover is wired in — this computes the claimed property correctly
+// against real profile data (the `verified` booleans below are genuine), but
+// `proofHash` is a plain sha256 of the plaintext inputs, not a Groth16 (or
+// any) zero-knowledge proof. It carries none of the properties a lender
+// reading it would assume: it isn't independently checkable without the
+// preimage (which includes the private profile data ZK is meant to hide),
+// and it isn't a binding commitment either, since `verified` sits right next
+// to it in plaintext. Building a real prover means a real circuit and a real
+// trusted setup — out of scope here, and guessing at a fake one would be
+// worse than this explicit stub, per the pattern in stablecoin-gateway's
+// verifyGroth16Proof() and its assertShieldedPaymentsSafeToBoot() guard.
+//
+// Every caller of this function MUST propagate proofSystem/
+// cryptographicallyVerifiable unchanged (see ZKProof in types.ts) so nothing
+// downstream can present this as a real proof by reading proofHash/verified
+// in isolation. The API layer (index.ts) additionally refuses to serve this
+// in production unless ZK_STUB_PROOFS_ACKNOWLEDGED=true is set explicitly —
+// see requireZkStubAcknowledged() there.
 
 import { createHash } from 'crypto';
 
@@ -274,9 +293,7 @@ export function generateZKProof(
   profile: AgentCreditProfile,
   circuit: string,
   params: Record<string, number>,
-): { proofHash: string; verified: boolean } {
-  // Stub: in production this calls a Groth16 proving service
-  // The proof attests to a property WITHOUT revealing underlying data
+): { proofHash: string; verified: boolean; proofSystem: 'stub-sha256-commitment'; cryptographicallyVerifiable: false } {
   let verified = false;
 
   switch (circuit) {
@@ -304,7 +321,7 @@ export function generateZKProof(
     .update(`${profile.agentId}:${circuit}:${JSON.stringify(params)}:${verified}`)
     .digest('hex');
 
-  return { proofHash, verified };
+  return { proofHash, verified, proofSystem: 'stub-sha256-commitment', cryptographicallyVerifiable: false };
 }
 
 export { riskGrade, scoreTier as tierFromScore };
