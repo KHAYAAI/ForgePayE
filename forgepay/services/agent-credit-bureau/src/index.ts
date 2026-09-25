@@ -879,6 +879,22 @@ async function buildApp() {
     const { profile } = pull;
     const score = profile.currentScore;
 
+    // Same fail-closed screen POST /v1/lender-reports already runs, applied
+    // here too: this route issued the raw credit file with no live sanctions
+    // check at all, relying only on a stored frozenAt flag that reflects
+    // whenever the agent last happened to be screened, not as of this pull.
+    // An unreachable compliance-monitor must refuse the file, not issue it —
+    // see sanctionsScreen()'s own fail-closed contract in verify.ts.
+    const sanctions = await sanctionsScreen(profile);
+    cost.sanctionsScreen();
+    if (!sanctions.clear) {
+      return reply.status(403).send({
+        error: 'ComplianceRefusal',
+        message: 'This report cannot be issued: sanctions screening did not clear.',
+        reason: sanctions.frozen ? 'agent_frozen' : sanctions.detail,
+      });
+    }
+
     const now    = new Date();
     const expiry = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
 
