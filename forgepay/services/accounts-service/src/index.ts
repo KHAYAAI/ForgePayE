@@ -1,8 +1,8 @@
-import Fastify, { FastifyRequest } from 'fastify';
+import Fastify, { FastifyReply, FastifyRequest } from 'fastify';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import cors from '@fastify/cors';
-import { config } from './config.js';
+import { config, resolveApiKeys } from './config.js';
 import { getDb } from './lib/db.js';
 import { buildAccountRoutes } from './routes/accounts.js';
 import { buildTransactionRoutes } from './routes/transactions.js';
@@ -49,6 +49,38 @@ await app.register(rateLimit, {
     error:      'Too Many Requests',
     message:    'Rate limit exceeded. Please slow down.',
   }),
+});
+
+// ── API key auth ─────────────────────────────────────────────────────────
+// /v1/accounts/* previously had no auth at all — this service holds the
+// account, wallet and withdrawal routes. /v1/webhooks/* is exempted here:
+// it verifies a Circle HMAC signature itself (see routes/webhooks.ts),
+// which is the correct mechanism for a third-party webhook, not an API key.
+// resolveApiKeys() throws synchronously in production if misconfigured, so
+// a bad deploy fails to boot rather than coming up with no real check.
+const isDev     = config.env !== 'production';
+const validKeys = resolveApiKeys();
+app.addHook('onRequest', async (request: FastifyRequest, reply: FastifyReply) => {
+  if (
+    request.url === '/healthz' ||
+    request.url === '/metrics' ||
+    request.url === '/readyz' ||
+    request.url.startsWith('/v1/webhooks')
+  ) {
+    return;
+  }
+  const apiKey =
+    (request.headers['x-api-key'] as string | undefined) ??
+    (request.headers['authorization'] as string | undefined)?.replace('Bearer ', '');
+  if (!apiKey) {
+    return reply.code(401).send({ error: 'Missing API key. Provide X-Api-Key header.' });
+  }
+  // In dev, any non-empty key is accepted (validKeys may be empty). In
+  // production, validKeys is guaranteed non-empty by resolveApiKeys(), so
+  // this is a real allowlist check.
+  if (!isDev && !validKeys.has(apiKey)) {
+    return reply.code(401).send({ error: 'Invalid API key.' });
+  }
 });
 
 // Health + readiness

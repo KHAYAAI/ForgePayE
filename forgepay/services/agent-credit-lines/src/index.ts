@@ -81,6 +81,49 @@ export function resolveCorsOrigin(): string | string[] {
   return origins.length === 1 ? origins[0]! : origins;
 }
 
+const DEV_PLACEHOLDER_API_KEYS = new Set(['dev-credit-lines-key', 'dev-api-key', 'changeme']);
+const MIN_PRODUCTION_API_KEY_LENGTH = 32;
+
+/**
+ * Valid API keys for this service. It registered no auth at all before this
+ * — anyone reaching it could assess agents, issue credit lines, and post
+ * draws/repayments with no credential. Same fail-to-boot pattern as
+ * enterprise-treasury's resolveApiKeys(): throws synchronously in
+ * production if VALID_API_KEYS is missing, still a dev placeholder, or
+ * too short, so a bad deploy never comes up silently open.
+ */
+export function resolveApiKeys(): Set<string> {
+  const isProduction = process.env['NODE_ENV'] === 'production';
+  const rawKeys = (process.env['VALID_API_KEYS'] ?? '')
+    .split(',')
+    .map((k) => k.trim())
+    .filter(Boolean);
+
+  if (isProduction) {
+    if (rawKeys.length === 0) {
+      throw new Error(
+        'VALID_API_KEYS is not set. agent-credit-lines refuses to start in production without ' +
+        'at least one API key — generate one with `openssl rand -hex 32` and supply it via ' +
+        'Vault or AWS Secrets Manager.',
+      );
+    }
+    for (const key of rawKeys) {
+      if (DEV_PLACEHOLDER_API_KEYS.has(key)) {
+        throw new Error(
+          `VALID_API_KEYS contains the development placeholder key "${key}", which must not be used in production.`,
+        );
+      }
+      if (key.length < MIN_PRODUCTION_API_KEY_LENGTH) {
+        throw new Error(
+          `Every key in VALID_API_KEYS must be at least ${MIN_PRODUCTION_API_KEY_LENGTH} characters in production (got ${key.length}).`,
+        );
+      }
+    }
+  }
+
+  return new Set(rawKeys);
+}
+
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
 let lineCounter = 0;
@@ -135,6 +178,27 @@ async function buildApp() {
       error:      'Too Many Requests',
       message:    `Rate limit exceeded. Retry in ${Math.ceil(context.ttl / 1000)}s`,
     }),
+  });
+
+  // ── API key auth ───────────────────────────────────────────────────────────
+  // resolveApiKeys() throws synchronously in production if misconfigured, so
+  // a bad deploy fails to boot rather than coming up with no real check.
+  const isDev     = process.env['NODE_ENV'] !== 'production';
+  const validKeys = resolveApiKeys();
+  app.addHook('onRequest', async (request, reply) => {
+    if (request.url === '/health' || request.url.startsWith('/health')) return;
+    const apiKey =
+      (request.headers['x-api-key'] as string | undefined) ??
+      (request.headers['authorization'] as string | undefined)?.replace('Bearer ', '');
+    if (!apiKey) {
+      return reply.code(401).send({ error: 'Missing API key. Provide X-Api-Key header.' });
+    }
+    // In dev, any non-empty key is accepted (validKeys may be empty). In
+    // production, validKeys is guaranteed non-empty by resolveApiKeys(), so
+    // this is a real allowlist check.
+    if (!isDev && !validKeys.has(apiKey)) {
+      return reply.code(401).send({ error: 'Invalid API key.' });
+    }
   });
 
   // ── Health ─────────────────────────────────────────────────────────────────

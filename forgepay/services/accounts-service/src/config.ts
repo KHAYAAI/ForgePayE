@@ -10,6 +10,52 @@ function optSecret(name: string): string | undefined {
   return process.env[name];
 }
 
+const DEV_PLACEHOLDER_API_KEYS = new Set(['dev-accounts-key', 'dev-api-key', 'changeme']);
+const MIN_PRODUCTION_API_KEY_LENGTH = 32;
+
+/**
+ * Valid API keys for /v1/accounts/* — this service's account, wallet and
+ * transaction routes previously registered no auth at all (only
+ * /v1/webhooks verified anything, via a Circle HMAC signature). Anyone who
+ * could reach the service could create accounts, list transactions and
+ * drive withdrawals with no credential.
+ *
+ * Throws synchronously in production when VALID_API_KEYS is missing, still
+ * a dev placeholder, or too short — the same fail-to-boot pattern
+ * enterprise-treasury uses, so a bad deploy never comes up silently open.
+ */
+export function resolveApiKeys(): Set<string> {
+  const isProduction = process.env['NODE_ENV'] === 'production';
+  const rawKeys = (process.env['VALID_API_KEYS'] ?? '')
+    .split(',')
+    .map((k) => k.trim())
+    .filter(Boolean);
+
+  if (isProduction) {
+    if (rawKeys.length === 0) {
+      throw new Error(
+        'VALID_API_KEYS is not set. accounts-service refuses to start in production without ' +
+        'at least one API key — generate one with `openssl rand -hex 32` and supply it via ' +
+        'Vault or AWS Secrets Manager.',
+      );
+    }
+    for (const key of rawKeys) {
+      if (DEV_PLACEHOLDER_API_KEYS.has(key)) {
+        throw new Error(
+          `VALID_API_KEYS contains the development placeholder key "${key}", which must not be used in production.`,
+        );
+      }
+      if (key.length < MIN_PRODUCTION_API_KEY_LENGTH) {
+        throw new Error(
+          `Every key in VALID_API_KEYS must be at least ${MIN_PRODUCTION_API_KEY_LENGTH} characters in production (got ${key.length}).`,
+        );
+      }
+    }
+  }
+
+  return new Set(rawKeys);
+}
+
 export const config = {
   port: parseInt(opt('PORT', '8040'), 10),
   env:  opt('NODE_ENV', 'development') as 'development' | 'production',

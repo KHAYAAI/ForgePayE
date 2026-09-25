@@ -1,3 +1,15 @@
+/**
+ * Valid API keys for /v1/accounts/* — this service's account, wallet and
+ * transaction routes previously registered no auth at all (only
+ * /v1/webhooks verified anything, via a Circle HMAC signature). Anyone who
+ * could reach the service could create accounts, list transactions and
+ * drive withdrawals with no credential.
+ *
+ * Throws synchronously in production when VALID_API_KEYS is missing, still
+ * a dev placeholder, or too short — the same fail-to-boot pattern
+ * enterprise-treasury uses, so a bad deploy never comes up silently open.
+ */
+export declare function resolveApiKeys(): Set<string>;
 export declare const config: {
     readonly port: number;
     readonly env: "development" | "production";
