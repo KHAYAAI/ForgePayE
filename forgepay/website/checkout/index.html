@@ -707,7 +707,7 @@
         return;
       }
       $('#btn-pay-card').disabled = true;
-      showStatus('pending', 'Processing your card&hellip;');
+      showStatus('pending', 'Processing your card…');
       hyperInstance.confirmPayment({ elements: hyperElements, redirect: 'if_required' })
         .then(function (result) {
           if (result.error) {
@@ -785,7 +785,7 @@
           } else if (!silent) {
             // pending_card / pending_usdc — explicit, visible waiting state,
             // never a silent hang.
-            $('#usdc-poll-msg').textContent = res.body.message || 'Still waiting for confirmation&hellip;';
+            $('#usdc-poll-msg').textContent = res.body.message || 'Still waiting for confirmation…';
           }
         })
         .catch(function (err) {

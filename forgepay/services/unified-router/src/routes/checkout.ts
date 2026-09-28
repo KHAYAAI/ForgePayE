@@ -104,7 +104,7 @@ async function provision(session: CheckoutSessionRow): Promise<{ customerId: str
     `INSERT INTO customers (tenant_id, email, name, status, products, subscriptions, kb_account_id)
      VALUES (gen_random_uuid(), $1, $2, 'active', ARRAY['payments'],
              jsonb_build_object('payments', jsonb_build_object(
-               'plan_name', $3, 'granted_at', NOW()
+               'plan_name', $3::text, 'granted_at', NOW()
              )),
              $4)
      ON CONFLICT (tenant_id, email) DO UPDATE SET
