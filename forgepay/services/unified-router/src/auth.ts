@@ -163,11 +163,26 @@ export function customerAccessError(
 
 // ── Route table ───────────────────────────────────────────────────────────────
 
-/** Served without credentials: liveness and the Prometheus scrape. */
+/**
+ * Served without credentials: liveness, the Prometheus scrape, and checkout.
+ *
+ * Checkout is public by necessity, not oversight: a prospect signing up has
+ * no customer key yet (that's what checkout creates), and the alternative —
+ * shipping the operator key to the browser so it could bootstrap one — would
+ * hand out the platform's master credential to every visitor. Safety here
+ * comes from routes/checkout.ts itself: every price is read server-side from
+ * pricing.yaml (never trusted from the request), payment is verified against
+ * Hyperswitch/stablecoin-gateway directly rather than taking the client's
+ * word for it, and the global rate limiter in index.ts still applies.
+ */
 const PUBLIC_ROUTES = new Set<string>([
   'GET /healthz',
   'GET /health',
   'GET /metrics',
+  'GET /v1/pricing',
+  'POST /v1/checkout/sessions',
+  'GET /v1/checkout/sessions/:id',
+  'POST /v1/checkout/sessions/:id/confirm',
 ]);
 
 /**

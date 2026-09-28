@@ -37,6 +37,7 @@
 import Fastify, { FastifyRequest } from 'fastify';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
+import cors from '@fastify/cors';
 import { buildWebhookRoutes } from './routes/webhooks.js';
 import { buildPaymentRoutes } from './routes/payments.js';
 import { buildEventRoutes } from './routes/events.js';
@@ -44,6 +45,7 @@ import { buildHealthRoutes } from './routes/health.js';
 import { customerRoutes } from './routes/customer.js';
 import { bundleRoutes } from './routes/bundle.js';
 import { csmRoutes } from './routes/csm.js';
+import { buildCheckoutRoutes } from './routes/checkout.js';
 import { registerAuth } from './auth.js';
 import { createRedisClient } from './lib/redis.js';
 import { pool as sharedPool } from './db/index.js';
@@ -94,6 +96,14 @@ async function main() {
     keyGenerator: (req) => req.headers['x-forgepay-source'] as string ?? req.ip,
   });
 
+  // The checkout routes are the only ones a browser calls directly (every
+  // other route here is service-to-service). Scoped to the marketing site's
+  // own origin, not '*' — this API creates accounts and moves money.
+  await app.register(cors, {
+    origin: config.checkout.corsOrigin,
+    methods: ['GET', 'POST'],
+  });
+
   // ── Shared resources ──────────────────────────────────────────────────────
   const redis = createRedisClient(config.redis.url);
   const db    = sharedPool; // same pool ../db's tenant-scoped wrapper uses — one pool per process
@@ -129,6 +139,9 @@ async function main() {
   await app.register(customerRoutes);
   await app.register(bundleRoutes, { prefix: '/bundle' });
   await app.register(csmRoutes,    { prefix: '/csm' });
+
+  // Checkout — public, see auth.ts's PUBLIC_ROUTES comment for why.
+  await app.register(buildCheckoutRoutes);
 
   // ── Graceful shutdown ─────────────────────────────────────────────────────
   const shutdown = async (signal: string) => {

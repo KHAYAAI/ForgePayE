@@ -55,6 +55,41 @@ export const config = {
     apiSecret: optional('KILLBILL_API_SECRET', ''),
   },
 
+  // Hyperswitch payment-engine — outbound calls to create/read a payment
+  // (routes/checkout.ts). Distinct from webhookSecrets.hyperswitch, which is
+  // for verifying *inbound* webhooks; this is the API key Hyperswitch expects
+  // on server-to-server calls (its `api-key` header, a merchant secret key —
+  // never sent to the browser).
+  paymentEngine: {
+    baseUrl: optional('PAYMENT_ENGINE_URL', 'http://payment-engine:8080'),
+    apiKey:  optional('PAYMENT_ENGINE_API_KEY', ''),
+    // Hyperswitch's own publishable key, safe for client-side use — returned
+    // to the checkout frontend so it can load the Hyperswitch Web SDK itself.
+    publishableKey: optional('PAYMENT_ENGINE_PUBLISHABLE_KEY', ''),
+  },
+
+  // Checkout (routes/checkout.ts) — the one path in this service reachable
+  // with no credential at all, since a prospect signing up has none yet. See
+  // auth.ts's PUBLIC_ROUTES comment for why that's the correct shape here,
+  // not a gap.
+  // stablecoin-gateway — outbound x402 calls for the checkout's USDC path.
+  // Same integration contract agent-credit-bureau/src/billing.ts already uses
+  // for its own top-ups (POST /x402/pay, GET /x402/verify/:id) — reused here
+  // rather than inventing a second shape for the same gateway.
+  stablecoinGateway: {
+    baseUrl: optional('STABLECOIN_GATEWAY_URL', 'http://stablecoin-gateway:8020'),
+    merchantId: optional('CHECKOUT_X402_MERCHANT_ID', 'forgepay-checkout'),
+  },
+
+  checkout: {
+    pricingYamlPath: optional('PRICING_YAML_PATH', '../../config/pricing.yaml'),
+    // How long a checkout session (payment intent created, not yet confirmed)
+    // stays valid before it's treated as abandoned/stalled rather than just
+    // slow. Matches Hyperswitch's own default payment-intent expiry window.
+    sessionTtlMinutes: parseInt(optional('CHECKOUT_SESSION_TTL_MINUTES', '30'), 10),
+    corsOrigin: optional('CHECKOUT_CORS_ORIGIN', 'https://myforgepay.com'),
+  },
+
   // KYAPay integration — trusted issuers and token settings
   kyapay: {
     // Comma-separated list of trusted JWT issuer URLs
@@ -75,6 +110,18 @@ if (config.env === 'production') {
     console.warn(
       `[unified-router] WARNING: webhook secrets not configured for sources: ${blankSecrets.join(', ')}. ` +
       'Webhooks from these sources will fail HMAC verification.'
+    );
+  }
+
+  // Card checkout moves real money on a key that, unlike the webhook secrets
+  // above, has no fallback that "just doesn't verify something" — a missing
+  // paymentEngine.apiKey means routes/checkout.ts's card path cannot create a
+  // payment intent at all. Refuse to boot rather than let every card checkout
+  // fail at request time in production.
+  if (!config.paymentEngine.apiKey) {
+    throw new Error(
+      '[unified-router] PAYMENT_ENGINE_API_KEY is not set. Refusing to start in production — ' +
+      'card checkout would fail on every request. Set it to the Hyperswitch merchant secret key.',
     );
   }
 }

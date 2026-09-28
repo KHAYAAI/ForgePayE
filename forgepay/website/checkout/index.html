@@ -2,9 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
-  <title>FORGE Payments Multi-Rail Checkout</title>
+  <title>FORGE Payments &mdash; Get Started</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <meta name="description" content="FORGE Payments: Accept cards, bank transfers, stablecoins, and AI micropayments. One API, one dashboard, one settlement account."/>
+  <meta name="description" content="Start accepting card, bank and stablecoin payments with FORGE. Pick a plan, pay, and your account is ready."/>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
   <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:ital,wght@0,200;0,300;0,400;0,500;0,600;0,700;1,300;1,400;1,500&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
@@ -232,6 +232,71 @@
     footer .meta .mono { color: rgba(244,242,238,0.5); }
     @media (max-width: 880px) { footer .grid { grid-template-columns: 1fr 1fr; } }
     @media (max-width: 480px) { footer .grid { grid-template-columns: 1fr; } }
+
+    /* ── Checkout ─────────────────────────────────────────────────────────── */
+    .checkout-wrap { max-width: 720px; margin: 0 auto; padding: clamp(48px,8vw,96px) var(--pad) clamp(80px,10vw,140px); }
+    .step-rail { display: flex; align-items: center; gap: 0; margin-bottom: clamp(40px,6vw,64px); }
+    .step-rail .step { display: flex; align-items: center; gap: 10px; }
+    .step-rail .dot { width: 26px; height: 26px; border: 1px solid var(--hair); display: flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--steel); flex-shrink: 0; transition: all .15s; }
+    .step-rail .step.active .dot { border-color: var(--ink); background: var(--ink); color: var(--paper); }
+    .step-rail .step.done .dot { border-color: var(--ink); background: var(--paper); color: var(--ink); }
+    .step-rail .step .label { font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--steel); }
+    .step-rail .step.active .label { color: var(--ink); }
+    .step-rail .rule { flex: 1; height: 1px; background: var(--hair); margin: 0 14px; }
+    .co-panel { display: none; }
+    .co-panel.active { display: block; }
+    .co-panel h1 { font-size: clamp(32px,5vw,48px); font-weight: 500; letter-spacing: -1.2px; line-height: 1.02; margin: 0 0 12px; }
+    .co-panel h1 em { font-style: italic; font-weight: 300; }
+    .co-panel .sub { font-size: 15px; color: var(--steel); line-height: 1.55; margin: 0 0 40px; max-width: 480px; }
+
+    .plan-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--hair); border: 1px solid var(--hair); margin-bottom: 32px; }
+    .plan-card { background: var(--paper); padding: 28px; display: flex; flex-direction: column; gap: 16px; cursor: pointer; border: 2px solid transparent; transition: border-color .12s; }
+    .plan-card:hover { border-color: var(--hair-dark); }
+    .plan-card.selected { border-color: var(--ink); }
+    .plan-card .tier { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 1.6px; text-transform: uppercase; color: var(--steel); }
+    .plan-card .price { font-size: 34px; font-weight: 500; letter-spacing: -1px; margin: 4px 0; }
+    .plan-card .price span { font-size: 13px; font-weight: 400; color: var(--steel); }
+    .plan-card ul { list-style: none; padding: 0; margin: 8px 0 0; display: flex; flex-direction: column; gap: 6px; }
+    .plan-card li { font-size: 12.5px; color: var(--steel); }
+    .plan-card li b { color: var(--ink); font-weight: 500; }
+
+    .co-field { margin-bottom: 20px; }
+    .co-field label { display: block; font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--steel); margin-bottom: 8px; }
+    .co-field input { width: 100%; border: 1px solid var(--hair); background: var(--paper); padding: 13px 14px; font-family: 'Inter Tight', sans-serif; font-size: 14px; color: var(--ink); }
+    .co-field input:focus { outline: none; border-color: var(--ink); }
+
+    .pm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--hair); border: 1px solid var(--hair); margin: 24px 0 32px; }
+    .pm-card { background: var(--paper); padding: 20px; cursor: pointer; border: 2px solid transparent; display: flex; flex-direction: column; gap: 4px; }
+    .pm-card:hover { border-color: var(--hair-dark); }
+    .pm-card.selected { border-color: var(--ink); }
+    .pm-card .pm-name { font-size: 15px; font-weight: 500; }
+    .pm-card .pm-desc { font-size: 12px; color: var(--steel); }
+
+    .co-actions { display: flex; gap: 12px; margin-top: 8px; }
+    .co-actions .btn-ghost { cursor: pointer; }
+    button.btn-ink:disabled { opacity: .4; cursor: not-allowed; }
+
+    .co-status { padding: 16px 18px; border: 1px solid var(--hair); font-size: 13px; line-height: 1.55; margin-bottom: 24px; display: none; }
+    .co-status.show { display: block; }
+    .co-status.error { border-color: #b91c1c; background: #fdf2f2; color: #7f1d1d; }
+    .co-status.pending { border-color: #b45309; background: #fffbeb; color: #78350f; }
+    .co-status.ok { border-color: #15803d; background: #f0fdf4; color: #14532d; }
+
+    #card-element { border: 1px solid var(--hair); padding: 16px; margin-bottom: 20px; min-height: 52px; background: var(--paper); }
+
+    .usdc-box { border: 1px solid var(--ink); padding: 24px; margin-bottom: 24px; }
+    .usdc-box .row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--hair); font-size: 13px; }
+    .usdc-box .row:last-child { border-bottom: 0; }
+    .usdc-box .row .k { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--steel); }
+    .usdc-box .row .v { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; }
+
+    .confirm-box { text-align: center; padding: clamp(40px,6vw,64px) 20px; }
+    .confirm-box .glyph { width: 56px; height: 56px; border: 1px solid var(--ink); display: flex; align-items: center; justify-content: center; margin: 0 auto 24px; font-size: 22px; }
+    .confirm-box .glyph.fail { border-color: #b91c1c; color: #b91c1c; }
+    .confirm-box h2 { font-size: 28px; font-weight: 500; margin: 0 0 12px; }
+    .confirm-box p { font-size: 14px; color: var(--steel); line-height: 1.6; max-width: 420px; margin: 0 auto; }
+    .mono-sm { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--steel); }
+  
   </style>
   <style>
     .feature-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--hair); border: 1px solid var(--hair); margin-top: 48px; }
@@ -325,171 +390,435 @@
         <li><a href="../index.html#pricing">Pricing</a></li>
         <li><a href="../index.html#developers">Developers</a></li>
       </ul>
-      <a href="../index.html#cta" class="cta">Coming soon →</a>
+      <a href="#step-rail" class="cta">Get started ↓</a>
     </div>
   </nav>
-
-  
-
-
-  <!-- HERO -->
-
-
-    <section class="hero">
-    <img class="hero-art" src="../assets/photo-handshake-ink.png" alt=""/>
-    <div class="wrap">
-      <div style="max-width: 720px;">
-        <div class="eye" style="margin-bottom: 32px;"><span class="mono">FORGE Payments</span><span class="tick"></span><span class="mono">Multi-rail checkout</span></div>
-        <h1>Accept payments,<br/><em>everywhere</em>.</h1>
-        <p class="lede">Card. Bank transfer. Stablecoin. x402 AI micropayments. One integration, one dashboard, one settlement account. Real-time reconciliation, tax-ready reporting.</p>
-        <div class="actions">
-          <a href="../checkout/index.html" class="btn-ink">Get Started →</a>
-          <a href="https://docs.forgepay.io" class="btn-ghost">API Docs →</a>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- WHAT'S INCLUDED -->
+  <!-- CHECKOUT -->
   <section>
-    <div class="wrap">
-      <div class="head-split">
-        <div>
-          <div class="eye" style="margin-bottom: 24px;"><span class="mono">Features</span><span class="tick"></span><span class="mono">What's included</span></div>
-          <h2 class="big">One API for<br/><em>every rail</em>.</h2>
-        </div>
-        <p class="lede">From first transaction to enterprise scale, FORGE handles every payment method your customers prefer. Instant settlement, built-in compliance, zero chargebacks on chain.</p>
+    <div class="checkout-wrap">
+
+      <div class="step-rail" id="step-rail">
+        <div class="step active" data-step="1"><span class="dot">1</span><span class="label">Plan</span></div>
+        <div class="rule"></div>
+        <div class="step" data-step="2"><span class="dot">2</span><span class="label">Details</span></div>
+        <div class="rule"></div>
+        <div class="step" data-step="3"><span class="dot">3</span><span class="label">Payment</span></div>
+        <div class="rule"></div>
+        <div class="step" data-step="4"><span class="dot">4</span><span class="label">Confirm</span></div>
       </div>
-      
-      <div class="feature-grid">
-        <div class="cell">
-          <h3>Card Checkout</h3>
-          <p>Visa, Mastercard, Amex. Tokenization, 3DS2, chargeback protection, recurring billing.</p>
+
+      <div id="co-status" class="co-status"></div>
+
+      <!-- STEP 1 — Plan -->
+      <div class="co-panel active" data-panel="1">
+        <div class="eye" style="margin-bottom:16px;"><span class="mono">Get started</span></div>
+        <h1>Pick your <em>plan</em>.</h1>
+        <p class="sub">Pricing pulled live from what FORGE actually charges &mdash; nothing here is hand-typed.</p>
+        <div class="plan-grid" id="plan-grid">
+          <div class="plan-card"><p class="mono-sm">Loading pricing&hellip;</p></div>
         </div>
-        <div class="cell">
-          <h3>Bank Transfers</h3>
-          <p>Instant, ACH, wire. Every rail in one endpoint. Multi-currency, 100+ countries, OFAC compliant.</p>
-        </div>
-        <div class="cell">
-          <h3>Stablecoins</h3>
-          <p>USDC, USDT, EURC. On-chain settlement, instant finality, no chargebacks, gas-optimized.</p>
-        </div>
-        <div class="cell">
-          <h3>Invoicing</h3>
-          <p>Generate, send, track. Auto-reconcile against payments. Tax line items, multi-currency support.</p>
-        </div>
-        <div class="cell">
-          <h3>x402 Micropayments</h3>
-          <p>AI agents call your API, pay per request. No pre-funding, instant settlement, metered pricing.</p>
-        </div>
-        <div class="cell">
-          <h3>Webhooks & Events</h3>
-          <p>Created, settled, failed, refunded. Real-time to your backend. Retry logic, event replay.</p>
+        <div class="co-actions">
+          <button class="btn-ink" id="btn-plan-next" disabled>Continue &rarr;</button>
         </div>
       </div>
+
+      <!-- STEP 2 — Details -->
+      <div class="co-panel" data-panel="2">
+        <div class="eye" style="margin-bottom:16px;"><span class="mono">Your details</span></div>
+        <h1>Who's <em>signing up</em>?</h1>
+        <p class="sub">We'll use this to set up your account and send your receipt.</p>
+        <div class="co-field">
+          <label for="f-business">Business name</label>
+          <input type="text" id="f-business" placeholder="Acme Trading (Pty) Ltd" autocomplete="organization"/>
+        </div>
+        <div class="co-field">
+          <label for="f-email">Email</label>
+          <input type="email" id="f-email" placeholder="you@company.com" autocomplete="email"/>
+        </div>
+
+        <div id="pm-section" style="display:none;">
+          <label class="mono-sm" style="display:block; margin-bottom:8px; letter-spacing:1.2px; text-transform:uppercase;">Payment method</label>
+          <div class="pm-grid">
+            <div class="pm-card" data-method="card">
+              <span class="pm-name">Card</span>
+              <span class="pm-desc">Visa, Mastercard, Amex</span>
+            </div>
+            <div class="pm-card" data-method="usdc">
+              <span class="pm-name">USDC</span>
+              <span class="pm-desc">On-chain, ~30s settlement</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="co-actions">
+          <button class="btn-ghost" id="btn-details-back">&larr; Back</button>
+          <button class="btn-ink" id="btn-details-next" disabled>Continue &rarr;</button>
+        </div>
+      </div>
+
+      <!-- STEP 3 — Payment -->
+      <div class="co-panel" data-panel="3">
+        <div class="eye" style="margin-bottom:16px;"><span class="mono">Payment</span></div>
+        <h1 id="pay-heading">Complete your <em>payment</em>.</h1>
+        <p class="sub" id="pay-sub"></p>
+
+        <div id="pay-card-flow" style="display:none;">
+          <div id="card-element"></div>
+          <div class="co-actions">
+            <button class="btn-ghost" id="btn-pay-back">&larr; Back</button>
+            <button class="btn-ink" id="btn-pay-card">Pay &rarr;</button>
+          </div>
+        </div>
+
+        <div id="pay-usdc-flow" style="display:none;">
+          <div class="usdc-box">
+            <div class="row"><span class="k">Send exactly</span><span class="v" id="usdc-amount">&mdash;</span></div>
+            <div class="row"><span class="k">Network</span><span class="v" id="usdc-chain">&mdash;</span></div>
+            <div class="row"><span class="k">Asset</span><span class="v" id="usdc-token">&mdash;</span></div>
+            <div class="row"><span class="k">Reference</span><span class="v" id="usdc-deposit">&mdash;</span></div>
+          </div>
+          <p class="mono-sm" id="usdc-poll-msg">Waiting for on-chain confirmation&hellip;</p>
+          <div class="co-actions">
+            <button class="btn-ghost" id="btn-usdc-back">&larr; Back</button>
+            <button class="btn-ghost" id="btn-usdc-check">Check now</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- STEP 4 — Confirmation -->
+      <div class="co-panel" data-panel="4">
+        <div class="confirm-box" id="confirm-box">
+          <div class="glyph">&check;</div>
+          <h2 id="confirm-title">You're all set.</h2>
+          <p id="confirm-body"></p>
+          <div class="co-actions" style="justify-content:center; margin-top:28px;" id="confirm-actions"></div>
+        </div>
+      </div>
+
     </div>
   </section>
 
-  <!-- PRICING -->
-  <section class="pricing-section">
-    <div class="wrap">
-      <div class="head-split" style="color: var(--paper);">
-        <div>
-          <div class="eye eye-light" style="margin-bottom: 24px;"><span class="mono">Economics</span><span class="tick"></span><span class="mono">Pricing</span></div>
-          <h2 class="big" style="color: var(--paper);">Simple,<br/><em>transparent</em>.</h2>
-        </div>
-        <p class="lede" style="color: rgba(244,242,238,0.78);">No setup fees. No hidden charges. Scale from startup to unicorn without renegotiating. Annual commitment gets 20% discount. Volume rebates at $5M+/month.</p>
-      </div>
+  <script>
+  (function () {
+    // ── Configuration ────────────────────────────────────────────────────────
+    // Where unified-router's checkout API actually runs. This site is static
+    // and ships to S3+CloudFront with no build step, so this can't come from
+    // an env var baked in at build time — set it to wherever unified-router
+    // is deployed (a subdomain like api.myforgepay.com is the usual pattern).
+    // auth.ts's CORS config (checkout.corsOrigin) must allow this page's
+    // origin, or every call below fails with a CORS error, not a 401.
+    var API_BASE = window.FORGE_API_BASE || 'https://api.myforgepay.com';
 
-      <div class="pricing-grid">
-        <div class="pricing-card">
-          <span class="label">Tier 1</span>
-          <h3>Free</h3>
-          <div class="price">$0</div>
-          <p class="desc">Up to $25K monthly volume</p>
-          <ul>
-            <li>2.8% + $0.24 card</li>
-            <li>1.8% stablecoin</li>
-            <li>Full dashboard</li>
-            <li>Email support</li>
-          </ul>
-          <a href="../checkout/index.html?tier=free" class="btn-ink">Start Free →</a>
-        </div>
-        <div class="pricing-card">
-          <span class="label">Tier 2</span>
-          <h3>Growth</h3>
-          <div class="price">$28<span style="font-size: 16px; opacity: 0.7;">/mo</span></div>
-          <p class="desc">Unlimited volume</p>
-          <ul>
-            <li>2.4% + $0.24 card</li>
-            <li>1.4% stablecoin</li>
-            <li>Advanced reporting</li>
-            <li>Priority support</li>
-          </ul>
-          <a href="../checkout/index.html?tier=standard" class="btn-ink">Upgrade →</a>
-        </div>
-        <div class="pricing-card">
-          <span class="label">Tier 3</span>
-          <h3>Enterprise</h3>
-          <div class="price">Custom</div>
-          <p class="desc">Dedicated infrastructure</p>
-          <ul>
-            <li>2.0% + $0.20 card</li>
-            <li>1.0% stablecoin</li>
-            <li>Custom settlement</li>
-            <li>24/7 phone support</li>
-          </ul>
-          <a href="../contact.html" class="btn-ink">Contact Sales →</a>
-        </div>
-      </div>
-    </div>
-  </section>
+    var state = { tiers: null, tierId: null, monthlyFee: 0, sessionId: null, pollTimer: null, pollCount: 0 };
 
-  <!-- USE CASES -->
-  <section>
-    <div class="wrap">
-      <div class="head-split">
-        <div>
-          <div class="eye" style="margin-bottom: 24px;"><span class="mono">Real-world</span><span class="tick"></span><span class="mono">Use cases</span></div>
-          <h2 class="big">Built for<br/><em>global commerce</em>.</h2>
-        </div>
-        <p class="lede">From SaaS platforms to marketplaces to AI services, FORGE powers payments that matter. One system. One reconciliation. One ledger of truth.</p>
-      </div>
+    function $(sel) { return document.querySelector(sel); }
+    function $all(sel) { return Array.prototype.slice.call(document.querySelectorAll(sel)); }
 
-      <div class="feature-grid">
-        <div class="cell">
-          <h3>SaaS Platforms</h3>
-          <p>Recurring billing, dunning, retry logic. One dashboard for all customer transactions. Tax automation.</p>
-        </div>
-        <div class="cell">
-          <h3>Marketplaces</h3>
-          <p>Split payments, seller payouts, reserve management. Multi-currency, 100+ countries. FX hedging built-in.</p>
-        </div>
-        <div class="cell">
-          <h3>AI Services</h3>
-          <p>x402 micropayments for model calls. Agents pay per token, per API call, per inference. Metered billing.</p>
-        </div>
-        <div class="cell">
-          <h3>Cross-Border</h3>
-          <p>Borderless settlement. Stablecoin rails + bank rails. One USD equivalent everywhere. No hidden spreads.</p>
-        </div>
-        <div class="cell">
-          <h3>Fintech Platforms</h3>
-          <p>White-label checkout. Embedded payments. Full PCI compliance. ISO 27001, SOC 2 Type II.</p>
-        </div>
-        <div class="cell">
-          <h3>Enterprise Treasury</h3>
-          <p>Consolidate payments across brands. Netting, FX optimization, liquidity routing. Automated reporting.</p>
-        </div>
-      </div>
-    </div>
-  </section>
+    function showStatus(kind, msg) {
+      var el = $('#co-status');
+      el.className = 'co-status show ' + kind;
+      el.textContent = msg;
+    }
+    function clearStatus() {
+      var el = $('#co-status');
+      el.className = 'co-status';
+      el.textContent = '';
+    }
 
-  
+    function goToStep(n) {
+      $all('.co-panel').forEach(function (p) { p.classList.toggle('active', p.getAttribute('data-panel') === String(n)); });
+      $all('.step-rail .step').forEach(function (s) {
+        var step = parseInt(s.getAttribute('data-step'), 10);
+        s.classList.toggle('active', step === n);
+        s.classList.toggle('done', step < n);
+      });
+      clearStatus();
+    }
 
-  
+    // ── Step 1: pricing ──────────────────────────────────────────────────────
+    function money(cents_or_usd, isCents) {
+      var v = isCents ? cents_or_usd / 100 : cents_or_usd;
+      return v === 0 ? '$0' : '$' + v.toFixed(v % 1 === 0 ? 0 : 2);
+    }
 
+    function renderPlans(tiers) {
+      var grid = $('#plan-grid');
+      grid.innerHTML = '';
+      Object.keys(tiers).forEach(function (key) {
+        var t = tiers[key];
+        var card = document.createElement('div');
+        card.className = 'plan-card';
+        card.setAttribute('data-tier', key);
+        card.innerHTML =
+          '<span class="tier">' + t.name + '</span>' +
+          '<div class="price">' + money(t.monthlyFee, false) + '<span>/mo</span></div>' +
+          '<ul>' +
+            '<li><b>' + t.fees.card.percentage + '% + $' + t.fees.card.fixed.toFixed(2) + '</b> card</li>' +
+            '<li><b>' + t.fees.stablecoin.percentage + '%</b> stablecoin</li>' +
+            '<li>' + (t.limits.monthly_volume ? '$' + t.limits.monthly_volume.toLocaleString() + '/mo volume cap' : 'Unlimited volume') + '</li>' +
+          '</ul>';
+        card.addEventListener('click', function () {
+          $all('.plan-card').forEach(function (c) { c.classList.remove('selected'); });
+          card.classList.add('selected');
+          state.tierId = key;
+          state.monthlyFee = t.monthlyFee;
+          $('#btn-plan-next').disabled = false;
+        });
+        grid.appendChild(card);
+      });
+    }
 
+    fetch(API_BASE + '/v1/pricing')
+      .then(function (r) { if (!r.ok) throw new Error('status ' + r.status); return r.json(); })
+      .then(function (body) {
+        state.tiers = body.data.tiers;
+        renderPlans(state.tiers);
+        // A product page's "Start Free" / "Upgrade" button can deep-link
+        // straight to a plan via ?tier=free|standard — read it, don't trust
+        // it for pricing (still comes from pricing.yaml either way), just to
+        // skip the click.
+        var params = new URLSearchParams(window.location.search);
+        var preselect = params.get('tier');
+        if (preselect && state.tiers[preselect]) {
+          var card = document.querySelector('.plan-card[data-tier="' + preselect + '"]');
+          if (card) card.click();
+        }
+      })
+      .catch(function (err) {
+        $('#plan-grid').innerHTML = '';
+        showStatus('error', 'Could not load pricing right now (' + err.message + '). Refresh to try again, or check FORGE_API_BASE if you are testing locally.');
+      });
+
+    $('#btn-plan-next').addEventListener('click', function () {
+      var needsPayment = state.monthlyFee > 0;
+      $('#pm-section').style.display = needsPayment ? 'block' : 'none';
+      $('#btn-details-next').disabled = true;
+      goToStep(2);
+    });
+
+    // ── Step 2: details + payment method ────────────────────────────────────
+    var selectedMethod = null;
+    $all('.pm-card').forEach(function (c) {
+      c.addEventListener('click', function () {
+        $all('.pm-card').forEach(function (x) { x.classList.remove('selected'); });
+        c.classList.add('selected');
+        selectedMethod = c.getAttribute('data-method');
+        validateDetails();
+      });
+    });
+    ['#f-business', '#f-email'].forEach(function (sel) {
+      $(sel).addEventListener('input', validateDetails);
+    });
+    function validateDetails() {
+      var email = $('#f-email').value.trim();
+      var biz = $('#f-business').value.trim();
+      var emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+      var needsPayment = state.monthlyFee > 0;
+      var methodOk = !needsPayment || !!selectedMethod;
+      $('#btn-details-next').disabled = !(emailOk && biz.length > 0 && methodOk);
+    }
+    $('#btn-details-back').addEventListener('click', function () { goToStep(1); });
+
+    $('#btn-details-next').addEventListener('click', function () {
+      $('#btn-details-next').disabled = true;
+      var payload = {
+        email: $('#f-email').value.trim(),
+        businessName: $('#f-business').value.trim(),
+        tierId: state.tierId,
+      };
+      if (state.monthlyFee > 0) payload.paymentMethod = selectedMethod;
+
+      fetch(API_BASE + '/v1/checkout/sessions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+        .then(function (r) { return r.json().then(function (body) { return { ok: r.ok, status: r.status, body: body }; }); })
+        .then(function (res) {
+          $('#btn-details-next').disabled = false;
+          if (!res.ok) {
+            showStatus('error', res.body.message || 'Something went wrong starting checkout. Try again.');
+            return;
+          }
+          state.sessionId = res.body.sessionId;
+          if (res.body.status === 'succeeded') {
+            // Free tier — nothing to pay, already provisioned.
+            renderConfirmation(true, 'Your FORGE account is ready.', res.body.customerId);
+            goToStep(4);
+            return;
+          }
+          if (res.body.status === 'pending_card') {
+            startCardFlow(res.body);
+          } else if (res.body.status === 'pending_usdc') {
+            startUsdcFlow(res.body);
+          } else {
+            showStatus('error', res.body.message || 'Unexpected response starting checkout.');
+          }
+        })
+        .catch(function (err) {
+          $('#btn-details-next').disabled = false;
+          showStatus('error', 'Could not reach FORGE (' + err.message + '). Check your connection and try again.');
+        });
+    });
+
+    // ── Step 3a: card, via Hyperswitch's own Web SDK ────────────────────────
+    // Loaded on demand — no point shipping a payment SDK to every visitor who
+    // never reaches the payment step. Script URL/API per Hyperswitch's
+    // published Web SDK (hyperswitch.io/docs) — confirm the current CDN path
+    // and package version against their docs before this goes live; Stripe.js-
+    // style APIs (Hyper(key), .elements(), .confirmPayment()) shift between
+    // SDK majors more than REST APIs do.
+    var hyperswitchLoaded = null;
+    function loadHyperswitchSdk() {
+      if (hyperswitchLoaded) return hyperswitchLoaded;
+      hyperswitchLoaded = new Promise(function (resolve, reject) {
+        var s = document.createElement('script');
+        s.src = 'https://checkout.hyperswitch.io/v1/hyper.js';
+        s.onload = function () { resolve(window.Hyper); };
+        s.onerror = function () { reject(new Error('Hyperswitch SDK failed to load')); };
+        document.head.appendChild(s);
+      });
+      return hyperswitchLoaded;
+    }
+
+    var hyperInstance = null, hyperElements = null;
+    function startCardFlow(session) {
+      $('#pay-heading').innerHTML = 'Enter your <em>card</em>.';
+      $('#pay-sub').textContent = 'Charged ' + money(session.amountCents, true) + ' today for the ' + tierName(state.tierId) + ' plan.';
+      $('#pay-card-flow').style.display = 'block';
+      $('#pay-usdc-flow').style.display = 'none';
+      goToStep(3);
+
+      loadHyperswitchSdk()
+        .then(function (Hyper) {
+          hyperInstance = Hyper(session.publishableKey);
+          hyperElements = hyperInstance.elements({ clientSecret: session.clientSecret });
+          var card = hyperElements.create('payment');
+          card.mount('#card-element');
+        })
+        .catch(function (err) {
+          showStatus('error', 'Could not load the card payment form (' + err.message + '). Try USDC instead, or reload the page.');
+        });
+    }
+
+    $('#btn-pay-card').addEventListener('click', function () {
+      if (!hyperInstance || !hyperElements) {
+        showStatus('error', 'Payment form is not ready yet — wait a moment and try again.');
+        return;
+      }
+      $('#btn-pay-card').disabled = true;
+      showStatus('pending', 'Processing your card&hellip;');
+      hyperInstance.confirmPayment({ elements: hyperElements, redirect: 'if_required' })
+        .then(function (result) {
+          if (result.error) {
+            $('#btn-pay-card').disabled = false;
+            showStatus('error', result.error.message || 'Card was declined.');
+            return;
+          }
+          // The SDK saying "confirmed" is evidence the card was submitted, not
+          // proof the charge cleared — confirmSession() below re-checks with
+          // Hyperswitch server-side before this is trusted.
+          confirmSession();
+        })
+        .catch(function (err) {
+          $('#btn-pay-card').disabled = false;
+          showStatus('error', 'Card confirmation failed (' + err.message + '). Try again.');
+        });
+    });
+
+    $('#btn-pay-back').addEventListener('click', function () { goToStep(2); });
+
+    // ── Step 3b: USDC via x402 ───────────────────────────────────────────────
+    function startUsdcFlow(session) {
+      $('#pay-heading').innerHTML = 'Send <em>USDC</em>.';
+      $('#pay-sub').textContent = 'This confirms automatically once the transfer settles on-chain — usually under a minute.';
+      $('#pay-usdc-flow').style.display = 'block';
+      $('#pay-card-flow').style.display = 'none';
+      $('#usdc-amount').textContent = session.amountUnits;
+      $('#usdc-chain').textContent = session.chain;
+      $('#usdc-token').textContent = session.token;
+      $('#usdc-deposit').textContent = session.depositId;
+      goToStep(3);
+      state.pollCount = 0;
+      pollUsdc();
+    }
+
+    function pollUsdc() {
+      state.pollCount += 1;
+      confirmSession(true);
+      // Back off after the first minute of fast polling rather than hammering
+      // the API forever — a stalled payment should read as "still waiting",
+      // not silently retry at full speed indefinitely.
+      var delay = state.pollCount < 12 ? 5000 : 20000;
+      state.pollTimer = setTimeout(pollUsdc, delay);
+    }
+
+    $('#btn-usdc-check').addEventListener('click', function () { confirmSession(); });
+    $('#btn-usdc-back').addEventListener('click', function () {
+      if (state.pollTimer) clearTimeout(state.pollTimer);
+      goToStep(2);
+    });
+
+    // ── Confirm (shared by both payment methods) ────────────────────────────
+    function confirmSession(silent) {
+      if (!state.sessionId) return;
+      fetch(API_BASE + '/v1/checkout/sessions/' + state.sessionId + '/confirm', { method: 'POST' })
+        .then(function (r) { return r.json().then(function (body) { return { ok: r.ok, body: body }; }); })
+        .then(function (res) {
+          var status = res.body.status;
+          if (status === 'succeeded') {
+            if (state.pollTimer) clearTimeout(state.pollTimer);
+            renderConfirmation(true, 'Your FORGE account is ready.', res.body.customerId);
+            goToStep(4);
+          } else if (status === 'declined') {
+            if (state.pollTimer) clearTimeout(state.pollTimer);
+            renderConfirmation(false, res.body.message || 'Payment was declined.', null);
+            goToStep(4);
+          } else if (status === 'expired') {
+            if (state.pollTimer) clearTimeout(state.pollTimer);
+            renderConfirmation(false, 'This checkout session expired before payment completed. Start again.', null);
+            goToStep(4);
+          } else if (status === 'error') {
+            if (state.pollTimer) clearTimeout(state.pollTimer);
+            renderConfirmation(false, res.body.message || 'Something went wrong finishing your account setup. Contact support with session ' + state.sessionId + '.', null);
+            goToStep(4);
+          } else if (!silent) {
+            // pending_card / pending_usdc — explicit, visible waiting state,
+            // never a silent hang.
+            $('#usdc-poll-msg').textContent = res.body.message || 'Still waiting for confirmation&hellip;';
+          }
+        })
+        .catch(function (err) {
+          if (!silent) showStatus('error', 'Could not check payment status (' + err.message + '). Try again.');
+        });
+    }
+
+    function tierName(key) { return state.tiers && state.tiers[key] ? state.tiers[key].name : key; }
+
+    function renderConfirmation(ok, message, customerId) {
+      var box = $('#confirm-box');
+      box.querySelector('.glyph').className = ok ? 'glyph' : 'glyph fail';
+      box.querySelector('.glyph').innerHTML = ok ? '&check;' : '&times;';
+      $('#confirm-title').textContent = ok ? "You're all set." : 'Something went wrong.';
+      $('#confirm-body').textContent = message + (customerId ? ' (Account ' + customerId + ')' : '');
+      var actions = $('#confirm-actions');
+      actions.innerHTML = '';
+      if (ok) {
+        var a = document.createElement('a');
+        a.href = '../index.html';
+        a.className = 'btn-ink';
+        a.textContent = 'Back to forgepay.io';
+        actions.appendChild(a);
+      } else {
+        var retry = document.createElement('button');
+        retry.className = 'btn-ink';
+        retry.textContent = 'Start over';
+        retry.addEventListener('click', function () { window.location.reload(); });
+        actions.appendChild(retry);
+      }
+    }
+  })();
+  </script>
 
   <footer>
     <div class="wrap">

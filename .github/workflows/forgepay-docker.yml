@@ -40,6 +40,7 @@ jobs:
           filters: |
             unified-router:
               - 'forgepay/services/unified-router/**'
+              - 'forgepay/config/pricing.yaml'
             mor-layer:
               - 'forgepay/services/mor-layer/**'
             billing-engine:
@@ -71,7 +72,12 @@ jobs:
       matrix:
         include:
           - service: unified-router
-            context: forgepay/services/unified-router
+            # Parent context (not forgepay/services/unified-router) so the
+            # Dockerfile can COPY ../../config/pricing.yaml in — checkout.ts
+            # reads it at runtime as the one source of truth for what it
+            # charges, and Docker COPY cannot reach outside its build context.
+            context: forgepay
+            file: forgepay/services/unified-router/Dockerfile
             condition: ${{ needs.changes.outputs.unified-router == 'true' }}
           - service: mor-layer
             context: forgepay/services/mor-layer
@@ -131,6 +137,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: ${{ matrix.context }}
+          file: ${{ matrix.file || format('{0}/Dockerfile', matrix.context) }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

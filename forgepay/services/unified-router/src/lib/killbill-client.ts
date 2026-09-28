@@ -2,9 +2,17 @@
 // `fetch` — no need for the node-fetch package (whose v3 is ESM-only and
 // cannot be `require()`'d from this CommonJS-compiled service anyway).
 
-const KILLBILL_URL = process.env['KILLBILL_URL'] || 'http://localhost:8080';
-const KILLBILL_API_KEY = process.env['KILLBILL_API_KEY'];
-const KILLBILL_API_SECRET = process.env['KILLBILL_API_SECRET'];
+// Was reading its own process.env['KILLBILL_URL']/['KILLBILL_API_KEY'] directly,
+// independent of config.ts's config.killbill — two different env var names
+// (KILLBILL_URL here vs. KILLBILL_BASE_URL in config.ts) with two different
+// default ports (8080 here, 8020 in config.ts) for the same billing-engine.
+// Whichever one nobody happened to set, this client silently pointed at the
+// wrong default. Now reads the one shared config the rest of the service uses.
+import { config } from '../config.js';
+
+const KILLBILL_URL = config.killbill.baseUrl;
+const KILLBILL_API_KEY = config.killbill.apiKey;
+const KILLBILL_API_SECRET = config.killbill.apiSecret;
 
 function base64(str: string): string {
   return Buffer.from(str).toString('base64');
@@ -164,7 +172,11 @@ export async function getInvoices(accountId: string): Promise<Invoice[]> {
   return (await response.json()) as Invoice[];
 }
 
-export async function createAccount(email: string, name: string): Promise<{ accountId: string }> {
+export async function createAccount(
+  email: string,
+  name: string,
+  currency = 'USD', // was hardcoded 'ZAR' — wrong for pricing.yaml's USD-denominated tiers
+): Promise<{ accountId: string }> {
   const response = await fetch(`${KILLBILL_URL}/1.0/kb/accounts`, {
     method: 'POST',
     headers: {
@@ -175,7 +187,7 @@ export async function createAccount(email: string, name: string): Promise<{ acco
     body: JSON.stringify({
       name,
       email,
-      currency: 'ZAR',
+      currency,
       externalKey: email,
     }),
   } as any);
