@@ -62,7 +62,8 @@ export class SignService {
     @Inject(PG_POOL) private readonly pool: Pool,
   ) {}
 
-  async sign(customer: Customer, req: SignRequestDto): Promise<SignResult> {
+  /** `initiatedBy` names the person when a transfer was requested in a console, not by an API key. */
+  async sign(customer: Customer, req: SignRequestDto, initiatedBy?: string): Promise<SignResult> {
     const requestId = uuid();
     const customerId = customer.customer_id;
     const stopTimer = this.metrics.signLatency.startTimer({ chain: 'ethereum' });
@@ -133,7 +134,7 @@ export class SignService {
       // signed immediately; it now waits in the custody approval queue and is
       // only signed once a quorum of active signers approves it.
       if (decision.requiresApproval) {
-        return await this.queueForApproval(customer, req, requestId, decision.reason);
+        return await this.queueForApproval(customer, req, requestId, decision.reason, initiatedBy);
       }
 
       return await this.executeSigning(customer, req, requestId);
@@ -161,6 +162,7 @@ export class SignService {
     req: SignRequestDto,
     requestId: string,
     reason: string,
+    initiatedBy?: string,
   ): Promise<SignResult> {
     const customerId = customer.customer_id;
     const required = await requiredApprovals(this.pool, customerId);
@@ -197,7 +199,7 @@ export class SignService {
     const proposal = await this.pool.query<{ id: string }>(
       `INSERT INTO custody.proposals (customer_id, kind, payload, required, request_id, created_by)
        VALUES ($1, 'approve_transaction', $2, $3, $4, $5) RETURNING id`,
-      [customerId, JSON.stringify({ request: req, reason }), required, requestId, `api:${customerId}`],
+      [customerId, JSON.stringify({ request: req, reason }), required, requestId, initiatedBy ?? 'api key'],
     );
     await this.audit.logEvent({
       type: 'APPROVAL_REQUIRED',

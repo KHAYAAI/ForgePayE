@@ -124,6 +124,7 @@ export class CustodyService {
     await this.audit.logEvent({
       type: 'SIGNER_BOOTSTRAPPED',
       customerId,
+      actor: email,
       message: `${email} became the first signer`,
       status: 'executed',
     });
@@ -415,7 +416,7 @@ export class CustodyService {
       message: `${amountEth} ETH to ${to}`,
       status: 'pending',
     });
-    return this.sign.sign(customer, request);
+    return this.sign.sign(customer, request, actor);
   }
 
   // ── Connected applications (API keys) ──────────────────────────────────
