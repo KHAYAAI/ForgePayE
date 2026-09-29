@@ -5,6 +5,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { Request } from 'express';
+import { timingSafeEqual } from 'crypto';
 
 // Guards admin-only endpoints (customer provisioning) with a static admin token
 // from ADMIN_API_KEY. In production this is replaced by Keycloak-issued admin
@@ -23,7 +24,9 @@ export class AdminGuard implements CanActivate {
       ? header.slice('Bearer '.length).trim()
       : (req.headers['x-admin-key'] as string | undefined);
 
-    if (token !== expected) {
+    const a = Buffer.from(token ?? '');
+    const b = Buffer.from(expected);
+    if (a.length !== b.length || !timingSafeEqual(a, b)) {
       throw new UnauthorizedException('invalid admin token');
     }
     return true;

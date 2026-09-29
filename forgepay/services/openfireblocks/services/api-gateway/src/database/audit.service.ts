@@ -4,8 +4,9 @@ import { PG_POOL } from './database.tokens';
 
 export interface AuditEvent {
   type: string;
-  requestId: string;
+  requestId?: string;
   customerId?: string; // tenant the event belongs to; 'system' actor when absent
+  actor?: string; // the person who acted, when it wasn't the tenant's own API key
   message?: string;
   signature?: string;
   hash?: string;
@@ -36,9 +37,9 @@ export class AuditService {
     try {
       const result = await this.pool.query(query, [
         event.type,
-        event.customerId ?? 'system',
+        event.actor ?? event.customerId ?? 'system',
         event.customerId ?? null,
-        event.requestId,
+        event.requestId ?? null,
         event.message ?? null,
         event.signature ?? null,
         event.hash ?? null,

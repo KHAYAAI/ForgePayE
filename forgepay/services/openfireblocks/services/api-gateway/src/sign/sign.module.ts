@@ -22,5 +22,6 @@ import { BillingModule } from '../billing/billing.module';
   ],
   controllers: [SignController],
   providers: [SignService, EthereumService, PrepareService],
+  exports: [SignService],
 })
 export class SignModule {}

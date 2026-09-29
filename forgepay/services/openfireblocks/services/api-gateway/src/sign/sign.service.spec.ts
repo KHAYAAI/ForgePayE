@@ -12,6 +12,7 @@ import { BillingService } from '../billing/billing.service';
 import { MetricsService } from '../monitoring/metrics.service';
 import { Customer } from '../customers/customer.service';
 import { SignRequestDto } from './dto/sign-request.dto';
+import { PG_POOL } from '../database/database.tokens';
 
 // Unit tests for the Phase 1 sign orchestration. External collaborators (MPC
 // signer, PostgreSQL, Ethereum RPC, policy service) are mocked, so this runs
@@ -22,6 +23,8 @@ describe('SignService', () => {
   let policy: { evaluate: jest.Mock };
   let risk: { checkAndRecord: jest.Mock };
   let billing: { recordSigned: jest.Mock; recordBroadcast: jest.Mock };
+  let pool: { query: jest.Mock };
+  let mpcPost: jest.Mock;
 
   const mpcResponse = {
     data: {
@@ -61,7 +64,17 @@ describe('SignService', () => {
     reason: 'ok',
   });
 
-  async function build(ethereum: Partial<EthereumService>) {
+  // `eligibleSigners`/`threshold` drive requiredApprovals(); the proposal
+  // insert returns a fixed id.
+  async function build(ethereum: Partial<EthereumService>, eligibleSigners = 2, threshold = 2) {
+    pool = {
+      query: jest.fn((sql: string) =>
+        sql.includes('INSERT INTO custody.proposals')
+          ? Promise.resolve({ rows: [{ id: 'proposal-1' }] })
+          : Promise.resolve({ rows: [{ threshold, eligible: String(eligibleSigners) }] }),
+      ),
+    };
+    mpcPost = jest.fn(() => of(mpcResponse));
     audit = { logEvent: jest.fn().mockResolvedValue(1) };
     postgres = {
       saveTransaction: jest.fn().mockResolvedValue(undefined),
@@ -82,7 +95,8 @@ describe('SignService', () => {
       providers: [
         SignService,
         MetricsService,
-        { provide: HttpService, useValue: { post: jest.fn(() => of(mpcResponse)) } },
+        { provide: HttpService, useValue: { post: mpcPost } },
+        { provide: PG_POOL, useValue: pool },
         { provide: PostgresService, useValue: postgres },
         { provide: AuditService, useValue: audit },
         { provide: EthereumService, useValue: ethereum },
@@ -158,5 +172,43 @@ describe('SignService', () => {
     expect(postgres.saveTransaction).not.toHaveBeenCalled();
     const auditedTypes = audit.logEvent.mock.calls.map((c) => c[0].type);
     expect(auditedTypes).toContain('RISK_DENIED');
+  });
+
+  // Regression: the policy engine returns approved=true AND
+  // requiresApproval=true for high-value transfers. The service used to check
+  // only `approved` and sign immediately.
+  it('queues instead of signing when the policy requires approval', async () => {
+    const service = await build({ canBroadcast: false });
+    policy.evaluate.mockResolvedValueOnce({
+      approved: true,
+      denials: [],
+      requiresApproval: true,
+      reason: 'approved, manual approval required',
+    });
+
+    const result = await service.sign(customer, { ...validReq, value: '20000000000000000000' });
+
+    expect(result.status).toBe('pending_approval');
+    expect(result.proposalId).toBe('proposal-1');
+    expect(result.requiredApprovals).toBe(2);
+    expect(mpcPost).not.toHaveBeenCalled();
+    expect(postgres.saveTransaction.mock.calls[0][0].status).toBe('pending_approval');
+    const auditedTypes = audit.logEvent.mock.calls.map((c) => c[0].type);
+    expect(auditedTypes).toContain('APPROVAL_REQUIRED');
+    expect(auditedTypes).not.toContain('SIGN_SUCCESS');
+  });
+
+  it('denies an approval-required transfer when no signers exist, never signs it', async () => {
+    const service = await build({ canBroadcast: false }, 0);
+    policy.evaluate.mockResolvedValueOnce({
+      approved: true,
+      denials: [],
+      requiresApproval: true,
+      reason: 'approved, manual approval required',
+    });
+
+    await expect(service.sign(customer, validReq)).rejects.toBeInstanceOf(ForbiddenException);
+    expect(mpcPost).not.toHaveBeenCalled();
+    expect(postgres.saveTransaction).not.toHaveBeenCalled();
   });
 });

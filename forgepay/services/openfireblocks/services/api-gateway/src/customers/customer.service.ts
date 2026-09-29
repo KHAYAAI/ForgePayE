@@ -43,12 +43,25 @@ export class CustomerService {
   // Looks up an active customer by API key (hashed before lookup). Returns null
   // when missing/suspended so the auth guard can reject without leaking which.
   async getByApiKey(apiKey: string): Promise<Customer | null> {
+    const hash = hashApiKey(apiKey);
     const result = await this.pool.query(
       `SELECT id, customer_id, email, api_key, status, tier, policies
        FROM customers WHERE api_key = $1 AND status = 'active'`,
-      [hashApiKey(apiKey)],
+      [hash],
     );
-    return result.rows[0] ?? null;
+    if (result.rows[0]) return result.rows[0];
+
+    // A named connected-application key (custody.api_keys). Revoked keys and
+    // keys of suspended customers are rejected the same way as unknown ones.
+    const app = await this.pool.query(
+      `UPDATE custody.api_keys k SET last_used_at = NOW()
+         FROM customers c
+        WHERE k.key_hash = $1 AND k.revoked_at IS NULL
+          AND c.customer_id = k.customer_id AND c.status = 'active'
+        RETURNING c.id, c.customer_id, c.email, c.api_key, c.status, c.tier, c.policies`,
+      [hash],
+    );
+    return app.rows[0] ?? null;
   }
 
   async getByCustomerId(customerId: string): Promise<Customer> {

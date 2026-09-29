@@ -1,5 +1,6 @@
 import {
   ForbiddenException,
+  Inject,
   Injectable,
   InternalServerErrorException,
   Logger,
@@ -16,6 +17,9 @@ import { BillingService } from '../billing/billing.service';
 import { MetricsService } from '../monitoring/metrics.service';
 import { Customer } from '../customers/customer.service';
 import { SignRequestDto } from './dto/sign-request.dto';
+import { Pool } from 'pg';
+import { PG_POOL } from '../database/database.tokens';
+import { requiredApprovals } from '../custody/quorum';
 
 // Shape of the MPC signer's /sign response.
 interface MpcSignResponse {
@@ -29,11 +33,13 @@ interface MpcSignResponse {
 
 export interface SignResult {
   requestId: string;
-  signedTx: string;
-  txHash: string;
-  from: string;
-  status: 'signed' | 'broadcasted';
+  signedTx: string | null;
+  txHash: string | null;
+  from: string | null;
+  status: 'signed' | 'broadcasted' | 'pending_approval';
   broadcasted: boolean;
+  proposalId?: string;
+  requiredApprovals?: number;
 }
 
 // Orchestrates a Phase 1 sign request, scoped to an authenticated tenant:
@@ -53,6 +59,7 @@ export class SignService {
     private readonly risk: RiskService,
     private readonly billing: BillingService,
     private readonly metrics: MetricsService,
+    @Inject(PG_POOL) private readonly pool: Pool,
   ) {}
 
   async sign(customer: Customer, req: SignRequestDto): Promise<SignResult> {
@@ -121,6 +128,105 @@ export class SignService {
         });
       }
 
+      // 1c. The policy engine can approve a transfer *and* require a human
+      // sign-off (e.g. > 10 ETH). That used to be ignored and the transfer
+      // signed immediately; it now waits in the custody approval queue and is
+      // only signed once a quorum of active signers approves it.
+      if (decision.requiresApproval) {
+        return await this.queueForApproval(customer, req, requestId, decision.reason);
+      }
+
+      return await this.executeSigning(customer, req, requestId);
+    } catch (error) {
+      if (error instanceof ForbiddenException || error instanceof InternalServerErrorException) {
+        throw error;
+      }
+      const message = (error as Error).message;
+      this.metrics.signRequests.inc({ status: 'failed', chain: 'ethereum' });
+      await this.audit.logEvent({
+        type: 'SIGN_FAILED',
+        requestId,
+        customerId,
+        status: 'failed',
+        errorMessage: message,
+      });
+      throw new InternalServerErrorException({ error: 'Signing failed', detail: message, requestId });
+    } finally {
+      stopTimer();
+    }
+  }
+
+  private async queueForApproval(
+    customer: Customer,
+    req: SignRequestDto,
+    requestId: string,
+    reason: string,
+  ): Promise<SignResult> {
+    const customerId = customer.customer_id;
+    const required = await requiredApprovals(this.pool, customerId);
+    if (required === 0) {
+      await this.audit.logEvent({
+        type: 'APPROVAL_UNAVAILABLE',
+        requestId,
+        customerId,
+        message: 'transfer requires approval but no signers are configured',
+        status: 'denied',
+      });
+      this.metrics.signRequests.inc({ status: 'denied', chain: 'ethereum' });
+      throw new ForbiddenException({
+        error: 'approval required',
+        reason: 'this transfer requires signer approval, and no signers are configured for this workspace',
+        requestId,
+      });
+    }
+
+    await this.postgres.saveTransaction({
+      requestId,
+      customerId,
+      chain: 'ethereum',
+      to: req.to,
+      data: req.data ?? '',
+      value: req.value ?? '0',
+      gasLimit: req.gasLimit,
+      gasPrice: req.gasPrice ?? req.maxFeePerGas ?? '',
+      nonce: req.nonce,
+      signedTx: '',
+      txHash: null,
+      status: 'pending_approval',
+    });
+    const proposal = await this.pool.query<{ id: string }>(
+      `INSERT INTO custody.proposals (customer_id, kind, payload, required, request_id, created_by)
+       VALUES ($1, 'approve_transaction', $2, $3, $4, $5) RETURNING id`,
+      [customerId, JSON.stringify({ request: req, reason }), required, requestId, `api:${customerId}`],
+    );
+    await this.audit.logEvent({
+      type: 'APPROVAL_REQUIRED',
+      requestId,
+      customerId,
+      message: `${reason}; needs ${required} signer approval(s)`,
+      status: 'pending_approval',
+    });
+    this.metrics.signRequests.inc({ status: 'pending_approval', chain: 'ethereum' });
+    return {
+      requestId,
+      signedTx: null,
+      txHash: null,
+      from: null,
+      status: 'pending_approval',
+      broadcasted: false,
+      proposalId: proposal.rows[0].id,
+      requiredApprovals: required,
+    };
+  }
+
+  /**
+   * MPC-sign, persist, audit, meter and (if an RPC is configured) broadcast.
+   * Called directly for transfers that need no approval, and by the custody
+   * service once an approval proposal reaches quorum.
+   */
+  async executeSigning(customer: Customer, req: SignRequestDto, requestId: string): Promise<SignResult> {
+    const customerId = customer.customer_id;
+    try {
       // 2. Call the MPC signer service.
       const mpcSignerUrl =
         process.env.MPC_SIGNER_URL ?? 'http://localhost:8080';
@@ -203,12 +309,9 @@ export class SignService {
         broadcasted,
       };
     } catch (error) {
-      // Re-throw policy denials untouched (already audited + counted).
-      if (error instanceof ForbiddenException) {
-        throw error;
-      }
       const message = (error as Error).message;
       this.metrics.signRequests.inc({ status: 'failed', chain: 'ethereum' });
+      await this.postgres.updateStatus(requestId, 'failed').catch(() => undefined);
       await this.audit.logEvent({
         type: 'SIGN_FAILED',
         requestId,
@@ -221,8 +324,6 @@ export class SignService {
         detail: message,
         requestId,
       });
-    } finally {
-      stopTimer();
     }
   }
 }

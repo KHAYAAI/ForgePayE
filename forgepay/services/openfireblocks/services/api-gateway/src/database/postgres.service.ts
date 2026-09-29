@@ -14,7 +14,7 @@ export interface TransactionRecord {
   gasPrice: string;
   nonce: number;
   signedTx: string;
-  txHash: string;
+  txHash: string | null;
   status: string;
 }
 

@@ -7,6 +7,7 @@ import { DatabaseModule } from './database/database.module';
 import { CustomersModule } from './customers/customers.module';
 import { BillingModule } from './billing/billing.module';
 import { SettlementsModule } from './settlements/settlements.module';
+import { CustodyModule } from './custody/custody.module';
 import { MetricsModule } from './monitoring/metrics.module';
 import { MetricsInterceptor } from './monitoring/metrics.interceptor';
 
@@ -28,6 +29,7 @@ import { MetricsInterceptor } from './monitoring/metrics.interceptor';
     BillingModule,
     SignModule,
     SettlementsModule,
+    CustodyModule,
   ],
   controllers: [AppController],
   providers: [
