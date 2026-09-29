@@ -1,55 +1,102 @@
 import { Injectable, HttpStatus } from '@nestjs/common';
 import { NestMiddleware } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
-import { RateLimiterMemory, RateLimiterRes } from 'rate-limiter-flexible';
+import {
+  RateLimiterMemory,
+  RateLimiterRedis,
+  RateLimiterAbstract,
+  RateLimiterRes,
+} from 'rate-limiter-flexible';
+import { createClient } from 'redis';
+import { logger } from '../logger';
 
 /**
- * Rate limiting middleware for protecting against brute force and DoS attacks
+ * Rate limiting middleware for protecting against brute force and DoS attacks.
+ *
+ * When REDIS_URL is set, counters live in Redis so limits are GLOBAL across all
+ * replicas (correct behaviour behind an HPA/multiple pods). A per-process memory
+ * limiter is used as the `insuranceLimiter` so requests are still limited during
+ * a Redis blip and before the connection is established, and as the sole limiter
+ * in local dev when no Redis is configured.
  */
 @Injectable()
 export class RateLimitMiddleware implements NestMiddleware {
-  // Global rate limiter: 100 requests per minute per IP
-  private rateLimiterByIP = new RateLimiterMemory({
-    points: 100,
-    duration: 60,
-    blockDurationMs: 300000, // 5 minutes block
-  });
+  private rateLimiterByIP: RateLimiterAbstract;
+  private rateLimiterLogin: RateLimiterAbstract;
+  private rateLimiterSignup: RateLimiterAbstract;
 
-  // Per-user rate limiter: 1000 requests per minute
-  private rateLimiterByUser = new RateLimiterMemory({
-    points: 1000,
-    duration: 60,
-  });
+  // Limits are env-tunable so ops can adjust without a redeploy (and load tests
+  // can raise them). Defaults are the production values.
+  private readonly ipPoints = Number(process.env.RATE_LIMIT_IP_POINTS) || 100;
+  private readonly ipDuration = Number(process.env.RATE_LIMIT_IP_DURATION) || 60;
+  private readonly loginPoints = Number(process.env.RATE_LIMIT_LOGIN_POINTS) || 5;
+  private readonly signupPoints = Number(process.env.RATE_LIMIT_SIGNUP_POINTS) || 3;
 
-  // Sensitive endpoints: stricter limits
-  private rateLimiterLogin = new RateLimiterMemory({
-    points: 5, // 5 attempts
-    duration: 60, // per minute
-    blockDurationMs: 900000, // 15 minutes block
-  });
+  constructor() {
+    const redisUrl = process.env.REDIS_URL;
 
-  private rateLimiterSignup = new RateLimiterMemory({
-    points: 3, // 3 signups
-    duration: 3600, // per hour
-    blockDurationMs: 3600000, // 1 hour block
-  });
+    // Memory fallbacks (also used as insuranceLimiter for the Redis limiters).
+    const memIP = new RateLimiterMemory({ points: this.ipPoints, duration: this.ipDuration, blockDuration: 300 });
+    const memLogin = new RateLimiterMemory({ points: this.loginPoints, duration: 60, blockDuration: 900 });
+    const memSignup = new RateLimiterMemory({ points: this.signupPoints, duration: 3600, blockDuration: 3600 });
+
+    if (redisUrl) {
+      const client = createClient({ url: redisUrl });
+      client.on('error', (e) => logger.error(`Rate-limit Redis error: ${e.message}`));
+      client.connect().catch((e) =>
+        logger.error(`Rate-limit Redis connect failed, using memory fallback: ${e.message}`),
+      );
+
+      this.rateLimiterByIP = new RateLimiterRedis({
+        storeClient: client,
+        keyPrefix: 'rl:ip',
+        points: this.ipPoints,
+        duration: this.ipDuration,
+        blockDuration: 300,
+        insuranceLimiter: memIP,
+      });
+      this.rateLimiterLogin = new RateLimiterRedis({
+        storeClient: client,
+        keyPrefix: 'rl:login',
+        points: this.loginPoints,
+        duration: 60,
+        blockDuration: 900,
+        insuranceLimiter: memLogin,
+      });
+      this.rateLimiterSignup = new RateLimiterRedis({
+        storeClient: client,
+        keyPrefix: 'rl:signup',
+        points: this.signupPoints,
+        duration: 3600,
+        blockDuration: 3600,
+        insuranceLimiter: memSignup,
+      });
+      logger.info('Rate limiting backed by Redis (global across replicas)');
+    } else {
+      this.rateLimiterByIP = memIP;
+      this.rateLimiterLogin = memLogin;
+      this.rateLimiterSignup = memSignup;
+      logger.warn('REDIS_URL not set — rate limiting is per-process (dev only)');
+    }
+  }
 
   use(req: Request, res: Response, next: NextFunction) {
     const ipKey = req.ip || 'unknown';
-    const userKey = req.user?.id || ipKey;
 
-    // Apply rate limiting
-    this.applyRateLimit(req, res, ipKey, userKey)
+    // This middleware runs before the auth guard populates req.user, so all
+    // limiting is keyed by IP. Per-authenticated-user limits belong at the
+    // guard/controller layer where the identity is known.
+    this.applyRateLimit(req, res, ipKey)
       .then(() => {
         next();
       })
       .catch((err) => {
-        const retryAfter = Math.ceil(err.msBeforeNext / 1000);
+        const retryAfter = Math.ceil((err?.msBeforeNext ?? 60000) / 1000);
         res.set('Retry-After', retryAfter.toString());
         res.status(HttpStatus.TOO_MANY_REQUESTS).json({
           statusCode: 429,
           error: 'Too many requests',
-          retryAfter: retryAfter,
+          retryAfter,
           message: 'Rate limit exceeded. Please try again later.',
         });
       });
@@ -59,17 +106,9 @@ export class RateLimitMiddleware implements NestMiddleware {
     req: Request,
     res: Response,
     ipKey: string,
-    userKey: string,
   ): Promise<void> {
-    // Global rate limit by IP
-    await this.rateLimiterByIP.consume(ipKey);
-
-    // Per-user rate limit
-    if (req.user) {
-      await this.rateLimiterByUser.consume(userKey);
-    }
-
-    // Stricter limits for sensitive endpoints
+    // Stricter limits for sensitive endpoints (consumed first so a burst of
+    // login/signup attempts is blocked even within the global budget).
     if (this.isSensitiveEndpoint(req)) {
       if (req.path.includes('login')) {
         await this.rateLimiterLogin.consume(ipKey);
@@ -78,10 +117,16 @@ export class RateLimitMiddleware implements NestMiddleware {
       }
     }
 
-    // Add rate limit headers to response
-    res.set('X-RateLimit-Limit', '100');
-    res.set('X-RateLimit-Remaining', '99');
-    res.set('X-RateLimit-Reset', Math.ceil(Date.now() / 1000 + 60).toString());
+    // Global rate limit by IP
+    const result: RateLimiterRes = await this.rateLimiterByIP.consume(ipKey);
+
+    // Real rate-limit headers derived from the limiter state
+    res.set('X-RateLimit-Limit', this.ipPoints.toString());
+    res.set('X-RateLimit-Remaining', result.remainingPoints.toString());
+    res.set(
+      'X-RateLimit-Reset',
+      Math.ceil((Date.now() + result.msBeforeNext) / 1000).toString(),
+    );
   }
 
   private isSensitiveEndpoint(req: Request): boolean {
@@ -113,7 +158,7 @@ export function RateLimit(
     const limiter = new RateLimiterMemory({
       points,
       duration,
-      blockDurationMs,
+      blockDuration: Math.ceil(blockDurationMs / 1000), // option is in seconds
     });
 
     descriptor.value = async function (...args: any[]) {

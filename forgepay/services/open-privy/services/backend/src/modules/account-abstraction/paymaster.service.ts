@@ -54,7 +54,7 @@ export class PaymasterService {
         }),
       });
 
-      const data = await response.json();
+      const data: any = await response.json();
 
       if (data.error) {
         logger.error(`Pimlico sponsorship error: ${data.error.message}`);
@@ -81,7 +81,7 @@ export class PaymasterService {
             gasCostWei,
             sponsorshipTimestamp: new Date().toISOString(),
           },
-        },
+        } as any,
       );
 
       logger.info(`Gas sponsorship tracked: ${gasCostWei} wei for ${txHash}`);
@@ -103,7 +103,7 @@ export class PaymasterService {
         }),
       });
 
-      const data = await response.json();
+      const data: any = await response.json();
 
       // Pimlico handles balance management, but we can check sponsorship eligibility
       const sufficient = !data.error;
@@ -132,7 +132,7 @@ export class PaymasterService {
         }),
       });
 
-      const data = await response.json();
+      const data: any = await response.json();
 
       if (data.error) {
         return '0'; // If sponsorship fails, estimate 0

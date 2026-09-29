@@ -1,0 +1,50 @@
+# Runs database migrations once, before the backend Deployment is rolled out.
+# Production does NOT synchronize the schema from entities (that can drop data);
+# instead this job applies the committed, reviewed migrations.
+#
+# Apply order:  kubectl apply -f migrate-job.yaml && kubectl wait --for=condition=complete job/db-migrate -n openprivy --timeout=300s
+# then roll out the Deployment.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: db-migrate
+  namespace: openprivy
+  labels:
+    app: backend
+    component: migration
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app: backend
+        component: migration
+    spec:
+      restartPolicy: Never
+      serviceAccountName: backend
+      containers:
+        - name: migrate
+          image: openprivy-backend:latest
+          imagePullPolicy: Always
+          command: ["npm", "run", "migration:run:prod"]
+          envFrom:
+            - configMapRef:
+                name: backend-config
+            - secretRef:
+                name: backend-secrets
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL

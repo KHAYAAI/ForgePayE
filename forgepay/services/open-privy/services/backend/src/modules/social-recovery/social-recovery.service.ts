@@ -3,10 +3,18 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { RecoveryContact } from './entities/recovery-contact.entity';
 import { RecoveryGuardian } from './entities/recovery-guardian.entity';
+import { logger } from '../../common/logger';
 import * as crypto from 'crypto';
 
 @Injectable()
 export class SocialRecoveryService {
+  /**
+   * M-of-N threshold: how many guardians must approve before recovery can
+   * complete. Kept as an explicit policy constant so the check is enforced in
+   * one place rather than being implicit ("any approval is enough").
+   */
+  private readonly requiredApprovals = 2;
+
   constructor(
     @InjectRepository(RecoveryContact)
     private recoveryContactRepository: Repository<RecoveryContact>,
@@ -19,7 +27,6 @@ export class SocialRecoveryService {
     contactEmail: string,
     contactName: string,
   ): Promise<RecoveryContact> {
-    // Check if contact already exists
     const existing = await this.recoveryContactRepository.findOne({
       where: { userId, contactEmail },
     });
@@ -28,7 +35,6 @@ export class SocialRecoveryService {
       throw new BadRequestException('Contact already added');
     }
 
-    // Generate verification token
     const verificationToken = crypto.randomBytes(32).toString('hex');
     const verificationTokenExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
 
@@ -43,8 +49,9 @@ export class SocialRecoveryService {
 
     const saved = await this.recoveryContactRepository.save(contact);
 
-    // In production, send verification email to contactEmail
-    console.log(`Send verification email to ${contactEmail} with token: ${verificationToken}`);
+    // In production, dispatch a verification email here. The token is a secret
+    // and must never be written to application logs.
+    logger.info(`Recovery contact added for user ${userId}; verification email queued`);
 
     return saved;
   }
@@ -58,7 +65,10 @@ export class SocialRecoveryService {
       throw new NotFoundException('Invalid verification token');
     }
 
-    if (contact.verificationTokenExpiresAt < new Date()) {
+    if (
+      !contact.verificationTokenExpiresAt ||
+      contact.verificationTokenExpiresAt < new Date()
+    ) {
       throw new BadRequestException('Verification token expired');
     }
 
@@ -70,9 +80,7 @@ export class SocialRecoveryService {
   }
 
   async getRecoveryContacts(userId: string): Promise<RecoveryContact[]> {
-    return this.recoveryContactRepository.find({
-      where: { userId },
-    });
+    return this.recoveryContactRepository.find({ where: { userId } });
   }
 
   async removeRecoveryContact(userId: string, contactId: string): Promise<void> {
@@ -84,27 +92,35 @@ export class SocialRecoveryService {
       throw new NotFoundException('Contact not found');
     }
 
-    // Remove associated guardians
     await this.recoveryGuardianRepository.delete({ contactId });
-
-    // Remove contact
     await this.recoveryContactRepository.remove(contact);
   }
 
   async initiateRecovery(userId: string, contactIds: string[]): Promise<void> {
-    // Verify all contacts exist and are verified
-    const contacts = await this.recoveryContactRepository.find({
-      where: { userId, isVerified: true },
-    });
-
-    const validContactIds = contacts.map((c) => c.id);
-    const invalidContactIds = contactIds.filter((id) => !validContactIds.includes(id));
-
-    if (invalidContactIds.length > 0) {
-      throw new BadRequestException('Some contacts are not verified');
+    if (!Array.isArray(contactIds) || contactIds.length === 0) {
+      throw new BadRequestException('At least one guardian must be selected');
     }
 
-    // Create recovery guardians
+    // Only this user's verified contacts may act as guardians.
+    const verifiedContacts = await this.recoveryContactRepository.find({
+      where: { userId, isVerified: true },
+    });
+    const verifiedIds = new Set(verifiedContacts.map((c) => c.id));
+
+    const invalidContactIds = contactIds.filter((id) => !verifiedIds.has(id));
+    if (invalidContactIds.length > 0) {
+      throw new BadRequestException(
+        'Some selected contacts are not verified guardians for this user',
+      );
+    }
+
+    if (contactIds.length < this.requiredApprovals) {
+      throw new BadRequestException(
+        `Recovery requires at least ${this.requiredApprovals} guardians; ` +
+          `only ${contactIds.length} selected`,
+      );
+    }
+
     for (const contactId of contactIds) {
       const existingGuardian = await this.recoveryGuardianRepository.findOne({
         where: { userId, contactId },
@@ -120,9 +136,11 @@ export class SocialRecoveryService {
 
         await this.recoveryGuardianRepository.save(guardian);
 
-        // In production, send recovery request email to guardian
-        const contact = contacts.find((c) => c.id === contactId);
-        console.log(`Send recovery request to ${contact?.contactEmail} with code: ${guardian.recoveryCode}`);
+        // In production, email the guardian their recovery request. The code is
+        // a secret and must never be written to application logs.
+        logger.info(
+          `Recovery request queued for guardian ${contactId} (user ${userId})`,
+        );
       }
     }
   }
@@ -136,13 +154,56 @@ export class SocialRecoveryService {
       throw new NotFoundException('Invalid recovery code');
     }
 
+    if (guardian.hasApproved) {
+      throw new BadRequestException('This guardian has already approved');
+    }
+
     guardian.hasApproved = true;
     guardian.approvalTimestamp = new Date();
+    // One-time code: invalidate after use so it cannot be replayed.
+    guardian.recoveryCode = null;
 
     return this.recoveryGuardianRepository.save(guardian);
   }
 
-  async getRecoveryApprovals(userId: string): Promise<RecoveryGuardian[]> {
+  /**
+   * Complete recovery once the M-of-N threshold is met.
+   *
+   * This is the point where access is actually restored. For a custodial
+   * embedded wallet that means re-binding the wallet to the user's new
+   * credential; for an ERC-4337 smart-account wallet it means submitting a
+   * SimpleAccount.updateOwner UserOp to rotate the on-chain owner. That on-chain
+   * step is the integration boundary and must be wired to the (testnet-verified)
+   * account-abstraction path before this is relied on in production.
+   */
+  async completeRecovery(userId: string): Promise<{
+    completed: boolean;
+    approvedGuardians: number;
+    requiredApprovals: number;
+  }> {
+    const status = await this.getRecoveryStatus(userId);
+
+    if (status.approvedGuardians < this.requiredApprovals) {
+      throw new BadRequestException(
+        `Recovery needs ${this.requiredApprovals} approvals; ` +
+          `have ${status.approvedGuardians}`,
+      );
+    }
+
+    logger.info(
+      `Recovery threshold met for user ${userId} ` +
+        `(${status.approvedGuardians}/${this.requiredApprovals})`,
+    );
+
+    return {
+      completed: true,
+      approvedGuardians: status.approvedGuardians,
+      requiredApprovals: this.requiredApprovals,
+    };
+  }
+
+  /** Guardians that have NOT yet approved a pending recovery. */
+  async getPendingApprovals(userId: string): Promise<RecoveryGuardian[]> {
     return this.recoveryGuardianRepository.find({
       where: { userId, hasApproved: false },
     });
@@ -151,7 +212,9 @@ export class SocialRecoveryService {
   async getRecoveryStatus(userId: string): Promise<{
     totalGuardians: number;
     approvedGuardians: number;
+    requiredApprovals: number;
     recoveryInitiated: boolean;
+    canComplete: boolean;
   }> {
     const guardians = await this.recoveryGuardianRepository.find({
       where: { userId },
@@ -162,7 +225,9 @@ export class SocialRecoveryService {
     return {
       totalGuardians: guardians.length,
       approvedGuardians: approvedCount,
+      requiredApprovals: this.requiredApprovals,
       recoveryInitiated: guardians.length > 0,
+      canComplete: approvedCount >= this.requiredApprovals,
     };
   }
 }

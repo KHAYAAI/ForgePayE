@@ -229,17 +229,29 @@ Resources:
           FromPort: 1025
           ToPort: 65535
           SourceSecurityGroupId: !Ref EKSControlPlaneSecurityGroup
-        - IpProtocol: tcp
-          FromPort: 443
-          ToPort: 443
-          SourceSecurityGroupId: !Ref EKSNodeSecurityGroup
-        - IpProtocol: tcp
-          FromPort: 1025
-          ToPort: 65535
-          SourceSecurityGroupId: !Ref EKSNodeSecurityGroup
       Tags:
         - Key: Name
           Value: !Sub '${ClusterName}-node-sg'
+
+  # Node-to-node traffic. Declared as a standalone ingress resource to avoid a
+  # circular dependency (a SG cannot reference itself inline at create time).
+  EKSNodeIngressSelf443:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref EKSNodeSecurityGroup
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      SourceSecurityGroupId: !Ref EKSNodeSecurityGroup
+
+  EKSNodeIngressSelfEphemeral:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref EKSNodeSecurityGroup
+      IpProtocol: tcp
+      FromPort: 1025
+      ToPort: 65535
+      SourceSecurityGroupId: !Ref EKSNodeSecurityGroup
 
   # ==================== IAM Roles ====================
 
@@ -309,13 +321,12 @@ Resources:
         EndpointPublicAccess: true
       Logging:
         ClusterLogging:
-          - LogTypes:
-              - api
-              - audit
-              - authenticator
-              - controllerManager
-              - scheduler
-            Enabled: true
+          EnabledTypes:
+            - Type: api
+            - Type: audit
+            - Type: authenticator
+            - Type: controllerManager
+            - Type: scheduler
       Tags:
         - Key: Name
           Value: !Ref ClusterName
@@ -323,13 +334,13 @@ Resources:
   # ==================== EKS Node Group ====================
 
   EKSNodeGroup:
-    Type: AWS::EKS::NodeGroup
+    Type: AWS::EKS::Nodegroup
     DependsOn: EKSCluster
     Properties:
       ClusterName: !Ref ClusterName
-      NodeGroupName: !Sub '${ClusterName}-node-group'
+      NodegroupName: !Sub '${ClusterName}-node-group'
       NodeRole: !GetAtt EKSNodeRole.Arn
-      SubnetIds:
+      Subnets:
         - !Ref PrivateSubnet1
         - !Ref PrivateSubnet2
       ScalingConfig:
@@ -339,8 +350,7 @@ Resources:
       InstanceTypes:
         - !Ref NodeInstanceType
       Tags:
-        - Key: Name
-          Value: !Sub '${ClusterName}-node-group'
+        Name: !Sub '${ClusterName}-node-group'
 
   # ==================== CloudWatch Log Group ====================
 

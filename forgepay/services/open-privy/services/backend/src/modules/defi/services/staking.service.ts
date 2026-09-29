@@ -94,7 +94,7 @@ export class StakingService {
 
       // Build submit transaction
       const amount = ethers.parseEther(amountInEth);
-      const gasPrice = await provider.getGasPrice();
+      const gasPrice = (await provider.getFeeData()).gasPrice ?? 0n;
       const gasEstimate = await stethContract.submit.estimateGas(ethers.ZeroAddress, {
         value: amount,
       });
@@ -125,7 +125,7 @@ export class StakingService {
       );
 
       const amount = ethers.parseEther(stethAmount);
-      const gasPrice = await provider.getGasPrice();
+      const gasPrice = (await provider.getFeeData()).gasPrice ?? 0n;
       const gasEstimate = await withdrawalQueue.requestWithdrawals.estimateGas(
         [amount],
         walletAddress,

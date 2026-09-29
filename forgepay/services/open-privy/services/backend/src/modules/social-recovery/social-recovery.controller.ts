@@ -14,7 +14,7 @@ export class SocialRecoveryController {
     @Body() body: { contactEmail: string; contactName: string },
   ) {
     const contact = await this.recoveryService.addRecoveryContact(
-      user.id,
+      user.userId,
       body.contactEmail,
       body.contactName,
     );
@@ -33,7 +33,7 @@ export class SocialRecoveryController {
     @Query('token') token: string,
   ) {
     const contact = await this.recoveryService.verifyRecoveryContact(
-      user.id,
+      user.userId,
       token,
     );
     return { success: true, contact };
@@ -63,21 +63,27 @@ export class SocialRecoveryController {
     @Query('code') recoveryCode: string,
   ) {
     const guardian = await this.recoveryService.approveRecovery(
-      user.id,
+      user.userId,
       recoveryCode,
     );
     return { success: true, guardian };
   }
 
+  @Post('complete')
+  async completeRecovery(@CurrentUser() user: any) {
+    const result = await this.recoveryService.completeRecovery(user.userId);
+    return { success: true, ...result };
+  }
+
   @Get('status')
   async getRecoveryStatus(@CurrentUser() user: any) {
-    const status = await this.recoveryService.getRecoveryStatus(user.id);
+    const status = await this.recoveryService.getRecoveryStatus(user.userId);
     return status;
   }
 
   @Get('approvals')
   async getPendingApprovals(@CurrentUser() user: any) {
-    const approvals = await this.recoveryService.getRecoveryApprovals(user.id);
+    const approvals = await this.recoveryService.getPendingApprovals(user.userId);
     return approvals;
   }
 }

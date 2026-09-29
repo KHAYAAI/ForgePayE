@@ -9,13 +9,21 @@ export class WalletController {
   constructor(private walletService: WalletService) {}
 
   @Post('create')
-  async createWallet(@Req() req, @Body() dto: CreateWalletDto) {
+  async createWallet(@Req() req: any, @Body() dto: CreateWalletDto) {
     const userId = req.user.userId;
-    return this.walletService.createWallet(userId, dto.chain);
+    const wallet = await this.walletService.createWallet(userId, dto.chain);
+    // Never expose encryptedPrivateKey (or the raw entity) over the API.
+    return {
+      id: wallet.id,
+      address: wallet.address,
+      chain: wallet.chain,
+      publicKey: wallet.publicKey,
+      createdAt: wallet.createdAt,
+    };
   }
 
   @Get('get')
-  async getWallet(@Req() req, @Query('chain') chain?: string) {
+  async getWallet(@Req() req: any, @Query('chain') chain?: string) {
     const userId = req.user.userId;
     const wallet = await this.walletService.getWallet(userId, chain);
     if (!wallet) {
@@ -30,7 +38,7 @@ export class WalletController {
   }
 
   @Get('list')
-  async getUserWallets(@Req() req) {
+  async getUserWallets(@Req() req: any) {
     const userId = req.user.userId;
     const wallets = await this.walletService.getUserWallets(userId);
     return wallets.map((w) => ({

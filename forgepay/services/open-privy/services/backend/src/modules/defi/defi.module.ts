@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { HttpModule } from '@nestjs/axios';
-import { Transaction } from '../blockchain/entities/transaction.entity';
+import { Transaction } from '../transactions/entities/transaction.entity';
 import { DefiService } from './services/defi.service';
 import { SwapService } from './services/swap.service';
 import { StakingService } from './services/staking.service';

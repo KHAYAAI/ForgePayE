@@ -13,11 +13,19 @@ export class AccountAbstractionController {
 
   @Post('build-userop')
   async buildUserOp(
-    @Req() req,
-    @Body() body: { targetAddress: string; callData: string; gasLimit?: string },
+    @Req() req: any,
+    @Body()
+    body: {
+      senderAddress: string;
+      targetAddress: string;
+      callData: string;
+      gasLimit?: string;
+    },
   ) {
+    // senderAddress is the user's smart-account (ERC-4337) address, not the
+    // internal userId. It must be a real on-chain address.
     const userOp = await this.userOpService.buildUserOp(
-      req.user.userId,
+      body.senderAddress,
       body.targetAddress,
       body.callData,
       body.gasLimit,
@@ -31,7 +39,7 @@ export class AccountAbstractionController {
 
   @Post('send-userop')
   async sendUserOp(
-    @Req() req,
+    @Req() req: any,
     @Body() body: { userOp: any; signature: string },
   ) {
     body.userOp.signature = body.signature;

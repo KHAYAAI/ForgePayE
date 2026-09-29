@@ -26,7 +26,7 @@ export class Wallet {
   encryptedPrivateKey: string;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
-  recoveryEmail: string;
+  recoveryEmail: string | null;
 
   @Column({ type: 'jsonb', nullable: true })
   metadata: Record<string, any>;

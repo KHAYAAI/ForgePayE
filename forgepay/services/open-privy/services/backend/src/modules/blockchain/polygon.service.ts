@@ -28,9 +28,18 @@ export class PolygonService {
     }
   }
 
+  getProvider(): ethers.JsonRpcProvider {
+    return this.provider;
+  }
+
   async getGasPrice(): Promise<bigint> {
     try {
-      return await this.provider.getGasPrice();
+      // ethers v6 removed provider.getGasPrice(); use fee data instead.
+      const feeData = await this.provider.getFeeData();
+      if (feeData.gasPrice == null) {
+        throw new Error('Provider did not return a gas price');
+      }
+      return feeData.gasPrice;
     } catch (error) {
       logger.error(`Failed to get Polygon gas price: ${error.message}`);
       throw error;

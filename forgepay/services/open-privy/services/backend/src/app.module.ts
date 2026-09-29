@@ -13,6 +13,7 @@ import { DefiModule } from './modules/defi/defi.module';
 import { SocialRecoveryModule } from './modules/social-recovery/social-recovery.module';
 import { MonitoringModule } from './modules/monitoring/monitoring.module';
 import { HealthController } from './common/health.controller';
+import { EncryptionModule } from './common/encryption/encryption.module';
 import { typeOrmConfig } from './config/typeorm.config';
 import { jwtConfig } from './config/jwt.config';
 
@@ -25,6 +26,7 @@ import { jwtConfig } from './config/jwt.config';
     TypeOrmModule.forRoot(typeOrmConfig),
     JwtModule.register(jwtConfig),
     PassportModule,
+    EncryptionModule,
     AuthModule,
     WalletModule,
     BlockchainModule,

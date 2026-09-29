@@ -11,7 +11,15 @@ export class EthereumService {
   constructor() {
     const rpcUrl = process.env.ETHEREUM_RPC_SEPOLIA;
     this.provider = new ethers.JsonRpcProvider(rpcUrl);
-    this.alchemyApiKey = process.env.ALCHEMY_API_KEY;
+    this.alchemyApiKey = process.env.ALCHEMY_API_KEY || '';
+  }
+
+  /**
+   * Expose the underlying provider for services that need to construct
+   * contracts or signers (account abstraction, custodial signing).
+   */
+  getProvider(): ethers.JsonRpcProvider {
+    return this.provider;
   }
 
   async getBalance(address: string): Promise<bigint> {
@@ -37,7 +45,12 @@ export class EthereumService {
 
   async getGasPrice(): Promise<bigint> {
     try {
-      return await this.provider.getGasPrice();
+      // ethers v6 removed provider.getGasPrice(); use fee data instead.
+      const feeData = await this.provider.getFeeData();
+      if (feeData.gasPrice == null) {
+        throw new Error('Provider did not return a gas price');
+      }
+      return feeData.gasPrice;
     } catch (error) {
       logger.error(`Failed to get gas price: ${error.message}`);
       throw error;

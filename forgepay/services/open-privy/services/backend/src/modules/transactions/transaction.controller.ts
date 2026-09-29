@@ -1,4 +1,14 @@
-import { Controller, Post, Get, Body, Param, UseGuards, Req, Query } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Get,
+  Body,
+  Param,
+  UseGuards,
+  Req,
+  Query,
+  ForbiddenException,
+} from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { TransactionService } from './transaction.service';
 
@@ -7,9 +17,27 @@ import { TransactionService } from './transaction.service';
 export class TransactionController {
   constructor(private txService: TransactionService) {}
 
+  /**
+   * Custodial send — the server signs with the user's stored key and
+   * broadcasts. This is the primary "send funds" endpoint for embedded wallets.
+   */
+  @Post('send')
+  async send(
+    @Req() req: any,
+    @Body() body: { walletId: string; to: string; amount: string },
+  ) {
+    const userId = req.user.userId;
+    return this.txService.sendTransaction(
+      userId,
+      body.walletId,
+      body.to,
+      body.amount,
+    );
+  }
+
   @Post('request')
   async createSigningRequest(
-    @Req() req,
+    @Req() req: any,
     @Body()
     body: {
       walletId: string;
@@ -39,7 +67,7 @@ export class TransactionController {
 
   @Post(':txId/confirm')
   async confirmTransaction(
-    @Req() req,
+    @Req() req: any,
     @Param('txId') txId: string,
     @Body() body: { signedTx: string },
   ) {
@@ -48,7 +76,7 @@ export class TransactionController {
   }
 
   @Get('history')
-  async getTransactionHistory(@Req() req, @Query('limit') limit?: string) {
+  async getTransactionHistory(@Req() req: any, @Query('limit') limit?: string) {
     const userId = req.user.userId;
     const txLimit = limit ? parseInt(limit, 10) : 20;
     const transactions = await this.txService.getUserTransactions(userId, txLimit);
@@ -68,10 +96,10 @@ export class TransactionController {
   }
 
   @Get(':txId')
-  async getTransaction(@Req() req, @Param('txId') txId: string) {
+  async getTransaction(@Req() req: any, @Param('txId') txId: string) {
     const tx = await this.txService.getTxById(txId);
     if (tx.userId !== req.user.userId) {
-      throw new Error('Unauthorized');
+      throw new ForbiddenException('Transaction does not belong to this user');
     }
     return {
       id: tx.id,

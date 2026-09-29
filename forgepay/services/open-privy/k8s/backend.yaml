@@ -4,10 +4,23 @@ metadata:
   name: backend-config
   namespace: openprivy
 data:
+  NODE_ENV: production
   LOG_LEVEL: info
   CORS_ORIGINS: "https://openprivy.io,https://app.openprivy.io"
+  DATABASE_SSL: "true"
+  AWS_REGION: us-east-1
+  CHAIN_ID: "11155111"
+  # The master key is NOT stored here — only the ARN of the Secrets Manager
+  # secret. The pod reads the value at boot using its IRSA role (see the
+  # ServiceAccount annotation below). This keeps key material out of the cluster.
+  ENCRYPTION_MASTER_KEY_SECRET_ARN: "arn:aws:secretsmanager:us-east-1:REPLACE_ACCOUNT_ID:secret:openprivy-prod/encryption/master-key"
 
 ---
+# NOTE: These are the injection points, not the source of truth. In production
+# they should be synced from AWS Secrets Manager by the External Secrets Operator
+# or the Secrets Store CSI driver (see docs/AWS_PRODUCTION_DEPLOY.md), never
+# committed with real values. The placeholders below let a cluster start in a
+# non-production sandbox.
 apiVersion: v1
 kind: Secret
 metadata:
@@ -17,18 +30,17 @@ type: Opaque
 stringData:
   DATABASE_URL: postgresql://openprivy:changeme@postgres:5432/openprivy
   REDIS_URL: redis://redis:6379
-  JWT_SECRET: change-in-production
-  ENCRYPTION_KEY: change-in-production-min-32-chars
+  JWT_SECRET: change-in-production-min-32-chars-long
   ETHEREUM_RPC_SEPOLIA: ""
   ETHEREUM_RPC_MAINNET: ""
-  POLYGON_RPC_URL: ""
-  POLYGON_RPC_MUMBAI: ""
-  SOLANA_RPC_URL: ""
+  ETHEREUM_RPC_POLYGON: ""
+  SOLANA_RPC_MAINNET: ""
+  SOLANA_RPC_DEVNET: ""
   PIMLICO_API_KEY: ""
+  PIMLICO_ENDPOINT: ""
   ALCHEMY_API_KEY: ""
   SUPABASE_URL: ""
   SUPABASE_KEY: ""
-  SUPABASE_JWT_SECRET: ""
 
 ---
 apiVersion: apps/v1
@@ -124,6 +136,10 @@ kind: ServiceAccount
 metadata:
   name: backend
   namespace: openprivy
+  annotations:
+    # IRSA: bind this SA to an IAM role allowed to read the encryption master-key
+    # secret (secretsmanager:GetSecretValue). Replace with the real role ARN.
+    eks.amazonaws.com/role-arn: "arn:aws:iam::REPLACE_ACCOUNT_ID:role/openprivy-backend-irsa"
 
 ---
 apiVersion: v1

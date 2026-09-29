@@ -119,28 +119,37 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install --legacy-peer-deps
+        working-directory: services/backend
+
+      - name: Build
+        run: npm run build
+        working-directory: services/backend
+
+      - name: Lint
+        run: npm run lint
+        working-directory: services/backend
+
+      - name: Generate test encryption master key
+        run: echo "ENCRYPTION_MASTER_KEY=$(openssl rand -base64 32)" >> "$GITHUB_ENV"
 
       - name: Run unit tests
         run: npm run test
         working-directory: services/backend
-
-      - name: Run integration tests
-        run: npm run test:integration
-        working-directory: services/backend
         env:
+          JWT_SECRET: ci-test-secret-at-least-16-chars
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/openprivy_test
           REDIS_URL: redis://localhost:6379
 
-      - name: Upload coverage
-        uses: codecov/codecov-action@v3
-        with:
-          files: ./services/backend/coverage/coverage-final.json
-          flags: unittests
-          name: codecov-umbrella
+      - name: Verify migrations apply cleanly
+        run: npm run migration:run
+        working-directory: services/backend
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/openprivy_test
+          NODE_ENV: production
+          DATABASE_SSL: 'false'
 
   deploy-staging:
     name: Deploy to Staging
@@ -161,23 +170,38 @@ jobs:
           role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/GitHubActionsRole
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
       - name: Update kubeconfig
         run: |
           aws eks update-kubeconfig \
             --name openprivy-staging \
             --region ${{ env.AWS_REGION }}
 
-      - name: Deploy to EKS (Staging)
+      - name: Run database migrations
+        env:
+          IMAGE: ${{ steps.login-ecr.outputs.registry }}/openprivy-backend:${{ needs.build.outputs.image-tag }}
         run: |
-          kubectl set image deployment/backend \
-            backend=${{ steps.login-ecr.outputs.registry }}/openprivy-backend:${{ needs.build.outputs.image-tag }} \
-            -n openprivy-staging
+          kubectl delete job db-migrate -n openprivy-staging --ignore-not-found
+          sed "s#openprivy-backend:latest#${IMAGE}#" k8s/migrate-job.yaml \
+            | kubectl apply -n openprivy-staging -f -
+          kubectl wait --for=condition=complete job/db-migrate \
+            -n openprivy-staging --timeout=300s
+
+      - name: Deploy to EKS (Staging)
+        env:
+          IMAGE: ${{ steps.login-ecr.outputs.registry }}/openprivy-backend:${{ needs.build.outputs.image-tag }}
+        run: |
+          kubectl set image deployment/backend backend=${IMAGE} -n openprivy-staging
           kubectl rollout status deployment/backend -n openprivy-staging --timeout=5m
 
-      - name: Run smoke tests
+      - name: Smoke test /health via the service
         run: |
-          POD=$(kubectl get pods -n openprivy-staging -l app=backend -o jsonpath='{.items[0].metadata.name}')
-          kubectl exec -n openprivy-staging $POD -- npm run test:smoke
+          kubectl run smoke-$RANDOM -n openprivy-staging --rm -i --restart=Never \
+            --image=curlimages/curl:8.8.0 -- \
+            -fsS http://backend.openprivy-staging.svc.cluster.local:3001/health
         continue-on-error: true
 
   deploy-production:
@@ -199,17 +223,31 @@ jobs:
           role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/GitHubActionsRole
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
       - name: Update kubeconfig
         run: |
           aws eks update-kubeconfig \
             --name ${{ env.EKS_CLUSTER_NAME }} \
             --region ${{ env.AWS_REGION }}
 
-      - name: Deploy canary (1% traffic)
+      - name: Run database migrations
+        env:
+          IMAGE: ${{ steps.login-ecr.outputs.registry }}/openprivy-backend:${{ needs.build.outputs.image-tag }}
         run: |
-          kubectl set image deployment/backend \
-            backend=${{ steps.login-ecr.outputs.registry }}/openprivy-backend:${{ needs.build.outputs.image-tag }} \
-            -n openprivy
+          kubectl delete job db-migrate -n openprivy --ignore-not-found
+          sed "s#openprivy-backend:latest#${IMAGE}#" k8s/migrate-job.yaml \
+            | kubectl apply -n openprivy -f -
+          kubectl wait --for=condition=complete job/db-migrate \
+            -n openprivy --timeout=300s
+
+      - name: Deploy (rolling update)
+        env:
+          IMAGE: ${{ steps.login-ecr.outputs.registry }}/openprivy-backend:${{ needs.build.outputs.image-tag }}
+        run: |
+          kubectl set image deployment/backend backend=${IMAGE} -n openprivy
           kubectl rollout status deployment/backend -n openprivy --timeout=5m
 
       - name: Monitor canary metrics

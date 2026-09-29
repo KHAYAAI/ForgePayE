@@ -15,10 +15,10 @@ export class RecoveryGuardian {
   hasApproved: boolean;
 
   @Column({ type: 'timestamp', nullable: true })
-  approvalTimestamp: Date;
+  approvalTimestamp: Date | null;
 
   @Column({ type: 'text', nullable: true })
-  recoveryCode: string;
+  recoveryCode: string | null;
 
   @CreateDateColumn()
   createdAt: Date;

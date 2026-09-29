@@ -1,16 +1,14 @@
 import { Controller, Get } from '@nestjs/common';
-import { InjectMetric } from '@willsoto/nestjs-prometheus';
-import { register } from 'prom-client';
 import { MonitoringService } from './monitoring.service';
 
+/**
+ * Health/info endpoints. The Prometheus scrape endpoint itself (GET /metrics)
+ * is served by PrometheusModule, so this controller only exposes the
+ * human-oriented health and info routes under /metrics/*.
+ */
 @Controller('metrics')
 export class MetricsController {
   constructor(private monitoringService: MonitoringService) {}
-
-  @Get()
-  async getMetrics(): Promise<string> {
-    return register.metrics();
-  }
 
   @Get('health')
   async getHealth(): Promise<Record<string, any>> {

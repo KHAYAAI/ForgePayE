@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ethers } from 'ethers';
@@ -6,8 +11,8 @@ import { Wallet } from './entities/wallet.entity';
 import { EthereumService } from '../blockchain/ethereum.service';
 import { SolanaService } from '../blockchain/solana.service';
 import { PolygonService } from '../blockchain/polygon.service';
+import { EncryptionService } from '../../common/encryption/encryption.service';
 import { logger } from '../../common/logger';
-import { encryptPrivateKey } from '../../common/crypto/private-key-crypto';
 
 @Injectable()
 export class WalletService {
@@ -17,6 +22,7 @@ export class WalletService {
     private ethereumService: EthereumService,
     private solanaService: SolanaService,
     private polygonService: PolygonService,
+    private encryptionService: EncryptionService,
   ) {}
 
   async createWallet(userId: string, chain: string): Promise<Wallet> {
@@ -48,20 +54,23 @@ export class WalletService {
 
         case 'solana':
           const solanaWallet = await this.solanaService.createWallet();
-          address = solanaWallet.address;
+          // Solana's public key doubles as the account address; the secret key
+          // is the private key material to be encrypted.
+          address = solanaWallet.publicKey;
           publicKey = solanaWallet.publicKey;
-          privateKey = solanaWallet.privateKey;
+          privateKey = solanaWallet.secretKey;
           break;
 
         default:
           throw new BadRequestException(`Unsupported chain: ${chain}`);
       }
 
-      // Authenticated encryption with a scrypt-derived per-wallet key.
-      // Refuses to run in production without a real ENCRYPTION_KEY — see
-      // common/crypto/private-key-crypto.ts for why the previous inline
-      // AES-256-CBC block was unsafe.
-      const encryptedPrivateKey = encryptPrivateKey(privateKey);
+      // Encrypt private key with per-user key
+      // Uses AES-256-GCM with per-user key derived from master key
+      const encryptedPrivateKey = await this.encryptionService.encrypt(
+        privateKey,
+        userId,
+      );
 
       // Create wallet record
       const wallet = this.walletRepository.create({
@@ -125,7 +134,7 @@ export class WalletService {
           break;
 
         case 'solana':
-          balance = await this.solanaService.getBalance(wallet.address);
+          balance = (await this.solanaService.getBalance(wallet.address)).toString();
           break;
 
         default:
@@ -143,5 +152,56 @@ export class WalletService {
     const wallet = await this.getWalletById(walletId);
     wallet.recoveryEmail = recoveryEmail;
     return this.walletRepository.save(wallet);
+  }
+
+  /**
+   * Decrypt a wallet's private key for server-side (custodial) signing.
+   *
+   * SECURITY: This is the ONLY place a stored key is turned back into
+   * plaintext. Callers MUST pass the authenticated userId; the key is only
+   * released if the wallet belongs to that user, and the per-user encryption
+   * key is derived from that same userId (so a mismatched user cannot decrypt).
+   *
+   * The plaintext key must never be logged, persisted, or returned to a client.
+   */
+  async getDecryptedPrivateKey(walletId: string, userId: string): Promise<string> {
+    const wallet = await this.getWalletById(walletId);
+
+    if (wallet.userId !== userId) {
+      throw new ForbiddenException('Wallet does not belong to this user');
+    }
+
+    if (!wallet.encryptedPrivateKey) {
+      throw new BadRequestException('Wallet has no key material to decrypt');
+    }
+
+    return this.encryptionService.decrypt(wallet.encryptedPrivateKey, userId);
+  }
+
+  /**
+   * Build an ethers Wallet (signer) connected to the given provider for a
+   * custodial EVM wallet. Used by the transaction service to sign and broadcast
+   * on the user's behalf.
+   */
+  async getEvmSigner(
+    walletId: string,
+    userId: string,
+    provider: ethers.Provider,
+  ): Promise<ethers.Wallet> {
+    const wallet = await this.getWalletById(walletId);
+
+    if (wallet.userId !== userId) {
+      throw new ForbiddenException('Wallet does not belong to this user');
+    }
+
+    const chain = wallet.chain.toLowerCase();
+    if (chain !== 'ethereum' && chain !== 'polygon') {
+      throw new BadRequestException(
+        `getEvmSigner does not support chain: ${wallet.chain}`,
+      );
+    }
+
+    const privateKey = await this.getDecryptedPrivateKey(walletId, userId);
+    return new ethers.Wallet(privateKey, provider);
   }
 }

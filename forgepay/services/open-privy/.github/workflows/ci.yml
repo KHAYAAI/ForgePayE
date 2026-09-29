@@ -31,22 +31,25 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '18'
-          cache: 'npm'
+          node-version: '20'
 
-      - name: Install dependencies
-        run: npm install
+      - name: Install backend dependencies
+        run: |
+          cd services/backend
+          npm install
 
       - name: Build backend
         run: |
           cd services/backend
           npm run build
 
+      - name: Generate test encryption master key
+        run: echo "ENCRYPTION_MASTER_KEY=$(openssl rand -base64 32)" >> "$GITHUB_ENV"
+
       - name: Run backend tests
         env:
           DATABASE_URL: postgresql://app:test@localhost:5432/openprivy_test
-          JWT_SECRET: test-secret
-          ENCRYPTION_KEY: test-encryption-key-min-32-chars-long
+          JWT_SECRET: ci-test-secret-at-least-16-chars
         run: |
           cd services/backend
           npm run test

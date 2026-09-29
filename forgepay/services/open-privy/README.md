@@ -1,403 +1,415 @@
-# OpenPrivy: Open-Source Privy Alternative
+# OpenPrivy — Custodial Embedded Wallet Platform
 
-An open-source embedded wallet and authentication platform for Africa. No seed phrases. No complexity.
+Embedded crypto wallets with no seed phrases: users log in with email/social/SSO,
+get a wallet, and transact — the platform generates, encrypts, and signs on
+their behalf. Multi-chain (Ethereum, Polygon, Solana), gas-sponsored via
+ERC-4337 account abstraction.
 
-**Version:** 0.1.0 (Phase 0 MVP)  
-**Status:** 🟡 Development  
-**Timeline:** 6 months to production (Phase 0 → Phase 3)
+**Version:** 0.1.0
+**Status:** 🟡 Pre-launch — builds, boots, and passes its test suite; **not yet
+cleared for real user funds**. See [Launch readiness](#launch-readiness) below
+and `PRODUCTION_STATUS.md` for the full, evidence-backed ledger.
 
-## Overview
+This README describes what the code does. It does not claim things that
+haven't been verified — where something is unproven, it says so.
 
-OpenPrivy is a consumer-focused web3 wallet that solves the UX problem:
-- **No seed phrases** — Embedded wallet with encrypted key storage
-- **Email/Social login** — Familiar authentication
-- **Gas sponsorship** — Users see $0 fees
-- **Account abstraction** — EIP-4337 smart contract wallets
-- **Multi-chain** — Ethereum, Solana, Polygon
-- **Mobile-first** — React Native app included
+## What this actually is
 
-Perfect for South African users and globally.
+OpenPrivy is **custodial**: the backend holds the only copy of each user's
+private key (encrypted) and signs on their behalf. That's the trade-off behind
+"no seed phrases" — convenience for the user, custody obligations for the
+platform. See [Compliance](#compliance--licensing) before treating this as
+launch-ready for real funds.
 
 ## Architecture
 
 ```
-Frontend (React/Next.js)
-↓
-Backend API (NestJS)
-↓
-Database (PostgreSQL)
-↓
-Blockchain (ethers.js, Alchemy)
+Web (Next.js) / Mobile (Expo)
+        │  HTTPS
+        ▼
+ALB — TLS termination (ACM)
+        │
+        ▼
+EKS — NestJS backend, 3–10 pods (HPA)
+   modules: auth · wallet · blockchain · transactions
+            · account-abstraction · defi · social-recovery · monitoring
+        │
+        ├──► RDS PostgreSQL 16 (Multi-AZ, schema via migrations)
+        ├──► ElastiCache Redis (global rate limiting)
+        ├──► Secrets Manager (DB password, encryption master key — read via IRSA)
+        ├──► WorkOS AuthKit (SSO / email / MFA)
+        └──► Chain RPC (Alchemy) + Bundler/EntryPoint (Pimlico)
 ```
 
-## Tech Stack
+**Custody path:** a wallet's private key is generated server-side, encrypted
+with AES-256-GCM using a key derived per-user (PBKDF2, 100k iterations) from a
+master key held in AWS Secrets Manager. Exactly one function,
+`WalletService.getEvmSigner`, ever decrypts a key — after verifying the caller
+owns that wallet — and it signs and broadcasts immediately. The plaintext key
+never persists and is never returned over the API.
+
+## Tech stack
 
 | Layer | Technology |
-|-------|-----------|
-| Frontend | React 18 + Next.js 14 + TailwindCSS |
+|---|---|
+| Web | Next.js + React |
+| Mobile | Expo (React Native) |
 | Backend | NestJS + TypeORM |
-| Database | PostgreSQL + Supabase Auth |
-| Blockchain | ethers.js + Alchemy API |
-| Account Abstraction | EIP-4337 + Pimlico Paymaster |
-| Monitoring | Sentry + Prometheus + Grafana |
-| DevOps | Docker + Kubernetes |
+| Database | PostgreSQL 16 (RDS Multi-AZ) |
+| Cache / rate limiting | Redis (ElastiCache) |
+| Auth | WorkOS AuthKit (SSO, email, MFA) — Supabase supported as an optional legacy path |
+| Blockchain | ethers.js + Alchemy (EVM), @solana/web3.js |
+| Account abstraction | ERC-4337 (EntryPoint v0.7) + Pimlico bundler/paymaster |
+| Secrets | AWS Secrets Manager, read via pod IRSA role |
+| Monitoring | Prometheus (`/metrics`) |
+| Infra | CloudFormation (VPC/EKS, RDS/Redis/Secrets/S3) + Kubernetes + Docker |
 
-## Quick Start
+## Quick start (local)
 
 ### Prerequisites
 - Node.js 20+
 - Docker & Docker Compose
-- PostgreSQL 15+
-- Supabase account (free tier OK)
+- PostgreSQL 16 (via `docker-compose up -d`, or your own instance)
 
-### Setup Local Environment
+### Setup
 
 ```bash
-# Clone repo
 git clone https://github.com/khayaai/open-privy.git
 cd open-privy
 
-# Copy environment template
 cp .env.example .env
+# fill in: ENCRYPTION_MASTER_KEY, JWT_SECRET, DATABASE_URL, and either
+# WORKOS_API_KEY/WORKOS_CLIENT_ID or SUPABASE_URL/SUPABASE_KEY (see below)
 
-# Edit .env with your Supabase/Alchemy keys
-vim .env
+docker-compose up -d          # Postgres + Redis
 
-# Start services
-docker-compose up -d
-
-# Install dependencies
-npm install
-
-# Run migrations
-cd services/backend && npm run build
-
-# Start development servers
-npm run dev
+cd services/backend
+npm install --legacy-peer-deps
+npm run migration:run         # applies committed migrations — never `synchronize` outside dev
+npm run build
+npm run dev                   # http://localhost:3001
 ```
 
-Visit:
-- Frontend: http://localhost:3000
-- Backend: http://localhost:3001
-- Health check: http://localhost:3001/health
+```bash
+cd apps/web
+npm install
+npm run dev                   # http://localhost:3000
+```
 
-### Key Environment Variables
+Verify: `curl http://localhost:3001/health` → `{"status":"ok",...}`
+
+### Required environment variables
 
 ```bash
-# Supabase (required)
+# Security — REQUIRED, the app refuses to boot without these in production
+ENCRYPTION_MASTER_KEY=$(openssl rand -base64 32)   # or ENCRYPTION_MASTER_KEY_SECRET_ARN in prod
+JWT_SECRET=$(openssl rand -base64 48)
+
+# Database
+DATABASE_URL=postgresql://app:dev-only@localhost:5432/openprivy
+
+# Auth — pick one
+WORKOS_API_KEY=sk_test_...
+WORKOS_CLIENT_ID=client_...
+WORKOS_REDIRECT_URI=http://localhost:3001/auth/workos/callback
+# — or —
 SUPABASE_URL=https://xxxx.supabase.co
 SUPABASE_KEY=eyJhbGc...
 
-# Blockchain RPC (required)
+# Blockchain RPC
 ETHEREUM_RPC_SEPOLIA=https://sepolia.infura.io/v3/YOUR_KEY
 ALCHEMY_API_KEY=your-alchemy-key
 
-# Database (auto-configured for local)
-DATABASE_URL=postgresql://app:dev-only@localhost:5432/openprivy
-
-# Optional: Pimlico (Phase 1)
+# Optional: gas sponsorship
 PIMLICO_API_KEY=your-pimlico-key
 ```
 
-## Project Structure
+Full list with comments: `.env.example`.
+
+## Project structure
 
 ```
 openprivy/
 ├── apps/
-│   ├── web/                    # React/Next.js frontend
-│   │   ├── src/
-│   │   │   ├── pages/         # Page components
-│   │   │   ├── components/    # Reusable components
-│   │   │   ├── hooks/         # Custom React hooks
-│   │   │   ├── context/       # Context providers
-│   │   │   ├── lib/           # Utilities (API, auth)
-│   │   │   └── styles/        # TailwindCSS
-│   │   └── package.json
-│   │
-│   └── mobile/                 # React Native (Phase 1)
+│   ├── web/                        # Next.js frontend
+│   └── mobile/                     # Expo app
 │
 ├── services/
-│   └── backend/               # NestJS API
-│       ├── src/
-│       │   ├── modules/       # Feature modules
-│       │   │   ├── auth/
-│       │   │   ├── wallet/
-│       │   │   ├── blockchain/
-│       │   │   └── transactions/
-│       │   ├── common/        # Shared utilities
-│       │   ├── config/        # Configuration
-│       │   └── main.ts        # Entry point
-│       └── package.json
+│   ├── backend/                    # NestJS API
+│   │   ├── src/
+│   │   │   ├── modules/            # auth, wallet, blockchain, transactions,
+│   │   │   │                       # account-abstraction, defi, social-recovery,
+│   │   │   │                       # monitoring
+│   │   │   ├── common/             # encryption, middleware, logging
+│   │   │   ├── config/             # typeorm, jwt, secrets
+│   │   │   ├── migrations/         # committed schema migrations
+│   │   │   └── data-source.ts      # TypeORM CLI datasource
+│   │   └── test/                   # security/, correctness/, integration/, e2e/
+│   │
+│   └── contracts/                  # SimpleAccount, Factory, Paymaster (ERC-4337)
 │
-├── infrastructure/
-│   ├── docker-compose.yml     # Local development
-│   ├── kubernetes/            # K8s manifests (Phase 1)
-│   ├── terraform/             # IaC for AWS (Phase 1)
-│   └── init-db.sql           # Database schema
+├── aws/                             # CloudFormation: VPC/EKS, RDS/Redis/Secrets/S3
+├── k8s/                             # Deployment, HPA, migrate Job, ALB Ingress
+├── scripts/                         # db-backup.sh, db-restore.sh, deploy scripts
+├── test/load/                       # load test harness + measured results
 │
 ├── docs/
-│   ├── architecture.md
-│   ├── api.md
-│   └── phase-0-checklist.md
+│   ├── AWS_PRODUCTION_DEPLOY.md    # ordered deploy runbook
+│   └── DR_RUNBOOK.md               # disaster recovery scenarios & drill checklist
 │
-└── package.json              # Monorepo root
+├── PRODUCTION_STATUS.md            # source of truth: verified / partial / blocked
+└── docker-compose.yml               # local Postgres + Redis
 ```
 
-## API Endpoints (Phase 0)
+## API endpoints
 
-### Authentication
-```bash
-POST   /auth/signup          # Create account
-POST   /auth/login           # Login with email/password
-GET    /auth/me              # Get current user
-POST   /auth/logout          # Logout
+### Auth
+```
+POST   /auth/signup                 # email/password (Supabase path)
+POST   /auth/login
+GET    /auth/workos/authorize       # returns the AuthKit hosted-login URL
+GET    /auth/workos/callback        # OAuth callback; sets the session cookie
+GET    /auth/me
+POST   /auth/logout
 ```
 
 ### Wallet
-```bash
-POST   /wallet/create        # Create new wallet
-GET    /wallet/get           # Get user's wallet
-GET    /wallet/list          # List all wallets
-GET    /wallet/:id/balance   # Get wallet balance
-POST   /wallet/:id/recovery-email  # Set recovery email
+```
+POST   /wallet/create                    # generates + encrypts a key, returns no key material
+GET    /wallet/get
+GET    /wallet/list
+GET    /wallet/:walletId/balance
+POST   /wallet/:walletId/recovery-email
+```
+
+### Transactions
+```
+POST   /transactions/send                # custodial: decrypt → sign → broadcast
+POST   /transactions/request             # client-signing flow: create a signing request
+POST   /transactions/:txId/confirm       # broadcast a client-signed tx
+GET    /transactions/history
+GET    /transactions/:txId
+```
+
+### Account abstraction (ERC-4337)
+```
+POST   /account-abstraction/build-userop
+POST   /account-abstraction/send-userop
+GET    /account-abstraction/userop-status/:userOpHash
+GET    /account-abstraction/paymaster/status
+GET    /account-abstraction/paymaster/balance
+POST   /account-abstraction/estimate-gas
 ```
 
 ### Blockchain
-```bash
-GET    /blockchain/balance/:address     # Get balance
-GET    /blockchain/gas-price            # Get current gas price
-GET    /blockchain/tx-history/:address  # Get transaction history
-GET    /blockchain/tx-receipt/:hash     # Get transaction receipt
+```
+GET    /blockchain/balance/:address
+GET    /blockchain/gas-price
+GET    /blockchain/tx-history/:address
+GET    /blockchain/tx-receipt/:txHash
+GET    /blockchain/solana/balance/:address
+GET    /blockchain/polygon/balance/:address
+GET    /blockchain/supported-chains
 ```
 
-### Transactions
-```bash
-POST   /transactions/request      # Create signing request
-POST   /transactions/:id/confirm  # Confirm and broadcast
-GET    /transactions/history      # Get user's transactions
-GET    /transactions/:id          # Get single transaction
+### Social recovery
+```
+POST   /recovery/contacts                # add a guardian contact
+POST   /recovery/contacts/verify
+POST   /recovery/initiate                # requires ≥2 verified guardians (M-of-N)
+POST   /recovery/approve
+POST   /recovery/complete
+GET    /recovery/status
 ```
 
-## Database Schema
-
-### Users
-- id (UUID, PK)
-- email (unique)
-- username
-- email_verified
-- mfa_enabled
-- created_at
-
-### Wallets
-- id (UUID, PK)
-- user_id (FK)
-- address (unique)
-- chain ('ethereum', 'solana', 'polygon')
-- encrypted_private_key
-- recovery_email
-- is_active
-
-### Transactions
-- id (UUID, PK)
-- user_id (FK)
-- wallet_id (FK)
-- tx_hash
-- from_address
-- to_address
-- amount
-- status ('pending', 'confirmed', 'failed')
-- created_at
-
-### Audit Logs
-- id (UUID, PK)
-- user_id (FK)
-- event_type
-- metadata (JSONB)
-- timestamp
-
-## Security Considerations
-
-### Phase 0 (MVP)
-- ✅ Private keys encrypted at rest (AES-256-CBC)
-- ✅ JWT authentication
-- ✅ CORS protection
-- ✅ SQL injection prevention (TypeORM)
-- ⚠️ Needs code audit before mainnet
-
-### Phase 1 (Production)
-- 🔄 Hardware security module (HSM) for key storage
-- 🔄 Social recovery (threshold encryption)
-- 🔄 WebAuthn/passkeys
-- 🔄 MFA support
-- 🔄 Penetration testing
-- 🔄 Bug bounty program
-
-## Development Commands
-
-```bash
-# Start all services
-npm run dev
-
-# Build for production
-npm run build
-
-# Run tests
-npm run test
-
-# Run integration tests
-npm run test:integration
-
-# Lint code
-npm run lint
-
-# Format code
-npm run format
-
-# Clean build artifacts
-npm run clean
-
-# Start backend only
-cd services/backend && npm run dev
-
-# Start frontend only
-cd apps/web && npm run dev
+### DeFi
 ```
+GET    /defi/swap/quote
+POST   /defi/swap/build
+GET    /defi/stake/info
+POST   /defi/stake/build
+```
+
+### Ops
+```
+GET    /health                       # liveness/readiness
+GET    /metrics                      # Prometheus scrape endpoint
+GET    /metrics/info                 # human-readable process info
+```
+
+## Database schema (current)
+
+**users** — `id` (uuid PK), `email` (unique), `workosUserId` (unique, nullable —
+links a WorkOS identity to this account), `username`, `avatarUrl`,
+`emailVerified`, `mfaEnabled`, `createdAt`/`updatedAt`
+
+**wallets** — `id` (uuid PK), `userId` (FK), `address` (unique), `chain`
+(`ethereum`/`solana`/`polygon`), `publicKey`, `encryptedPrivateKey`
+(`iv:authTag:ciphertext`, AES-256-GCM), `recoveryEmail`, `isActive`
+
+**transactions** — `id` (uuid PK), `userId`/`walletId` (FK), `chain`, `txHash`,
+`fromAddress`, `toAddress`, `amount`, `status`, `metadata` (jsonb)
+
+**recovery_contacts** / **recovery_guardians** — guardian contacts and their
+approval state for M-of-N social recovery
+
+**audit_logs** — `userId`, `eventType`, `metadata`, `timestamp`
+
+Schema is applied via committed TypeORM migrations
+(`npm run migration:run`) — production never uses `synchronize`.
+
+## Security
+
+What's implemented and verified:
+- Private keys encrypted at rest, **AES-256-GCM** with per-user PBKDF2-derived
+  keys (not a single shared key)
+- Master key sourced from **AWS Secrets Manager** in production, read via the
+  pod's IRSA role — never in a manifest
+- **Fail-closed JWT secret** — refuses to boot on a default/dev secret when
+  `NODE_ENV=production`
+- **Redis-backed rate limiting**, global across replicas, env-tunable limits
+- CORS restricted to configured origins; `helmet` security headers
+- Schema via reviewed migrations, not runtime `synchronize`
+
+What's explicitly **not** done yet — see [Launch readiness](#launch-readiness):
+- No independent security audit
+- No live, on-chain-verified ERC-4337 transaction (hash logic is spec-correct
+  against EntryPoint v0.7; the on-chain comparison test is written but unrun)
+- No master-key rotation tooling (the primitive exists; batch re-encryption
+  and a rehearsed drill do not)
+- No money-transmitter / VASP licensing review for the custodial model
 
 ## Testing
 
 ```bash
-# Unit tests
-npm run test
-
-# Integration tests
-npm run test:integration
-
-# E2E tests (Phase 1)
-npm run test:e2e
-
-# Load tests (Phase 1)
-npm run test:load
+cd services/backend
+npm run test               # unit + correctness + security (35 passing, 1 skipped)
+npm run test:security      # encryption, auth, rate-limit tests only
+npm run test:correctness   # nonce, UserOp hash, custody round-trip
+npm run test:e2e           # requires a running DB
+npm run lint
 ```
+
+Load testing: `test/load/quick-load.sh` (autocannon) and `test/load/staging-load.k6.js`
+(k6 ramp). Measured single-instance baseline in `test/load/RESULTS.md`.
 
 ## Deployment
 
-### Local (Development)
+### Local
 ```bash
 docker-compose up
 ```
 
-### Kubernetes (Staging/Production - Phase 1)
+### AWS (staging/production)
+Full ordered runbook: **`docs/AWS_PRODUCTION_DEPLOY.md`**. Summary:
+
 ```bash
-kubectl apply -f infrastructure/kubernetes/
+# 1. Network + cluster
+aws cloudformation deploy --template-file aws/cloudformation-vpc-eks.yaml \
+  --stack-name openprivy-vpc-eks --capabilities CAPABILITY_IAM
 
-# Watch deployment
-kubectl get pods -w
+# 2. Databases (RDS + Redis + Secrets + S3), using outputs from step 1
+aws cloudformation deploy --template-file aws/cloudformation-databases.yaml \
+  --stack-name openprivy-databases --capabilities CAPABILITY_IAM \
+  --parameter-overrides VpcId=<id> PrivateSubnet1=<id> PrivateSubnet2=<id>
 
-# Check logs
-kubectl logs -f deployment/openprivy-backend
+# 3. Encryption master key
+aws secretsmanager create-secret --name openprivy-prod/encryption/master-key \
+  --secret-string "$(openssl rand -base64 32)"
+
+# 4. Build & push the image, then apply k8s manifests
+kubectl apply -f k8s/namespace.yaml
+kubectl apply -f k8s/migrate-job.yaml && kubectl wait --for=condition=complete job/db-migrate -n openprivy
+kubectl apply -f k8s/backend.yaml
+kubectl apply -f k8s/ingress.yaml
 ```
 
-### Terraform (AWS - Phase 1)
-```bash
-cd infrastructure/terraform
-terraform init
-terraform plan
-terraform apply
-```
+Both CloudFormation templates pass `cfn-lint` with zero errors. The Dockerfile
+and CI/CD workflows are written and internally consistent but have not been
+executed end-to-end in this development environment (no Docker daemon / AWS
+credentials available here) — that's the next real-infrastructure step.
+
+### Disaster recovery
+`docs/DR_RUNBOOK.md` — RPO ≤5 min / RTO ≤60 min targets, failure scenarios, and
+a quarterly drill checklist. `scripts/db-backup.sh` / `scripts/db-restore.sh`
+have been round-trip tested: identical row counts and intact encrypted key
+data after a restore into a fresh database.
 
 ## Monitoring
 
-### Health Checks
 ```bash
-# API health
-curl http://localhost:3001/health
-
-# Readiness
-curl http://localhost:3001/health/ready
+curl http://localhost:3001/health        # liveness/readiness
+curl http://localhost:3001/metrics       # Prometheus exposition format
 ```
 
-### Logs
+Measured local baseline (single instance): ~3,290 req/s on `/health`,
+~1,120 req/s on `/auth/me` (full JWT verify + Postgres read). Details and
+reproduction steps in `test/load/RESULTS.md`.
+
+## Launch readiness
+
+Six gates stand between this repository and real user funds. None close by
+writing more code alone — the full ledger with evidence is in
+**`PRODUCTION_STATUS.md`**.
+
+| Gate | Status |
+|---|---|
+| External security audit (custody, AA, auth) | Not started |
+| Live ERC-4337 transaction confirmed on-chain | Test written, unrun — needs an environment with RPC egress, then a `SimpleAccount.sol` nonce fix for EntryPoint v0.7 |
+| Load test + DR drill on real AWS infrastructure | Local baseline + backup/restore verified; RDS PITR and Multi-AZ failover need a real account |
+| Master-key rotation tooling + rehearsed drill | Rotation primitive exists; batch tooling and drill do not |
+| Docker image + CI/CD executed end-to-end | Rewritten, unexecuted in this environment |
+| Money-transmitter / VASP licensing review | Not started — custodial key storage may require it depending on jurisdiction |
+
+## Compliance & licensing
+
+**SOC 2** — Type II (what enterprise buyers ask for) is realistically 4–6
+months of evidence once controls are in place. Encryption, Secrets Manager,
+IRSA least-privilege, and WorkOS's audit-log streaming already feed that
+evidence base; formal access reviews, incident-response runbooks, and vendor
+management do not exist yet.
+
+**PCI DSS** — only applies if a fiat card on/off-ramp is added. If so, route
+through a tokenizing processor and stay in SAQ-A scope; do not handle raw card
+data directly.
+
+**Money-transmitter / VASP licensing** — holding user private keys is a
+custodial model, and custody of this kind can trigger licensing and BSA/AML/KYC
+obligations depending on jurisdiction. This is a legal question for counsel,
+independent of SOC 2 or PCI, and should be resolved before public launch.
+
+## Development commands
+
 ```bash
-# Backend logs
-docker-compose logs -f backend
+npm run dev              # all services (turbo)
+npm run build
+npm run test
+npm run lint
+npm run format
 
-# Database logs
-docker-compose logs -f postgres
+cd services/backend && npm run dev     # backend only
+cd apps/web && npm run dev             # web only
 ```
-
-### Metrics (Phase 1)
-- Prometheus: http://localhost:9090
-- Grafana: http://localhost:3000
-
-## Roadmap
-
-### Phase 0 (Weeks 1-4) ✅ Current
-- ✅ Basic wallet creation (ethers.js)
-- ✅ Email/password authentication
-- ✅ Balance display
-- ✅ Transaction signing (no broadcast yet)
-- ✅ Docker dev environment
-
-### Phase 1 (Weeks 5-14)
-- [ ] Multi-chain (Solana, Polygon)
-- [ ] Account abstraction (EIP-4337)
-- [ ] Gas sponsorship (Pimlico)
-- [ ] Mobile app (React Native)
-- [ ] Social recovery
-- [ ] Advanced UI/UX
-
-### Phase 2 (Weeks 15-20)
-- [ ] Multi-chain portfolio
-- [ ] DeFi integrations (swaps, staking)
-- [ ] NFT support
-- [ ] Analytics dashboard
-- [ ] Referral program
-
-### Phase 3 (Weeks 21-26)
-- [ ] South African market launch
-- [ ] KYC/AML (if needed)
-- [ ] Fiat on/off ramps
-- [ ] Security audit
-- [ ] Bug bounty program
 
 ## Contributing
 
-We welcome contributions! Please:
-
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+3. Commit your changes
+4. Open a Pull Request
 
-## Code of Conduct
-
-Please be respectful and constructive. This is a community project.
+Please be respectful and constructive — this is a community project.
 
 ## License
 
-MIT License - See LICENSE file for details
+No `LICENSE` file is committed yet, despite this repo previously claiming MIT —
+that claim wasn't backed by an actual file. Add one (and a `license` field in
+`package.json`) before treating this as open source or accepting outside
+contributions.
 
-## Support
+## Further reading
 
-- Documentation: `/docs`
-- Issues: GitHub Issues
-- Discord: [Community Discord] (Coming soon)
-- Email: support@openprivy.dev
-
-## Credits
-
-Built with:
-- [ethers.js](https://docs.ethers.org/)
-- [NestJS](https://nestjs.com/)
-- [Next.js](https://nextjs.org/)
-- [Supabase](https://supabase.io/)
-- [Tailwind CSS](https://tailwindcss.com/)
-
-## Roadmap to Production
-
-**Cost estimate:** $150-300K  
-**Timeline:** 6-9 months  
-**Team:** 2-3 engineers  
-
-See `/docs/phase-0-checklist.md` and `/docs/architecture.md` for details.
+- `PRODUCTION_STATUS.md` — verified / partial / blocked, with evidence for each
+- `docs/AWS_PRODUCTION_DEPLOY.md` — ordered AWS deployment runbook
+- `docs/DR_RUNBOOK.md` — disaster recovery scenarios and drill checklist
+- `test/load/RESULTS.md` — measured load-test baseline

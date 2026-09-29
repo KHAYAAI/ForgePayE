@@ -1,0 +1,32 @@
+# Public entrypoint for the API via the AWS Load Balancer Controller (ALB).
+# TLS is terminated at the ALB using an ACM certificate; HTTP is redirected to
+# HTTPS. Requires the AWS Load Balancer Controller installed in the cluster.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: backend-ingress
+  namespace: openprivy
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: '443'
+    # Replace with the ACM certificate ARN for api.openprivy.io
+    alb.ingress.kubernetes.io/certificate-arn: "arn:aws:acm:us-east-1:REPLACE_ACCOUNT_ID:certificate/REPLACE_CERT_ID"
+    alb.ingress.kubernetes.io/healthcheck-path: /health
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: '15'
+    alb.ingress.kubernetes.io/security-groups: openprivy-alb-sg
+    alb.ingress.kubernetes.io/tags: Environment=production,App=openprivy
+spec:
+  rules:
+    - host: api.openprivy.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 3001

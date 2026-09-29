@@ -17,11 +17,11 @@ export class RecoveryContact {
   @Column({ default: false })
   isVerified: boolean;
 
-  @Column({ nullable: true })
-  verificationToken: string;
+  @Column({ nullable: true, type: 'varchar' })
+  verificationToken: string | null;
 
   @Column({ type: 'timestamp', nullable: true })
-  verificationTokenExpiresAt: Date;
+  verificationTokenExpiresAt: Date | null;
 
   @CreateDateColumn()
   createdAt: Date;

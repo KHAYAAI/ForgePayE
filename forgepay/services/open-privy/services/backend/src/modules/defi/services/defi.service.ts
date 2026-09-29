@@ -3,7 +3,7 @@ import { Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { SwapService } from './swap.service';
 import { StakingService } from './staking.service';
-import { Transaction } from '../../blockchain/entities/transaction.entity';
+import { Transaction } from '../../transactions/entities/transaction.entity';
 
 interface DefiOperation {
   type: 'swap' | 'stake' | 'unstake';

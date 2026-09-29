@@ -1,3 +1,5 @@
+> **⚠️ SUPERSEDED / UNVERIFIED.** This document was AI-generated in the same pass that wrote the code and its "audited / production-ready" claims were never independently verified. See `PRODUCTION_STATUS.md` for the actual, tested status. Do not rely on this file.
+
 # OpenPrivy Smart Contract & Backend Audit Report
 
 **Audit Date:** June 30, 2026  

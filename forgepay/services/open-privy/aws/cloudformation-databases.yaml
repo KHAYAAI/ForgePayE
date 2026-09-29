@@ -14,15 +14,8 @@ Parameters:
 
   DBMasterUsername:
     Type: String
-    Default: admin
+    Default: openprivy_admin
     Description: PostgreSQL master username
-    NoEcho: true
-
-  DBMasterPassword:
-    Type: String
-    Description: PostgreSQL master password
-    NoEcho: true
-    MinLength: 12
 
   DBInstanceClass:
     Type: String
@@ -97,18 +90,21 @@ Resources:
   RDSInstance:
     Type: AWS::RDS::DBInstance
     DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
     Properties:
       DBInstanceIdentifier: !Sub '${ClusterName}-db'
       DBName: !Ref DBName
       Engine: postgres
-      EngineVersion: '15.4'
+      EngineVersion: '16.9'
       DBInstanceClass: !Ref DBInstanceClass
       AllocatedStorage: '100'
       StorageType: gp3
       StorageEncrypted: true
       KmsKeyId: !GetAtt RDSEncryptionKey.Arn
       MasterUsername: !Ref DBMasterUsername
-      MasterUserPassword: !Ref DBMasterPassword
+      # Password is generated and stored in Secrets Manager (never a plaintext
+      # template parameter); resolved here via a dynamic reference.
+      MasterUserPassword: !Sub '{{resolve:secretsmanager:${DBSecret}:SecretString:password}}'
       DBSubnetGroupName: !Ref DBSubnetGroup
       VPCSecurityGroups:
         - !Ref DBSecurityGroup
@@ -119,11 +115,9 @@ Resources:
       BackupRetentionPeriod: 30
       PreferredBackupWindow: '03:00-04:00'
       PreferredMaintenanceWindow: 'sun:04:00-sun:05:00'
-      EnableEnhancedMonitoring: true
       MonitoringInterval: 60
       MonitoringRoleArn: !GetAtt RDSMonitoringRole.Arn
       DeletionProtection: true
-      EnableDeletionProtection: true
       CopyTagsToSnapshot: true
       Tags:
         - Key: Name
@@ -181,7 +175,7 @@ Resources:
     Type: AWS::RDS::DBParameterGroup
     Properties:
       Description: Custom parameter group for OpenPrivy
-      Family: postgres15
+      Family: postgres16
       Parameters:
         log_statement: 'all'
         log_min_duration_statement: '1000'
@@ -210,7 +204,7 @@ Resources:
     Properties:
       ReplicationGroupDescription: OpenPrivy Redis cluster
       Engine: redis
-      EngineVersion: '7.0'
+      EngineVersion: '7.1'
       CacheNodeType: !Ref RedisNodeType
       NumCacheClusters: 2
       AutomaticFailoverEnabled: true
@@ -225,18 +219,27 @@ Resources:
       SnapshotWindow: '02:00-03:00'
       LogDeliveryConfigurations:
         - DestinationType: cloudwatch-logs
+          DestinationDetails:
+            CloudWatchLogsDetails:
+              LogGroup: !Ref RedisLogGroup
           LogFormat: json
           LogType: engine-log
-          Enabled: true
       Tags:
         - Key: Name
           Value: !Sub '${ClusterName}-redis'
+
+  RedisLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/elasticache/${ClusterName}/engine-log'
+      RetentionInDays: 30
 
   # ==================== S3 Backup Bucket ====================
 
   BackupBucket:
     Type: AWS::S3::Bucket
     DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       BucketName: !Sub '${ClusterName}-backups-${AWS::AccountId}'
       VersioningConfiguration:
@@ -254,9 +257,10 @@ Resources:
               - TransitionInDays: 30
                 StorageClass: GLACIER
             ExpirationInDays: 90
-      ServerSideEncryptionConfiguration:
-        - ServerSideEncryptionByDefault:
-            SSEAlgorithm: AES256
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
       Tags:
         - Key: Name
           Value: !Sub '${ClusterName}-backups'
@@ -267,16 +271,21 @@ Resources:
     Type: AWS::SecretsManager::Secret
     Properties:
       Name: !Sub '${ClusterName}/rds/password'
-      Description: RDS database password
-      SecretString: !Sub |
-        {
-          "username": "${DBMasterUsername}",
-          "password": "${DBMasterPassword}",
-          "engine": "postgresql",
-          "host": "${RDSInstance.Endpoint.Address}",
-          "port": 5432,
-          "dbname": "${DBName}"
-        }
+      Description: RDS database credentials (password auto-generated)
+      GenerateSecretString:
+        SecretStringTemplate: !Sub '{"username": "${DBMasterUsername}"}'
+        GenerateStringKey: password
+        PasswordLength: 32
+        ExcludePunctuation: true
+
+  # Ties the secret to the instance so Secrets Manager fills in host/port/dbname
+  # and can later drive automatic rotation.
+  DBSecretAttachment:
+    Type: AWS::SecretsManager::SecretTargetAttachment
+    Properties:
+      SecretId: !Ref DBSecret
+      TargetId: !Ref RDSInstance
+      TargetType: AWS::RDS::DBInstance
 
   RedisSecret:
     Type: AWS::SecretsManager::Secret

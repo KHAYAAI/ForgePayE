@@ -23,6 +23,7 @@ interface UserOperation {
 export class UserOpService {
   private bundlerRpc: string;
   private entryPointAddress: string;
+  private chainId: number;
 
   constructor(
     @InjectRepository(Transaction)
@@ -32,6 +33,9 @@ export class UserOpService {
   ) {
     this.bundlerRpc = process.env.PIMLICO_ENDPOINT || 'https://api.pimlico.io/v2/ethereum/rpc';
     this.entryPointAddress = process.env.ENTRYPOINT_ADDRESS || '0x0000000071727De22E5E9d8BAf0edAc6f37da032';
+    // Sepolia by default; MUST match the chain the EntryPoint lives on or the
+    // userOpHash (and therefore the signature) will not match on-chain.
+    this.chainId = Number(process.env.CHAIN_ID) || 11155111;
   }
 
   async buildUserOp(
@@ -46,13 +50,25 @@ export class UserOpService {
 
       // Estimate gas
       const estimatedGas = gasLimit || (await this.ethereumService.estimateGas(targetAddress, callData));
-      const verificationGasLimit = '150000';
-      const callGasLimit = (Number(estimatedGas) + 50000).toString();
+      const verificationGasLimit = BigInt(150000);
+      const callGasLimit = BigInt(Number(estimatedGas) + 50000);
 
       // Get current gas price
       const gasPrice = await this.ethereumService.getGasPrice();
-      const maxFeePerGas = (gasPrice * BigInt(2)).toString(); // 2x current for safety
-      const maxPriorityFeePerGas = (gasPrice / BigInt(2)).toString(); // 0.5x base
+      const maxFeePerGas = gasPrice * BigInt(2); // 2x current for safety
+      const maxPriorityFeePerGas = gasPrice / BigInt(2); // 0.5x base
+
+      // EntryPoint v0.7 packs two uint128 values into a single bytes32 slot.
+      // accountGasLimits = verificationGasLimit (high 128) | callGasLimit (low 128)
+      // gasFees          = maxPriorityFeePerGas (high 128) | maxFeePerGas (low 128)
+      const accountGasLimits = ethers.solidityPacked(
+        ['uint128', 'uint128'],
+        [verificationGasLimit, callGasLimit],
+      );
+      const gasFees = ethers.solidityPacked(
+        ['uint128', 'uint128'],
+        [maxPriorityFeePerGas, maxFeePerGas],
+      );
 
       // Build UserOp
       const userOp: UserOperation = {
@@ -60,15 +76,9 @@ export class UserOpService {
         nonce: nonce.toString(),
         initCode: '0x', // Already deployed
         callData,
-        accountGasLimits: ethers.AbiCoder.defaultAbiCoder().encode(
-          ['uint256', 'uint256'],
-          [verificationGasLimit, callGasLimit],
-        ),
+        accountGasLimits,
         preVerificationGas: '25000',
-        gasFees: ethers.AbiCoder.defaultAbiCoder().encode(
-          ['uint256', 'uint256'],
-          [maxFeePerGas, maxPriorityFeePerGas],
-        ),
+        gasFees,
         paymasterAndData: '0x',
         signature: '0x',
       };
@@ -118,7 +128,7 @@ export class UserOpService {
         }),
       });
 
-      const data = await response.json();
+      const data: any = await response.json();
 
       if (data.error) {
         throw new BadRequestException(`Bundler error: ${data.error.message}`);
@@ -168,7 +178,7 @@ export class UserOpService {
         }),
       });
 
-      const data = await response.json();
+      const data: any = await response.json();
 
       if (data.error) {
         logger.error(`Failed to get UserOp receipt: ${data.error.message}`);
@@ -182,20 +192,92 @@ export class UserOpService {
     }
   }
 
+  /**
+   * Get the current nonce for a SimpleAccount from on-chain state.
+   *
+   * CRITICAL: This MUST match SimpleAccount.sol's nonce field.
+   * Nonce is an incrementing counter (0, 1, 2, ...) that increments
+   * after each successful validateUserOp().
+   *
+   * Mismatch with on-chain nonce will cause SIG_VALIDATION_FAILED.
+   */
   private async getNonce(address: string): Promise<number> {
-    // In production, query EntryPoint contract for actual nonce
-    // For MVP, use timestamp-based nonce
-    return Math.floor(Date.now() / 1000);
+    try {
+      const provider = this.ethereumService.getProvider();
+
+      // SimpleAccount contract ABI (minimal - just nonce() function)
+      const abi = [
+        {
+          inputs: [],
+          name: 'nonce',
+          outputs: [{ internalType: 'uint256', name: '', type: 'uint256' }],
+          stateMutability: 'view',
+          type: 'function',
+        },
+      ];
+
+      const contract = new ethers.Contract(address, abi, provider);
+
+      // Query the current nonce from blockchain
+      const nonce = await contract.nonce();
+
+      logger.info(`Retrieved nonce for ${address}: ${nonce}`);
+      return Number(nonce);
+    } catch (error) {
+      logger.error(
+        `Failed to get nonce for ${address}: ${error.message}. ` +
+        `Account may not be deployed yet.`
+      );
+      throw error;
+    }
   }
 
+  /**
+   * Compute the EntryPoint v0.7 userOpHash.
+   *
+   * Per the spec this binds EVERY field of the (packed) UserOperation plus the
+   * EntryPoint address and chainId. The previous implementation hashed only
+   * sender/nonce/initCode/callData, so any signature over it would be rejected
+   * on-chain. Signing must use exactly this hash.
+   *
+   * NOTE: This is now spec-shaped, but the full account-abstraction path
+   * (account/EntryPoint version alignment, on-chain nonce semantics) still
+   * requires end-to-end verification against a deployed EntryPoint on a testnet
+   * before it can be relied upon.
+   */
   private calculateUserOpHash(userOp: UserOperation): string {
-    // Simplified UserOp hash calculation
-    // In production, follow EIP-4337 specification exactly
-    const packed = ethers.solidityPacked(
-      ['address', 'uint256', 'bytes', 'bytes'],
-      [userOp.sender, userOp.nonce, userOp.initCode, userOp.callData],
+    const abi = ethers.AbiCoder.defaultAbiCoder();
+
+    const hashedOp = ethers.keccak256(
+      abi.encode(
+        [
+          'address', // sender
+          'uint256', // nonce
+          'bytes32', // keccak(initCode)
+          'bytes32', // keccak(callData)
+          'bytes32', // accountGasLimits
+          'uint256', // preVerificationGas
+          'bytes32', // gasFees
+          'bytes32', // keccak(paymasterAndData)
+        ],
+        [
+          userOp.sender,
+          userOp.nonce,
+          ethers.keccak256(userOp.initCode),
+          ethers.keccak256(userOp.callData),
+          userOp.accountGasLimits,
+          userOp.preVerificationGas,
+          userOp.gasFees,
+          ethers.keccak256(userOp.paymasterAndData),
+        ],
+      ),
     );
 
-    return ethers.keccak256(packed);
+    return ethers.keccak256(
+      abi.encode(
+        ['bytes32', 'address', 'uint256'],
+        [hashedOp, this.entryPointAddress, this.chainId],
+      ),
+    );
   }
 }

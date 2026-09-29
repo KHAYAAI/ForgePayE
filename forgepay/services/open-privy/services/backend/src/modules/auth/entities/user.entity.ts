@@ -10,6 +10,11 @@ export class User {
   @Column({ type: 'varchar', length: 255, unique: true })
   email: string;
 
+  // WorkOS AuthKit user id (e.g. "user_01..."). Nullable so pre-WorkOS/local
+  // accounts still work; unique so a WorkOS identity maps to exactly one user.
+  @Column({ type: 'varchar', length: 255, nullable: true, unique: true })
+  workosUserId: string | null;
+
   @Column({ type: 'varchar', length: 255, nullable: true })
   username: string;
 
