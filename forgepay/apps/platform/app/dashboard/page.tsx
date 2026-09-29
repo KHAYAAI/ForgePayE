@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
   PageHeader,
@@ -51,9 +52,16 @@ const EMPTY_PAYMENTS: PaymentsSummary = { activated: false, stats: { events24h: 
 export default function UnifiedDashboard() {
   const { data: overview, live } = useForge<OverviewLive | null>('overview', null);
   const { data: payments } = useForge<PaymentsSummary>('payments', EMPTY_PAYMENTS);
+  const [enabled, setEnabled] = useState<Set<string> | null>(null);
   const liveCount = overview
     ? [overview.custody, overview.wallet, overview.treasury, overview.bureau, overview.ontology].filter((s) => s?.live).length
     : 0;
+
+  useEffect(() => {
+    fetch('/api/tenant/products').then((r) => r.json()).then((body) => {
+      setEnabled(new Set(body.enabled ?? []));
+    });
+  }, []);
 
   const custody = overview?.custody?.live ? overview.custody.data?.stats : undefined;
   const wallet = overview?.wallet?.live ? overview.wallet.data?.stats : undefined;
@@ -61,9 +69,10 @@ export default function UnifiedDashboard() {
   const bureau = overview?.bureau?.live ? overview.bureau.data?.stats : undefined;
   const events = overview?.ontology?.live ? (overview.ontology.data?.data ?? []) : [];
 
-  const PLATFORMS = [
+  const ALL_PLATFORMS = [
     {
       href: '/dashboard/payments',
+      key: 'payments',
       name: 'FORGE Payments',
       role: 'Routing & settlement',
       metric: payments.activated ? `${payments.stats.events24h} events / 24h` : 'not activated yet',
@@ -71,6 +80,7 @@ export default function UnifiedDashboard() {
     },
     {
       href: '/dashboard/custody',
+      key: 'custody',
       name: 'FORGE Custody',
       role: 'Institutional 4-of-7 threshold signing',
       metric: custody ? `${custody.signatures_24h ?? 0} signatures / 24h` : '—',
@@ -78,6 +88,7 @@ export default function UnifiedDashboard() {
     },
     {
       href: '/dashboard/wallet',
+      key: 'wallet',
       name: 'FORGE Wallet',
       role: 'Consumer & agent wallets, did:forge identity',
       metric: wallet ? `${(wallet.total_wallets ?? 0).toLocaleString('en-US')} wallets` : '—',
@@ -85,6 +96,7 @@ export default function UnifiedDashboard() {
     },
     {
       href: '/dashboard/agent-credit-bureau',
+      key: 'credit-bureau',
       name: 'Agent Credit Bureau',
       role: 'Reputation & credit for autonomous agents',
       metric: bureau ? `${bureau.totalAgents ?? 0} agents scored` : '—',
@@ -92,6 +104,7 @@ export default function UnifiedDashboard() {
     },
     {
       href: '/dashboard/enterprise-treasury',
+      key: 'treasury',
       name: 'Enterprise Treasury',
       role: 'Consolidation, netting, credit approvals',
       metric: treasury?.totalUsd != null ? `$${(treasury.totalUsd / 1_000_000).toFixed(1)}M consolidated` : '—',
@@ -99,12 +112,38 @@ export default function UnifiedDashboard() {
     },
     {
       href: '/dashboard/credit-bureau',
+      key: 'credit-bureau',
       name: 'Credit Bureau',
       role: 'Dual-mode merchant scoring (Mode 1 / Mode 2)',
       metric: bureau ? `${bureau.inquiries24h ?? 0} inquiries / 24h` : '—',
       live: !!bureau,
     },
   ];
+
+  const PLATFORMS = enabled ? ALL_PLATFORMS.filter((p) => enabled.has(p.key)) : [];
+
+  if (enabled && enabled.size === 0) {
+    return (
+      <>
+        <PageHeader
+          eyebrow="FORGE / Unified Overview"
+          title={
+            <>
+              Nothing is <em>turned on</em> yet
+            </>
+          }
+          lede="Your console is empty because you haven't enabled any platform. Pick what you need — you can change this anytime."
+        />
+        <Panel title="Get started" label="every product below starts disabled for a new account">
+          <p className="lede" style={{ fontSize: 13.5, marginBottom: 18 }}>
+            Nothing here is pre-selected on sign-up, so the console has no data to show. Turn on
+            a product to unlock its pages and start seeing real activity.
+          </p>
+          <Link href="/dashboard/products" className="btn-primary">Choose your products →</Link>
+        </Panel>
+      </>
+    );
+  }
 
   return (
     <>
