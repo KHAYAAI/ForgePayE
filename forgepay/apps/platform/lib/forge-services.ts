@@ -64,13 +64,24 @@ export function getWalletSummary<T>(): Promise<LiveResult<T>> {
   return fetchJson<T>(`${SERVICE_URLS.wallet}/api/v1/console/summary`, consoleSecretHeaders());
 }
 
+// enterprise-treasury denies every route but /health without an X-Api-Key
+// header (services/enterprise-treasury/src/index.ts) — this was never sent,
+// so every call below failed with 401 and the whole page silently rendered
+// as "treasury unreachable" regardless of whether the service was actually
+// up. In dev, enterprise-treasury accepts any non-empty key; in production
+// this must match one of its own VALID_API_KEYS.
+function treasuryAuthHeaders(): Record<string, string> {
+  const key = process.env.TREASURY_API_KEY ?? 'dev-console-treasury-key';
+  return { 'x-api-key': key };
+}
+
 export async function getTreasurySummary<T = Record<string, unknown>>(): Promise<LiveResult<T>> {
   // Compose the treasury view from its public read endpoints.
   const [position, rules, approvals, flows] = await Promise.all([
-    fetchJson<Record<string, unknown>>(`${SERVICE_URLS.treasury}/v1/cash-position`),
-    fetchJson<Record<string, unknown>>(`${SERVICE_URLS.treasury}/v1/rules`),
-    fetchJson<Record<string, unknown>>(`${SERVICE_URLS.treasury}/v1/rules/approvals`),
-    fetchJson<Record<string, unknown>>(`${SERVICE_URLS.treasury}/v1/netting/flows`),
+    fetchJson<Record<string, unknown>>(`${SERVICE_URLS.treasury}/v1/cash-position`, treasuryAuthHeaders()),
+    fetchJson<Record<string, unknown>>(`${SERVICE_URLS.treasury}/v1/rules`, treasuryAuthHeaders()),
+    fetchJson<Record<string, unknown>>(`${SERVICE_URLS.treasury}/v1/rules/approvals`, treasuryAuthHeaders()),
+    fetchJson<Record<string, unknown>>(`${SERVICE_URLS.treasury}/v1/netting/flows`, treasuryAuthHeaders()),
   ]);
   if (!position.live) return { live: false, data: null, error: position.error };
   return {
@@ -316,6 +327,47 @@ export async function getMerchantSummary<T>(email: string): Promise<LiveResult<T
   return { live: true, data: res.data?.data ?? null };
 }
 
+export interface WebhookEndpoint {
+  id: string;
+  merchant_id: string;
+  endpoint_url: string;
+  enabled: boolean;
+  created_at: string;
+}
+
+/** This tenant's real registered webhook endpoints — scoped by merchant_id (their unified-router customer id). */
+export async function getMerchantWebhookEndpoints(merchantId: string): Promise<LiveResult<WebhookEndpoint[]>> {
+  const token = process.env.INTERNAL_WEBHOOK_SECRET;
+  if (!token) return { live: false, data: null, error: 'no internal token' };
+  const res = await fetchJson<{ data: WebhookEndpoint[] }>(
+    `${SERVICE_URLS.router}/events/webhook-endpoints?merchant_id=${encodeURIComponent(merchantId)}`,
+    { authorization: `Bearer ${token}` },
+  );
+  if (!res.live) return { live: false, data: null, error: res.error };
+  return { live: true, data: res.data?.data ?? [] };
+}
+
+/** Register a new webhook endpoint for this tenant. Returns the signing secret exactly once. */
+export async function registerMerchantWebhook(
+  merchantId: string,
+  url: string,
+): Promise<{ ok: true; endpoint: WebhookEndpoint & { signing_secret: string } } | { ok: false; error: string }> {
+  const token = process.env.INTERNAL_WEBHOOK_SECRET;
+  if (!token) return { ok: false, error: 'no internal token' };
+  try {
+    const res = await fetch(`${SERVICE_URLS.router}/events/webhook-endpoints`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ url, merchant_id: merchantId }),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
+    return { ok: true, endpoint: await res.json() };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 export interface ServiceHealth {
   name: string;
   reachable: boolean;
@@ -332,12 +384,17 @@ export interface ServiceHealth {
  */
 export async function getServiceHealth(): Promise<ServiceHealth[]> {
   const targets: Array<{ name: string; url: string }> = [
-    // unified-router only exposes /healthz (not /health) — see
-    // services/unified-router/src/routes/health.ts.
+    // Health path is per-service, not uniform — checked against each
+    // service's own routes/index.ts rather than assumed:
+    //   unified-router      -> /healthz   (services/unified-router/src/routes/health.ts)
+    //   agent-credit-bureau -> /health    (services/agent-credit-bureau/src/index.ts)
+    //   forge-custody       -> /api/health (services/forge-custody/src/index.ts)
+    //   forge-wallet        -> /api/health (services/forge-wallet/src/index.ts)
+    //   enterprise-treasury -> /health    (services/enterprise-treasury/src/index.ts)
     { name: 'unified-router', url: `${SERVICE_URLS.router}/healthz` },
     { name: 'agent-credit-bureau', url: `${SERVICE_URLS.bureau}/health` },
-    { name: 'forge-custody', url: `${SERVICE_URLS.custody}/health` },
-    { name: 'forge-wallet', url: `${SERVICE_URLS.wallet}/health` },
+    { name: 'forge-custody', url: `${SERVICE_URLS.custody}/api/health` },
+    { name: 'forge-wallet', url: `${SERVICE_URLS.wallet}/api/health` },
     { name: 'enterprise-treasury', url: `${SERVICE_URLS.treasury}/health` },
   ];
 

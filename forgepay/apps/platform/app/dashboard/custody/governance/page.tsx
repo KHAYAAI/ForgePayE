@@ -12,9 +12,12 @@ import {
    The policy matrix (what needs how many signatures — real
    configuration, not activity) and the signer roster.
 
-   The roster isn't backed by a live feed yet — forge-custody has no
-   signer-roster read endpoint wired into this console today, so it
-   renders the real state for every account: no signers added yet.
+   The signer roster has no backing data model anywhere in
+   forge-custody — its Workspace type carries no signers field, and
+   CustodyKey's shareHolders is metadata on a key, not a roster with
+   roles/status/invitations. This isn't a wiring gap, it's a feature
+   that doesn't exist yet; the table stays a real, permanent empty
+   state until one is built.
    ──────────────────────────────────────────────────────────────── */
 
 const POLICY = [

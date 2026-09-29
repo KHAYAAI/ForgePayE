@@ -96,6 +96,10 @@ export async function buildEventRoutes(app: FastifyInstance) {
   // ── Webhook endpoint management ─────────────────────────────────────────────
 
   // GET /events/webhook-endpoints — list merchant endpoints (used by dashboard)
+  //
+  // merchant_id was declared on the querystring but never applied to the
+  // query — every caller with the internal secret got every merchant's
+  // endpoints back, not just their own. Now required and filtered.
   app.get<{ Querystring: { merchant_id?: string } }>(
     '/webhook-endpoints',
     async (req, reply) => {
@@ -106,25 +110,36 @@ export async function buildEventRoutes(app: FastifyInstance) {
         return;
       }
 
+      const { merchant_id } = req.query;
+      if (!merchant_id) {
+        reply.code(400).send({ error: 'ValidationError', message: 'merchant_id is required' });
+        return;
+      }
+
       const db = (req.server as { db: DbPool }).db;
       const result = await db.query(
         `SELECT id, merchant_id, endpoint_url, enabled, created_at
            FROM merchant_webhook_endpoints
+          WHERE merchant_id = $1
           ORDER BY created_at DESC`,
-        [],
+        [merchant_id],
       );
       reply.send({ data: result.rows });
     },
   );
 
   // POST /events/webhook-endpoints — register a new endpoint
-  app.post<{ Body: { url: string; merchant_id?: string; description?: string } }>(
+  //
+  // merchant_id used to default to the literal string 'default' when
+  // omitted — every merchant who registered a webhook without passing one
+  // landed in the same shared bucket as everyone else. Now required.
+  app.post<{ Body: { url: string; merchant_id: string; description?: string } }>(
     '/webhook-endpoints',
     {
       schema: {
         body: {
           type: 'object',
-          required: ['url'],
+          required: ['url', 'merchant_id'],
           properties: {
             url:         { type: 'string', format: 'uri' },
             merchant_id: { type: 'string' },
@@ -142,7 +157,7 @@ export async function buildEventRoutes(app: FastifyInstance) {
         return;
       }
 
-      const { url, merchant_id = 'default', description } = req.body;
+      const { url, merchant_id, description } = req.body;
       const signingSecret = crypto.randomUUID().replace(/-/g, '');
 
       const db = (req.server as { db: DbPool }).db;

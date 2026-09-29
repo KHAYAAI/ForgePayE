@@ -8,26 +8,38 @@ import {
   Pill,
   DataTable,
   Grid2,
+  LivePill,
   Mono,
 } from '@/components/forge/ui';
+import { useForge } from '@/components/forge/useForge';
 
 /* ────────────────────────────────────────────────────────────────
    FORGE Custody — Keys.
-   Key inventory, rotation schedule and DKG ceremony history.
-   Shares live encrypted in HashiCorp Vault behind AWS KMS —
-   this console sees metadata only, never material.
+   Key inventory — live-wired to forge-custody's real console/summary
+   `keys` field (services/forge-custody/src/index.ts). Shares live
+   encrypted in HashiCorp Vault behind AWS KMS — this console sees
+   metadata only, never material.
+
+   Ceremony history has no read endpoint in forge-custody today
+   (POST /api/v1/ceremonies records one, but nothing lists them) —
+   that table stays a real, permanent empty state until one exists.
    ──────────────────────────────────────────────────────────────── */
 
-interface KeyRow { id: string; chain: string; threshold: string; rotation: 'active' | 'rotating'; lastCeremony: string; nextRotation: string }
-interface CeremonyRow { at: string; key: string; kind: string; participants: string; result: string }
+interface KeyRow { id: string; blockchain: string; threshold: string; rotation_status: 'active' | 'rotating' | 'retired' }
+interface CustodySummary { keys?: KeyRow[] }
 
-// Not yet backed by a live feed — forge-custody has no key-inventory or
-// ceremony-history read endpoint wired into this console today, so both
-// tables below render the real state for every account: no keys dealt yet.
-const KEYS: KeyRow[] = [];
-const CEREMONIES: CeremonyRow[] = [];
+const EMPTY: CustodySummary = { keys: [] };
+
+const ROTATION_TONE: Record<string, 'ok' | 'warn' | 'danger'> = {
+  active: 'ok',
+  rotating: 'warn',
+  retired: 'danger',
+};
 
 export default function CustodyKeys() {
+  const { data, live } = useForge<CustodySummary>('custody', EMPTY);
+  const keys = data.keys ?? [];
+
   return (
     <>
       <PageHeader
@@ -37,27 +49,26 @@ export default function CustodyKeys() {
             Keys that <em>never exist</em>
           </>
         }
-        lede="Private keys never exist in plaintext. Each key is 4-of-7 encrypted shares dealt in a verified DKG ceremony; rotation re-deals shares without the key ever being assembled."
+        lede="Private keys never exist in plaintext. Each key is threshold-encrypted shares dealt in a verified DKG ceremony; rotation re-deals shares without the key ever being assembled."
+        actions={<LivePill live={live} />}
       />
 
       <StatGrid>
-        <Stat label="Active keys" value={KEYS.filter((k) => k.rotation === 'active').length} delta="metadata only in console" />
-        <Stat label="Rotating now" value={KEYS.filter((k) => k.rotation === 'rotating').length} delta="in progress" />
-        <Stat label="Rotation cadence" value="180 days" delta="policy-enforced" />
+        <Stat label="Active keys" value={keys.filter((k) => k.rotation_status === 'active').length} delta="metadata only in console" />
+        <Stat label="Rotating now" value={keys.filter((k) => k.rotation_status === 'rotating').length} delta="in progress" />
+        <Stat label="Retired" value={keys.filter((k) => k.rotation_status === 'retired').length} delta="superseded" />
         <Stat label="Share storage" value="Vault + KMS" delta="encrypted at rest" deltaTone="up" />
       </StatGrid>
 
-      <Panel title="Key Inventory" label="shares in Vault — metadata only" ink style={{ marginBottom: 20 }}>
+      <Panel title="Key Inventory" label="GET /api/v1/console/summary · shares in Vault, metadata only" ink style={{ marginBottom: 20 }}>
         <DataTable
-          columns={['Key', 'Chain', 'Threshold', 'Rotation', 'Last ceremony', 'Next rotation']}
+          columns={['Key', 'Chain', 'Threshold', 'Rotation']}
           emptyMessage="No keys dealt yet."
-          rows={KEYS.map((k) => [
+          rows={keys.map((k) => [
             <Mono key="1">{k.id}</Mono>,
-            k.chain,
+            k.blockchain,
             <Mono key="t">{k.threshold}</Mono>,
-            <Pill key="r" tone={k.rotation === 'active' ? 'ok' : 'warn'}>{k.rotation}</Pill>,
-            <Mono key="lc">{k.lastCeremony}</Mono>,
-            <Mono key="nr">{k.nextRotation}</Mono>,
+            <Pill key="r" tone={ROTATION_TONE[k.rotation_status]}>{k.rotation_status}</Pill>,
           ])}
         />
         <p className="lede" style={{ fontSize: 13, marginTop: 14 }}>
@@ -67,17 +78,11 @@ export default function CustodyKeys() {
       </Panel>
 
       <Grid2>
-        <Panel title="Ceremony History" label="every deal and re-deal, logged">
+        <Panel title="Ceremony History" label="no list endpoint in forge-custody yet">
           <DataTable
             columns={['When', 'Key', 'Kind', 'Participants', 'Result']}
-            emptyMessage="No ceremonies yet."
-            rows={CEREMONIES.map((c, i) => [
-              <Mono key={`w${i}`}>{c.at}</Mono>,
-              <Mono key={`k${i}`}>{c.key}</Mono>,
-              c.kind,
-              c.participants,
-              <Pill key={`r${i}`} tone={c.result === 'complete' ? 'ok' : 'warn'}>{c.result}</Pill>,
-            ])}
+            emptyMessage="forge-custody records ceremonies (POST /api/v1/ceremonies) but has no endpoint to list them yet."
+            rows={[]}
           />
         </Panel>
 
