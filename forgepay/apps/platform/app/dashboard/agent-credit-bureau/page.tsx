@@ -19,7 +19,9 @@ import { INQUIRY_FEE_USD, gradeFor } from '@/lib/credit-grade';
 /* ────────────────────────────────────────────────────────────────
    Agent Credit Bureau — Overview.
    Live-wired to agent-credit-bureau /v1/bureau/stats via the
-   /api/forge/bureau proxy; demo fixtures when offline.
+   /api/forge/bureau proxy. Offline/unreachable renders a real zero
+   state — never illustrative fixtures standing in for activity that
+   didn't happen.
    The register lives in Agents, dual-mode analysis in Scores,
    verification in Verify, FCRA queue in Disputes, API in Developers.
    ──────────────────────────────────────────────────────────────── */
@@ -38,34 +40,34 @@ interface BureauSummary {
   };
 }
 
-const DEMO: BureauSummary = {
+const EMPTY: BureauSummary = {
   stats: {
-    totalAgents: 312,
-    avgScore: 710,
-    totalDebt: 2_100_000,
-    totalCreditLimit: 6_400_000,
-    utilizationRate: 0.328,
-    delinquentAgents: 3,
-    inquiries24h: 487,
+    totalAgents: 0,
+    avgScore: 0,
+    totalDebt: 0,
+    totalCreditLimit: 0,
+    utilizationRate: 0,
+    delinquentAgents: 0,
+    inquiries24h: 0,
     inquiryFeeUsd: INQUIRY_FEE_USD,
-    inquiryRevenueUsd: 40_880,
+    inquiryRevenueUsd: 0,
   },
 };
+
+interface CreditExtension {
+  id: string;
+  did: string;
+  reason: string;
+  from: string;
+  to: string;
+  status: 'pending' | 'sent';
+}
 
 const money = (n: number) => `R${n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : `${Math.round(n / 1000)}K`}`;
 
 export default function BureauOverview() {
-  const { data, live } = useForge<BureauSummary>('bureau', DEMO);
-  const [extensions, setExtensions] = useState([
-    {
-      id: 'ext_5501',
-      did: 'did:forge:agent_001',
-      reason: 'Supplier payment $50K exceeds current line',
-      from: 'R25K',
-      to: 'R100K',
-      status: 'pending' as 'pending' | 'sent',
-    },
-  ]);
+  const { data, live } = useForge<BureauSummary>('bureau', EMPTY);
+  const [extensions, setExtensions] = useState<CreditExtension[]>([]);
 
   const requestApproval = (id: string) =>
     setExtensions((xs) => xs.map((x) => (x.id === id ? { ...x, status: 'sent' } : x)));
@@ -87,8 +89,12 @@ export default function BureauOverview() {
       />
 
       <StatGrid>
-        <Stat label="Agents scored" value={data.stats.totalAgents.toLocaleString('en-US')} delta={live ? 'from bureau register' : '+18 this week'} />
-        <Stat label="Avg score" value={`${data.stats.avgScore} / 1000`} delta={`grade ${gradeFor(data.stats.avgScore).grade}`} />
+        <Stat label="Agents scored" value={data.stats.totalAgents.toLocaleString('en-US')} delta={live ? 'from bureau register' : 'bureau unreachable'} />
+        <Stat
+          label="Avg score"
+          value={data.stats.totalAgents > 0 ? `${data.stats.avgScore} / 1000` : '—'}
+          delta={data.stats.totalAgents > 0 ? `grade ${gradeFor(data.stats.avgScore).grade}` : 'no agents scored yet'}
+        />
         <Stat label="Inquiries / 24h" value={inquiries24h.toLocaleString('en-US')} delta={`$${feeUsd.toFixed(2)} per pull`} />
         <Stat label="Inquiry revenue" value={`$${Math.round(data.stats.inquiryRevenueUsd ?? inquiries24h * feeUsd).toLocaleString('en-US')}`} delta="metered · to date" deltaTone="up" />
         <Stat label="Credit drawn" value={money(data.stats.totalDebt)} delta={`of ${money(data.stats.totalCreditLimit)} extended`} />
@@ -119,6 +125,7 @@ export default function BureauOverview() {
               <span key="b" className="mono">awaiting approval</span>
             ),
           ])}
+          emptyMessage="No credit extension requests yet."
         />
       </Panel>
 

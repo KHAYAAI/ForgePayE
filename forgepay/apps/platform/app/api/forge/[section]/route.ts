@@ -2,7 +2,7 @@
  * Console data proxy — GET /api/forge/:section
  *
  * Sections: custody | wallet | treasury | bureau | bureau-agent-detail |
- * bureau-scores | bureau-disputes | ontology | overview
+ * bureau-scores | bureau-disputes | ontology | overview | payments
  *
  * Always returns 200 with { live, data } — a dead service is a normal
  * state the console renders (fallback to demo fixtures), not an error.
@@ -15,10 +15,12 @@ import {
   getBureauDualScores,
   getBureauStats,
   getCustodySummary,
+  getMerchantSummary,
   getOntologyEvents,
   getTreasurySummary,
   getWalletSummary,
 } from '@/lib/forge-services';
+import { getCurrentUser } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,6 +35,11 @@ export async function GET(
       return NextResponse.json(await getWalletSummary());
     case 'treasury':
       return NextResponse.json(await getTreasurySummary());
+    case 'payments': {
+      const user = await getCurrentUser();
+      if (!user) return NextResponse.json({ live: false, data: null, error: 'unauthenticated' }, { status: 401 });
+      return NextResponse.json(await getMerchantSummary(user.email));
+    }
     case 'bureau':
       return NextResponse.json(await getBureauStats());
     case 'bureau-agent-detail': {

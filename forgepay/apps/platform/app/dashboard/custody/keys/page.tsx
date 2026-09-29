@@ -18,19 +18,14 @@ import {
    this console sees metadata only, never material.
    ──────────────────────────────────────────────────────────────── */
 
-const KEYS = [
-  { id: 'key_settlement_eth', chain: 'ethereum', threshold: '4-of-7', rotation: 'active', lastCeremony: '2026-05-02', nextRotation: '2026-11-02' },
-  { id: 'key_settlement_polygon', chain: 'polygon', threshold: '4-of-7', rotation: 'active', lastCeremony: '2026-05-02', nextRotation: '2026-11-02' },
-  { id: 'key_treasury_ops', chain: 'ethereum', threshold: '3-of-5', rotation: 'rotating', lastCeremony: '2026-07-14', nextRotation: 'in progress' },
-  { id: 'key_investec_ws', chain: 'ethereum', threshold: '4-of-7', rotation: 'active', lastCeremony: '2026-06-11', nextRotation: '2026-12-11' },
-  { id: 'key_umuntu_ws', chain: 'polygon', threshold: '4-of-7', rotation: 'active', lastCeremony: '2026-06-11', nextRotation: '2026-12-11' },
-];
+interface KeyRow { id: string; chain: string; threshold: string; rotation: 'active' | 'rotating'; lastCeremony: string; nextRotation: string }
+interface CeremonyRow { at: string; key: string; kind: string; participants: string; result: string }
 
-const CEREMONIES = [
-  { at: '2026-07-14 09:00', key: 'key_treasury_ops', kind: 'rotation', participants: '5 of 5 shares re-dealt', result: 'in progress' },
-  { at: '2026-06-11 10:30', key: 'key_investec_ws', kind: 'initial DKG', participants: '7 shares dealt · Feldman-VSS verified', result: 'complete' },
-  { at: '2026-05-02 08:15', key: 'key_settlement_eth', kind: 'rotation', participants: '7 of 7 shares re-dealt', result: 'complete' },
-];
+// Not yet backed by a live feed — forge-custody has no key-inventory or
+// ceremony-history read endpoint wired into this console today, so both
+// tables below render the real state for every account: no keys dealt yet.
+const KEYS: KeyRow[] = [];
+const CEREMONIES: CeremonyRow[] = [];
 
 export default function CustodyKeys() {
   return (
@@ -47,7 +42,7 @@ export default function CustodyKeys() {
 
       <StatGrid>
         <Stat label="Active keys" value={KEYS.filter((k) => k.rotation === 'active').length} delta="metadata only in console" />
-        <Stat label="Rotating now" value={KEYS.filter((k) => k.rotation === 'rotating').length} delta="key_treasury_ops" />
+        <Stat label="Rotating now" value={KEYS.filter((k) => k.rotation === 'rotating').length} delta="in progress" />
         <Stat label="Rotation cadence" value="180 days" delta="policy-enforced" />
         <Stat label="Share storage" value="Vault + KMS" delta="encrypted at rest" deltaTone="up" />
       </StatGrid>
@@ -55,6 +50,7 @@ export default function CustodyKeys() {
       <Panel title="Key Inventory" label="shares in Vault — metadata only" ink style={{ marginBottom: 20 }}>
         <DataTable
           columns={['Key', 'Chain', 'Threshold', 'Rotation', 'Last ceremony', 'Next rotation']}
+          emptyMessage="No keys dealt yet."
           rows={KEYS.map((k) => [
             <Mono key="1">{k.id}</Mono>,
             k.chain,
@@ -74,6 +70,7 @@ export default function CustodyKeys() {
         <Panel title="Ceremony History" label="every deal and re-deal, logged">
           <DataTable
             columns={['When', 'Key', 'Kind', 'Participants', 'Result']}
+            emptyMessage="No ceremonies yet."
             rows={CEREMONIES.map((c, i) => [
               <Mono key={`w${i}`}>{c.at}</Mono>,
               <Mono key={`k${i}`}>{c.key}</Mono>,

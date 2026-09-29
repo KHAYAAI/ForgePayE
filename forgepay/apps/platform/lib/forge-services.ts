@@ -297,6 +297,63 @@ export async function putBureauDispute<T = Record<string, unknown>>(
   }
 }
 
+/**
+ * This tenant's own real FORGE Payments activity — scoped by their console
+ * email against unified-router's customers/revenue_events tables (see
+ * routes/merchant.ts). A tenant who hasn't been through checkout yet gets a
+ * real "not activated" zero response, not a 404.
+ */
+export async function getMerchantSummary<T>(email: string): Promise<LiveResult<T>> {
+  const token = process.env.INTERNAL_WEBHOOK_SECRET;
+  if (!token) return { live: false, data: null, error: 'no internal token' };
+  // unified-router wraps its payload in { data }; fetchJson returns that
+  // envelope as-is, so unwrap it here the same way getBureauStats etc. do.
+  const res = await fetchJson<{ data: T }>(
+    `${SERVICE_URLS.router}/v1/merchant/summary?email=${encodeURIComponent(email)}`,
+    { authorization: `Bearer ${token}` },
+  );
+  if (!res.live) return { live: false, data: null, error: res.error };
+  return { live: true, data: res.data?.data ?? null };
+}
+
+export interface ServiceHealth {
+  name: string;
+  reachable: boolean;
+  latencyMs: number | null;
+  error?: string;
+}
+
+/**
+ * Real reachability + latency for every backend service this console talks
+ * to — used by System Health and (for the routing tiers this represents)
+ * Payments/Routing. A ping, not a synthetic uptime percentage: there is no
+ * historical monitoring store behind this console today, so this reports
+ * only what it can actually observe right now.
+ */
+export async function getServiceHealth(): Promise<ServiceHealth[]> {
+  const targets: Array<{ name: string; url: string }> = [
+    // unified-router only exposes /healthz (not /health) — see
+    // services/unified-router/src/routes/health.ts.
+    { name: 'unified-router', url: `${SERVICE_URLS.router}/healthz` },
+    { name: 'agent-credit-bureau', url: `${SERVICE_URLS.bureau}/health` },
+    { name: 'forge-custody', url: `${SERVICE_URLS.custody}/health` },
+    { name: 'forge-wallet', url: `${SERVICE_URLS.wallet}/health` },
+    { name: 'enterprise-treasury', url: `${SERVICE_URLS.treasury}/health` },
+  ];
+
+  return Promise.all(
+    targets.map(async ({ name, url }) => {
+      const start = Date.now();
+      try {
+        const res = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS), cache: 'no-store' });
+        return { name, reachable: res.ok, latencyMs: Date.now() - start, ...(res.ok ? {} : { error: `HTTP ${res.status}` }) };
+      } catch (err) {
+        return { name, reachable: false, latencyMs: null, error: err instanceof Error ? err.message : String(err) };
+      }
+    }),
+  );
+}
+
 export function getOntologyEvents<T>(limit = 25): Promise<LiveResult<T>> {
   // The events feed is merchant-scoped and Bearer-authenticated; the console
   // reads it with the internal secret when configured. Without it this

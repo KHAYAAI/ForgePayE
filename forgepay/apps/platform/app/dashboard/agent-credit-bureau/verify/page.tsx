@@ -19,70 +19,21 @@ interface AgentOption {
   did: string;
 }
 
-const DEMO_AGENTS: { agents: AgentOption[] } = {
-  agents: [
-    { agentId: 'agent_114', did: 'did:forge:agent_114' },
-    { agentId: 'agent_078', did: 'did:forge:agent_078' },
-    { agentId: 'agent_009', did: 'did:forge:agent_009' },
-  ],
-};
+const EMPTY_AGENTS: { agents: AgentOption[] } = { agents: [] };
 
 /* ────────────────────────────────────────────────────────────────
    Agent Credit Bureau — Verify.
    The verification portal: run the 8-check verify against any
    agent (POST /v1/agents/:id/verify) and the published AAA–D
-   rating scale (GET /v1/grade-scale).
+   rating scale (GET /v1/grade-scale). No canned results — a failed
+   or unreachable verify call renders as a real error, never a
+   fabricated check-run standing in for one that didn't happen.
    ──────────────────────────────────────────────────────────────── */
 
 type CheckRun = {
   status: 'VERIFIED' | 'PARTIALLY_VERIFIED' | 'UNVERIFIED' | 'SUSPICIOUS';
   checksPassed: number;
   checks: Array<{ check: string; passed: boolean; detail: string }>;
-};
-
-const RESULTS: Record<string, CheckRun> = {
-  'did:forge:agent_114': {
-    status: 'VERIFIED',
-    checksPassed: 8,
-    checks: [
-      { check: 'registration', passed: true, detail: 'Registered with the bureau since 2025-03-14.' },
-      { check: 'identity_bound', passed: true, detail: 'did:forge:agent_114 bound to SnapPay (llc).' },
-      { check: 'account_age', passed: true, detail: '16 months of history (minimum 3).' },
-      { check: 'operator_consistency', passed: true, detail: 'Operator entity type on record: llc.' },
-      { check: 'activity_level', passed: true, detail: '1,204 credit events recorded (minimum 5).' },
-      { check: 'history_stability', passed: true, detail: 'No open delinquencies or defaults.' },
-      { check: 'sanctions_screen', passed: true, detail: 'No sanctions hits on record; profile active.' },
-      { check: 'minimum_score', passed: true, detail: 'Score 750 (minimum 500).' },
-    ],
-  },
-  'did:forge:agent_078': {
-    status: 'PARTIALLY_VERIFIED',
-    checksPassed: 6,
-    checks: [
-      { check: 'registration', passed: true, detail: 'Registered with the bureau since 2025-11-02.' },
-      { check: 'identity_bound', passed: true, detail: 'did:forge:agent_078 bound to AfroBiz Lending (corp).' },
-      { check: 'account_age', passed: true, detail: '8 months of history (minimum 3).' },
-      { check: 'operator_consistency', passed: true, detail: 'Operator entity type on record: corp.' },
-      { check: 'activity_level', passed: true, detail: '388 credit events recorded (minimum 5).' },
-      { check: 'history_stability', passed: false, detail: '1 open delinquency.' },
-      { check: 'sanctions_screen', passed: true, detail: 'No sanctions hits on record; profile active.' },
-      { check: 'minimum_score', passed: false, detail: 'Score 630 fails 100% utilization stress check.' },
-    ],
-  },
-  'did:forge:agent_009': {
-    status: 'SUSPICIOUS',
-    checksPassed: 3,
-    checks: [
-      { check: 'registration', passed: true, detail: 'Registered with the bureau since 2026-03-01.' },
-      { check: 'identity_bound', passed: true, detail: 'did:forge:agent_009 bound to Umuntu Group (llc).' },
-      { check: 'account_age', passed: true, detail: '4 months of history (minimum 3).' },
-      { check: 'operator_consistency', passed: false, detail: 'Profile frozen — operator standing cannot be confirmed.' },
-      { check: 'activity_level', passed: false, detail: '3 credit events recorded (minimum 5).' },
-      { check: 'history_stability', passed: false, detail: 'Default on record.' },
-      { check: 'sanctions_screen', passed: false, detail: 'Profile frozen since 2026-06-28 — sanctions exposure.' },
-      { check: 'minimum_score', passed: false, detail: 'Score 340 (minimum 500).' },
-    ],
-  },
 };
 
 const VERIFY_TONE: Record<string, 'ok' | 'warn' | 'danger' | 'accent'> = {
@@ -93,29 +44,37 @@ const VERIFY_TONE: Record<string, 'ok' | 'warn' | 'danger' | 'accent'> = {
 };
 
 export default function BureauVerify() {
-  const { data: agentsData, live: agentsLive } = useForge<{ agents: AgentOption[] }>('bureau', DEMO_AGENTS);
-  const agents = agentsData.agents?.length ? agentsData.agents : DEMO_AGENTS.agents;
+  const { data: agentsData, live: agentsLive } = useForge<{ agents: AgentOption[] }>('bureau', EMPTY_AGENTS);
+  const agents = agentsData.agents ?? [];
 
-  const [agentId, setAgentId] = useState(agents[0]!.agentId);
+  const [agentId, setAgentId] = useState<string | null>(null);
   const [ran, setRan] = useState<string | null>(null);
   const [liveResult, setLiveResult] = useState<CheckRun | null>(null);
   const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const did = agents.find((a) => a.agentId === agentId)?.did ?? agentId;
-  const result = liveResult ?? (ran ? RESULTS[ran] : null);
+  // The select has no controlled default once agents can legitimately be
+  // empty — fall back to the first loaded agent only once, not on every render.
+  const effectiveAgentId = agentId ?? agents[0]?.agentId ?? null;
+  const did = agents.find((a) => a.agentId === effectiveAgentId)?.did ?? effectiveAgentId;
+  const result = liveResult;
 
   const runVerify = async () => {
+    if (!effectiveAgentId) return;
     setRunning(true);
     setRan(did);
     setLiveResult(null);
-    if (agentsLive) {
-      const res = await fetch('/api/forge/bureau-verify', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ agentId }),
-      }).catch(() => null);
-      const body = res?.ok ? await res.json().catch(() => null) : null;
-      if (body?.live && body.data) setLiveResult(body.data as CheckRun);
+    setError(null);
+    const res = await fetch('/api/forge/bureau-verify', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ agentId: effectiveAgentId }),
+    }).catch(() => null);
+    const body = res?.ok ? await res.json().catch(() => null) : null;
+    if (body?.live && body.data) {
+      setLiveResult(body.data as CheckRun);
+    } else {
+      setError('Could not run verification — the bureau is unreachable right now. Try again shortly.');
     }
     setRunning(false);
   };
@@ -134,34 +93,43 @@ export default function BureauVerify() {
       />
 
       <Panel title="Run a Verification" label="POST /v1/agents/:id/verify · metered at $2.80" style={{ marginBottom: 20 }}>
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-          <select
-            value={agentId}
-            onChange={(e) => setAgentId(e.target.value)}
-            style={{
-              border: '1px solid var(--hair)',
-              background: 'var(--paper)',
-              padding: '10px 12px',
-              fontFamily: "'JetBrains Mono', monospace",
-              fontSize: 12,
-              color: 'var(--ink)',
-              minWidth: 260,
-            }}
-          >
-            {agents.map((a) => (
-              <option key={a.agentId} value={a.agentId}>{a.did}</option>
-            ))}
-          </select>
-          <button className="btn-ghost btn-sm" onClick={runVerify} disabled={running}>
-            {running ? 'Running…' : 'Run 8-check verify → $2.80'}
-          </button>
-          {result && ran && (
-            <span style={{ display: 'inline-flex', gap: 10, alignItems: 'center', marginLeft: 8 }}>
-              <Pill tone={VERIFY_TONE[result.status]}>{result.status.replace(/_/g, ' ').toLowerCase()}</Pill>
-              <Mono>{result.checksPassed} / 8 checks</Mono>
-            </span>
-          )}
-        </div>
+        {agents.length === 0 ? (
+          <p className="lede" style={{ fontSize: 13 }}>
+            No agents in the register yet — verification runs against an agent once it has a credit profile.
+          </p>
+        ) : (
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            <select
+              value={effectiveAgentId ?? ''}
+              onChange={(e) => setAgentId(e.target.value)}
+              style={{
+                border: '1px solid var(--hair)',
+                background: 'var(--paper)',
+                padding: '10px 12px',
+                fontFamily: "'JetBrains Mono', monospace",
+                fontSize: 12,
+                color: 'var(--ink)',
+                minWidth: 260,
+              }}
+            >
+              {agents.map((a) => (
+                <option key={a.agentId} value={a.agentId}>{a.did}</option>
+              ))}
+            </select>
+            <button className="btn-ghost btn-sm" onClick={runVerify} disabled={running}>
+              {running ? 'Running…' : 'Run 8-check verify → $2.80'}
+            </button>
+            {result && ran && (
+              <span style={{ display: 'inline-flex', gap: 10, alignItems: 'center', marginLeft: 8 }}>
+                <Pill tone={VERIFY_TONE[result.status]}>{result.status.replace(/_/g, ' ').toLowerCase()}</Pill>
+                <Mono>{result.checksPassed} / 8 checks</Mono>
+              </span>
+            )}
+            {error && (
+              <span style={{ marginLeft: 8 }}><Pill tone="danger">{error}</Pill></span>
+            )}
+          </div>
+        )}
       </Panel>
 
       <Grid2>
@@ -181,7 +149,7 @@ export default function BureauVerify() {
               ))}
             </ol>
           ) : (
-            <p className="lede">Select an agent and run the verification.</p>
+            <p className="lede">{agents.length === 0 ? 'No agents available to verify yet.' : 'Select an agent and run the verification.'}</p>
           )}
           <p className="lede" style={{ fontSize: 13, marginTop: 14 }}>
             8 of 8 → <strong>VERIFIED</strong> · 6–7 → <strong>PARTIALLY_VERIFIED</strong> · below 6

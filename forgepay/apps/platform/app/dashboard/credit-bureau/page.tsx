@@ -33,31 +33,22 @@ interface BureauStats {
   };
 }
 
-const DEMO_STATS: BureauStats = {
-  stats: {
-    totalAgents: 312,
-    avgScore: 710,
-    inquiries24h: 487,
-    inquiryFeeUsd: INQUIRY_FEE_USD,
-    inquiryRevenueUsd: 40_880,
-  },
+const EMPTY_STATS: BureauStats = {
+  stats: { totalAgents: 0, avgScore: 0, inquiries24h: 0, inquiryFeeUsd: INQUIRY_FEE_USD, inquiryRevenueUsd: 0 },
 };
 
-/* Demo dual-score rows — one per GET /v1/agents/:id/dual-score pull. */
-const DUAL_ROWS = [
-  { did: 'did:forge:agent_001', operator: 'Umuntu Group', mode1: 820, mode2: 805, consensus: 'HIGH' as const, decision: 'approve', settled: true },
-  { did: 'did:forge:agent_114', operator: 'SnapPay', mode1: 750, mode2: 772, consensus: 'HIGH' as const, decision: 'approve', settled: true },
-  { did: 'did:forge:agent_231', operator: 'ComputeRent', mode1: 705, mode2: 640, consensus: 'MEDIUM' as const, decision: 'approve_with_conditions', settled: true },
-  { did: 'did:forge:agent_078', operator: 'AfroBiz Lending', mode1: 630, mode2: 498, consensus: 'LOW' as const, decision: 'manual_review', settled: false },
-  { did: 'did:forge:agent_009', operator: 'Umuntu Group', mode1: 340, mode2: 361, consensus: 'HIGH' as const, decision: 'decline', settled: false },
-];
-
-/* Demo settlement receipts — mirrors /v1/settlement/status + receipts. */
-const SETTLEMENTS = [
-  { did: 'did:forge:agent_001', txHash: '0x8c1f…a2e4', block: 18_442_071, chain: 'base', settledAt: '14:02' },
-  { did: 'did:forge:agent_114', txHash: '0x77b0…19dd', block: 18_442_071, chain: 'base', settledAt: '14:02' },
-  { did: 'did:forge:agent_231', txHash: '0x51ac…f003', block: 18_437_990, chain: 'base', settledAt: '08:02' },
-];
+interface DualRow {
+  did: string;
+  operator: string;
+  mode1: number;
+  mode2: number;
+  consensus: 'HIGH' | 'MEDIUM' | 'LOW';
+  decision: string;
+  settled: boolean;
+}
+interface Settlement { did: string; txHash: string; block: number; chain: string; settledAt: string }
+interface ScoresSummary { dualRows: DualRow[]; settlements: Settlement[] }
+const EMPTY_SCORES: ScoresSummary = { dualRows: [], settlements: [] };
 
 const CONSENSUS_TONE: Record<string, 'ok' | 'warn' | 'danger'> = {
   HIGH: 'ok',
@@ -73,13 +64,17 @@ const DECISION_TONE: Record<string, 'ok' | 'warn' | 'danger' | 'accent'> = {
 };
 
 export default function CreditBureauDualMode() {
-  const { data, live } = useForge<BureauStats>('bureau', DEMO_STATS);
+  const { data, live } = useForge<BureauStats>('bureau', EMPTY_STATS);
+  const { data: scores } = useForge<ScoresSummary>('bureau-scores', EMPTY_SCORES);
+  const dualRows = scores.dualRows ?? [];
+  const settlements = scores.settlements ?? [];
+  const hasRows = dualRows.length > 0;
 
   const feeUsd = data.stats.inquiryFeeUsd ?? INQUIRY_FEE_USD;
-  const variances = DUAL_ROWS.map((r) => Math.abs(r.mode1 - r.mode2));
-  const flagged = DUAL_ROWS.filter((r) => r.consensus !== 'HIGH').length;
-  const avgMode1 = Math.round(DUAL_ROWS.reduce((s, r) => s + r.mode1, 0) / DUAL_ROWS.length);
-  const avgMode2 = Math.round(DUAL_ROWS.reduce((s, r) => s + r.mode2, 0) / DUAL_ROWS.length);
+  const variances = dualRows.map((r) => Math.abs(r.mode1 - r.mode2));
+  const flagged = dualRows.filter((r) => r.consensus !== 'HIGH').length;
+  const avgMode1 = hasRows ? Math.round(dualRows.reduce((s, r) => s + r.mode1, 0) / dualRows.length) : null;
+  const avgMode2 = hasRows ? Math.round(dualRows.reduce((s, r) => s + r.mode2, 0) / dualRows.length) : null;
 
   return (
     <>
@@ -96,17 +91,18 @@ export default function CreditBureauDualMode() {
 
       <StatGrid>
         <Stat label="Inquiries / 24h" value={(data.stats.inquiries24h ?? 0).toLocaleString('en-US')} delta={`$${feeUsd.toFixed(2)} per pull`} />
-        <Stat label="Avg Mode 1 score" value={`${avgMode1}`} delta={`${gradeFor(avgMode1).grade} · FICO lens`} />
-        <Stat label="Avg Mode 2 score" value={`${avgMode2}`} delta={`${gradeFor(avgMode2).grade} · operational lens`} />
+        <Stat label="Avg Mode 1 score" value={hasRows ? `${avgMode1}` : '—'} delta={hasRows ? `${gradeFor(avgMode1!).grade} · FICO lens` : 'no scores yet'} />
+        <Stat label="Avg Mode 2 score" value={hasRows ? `${avgMode2}` : '—'} delta={hasRows ? `${gradeFor(avgMode2!).grade} · operational lens` : 'no scores yet'} />
         <Stat label="Variance flags" value={flagged} deltaTone={flagged > 0 ? 'down' : undefined} delta="consensus below HIGH" />
-        <Stat label="Max variance" value={`${Math.max(...variances)} pts`} delta=">100 pts → manual review" />
+        <Stat label="Max variance" value={hasRows ? `${Math.max(...variances)} pts` : '—'} delta=">100 pts → manual review" />
         <Stat label="Inquiry revenue" value={`$${Math.round(data.stats.inquiryRevenueUsd ?? 0).toLocaleString('en-US')}`} delta="metered · to date" deltaTone="up" />
       </StatGrid>
 
       <Panel title="Dual-Score Register" label="GET /v1/agents/:id/dual-score · Mode 1 is authoritative" style={{ marginBottom: 20 }}>
         <DataTable
           columns={['Agent DID', 'Operator', 'Mode 1', 'Grade', 'Mode 2', 'Grade', 'Variance', 'Consensus', 'Decision']}
-          rows={DUAL_ROWS.map((r) => {
+          emptyMessage="No dual-scores computed yet."
+          rows={dualRows.map((r) => {
             const g1 = gradeFor(r.mode1);
             const g2 = gradeFor(r.mode2);
             const variance = Math.abs(r.mode1 - r.mode2);
@@ -149,7 +145,8 @@ export default function CreditBureauDualMode() {
         <Panel title="On-Chain Settlement" label="Mode 2 scores settle for external verification" ink>
           <DataTable
             columns={['Agent', 'Tx', 'Block', 'Chain', 'Settled']}
-            rows={SETTLEMENTS.map((s) => [
+            emptyMessage="No Mode 2 scores have settled on-chain yet."
+            rows={settlements.map((s) => [
               <Addr key="d">{s.did}</Addr>,
               <Mono key="t">{s.txHash}</Mono>,
               <Mono key="b">{s.block.toLocaleString('en-US')}</Mono>,
@@ -169,7 +166,7 @@ export default function CreditBureauDualMode() {
         <ol style={{ listStyle: 'none' }}>
           {[
             [`$${feeUsd.toFixed(2)}`, 'Per inquiry', 'every score, dual-score or verification pull is metered — no platform fee'],
-            ['~14,600', 'Monthly inquiries', 'across lender pulls and framework-integration gate checks'],
+            [(data.stats.inquiries24h ?? 0).toLocaleString('en-US'), 'Inquiries / 24h', 'across lender pulls and framework-integration gate checks'],
             ['25%', 'Data-contributor share', 'operators feeding outcome data back earn query credits against their own pulls'],
           ].map(([v, item, desc]) => (
             <li key={item} style={{ display: 'flex', gap: 16, padding: '11px 0', borderBottom: '1px solid var(--hair)', alignItems: 'baseline' }}>

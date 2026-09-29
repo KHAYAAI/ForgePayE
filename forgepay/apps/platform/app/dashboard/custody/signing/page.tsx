@@ -36,15 +36,7 @@ interface CustodySummary {
   signing_queue: SigningRow[];
 }
 
-const DEMO: CustodySummary = {
-  signing_queue: [
-    { id: 'sig_a1b2', workspace: 'Investec Digital Assets', destination: '0xbridge…4f21', amount_usd: 5_000_000, blockchain: 'ethereum', status: 'pending_approval', reason_code: null, approvals: 1, approvals_required: 2, tx_hash: null },
-    { id: 'sig_a1ae', workspace: 'Umuntu Group Treasury', destination: '0xsupplier…9c03', amount_usd: 50_000, blockchain: 'polygon', status: 'pending_approval', reason_code: null, approvals: 0, approvals_required: 1, tx_hash: null },
-    { id: 'sig_a19f', workspace: 'Investec Digital Assets', destination: '0xcustody…77aa', amount_usd: 12_400_000, blockchain: 'ethereum', status: 'signing', reason_code: null, approvals: 2, approvals_required: 2, tx_hash: null },
-    { id: 'sig_a18c', workspace: 'AfroBiz Lending', destination: '0xsettle…10de', amount_usd: 1_800_000, blockchain: 'polygon', status: 'confirmed', reason_code: null, approvals: 2, approvals_required: 2, tx_hash: '0x7f3a…' },
-    { id: 'sig_a17b', workspace: 'Umuntu Group Treasury', destination: '0xunknown…e4d9', amount_usd: 3_200_000, blockchain: 'ethereum', status: 'rejected', reason_code: 'DESTINATION_NOT_WHITELISTED', approvals: 0, approvals_required: 0, tx_hash: null },
-  ],
-};
+const EMPTY: CustodySummary = { signing_queue: [] };
 
 const STATUS_TONE: Record<string, 'ok' | 'warn' | 'danger' | 'accent'> = {
   pending_policy: 'warn',
@@ -61,7 +53,7 @@ const usd = (n: number) =>
   n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(1)}M` : `$${Math.round(n / 1000)}K`;
 
 export default function CustodySigning() {
-  const { data, live } = useForge<CustodySummary>('custody', DEMO);
+  const { data, live } = useForge<CustodySummary>('custody', EMPTY);
   const [local, setLocal] = useState<Record<string, { approvals: number; status: string }>>({});
 
   const rows = data.signing_queue.map((r) => ({ ...r, ...local[r.id] }));
@@ -96,6 +88,7 @@ export default function CustodySigning() {
       <Panel title="Signing Queue" label="policy → approval → 4-of-7 MPC → broadcast">
         <DataTable
           columns={['Request', 'Workspace', 'Destination', 'Amount', 'Chain', 'Approvals', 'Status', 'Tx', '']}
+          emptyMessage="No signing requests yet."
           rows={rows.map((r) => [
             <Mono key="id">{r.id}</Mono>,
             r.workspace,

@@ -5,24 +5,51 @@ import {
   Stat,
   StatGrid,
   Panel,
-  Pill,
   DataTable,
-  Grid2,
-  Meter,
+  LivePill,
   Mono,
 } from '@/components/forge/ui';
+import { useForge } from '@/components/forge/useForge';
 
 /* ────────────────────────────────────────────────────────────────
    FORGE Payments — Overview.
    Free platform, take-rate pricing: 2.2% + R0.20 fiat,
    0.8% + gas crypto. Tiered routing: sub-$100K direct,
    $100K–$1M with fallback chain, >$1M escalates to Custody.
+   Live-wired to unified-router's customers/revenue_events, scoped
+   to this tenant's own email — see /api/forge/payments. A tenant
+   who hasn't activated FORGE Payments yet (no checkout completed)
+   sees a real zero state, not illustrative traffic.
    ──────────────────────────────────────────────────────────────── */
 
-const VOLUME_BY_HOUR = [42, 38, 31, 28, 24, 30, 44, 61, 78, 92, 104, 118, 122, 116, 109, 121, 134, 128, 112, 95, 84, 71, 58, 47];
+interface RecentEvent {
+  id: string;
+  product: string;
+  eventType: string;
+  amountUsdCents: number;
+  currency: string;
+  occurredAt: string;
+}
+
+interface MerchantSummary {
+  activated: boolean;
+  customer: { id: string; email: string; name: string | null; status: string; createdAt: string } | null;
+  stats: { events24h: number; eventsTotal: number; revenueUsdCents24h: number; revenueUsdCentsTotal: number };
+  recentEvents: RecentEvent[];
+}
+
+const EMPTY: MerchantSummary = {
+  activated: false,
+  customer: null,
+  stats: { events24h: 0, eventsTotal: 0, revenueUsdCents24h: 0, revenueUsdCentsTotal: 0 },
+  recentEvents: [],
+};
+
+const usd = (cents: number) => `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 export default function PaymentsOverview() {
-  const max = Math.max(...VOLUME_BY_HOUR);
+  const { data, live } = useForge<MerchantSummary>('payments', EMPTY);
+
   return (
     <>
       <PageHeader
@@ -33,80 +60,55 @@ export default function PaymentsOverview() {
           </>
         }
         lede="Card, bank and stablecoin behind a single API. The platform is free — FORGE earns a take rate of 2.2% + R0.20 on fiat and 0.8% + gas on crypto. Every confirmed payment writes one event to the Revenue Ontology."
+        actions={<LivePill live={live} />}
       />
 
-      <StatGrid>
-        <Stat label="Transactions / 24h" value="2,847" delta="+12% vs yesterday" deltaTone="up" />
-        <Stat label="Volume / 24h" value="R4.2M" delta="R92.4K take-rate revenue" deltaTone="up" />
-        <Stat label="Success rate" value="99.7%" delta="0.1% above target" deltaTone="up" />
-        <Stat label="Fallback usage" value="0.3%" delta="card → ACH → USDC" />
-        <Stat label="Avg settlement" value="2.3s" delta="below 5s SLA" deltaTone="up" />
-        <Stat label="Routed to Custody" value="3" delta="above $1M tier" />
-      </StatGrid>
-
-      <Panel title="Volume by Hour" label="24h · confirmed payments" style={{ marginBottom: 20 }}>
-        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 120 }}>
-          {VOLUME_BY_HOUR.map((v, i) => (
-            <div
-              key={i}
-              title={`${String(i).padStart(2, '0')}:00 — ${v} tx`}
-              style={{
-                flex: 1,
-                height: `${(v / max) * 100}%`,
-                background: i === new Date().getUTCHours() ? 'var(--ink)' : 'var(--hair)',
-                minHeight: 3,
-              }}
-            />
-          ))}
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
-          <span className="mono">00:00 UTC</span>
-          <span className="mono">23:00 UTC</span>
-        </div>
-      </Panel>
-
-      <Grid2>
-        <Panel title="Success by Method" label="trailing 24h">
-          <DataTable
-            columns={['Method', 'Share', '', 'Success', 'Avg fee earned']}
-            rows={[
-              ['Card', <Mono key="s">54%</Mono>, <Meter key="m" pct={54} accent />, <Mono key="r">99.6%</Mono>, <Mono key="f">2.2% + R0.20</Mono>],
-              ['Bank / EFT', <Mono key="s">28%</Mono>, <Meter key="m" pct={28} accent />, <Mono key="r">99.8%</Mono>, <Mono key="f">2.2% + R0.20</Mono>],
-              ['USDC', <Mono key="s">15%</Mono>, <Meter key="m" pct={15} accent />, <Mono key="r">99.9%</Mono>, <Mono key="f">0.8% + gas</Mono>],
-              ['Other crypto', <Mono key="s">3%</Mono>, <Meter key="m" pct={3} />, <Mono key="r">98.9%</Mono>, <Mono key="f">0.8% + gas</Mono>],
-            ]}
-          />
-        </Panel>
-
-        <Panel title="Tier Routing Contract" label="enforced on every payment" ink>
-          <ol style={{ listStyle: 'none' }}>
-            {[
-              ['< $100K', 'Direct via FORGE Wallet — signed server-side, 12-block confirmation.'],
-              ['$100K – $1M', 'FORGE Payments with fallback chain: card → ACH → USDC. No payment dies on a single rail.'],
-              ['> $1M', 'Escalates to FORGE Custody — 4-of-7 MPC signing queue, approvals enforced.'],
-            ].map(([tier, desc]) => (
-              <li key={tier} style={{ display: 'flex', gap: 16, padding: '11px 0', borderBottom: '1px solid rgba(244,242,238,0.14)', alignItems: 'baseline' }}>
-                <span className="mono" style={{ minWidth: 92 }}>{tier}</span>
-                <span style={{ fontSize: 13.5, opacity: 0.8 }}>{desc}</span>
-              </li>
-            ))}
-          </ol>
-          <p className="lede" style={{ fontSize: 13, marginTop: 14 }}>
-            Routing is policy, not code changes — thresholds live in Treasury money-movement rules
-            and apply across every merchant.
+      {!data.activated && (
+        <Panel title="Not activated yet" label="FORGE Payments" style={{ marginBottom: 20 }}>
+          <p className="lede" style={{ fontSize: 13 }}>
+            Your account hasn&apos;t completed FORGE Payments checkout yet, so there&apos;s no activity to
+            show. Numbers below will start moving the moment your first payment settles.
           </p>
         </Panel>
-      </Grid2>
+      )}
 
-      <Panel title="Needs Attention" label="items waiting on you">
+      <StatGrid>
+        <Stat label="Events / 24h" value={data.stats.events24h} delta={data.activated ? 'from the Revenue Ontology' : 'no activity yet'} />
+        <Stat label="Revenue / 24h" value={usd(data.stats.revenueUsdCents24h)} delta="metered activity" />
+        <Stat label="Events total" value={data.stats.eventsTotal} delta="since activation" />
+        <Stat label="Revenue total" value={usd(data.stats.revenueUsdCentsTotal)} delta="lifetime" />
+      </StatGrid>
+
+      <Panel title="Recent Activity" label="revenue_events · newest first">
         <DataTable
-          columns={['Item', 'Detail', 'Age', 'Where']}
-          rows={[
-            [<Pill key="p" tone="warn">dispute</Pill>, 'R12,400 chargeback — SnapPay order #8841', '6h', <Mono key="w">Disputes</Mono>],
-            [<Pill key="p" tone="warn">dispute</Pill>, 'R3,150 “item not received” — AfroBiz', '1d', <Mono key="w">Disputes</Mono>],
-            [<Pill key="p" tone="accent">routing</Pill>, 'Peach Payments connector degraded — fallback active', '22m', <Mono key="w">Routing</Mono>],
-          ]}
+          columns={['Event', 'Product', 'Amount', 'When']}
+          emptyMessage={data.activated ? 'No events recorded yet.' : 'Activate FORGE Payments to start recording events.'}
+          rows={data.recentEvents.map((e) => [
+            <Mono key="t">{e.eventType}</Mono>,
+            e.product,
+            <Mono key="a">{usd(e.amountUsdCents)} {e.currency}</Mono>,
+            <Mono key="w">{new Date(e.occurredAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</Mono>,
+          ])}
         />
+      </Panel>
+
+      <Panel title="Tier Routing Contract" label="enforced on every payment" ink style={{ marginTop: 20 }}>
+        <ol style={{ listStyle: 'none' }}>
+          {[
+            ['< $100K', 'Direct via FORGE Wallet — signed server-side, 12-block confirmation.'],
+            ['$100K – $1M', 'FORGE Payments with fallback chain: card → ACH → USDC. No payment dies on a single rail.'],
+            ['> $1M', 'Escalates to FORGE Custody — 4-of-7 MPC signing queue, approvals enforced.'],
+          ].map(([tier, desc]) => (
+            <li key={tier} style={{ display: 'flex', gap: 16, padding: '11px 0', borderBottom: '1px solid rgba(244,242,238,0.14)', alignItems: 'baseline' }}>
+              <span className="mono" style={{ minWidth: 92 }}>{tier}</span>
+              <span style={{ fontSize: 13.5, opacity: 0.8 }}>{desc}</span>
+            </li>
+          ))}
+        </ol>
+        <p className="lede" style={{ fontSize: 13, marginTop: 14 }}>
+          Routing is policy, not code changes — thresholds live in Treasury money-movement rules
+          and apply across every merchant.
+        </p>
       </Panel>
     </>
   );

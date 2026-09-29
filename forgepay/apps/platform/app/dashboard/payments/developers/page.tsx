@@ -1,10 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   PageHeader,
   Panel,
-  Pill,
   DataTable,
   Grid2,
   Mono,
@@ -12,8 +11,10 @@ import {
 
 /* ────────────────────────────────────────────────────────────────
    FORGE Payments — Developers.
-   API keys, webhook endpoints, and the three-line integration.
-   Key rotation is a governed action (owner/admin only).
+   API key (real — one per user, from the console's own users table)
+   and the three-line integration. Webhook endpoints aren't scoped
+   per-tenant in unified-router yet, so that panel stays an honest
+   empty state rather than a fabricated list.
    ──────────────────────────────────────────────────────────────── */
 
 const SNIPPET = `curl https://api.forgepay.io/v1/payments \\
@@ -21,15 +22,25 @@ const SNIPPET = `curl https://api.forgepay.io/v1/payments \\
   -d amount=250000 -d currency=ZAR \\
   -d method=card -d customer=cus_8842`;
 
-export default function PaymentsDevelopers() {
-  const [keys, setKeys] = useState([
-    { id: 'sk_live_…9f2a', label: 'Production', created: '2026-03-02', lastUsed: '2 min ago', status: 'active' as 'active' | 'revoked' },
-    { id: 'sk_test_…77b1', label: 'Staging', created: '2026-03-02', lastUsed: '1 h ago', status: 'active' as 'active' | 'revoked' },
-    { id: 'sk_live_…104c', label: 'Legacy (v0)', created: '2025-11-18', lastUsed: '41 days ago', status: 'revoked' as 'active' | 'revoked' },
-  ]);
+interface ApiKey { id: string; createdAt: string; updatedAt: string }
 
-  const revoke = (id: string) =>
-    setKeys((ks) => ks.map((k) => (k.id === id ? { ...k, status: 'revoked' } : k)));
+export default function PaymentsDevelopers() {
+  const [key, setKey] = useState<ApiKey | null>(null);
+  const [rotating, setRotating] = useState(false);
+
+  const load = () => {
+    fetch('/api/user/api-key').then((r) => (r.ok ? r.json() : null)).then((body) => {
+      if (body?.data) setKey(body.data);
+    });
+  };
+  useEffect(load, []);
+
+  const rotate = async () => {
+    setRotating(true);
+    await fetch('/api/user/generate-api-key', { method: 'POST' }).catch(() => null);
+    load();
+    setRotating(false);
+  };
 
   return (
     <>
@@ -40,7 +51,7 @@ export default function PaymentsDevelopers() {
             Three lines to <em>first payment</em>
           </>
         }
-        lede="One API for card, bank and stablecoin. Webhooks are HMAC-signed with timestamp replay protection; key rotation is restricted to owner and admin roles."
+        lede="One API for card, bank and stablecoin. Key rotation is restricted to owner and admin roles and every use is audited."
       />
 
       <Grid2>
@@ -55,39 +66,32 @@ export default function PaymentsDevelopers() {
         <Panel title="Webhook Endpoints" label="HMAC-signed · replay-protected">
           <DataTable
             columns={['Endpoint', 'Events', 'Status']}
-            rows={[
-              [<Mono key="u">https://snappay.co.za/hooks/forge</Mono>, 'payment.confirmed, payment.failed', <Pill key="s" tone="ok">healthy</Pill>],
-              [<Mono key="u">https://snappay.co.za/hooks/disputes</Mono>, 'dispute.*', <Pill key="s" tone="ok">healthy</Pill>],
-              [<Mono key="u">https://legacy.snappay.co.za/ipn</Mono>, 'payment.confirmed', <Pill key="s" tone="danger">failing · 410</Pill>],
-            ]}
+            rows={[]}
+            emptyMessage="No webhook endpoints registered yet."
           />
           <p className="lede" style={{ fontSize: 13, marginTop: 14 }}>
             Signatures: <Mono>X-Forge-Signature</Mono> (HMAC-SHA256) + <Mono>X-Forge-Timestamp</Mono>;
-            events older than 5 minutes are rejected. Failing endpoints retry with exponential
-            backoff for 72 hours.
+            events older than 5 minutes are rejected.
           </p>
         </Panel>
       </Grid2>
 
-      <Panel title="API Keys" label="rotation is owner/admin only · every use audited">
+      <Panel title="API Key" label="rotation is owner/admin only · every use audited">
         <DataTable
-          columns={['Key', 'Label', 'Created', 'Last used', 'Status', '']}
-          rows={keys.map((k) => [
-            <Mono key="id">{k.id}</Mono>,
-            k.label,
-            <Mono key="c">{k.created}</Mono>,
-            <Mono key="u">{k.lastUsed}</Mono>,
-            <Pill key="s" tone={k.status === 'active' ? 'ok' : 'danger'}>{k.status}</Pill>,
-            k.status === 'active' ? (
-              <button key="b" className="btn-ghost btn-sm" onClick={() => revoke(k.id)}>Revoke</button>
-            ) : (
-              <span key="b" />
-            ),
-          ])}
+          columns={['Key', 'Created', 'Last rotated', '']}
+          rows={key ? [[
+            <Mono key="id">{key.id}</Mono>,
+            <Mono key="c">{new Date(key.createdAt).toLocaleDateString('en-US')}</Mono>,
+            <Mono key="u">{new Date(key.updatedAt).toLocaleDateString('en-US')}</Mono>,
+            <button key="b" className="btn-ghost btn-sm" onClick={rotate} disabled={rotating}>
+              {rotating ? 'Rotating…' : 'Rotate'}
+            </button>,
+          ]] : []}
+          emptyMessage="Loading…"
         />
         <p className="lede" style={{ fontSize: 13, marginTop: 14 }}>
-          Revoking a key takes effect within 60 seconds across the mesh. Creating a new live key
-          requires re-authentication and is written to the immutable audit log.
+          Rotating generates a new key immediately and emails it to your account — the old key
+          stops working the moment the new one is issued.
         </p>
       </Panel>
     </>

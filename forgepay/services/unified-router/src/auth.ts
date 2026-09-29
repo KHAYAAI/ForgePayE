@@ -183,6 +183,12 @@ const PUBLIC_ROUTES = new Set<string>([
   'POST /v1/checkout/sessions',
   'GET /v1/checkout/sessions/:id',
   'POST /v1/checkout/sessions/:id/confirm',
+  // Not actually public — routes/merchant.ts's own handler requires
+  // config.internalWebhookSecret as a Bearer token before it runs, the same
+  // shape routes/events.ts uses. Listed here (rather than requiring the
+  // operator key at this outer gate) so the console's server-side proxy can
+  // reach it with its own internal secret instead of the platform master key.
+  'GET /v1/merchant/summary',
 ]);
 
 /**

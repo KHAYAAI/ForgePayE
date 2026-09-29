@@ -2,29 +2,22 @@
 
 import {
   PageHeader,
-  Stat,
-  StatGrid,
   Panel,
-  Pill,
   DataTable,
   Grid2,
-  Meter,
   Mono,
 } from '@/components/forge/ui';
 
 /* ────────────────────────────────────────────────────────────────
    FORGE Payments — Routing.
-   Connector health, fallback chains, and the tier thresholds that
-   decide which rail (Wallet / Payments / Custody) a payment takes.
-   ──────────────────────────────────────────────────────────────── */
+   The tier thresholds that decide which rail (Wallet / Payments /
+   Custody) a payment takes — policy, not measured traffic.
 
-const CONNECTORS = [
-  { name: 'Visa / MC acquiring', kind: 'card', health: 99.6, latency: '820ms', status: 'healthy' },
-  { name: 'Peach Payments', kind: 'card', health: 96.1, latency: '2.4s', status: 'degraded' },
-  { name: 'Stitch EFT', kind: 'bank', health: 99.8, latency: '1.1s', status: 'healthy' },
-  { name: 'Circle USDC', kind: 'stablecoin', health: 99.9, latency: '3.0s', status: 'healthy' },
-  { name: 'Keagate (BTC/ETH)', kind: 'crypto', health: 98.9, latency: '9.8s', status: 'healthy' },
-];
+   Per-connector health scoring (card acquirers, EFT, stablecoin
+   rails) isn't wired into this console yet, so it isn't shown here
+   rather than shown with invented numbers — check System Health for
+   what actually is live-monitored today.
+   ──────────────────────────────────────────────────────────────── */
 
 export default function PaymentsRouting() {
   return (
@@ -38,32 +31,6 @@ export default function PaymentsRouting() {
         }
         lede="The router scores every connector continuously. When a rail degrades, traffic shifts down the fallback chain automatically — merchants never see it."
       />
-
-      <StatGrid>
-        <Stat label="Active connectors" value="5" delta="1 degraded" deltaTone="down" />
-        <Stat label="Fallback events / 24h" value="9" delta="0.3% of volume" />
-        <Stat label="Reroutes to Custody" value="3" delta="above $1M tier" />
-        <Stat label="Avg route decision" value="14ms" delta="policy engine" deltaTone="up" />
-      </StatGrid>
-
-      <Panel title="Connector Health" label="scored continuously · drives routing weight" style={{ marginBottom: 20 }}>
-        <DataTable
-          columns={['Connector', 'Type', 'Success (24h)', '', 'p95 latency', 'Status']}
-          rows={CONNECTORS.map((c) => [
-            <strong key="n">{c.name}</strong>,
-            <Mono key="k">{c.kind}</Mono>,
-            <Mono key="h">{c.health}%</Mono>,
-            <Meter key="m" pct={c.health} accent={c.health >= 99} />,
-            <Mono key="l">{c.latency}</Mono>,
-            <Pill key="s" tone={c.status === 'healthy' ? 'ok' : 'warn'}>{c.status}</Pill>,
-          ])}
-        />
-        <p className="lede" style={{ fontSize: 13, marginTop: 14 }}>
-          Peach Payments is degraded — card traffic is temporarily weighted toward the primary
-          acquirer, with ACH as the next hop. Recovery is automatic when its score returns above
-          98%.
-        </p>
-      </Panel>
 
       <Grid2>
         <Panel title="Fallback Chains" label="ordered per method">

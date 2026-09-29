@@ -46,6 +46,7 @@ import { customerRoutes } from './routes/customer.js';
 import { bundleRoutes } from './routes/bundle.js';
 import { csmRoutes } from './routes/csm.js';
 import { buildCheckoutRoutes } from './routes/checkout.js';
+import { buildMerchantRoutes } from './routes/merchant.js';
 import { registerAuth } from './auth.js';
 import { createRedisClient } from './lib/redis.js';
 import { pool as sharedPool } from './db/index.js';
@@ -142,6 +143,10 @@ async function main() {
 
   // Checkout — public, see auth.ts's PUBLIC_ROUTES comment for why.
   await app.register(buildCheckoutRoutes);
+
+  // Merchant summary for the console's Payments product pages — internal
+  // secret required inside the handler, see routes/merchant.ts.
+  await app.register(buildMerchantRoutes);
 
   // ── Graceful shutdown ─────────────────────────────────────────────────────
   const shutdown = async (signal: string) => {

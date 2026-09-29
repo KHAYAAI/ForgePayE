@@ -62,39 +62,15 @@ interface WalletSummary {
   }>;
 }
 
-const DEMO: WalletSummary = {
+const EMPTY: WalletSummary = {
   stats: {
-    total_wallets: 18_420,
-    agent_wallets: 1_847,
-    user_wallets: 16_573,
-    transactions_24h: 1_204,
-    confirmed_rate_24h: 99.2,
-    gas_sponsored_24h_usd: 118,
-    recoveries_open: 2,
-    routed_to_custody_24h: 14,
+    total_wallets: 0, agent_wallets: 0, user_wallets: 0, transactions_24h: 0,
+    confirmed_rate_24h: 0, gas_sponsored_24h_usd: 0, recoveries_open: 0, routed_to_custody_24h: 0,
   },
-  recent_transactions: [
-    { id: 'tx_88f2', from_did: 'did:forge:user_8842', to_address: 'merch_snappay', amount: 50, currency: 'USDC', blockchain: 'polygon', status: 'confirmed', created_at: '' },
-    { id: 'tx_88ee', from_did: 'did:forge:agent_001', to_address: '0xsupplier…9c03', amount: 50_000, currency: 'USDC', blockchain: 'polygon', status: 'confirmed', created_at: '' },
-    { id: 'tx_88e9', from_did: 'did:forge:user_5511', to_address: 'did:forge:user_0197', amount: 20, currency: 'USDC', blockchain: 'polygon', status: 'confirmed', created_at: '' },
-    { id: 'tx_88e1', from_did: 'did:forge:agent_114', to_address: 'api.compute.rent', amount: 340, currency: 'USDC', blockchain: 'ethereum', status: 'confirmed', created_at: '' },
-    { id: 'tx_88dd', from_did: 'did:forge:user_2290', to_address: 'merch_afrobiz', amount: 129, currency: 'USDC', blockchain: 'solana', status: 'broadcast', created_at: '' },
-  ],
-  recovery_requests: [
-    { id: 'rec_4410', user_did: 'did:forge:user_7731', approvals: 1, required_approvals: 2, status: 'pending', created_at: '' },
-    { id: 'rec_4409', user_did: 'did:forge:user_1044', approvals: 2, required_approvals: 2, status: 'approved', created_at: '' },
-    { id: 'rec_4399', user_did: 'did:forge:user_9210', approvals: 2, required_approvals: 2, status: 'completed', created_at: '' },
-  ],
-  dids: [
-    { did: 'did:forge:agent_001', type: 'agent', chains: ['ethereum', 'polygon'], tx_count: 1204 },
-    { did: 'did:forge:agent_114', type: 'agent', chains: ['ethereum'], tx_count: 388 },
-    { did: 'did:forge:user_8842', type: 'user', chains: ['polygon', 'solana'], tx_count: 92 },
-  ],
-  corporate_wallets: [
-    { name: 'Operating', did: 'did:forge:snappay_ops', purpose: 'Day-to-day payments', daily_limit: 'R250,000', single_tx_ceiling: 'R100,000', status: 'active' },
-    { name: 'Payroll', did: 'did:forge:snappay_payroll', purpose: 'Monthly salaries', daily_limit: 'R1,200,000', single_tx_ceiling: 'R100,000', status: 'active' },
-    { name: 'Supplier settlements', did: 'did:forge:snappay_w381', purpose: 'Net-30 supplier payments', daily_limit: 'R500,000', single_tx_ceiling: 'R100,000', status: 'pending_approval', approvals: '1 of 2 seniors' },
-  ],
+  recent_transactions: [],
+  recovery_requests: [],
+  dids: [],
+  corporate_wallets: [],
 };
 
 const TX_TONE: Record<string, 'ok' | 'warn' | 'danger' | 'accent'> = {
@@ -113,7 +89,7 @@ const REC_TONE: Record<string, 'ok' | 'warn' | 'danger' | 'accent'> = {
 };
 
 export default function WalletConsole() {
-  const { data, live } = useForge<WalletSummary>('wallet', DEMO);
+  const { data, live } = useForge<WalletSummary>('wallet', EMPTY);
 
   return (
     <>
@@ -140,7 +116,8 @@ export default function WalletConsole() {
       <Panel title="Corporate Wallets" label="provisioning requires 2-of-3 senior custody sign-off" style={{ marginBottom: 20 }}>
         <DataTable
           columns={['Wallet', 'DID', 'Purpose', 'Daily limit', 'Single-tx ceiling', 'Status']}
-          rows={(data.corporate_wallets ?? DEMO.corporate_wallets ?? []).map((w) => [
+          emptyMessage="No corporate wallets provisioned yet."
+          rows={(data.corporate_wallets ?? []).map((w) => [
             <strong key="n">{w.name}</strong>,
             <Addr key="d">{w.did}</Addr>,
             w.purpose,
@@ -165,6 +142,7 @@ export default function WalletConsole() {
         <Panel title="Recent Transactions" label="signed server-side · key never leaves backend">
           <DataTable
             columns={['Tx', 'From (DID)', 'To', 'Amount', 'Chain', 'Status']}
+            emptyMessage="No transactions yet."
             rows={data.recent_transactions.map((t) => [
               <Mono key="t">{t.id.slice(0, 8)}</Mono>,
               <Addr key="f">{t.from_did}</Addr>,
@@ -179,6 +157,7 @@ export default function WalletConsole() {
         <Panel title="Recovery Requests" label="social recovery — no seed phrase">
           <DataTable
             columns={['Request', 'User', 'Approvals', 'Status']}
+            emptyMessage="No recovery requests yet."
             rows={data.recovery_requests.map((r) => [
               <Mono key="r">{r.id.slice(0, 10)}</Mono>,
               <Addr key="u">{r.user_did}</Addr>,
@@ -197,6 +176,7 @@ export default function WalletConsole() {
         <Panel title="DID Registry" label="read by Agent Credit Bureau" ink>
           <DataTable
             columns={['DID', 'Type', 'Chains', 'Tx count']}
+            emptyMessage="No DIDs registered yet."
             rows={data.dids.map((d) => [
               <Mono key="d">{d.did}</Mono>,
               <Pill key="t" tone={d.type === 'agent' ? 'accent' : undefined}>{d.type}</Pill>,

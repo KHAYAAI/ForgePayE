@@ -116,9 +116,14 @@ export function Pill({
 export function DataTable({
   columns,
   rows,
+  emptyMessage = 'Nothing here yet.',
 }: {
   columns: string[];
   rows: ReactNode[][];
+  /** Shown as a single full-width row when `rows` is empty — a real "no
+   * activity yet" state (a fresh account, an unreachable service), never
+   * illustrative rows standing in for data that doesn't exist. */
+  emptyMessage?: string;
 }) {
   return (
     <div style={{ overflowX: 'auto' }}>
@@ -131,13 +136,21 @@ export function DataTable({
           </tr>
         </thead>
         <tbody>
-          {rows.map((r, i) => (
-            <tr key={i}>
-              {r.map((cell, j) => (
-                <td key={j}>{cell}</td>
-              ))}
+          {rows.length === 0 ? (
+            <tr>
+              <td colSpan={columns.length} style={{ color: 'var(--steel)', fontStyle: 'italic', textAlign: 'center', padding: '22px 0' }}>
+                {emptyMessage}
+              </td>
             </tr>
-          ))}
+          ) : (
+            rows.map((r, i) => (
+              <tr key={i}>
+                {r.map((cell, j) => (
+                  <td key={j}>{cell}</td>
+                ))}
+              </tr>
+            ))
+          )}
         </tbody>
       </table>
     </div>

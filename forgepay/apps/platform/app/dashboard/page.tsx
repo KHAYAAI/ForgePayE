@@ -16,11 +16,19 @@ import {
 import { useForge } from '@/components/forge/useForge';
 
 interface OverviewLive {
-  custody: { live: boolean; data: { stats?: { signatures_24h?: number; pending_approval?: number } } | null };
+  custody: { live: boolean; data: { stats?: { signatures_24h?: number; pending_approval?: number; notional_24h_usd?: number } } | null };
   wallet: { live: boolean; data: { stats?: { total_wallets?: number; transactions_24h?: number } } | null };
-  treasury: { live: boolean; data: Record<string, unknown> | null };
-  bureau: { live: boolean; data: { stats?: { totalAgents?: number } } | null };
-  ontology: { live: boolean; data: unknown };
+  treasury: { live: boolean; data: { cash_position?: { data?: { totalUsd?: number } } } | null };
+  bureau: { live: boolean; data: { stats?: { totalAgents?: number; totalDebt?: number; inquiries24h?: number } } | null };
+  ontology: { live: boolean; data: { data?: OntologyEvent[] } | null };
+}
+
+interface OntologyEvent {
+  id: string;
+  type: string;
+  source: string;
+  occurred_at: string;
+  data: Record<string, unknown>;
 }
 
 /* ────────────────────────────────────────────────────────────────
@@ -29,126 +37,74 @@ interface OverviewLive {
    Payments → Wallet (<$100K) → Custody (>$1M) with the Revenue
    Ontology as the single source of truth, consumed by the Agent
    Credit Bureau and Enterprise Treasury.
+   Every tile and every number below is read from `overview` (the
+   real per-service proxy composite) — a sub-service that isn't live
+   renders as "—", never a placeholder number standing in for
+   activity that hasn't happened.
    ──────────────────────────────────────────────────────────────── */
 
-const PLATFORMS = [
-  {
-    href: '/dashboard/payments',
-    name: 'FORGE Payments',
-    role: 'Routing & settlement',
-    metric: 'R4.2M processed / 24h',
-    status: 'ok' as const,
-    statusLabel: '99.7% success',
-  },
-  {
-    href: '/dashboard/custody',
-    name: 'FORGE Custody',
-    role: 'Institutional 4-of-7 threshold signing',
-    metric: '12 signatures / 24h · $61M notional',
-    status: 'ok' as const,
-    statusLabel: '3 pending approval',
-  },
-  {
-    href: '/dashboard/wallet',
-    name: 'FORGE Wallet',
-    role: 'Consumer & agent wallets, did:forge identity',
-    metric: '18,420 wallets · 1,204 tx / 24h',
-    status: 'ok' as const,
-    statusLabel: '2 recoveries open',
-  },
-  {
-    href: '/dashboard/agent-credit-bureau',
-    name: 'Agent Credit Bureau',
-    role: 'Reputation & credit for autonomous agents',
-    metric: '312 agents scored · R2.1M lines drawn',
-    status: 'warn' as const,
-    statusLabel: '1 extension pending',
-  },
-  {
-    href: '/dashboard/enterprise-treasury',
-    name: 'Enterprise Treasury',
-    role: 'Consolidation, netting, credit approvals',
-    metric: 'R48.6M consolidated · 14 accounts',
-    status: 'ok' as const,
-    statusLabel: '2 sweeps queued',
-  },
-  {
-    href: '/dashboard/credit-bureau',
-    name: 'Credit Bureau',
-    role: 'Dual-mode merchant scoring (Mode 1 / Mode 2)',
-    metric: '487 inquiries / 24h',
-    status: 'ok' as const,
-    statusLabel: '12 variance alerts',
-  },
-];
+const money = (n: number) => `R${n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : `${Math.round(n / 1000)}K`}`;
 
-const ONTOLOGY_EVENTS: Array<{
-  id: string;
-  type: string;
-  actor: string;
-  detail: string;
-  amount: string;
-  route: string;
-  tone?: 'ok' | 'warn' | 'accent';
-}> = [
-  {
-    id: 'evt_9f31',
-    type: 'custody.signature.confirmed',
-    actor: 'enterprise_custody',
-    detail: 'Agent supplier payment · net-30 credit line',
-    amount: '$50,000 USDC',
-    route: 'CUSTODY 4-OF-7',
-    tone: 'accent',
-  },
-  {
-    id: 'evt_9f30',
-    type: 'credit.score.updated',
-    actor: 'did:forge:agent_001',
-    detail: 'On-time repayment observed → score 78 → 82',
-    amount: 'line R150K → R250K',
-    route: 'AGENT BUREAU',
-    tone: 'ok',
-  },
-  {
-    id: 'evt_9f2e',
-    type: 'wallet.transaction.confirmed',
-    actor: 'did:forge:user_8842',
-    detail: 'Checkout — merchant SnapPay',
-    amount: '$50 USDC',
-    route: 'WALLET DIRECT',
-  },
-  {
-    id: 'evt_9f2b',
-    type: 'treasury.sweep.executed',
-    actor: 'treasury:umuntu-group',
-    detail: 'Auto-sweep to yield account (rule R-014)',
-    amount: 'R1.2M',
-    route: 'ENTERPRISE TREASURY',
-  },
-  {
-    id: 'evt_9f29',
-    type: 'payment.settled',
-    actor: 'merch_snappay',
-    detail: 'Stripe ACH primary · no fallback used',
-    amount: 'R84,300',
-    route: 'PAYMENTS',
-  },
-  {
-    id: 'evt_9f27',
-    type: 'compliance.screen.cleared',
-    actor: '0x7fa9…c21e',
-    detail: 'OFAC / sanctions screen — Chainalysis clear',
-    amount: '—',
-    route: 'CUSTODY POLICY',
-    tone: 'ok',
-  },
-];
+interface PaymentsSummary { activated: boolean; stats: { events24h: number } }
+const EMPTY_PAYMENTS: PaymentsSummary = { activated: false, stats: { events24h: 0 } };
 
 export default function UnifiedDashboard() {
   const { data: overview, live } = useForge<OverviewLive | null>('overview', null);
+  const { data: payments } = useForge<PaymentsSummary>('payments', EMPTY_PAYMENTS);
   const liveCount = overview
     ? [overview.custody, overview.wallet, overview.treasury, overview.bureau, overview.ontology].filter((s) => s?.live).length
     : 0;
+
+  const custody = overview?.custody?.live ? overview.custody.data?.stats : undefined;
+  const wallet = overview?.wallet?.live ? overview.wallet.data?.stats : undefined;
+  const treasury = overview?.treasury?.live ? overview.treasury.data?.cash_position?.data : undefined;
+  const bureau = overview?.bureau?.live ? overview.bureau.data?.stats : undefined;
+  const events = overview?.ontology?.live ? (overview.ontology.data?.data ?? []) : [];
+
+  const PLATFORMS = [
+    {
+      href: '/dashboard/payments',
+      name: 'FORGE Payments',
+      role: 'Routing & settlement',
+      metric: payments.activated ? `${payments.stats.events24h} events / 24h` : 'not activated yet',
+      live: payments.activated,
+    },
+    {
+      href: '/dashboard/custody',
+      name: 'FORGE Custody',
+      role: 'Institutional 4-of-7 threshold signing',
+      metric: custody ? `${custody.signatures_24h ?? 0} signatures / 24h` : '—',
+      live: !!custody,
+    },
+    {
+      href: '/dashboard/wallet',
+      name: 'FORGE Wallet',
+      role: 'Consumer & agent wallets, did:forge identity',
+      metric: wallet ? `${(wallet.total_wallets ?? 0).toLocaleString('en-US')} wallets` : '—',
+      live: !!wallet,
+    },
+    {
+      href: '/dashboard/agent-credit-bureau',
+      name: 'Agent Credit Bureau',
+      role: 'Reputation & credit for autonomous agents',
+      metric: bureau ? `${bureau.totalAgents ?? 0} agents scored` : '—',
+      live: !!bureau,
+    },
+    {
+      href: '/dashboard/enterprise-treasury',
+      name: 'Enterprise Treasury',
+      role: 'Consolidation, netting, credit approvals',
+      metric: treasury?.totalUsd != null ? `$${(treasury.totalUsd / 1_000_000).toFixed(1)}M consolidated` : '—',
+      live: !!treasury,
+    },
+    {
+      href: '/dashboard/credit-bureau',
+      name: 'Credit Bureau',
+      role: 'Dual-mode merchant scoring (Mode 1 / Mode 2)',
+      metric: bureau ? `${bureau.inquiries24h ?? 0} inquiries / 24h` : '—',
+      live: !!bureau,
+    },
+  ];
 
   return (
     <>
@@ -163,19 +119,19 @@ export default function UnifiedDashboard() {
         actions={
           <>
             <LivePill live={live} />
-            {live && <span className="pill accent">{liveCount} / 5 services online</span>}
+            <span className="pill accent">{liveCount} / 5 services online</span>
             <Link href="/dashboard/ops" className="btn-ghost btn-sm">System Health</Link>
           </>
         }
       />
 
       <StatGrid>
-        <Stat label="Ontology events / 24h" value="41,208" delta="+8.2% vs prior day" deltaTone="up" />
-        <Stat label="Value settled / 24h" value="R63.4M" delta="+R4.1M" deltaTone="up" />
-        <Stat label="Payment success" value="99.7%" delta="target ≥ 99.7%" />
-        <Stat label="Custody signatures" value="12" delta="3 pending approval" />
-        <Stat label="Active agent lines" value="R2.1M" delta="312 agents scored" />
-        <Stat label="Consolidated cash" value="R48.6M" delta="14 accounts · 3 subsidiaries" />
+        <Stat label="Ontology events / 24h" value={events.length} delta={overview?.ontology?.live ? 'from revenue_events' : 'ontology feed unreachable'} />
+        <Stat label="Custody signatures / 24h" value={custody?.signatures_24h ?? '—'} delta={custody ? `${custody.pending_approval ?? 0} pending approval` : 'custody unreachable'} />
+        <Stat label="Agent lines drawn" value={bureau?.totalDebt != null ? money(bureau.totalDebt) : '—'} delta={bureau ? `${bureau.totalAgents ?? 0} agents scored` : 'bureau unreachable'} />
+        <Stat label="Consolidated cash" value={treasury?.totalUsd != null ? `$${(treasury.totalUsd / 1_000_000).toFixed(1)}M` : '—'} delta={treasury ? 'from cash-position' : 'treasury unreachable'} />
+        <Stat label="Wallet transactions / 24h" value={wallet?.transactions_24h ?? '—'} delta={wallet ? `${(wallet.total_wallets ?? 0).toLocaleString('en-US')} wallets` : 'wallet unreachable'} />
+        <Stat label="Services online" value={`${liveCount} / 5`} delta="custody · wallet · treasury · bureau · ontology" />
       </StatGrid>
 
       {/* Routing tiers — the interconnection contract */}
@@ -199,26 +155,22 @@ export default function UnifiedDashboard() {
               tier: '< $100K',
               path: 'FORGE Wallet',
               desc: 'Consumer & agent transfers signed directly by the wallet layer. Biometric confirm, gas sponsored.',
-              share: '92% of volume',
             },
             {
               tier: '$100K – $1M',
               path: 'FORGE Payments optimal path',
               desc: 'Routed across Stripe ACH → Circle USDC fallback chain for best cost and settlement time.',
-              share: '7% of volume',
             },
             {
               tier: '> $1M',
               path: 'FORGE Custody',
               desc: 'Institutional transfers require policy evaluation, multi-party approval, and 4-of-7 threshold signing.',
-              share: '1% of volume · 71% of value',
             },
           ].map((t) => (
             <div key={t.tier} style={{ background: 'var(--ink)', padding: '18px 20px' }}>
               <div className="mono" style={{ marginBottom: 8 }}>{t.tier}</div>
               <div style={{ fontWeight: 500, fontSize: 16, marginBottom: 6 }}>{t.path}</div>
-              <p className="lede" style={{ fontSize: 13.5, marginBottom: 10 }}>{t.desc}</p>
-              <span className="mono" style={{ color: 'var(--accent)' }}>{t.share}</span>
+              <p className="lede" style={{ fontSize: 13.5 }}>{t.desc}</p>
             </div>
           ))}
         </div>
@@ -245,7 +197,7 @@ export default function UnifiedDashboard() {
                 }}
               >
                 <span className="mono">{p.role}</span>
-                <Pill tone={p.status}>{p.statusLabel}</Pill>
+                <Pill tone={p.live ? 'ok' : undefined}>{p.live ? 'live' : 'offline'}</Pill>
               </div>
               <div className="forge-h2" style={{ marginBottom: 8 }}>{p.name}</div>
               <div className="num" style={{ color: 'var(--steel)' }}>{p.metric}</div>
@@ -257,13 +209,13 @@ export default function UnifiedDashboard() {
       <Grid2>
         <Panel title="Ontology Event Stream" label="revenue_events · append-only">
           <DataTable
-            columns={['Event', 'Actor', 'Detail', 'Amount', 'Route']}
-            rows={ONTOLOGY_EVENTS.map((e) => [
+            columns={['When', 'Event', 'Source', 'Detail']}
+            emptyMessage={overview?.ontology?.live ? 'No events recorded yet.' : 'Ontology feed unreachable.'}
+            rows={events.map((e) => [
+              <Mono key="w">{new Date(e.occurred_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</Mono>,
               <Mono key="t">{e.type}</Mono>,
-              <Addr key="a">{e.actor}</Addr>,
-              e.detail,
-              <Mono key="m">{e.amount}</Mono>,
-              <Pill key="r" tone={e.tone}>{e.route}</Pill>,
+              <Addr key="a">{e.source}</Addr>,
+              JSON.stringify(e.data).slice(0, 80),
             ])}
           />
         </Panel>

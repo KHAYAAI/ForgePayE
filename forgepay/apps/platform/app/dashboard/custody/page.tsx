@@ -46,26 +46,16 @@ interface CustodySummary {
   }>;
 }
 
-const DEMO: CustodySummary = {
-  stats: {
-    signatures_24h: 12,
-    notional_24h_usd: 61_000_000,
-    pending_approval: 2,
-    rejected_7d: 3,
-    active_keys: 9,
-    workspaces: 4,
-  },
-  signing_queue: [
-    { id: 'sig_a1b2', workspace: 'Investec Digital Assets', destination: '0xbridge…4f21', amount_usd: 5_000_000, blockchain: 'ethereum', status: 'pending_approval', reason_code: null, approvals: 1, approvals_required: 2, tx_hash: null, created_at: '' },
-    { id: 'sig_a1ae', workspace: 'Umuntu Group Treasury', destination: '0xsupplier…9c03', amount_usd: 50_000, blockchain: 'polygon', status: 'pending_approval', reason_code: null, approvals: 0, approvals_required: 1, tx_hash: null, created_at: '' },
-  ],
+const EMPTY: CustodySummary = {
+  stats: { signatures_24h: 0, notional_24h_usd: 0, pending_approval: 0, rejected_7d: 0, active_keys: 0, workspaces: 0 },
+  signing_queue: [],
 };
 
 const usd = (n: number) =>
   n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(1)}M` : `$${Math.round(n / 1000)}K`;
 
 export default function CustodyOverview() {
-  const { data, live } = useForge<CustodySummary>('custody', DEMO);
+  const { data, live } = useForge<CustodySummary>('custody', EMPTY);
   const pending = data.signing_queue.filter((r) => r.status === 'pending_approval');
 
   return (
@@ -87,12 +77,13 @@ export default function CustodyOverview() {
         <Stat label="Policy rejections / 7d" value={data.stats.rejected_7d} delta="see audit log" />
         <Stat label="Active keys" value={data.stats.active_keys} delta="4-of-7 threshold" />
         <Stat label="Workspaces" value={data.stats.workspaces} delta="banks & institutions" />
-        <Stat label="Sanctions screens" value="100%" delta="every signing request" deltaTone="up" />
+        <Stat label="Sanctions screens" value={data.stats.signatures_24h > 0 ? '100%' : '—'} delta={data.stats.signatures_24h > 0 ? 'every signing request' : 'no signings yet'} deltaTone="up" />
       </StatGrid>
 
       <Panel title="Waiting on You" label="approvals blocking settlement" ink style={{ marginBottom: 20 }}>
         <DataTable
           columns={['Request', 'Workspace', 'Destination', 'Amount', 'Approvals', 'Status']}
+          emptyMessage="No transfers waiting on approval."
           rows={pending.map((r) => [
             <Mono key="id">{r.id}</Mono>,
             r.workspace,
