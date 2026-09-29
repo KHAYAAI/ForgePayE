@@ -1,7 +1,7 @@
 import { Controller, Get, Inject, ServiceUnavailableException } from '@nestjs/common';
 import { SkipThrottle } from '@nestjs/throttler';
 import { Pool } from 'pg';
-import { PG_POOL } from './database/database.module';
+import { PG_POOL } from './database/database.tokens';
 
 // Liveness + readiness endpoints used by Docker Compose and Kubernetes probes.
 @Controller()

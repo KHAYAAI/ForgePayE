@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Pool } from 'pg';
-import { PG_POOL } from './database.module';
+import { PG_POOL } from './database.tokens';
 
 export interface AuditEvent {
   type: string;

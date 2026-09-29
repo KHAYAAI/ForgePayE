@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { Pool } from 'pg';
-import { PG_POOL } from './database.module';
+import { PG_POOL } from './database.tokens';
 
 // Transaction metadata to persist alongside the immutable audit trail.
 export interface TransactionRecord {

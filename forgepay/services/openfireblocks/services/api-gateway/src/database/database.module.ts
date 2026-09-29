@@ -6,7 +6,9 @@ import { AuditService } from './audit.service';
 // Provides a single shared PostgreSQL connection pool to the whole app, plus
 // the transaction-metadata (PostgresService) and audit-trail (AuditService)
 // repositories. Marked @Global so any module can inject these without re-importing.
-export const PG_POOL = 'PG_POOL';
+import { PG_POOL } from './database.tokens';
+
+export { PG_POOL };
 
 @Global()
 @Module({
