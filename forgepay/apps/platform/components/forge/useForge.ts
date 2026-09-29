@@ -10,8 +10,13 @@ import { useEffect, useRef, useState } from 'react';
  *   live=true  → `data` is the real service payload
  *   live=false → `data` is the provided fallback (demo mode)
  */
-export function useForge<T>(section: string, fallback: T, intervalMs = 15_000): { data: T; live: boolean } {
+export function useForge<T>(
+  section: string,
+  fallback: T,
+  intervalMs = 15_000,
+): { data: T; live: boolean; reload: () => void } {
   const [state, setState] = useState<{ data: T; live: boolean }>({ data: fallback, live: false });
+  const [reloadCount, setReloadCount] = useState(0);
   const fallbackRef = useRef(fallback);
 
   useEffect(() => {
@@ -39,7 +44,10 @@ export function useForge<T>(section: string, fallback: T, intervalMs = 15_000): 
       cancelled = true;
       clearInterval(timer);
     };
-  }, [section, intervalMs]);
+  }, [section, intervalMs, reloadCount]);
 
-  return state;
+  // Re-poll now — after a write, so the page doesn't wait out the interval.
+  const reload = () => setReloadCount((n) => n + 1);
+
+  return { ...state, reload };
 }

@@ -55,7 +55,7 @@ export default async function DashboardLayout({
                   <Link href="/dashboard/payments" className={styles.navItem}>Payments</Link>
                 )}
                 {has('custody') && (
-                  <Link href="/dashboard/custody" className={styles.navItem}>Custody<span className={styles.navTag}>MPC</span></Link>
+                  <Link href="/dashboard/custody" className={styles.navItem}>Custody<span className={styles.navTag}>QUORUM</span></Link>
                 )}
                 {has('wallet') && (
                   <Link href="/dashboard/wallet" className={styles.navItem}>Wallet<span className={styles.navTag}>DID</span></Link>

@@ -111,45 +111,48 @@ export default function HelpPage() {
       </Grid2>
 
       <Grid2>
-        <Panel title="Custody" label="institutional threshold signing" ink>
-          <Entry term="MPC signing quorum">
-            When a signing request's approval quorum completes, the MPC orchestrator collects
-            encrypted shares and the status moves to <code>signing</code> — no human ever touches
-            key material. A policy rejection (like <code>DESTINATION_NOT_WHITELISTED</code>) is
-            final; resubmission requires a whitelist change, which is itself a governed vote.
-            Approvals themselves are signed API calls from registered approver roles; distinct
-            approvers are enforced server-side.
+        <Panel title="Custody" label="policy screening and signer quorum" ink>
+          <Entry term="What happens to a transfer">
+            Every transfer, whether requested here or by a connected application, is checked
+            against policy first: sanctions lists, amount limits for your tier, and any whitelist
+            or blocked countries you have set. A denial is final and recorded. Transfers over
+            10 ETH are then held until a quorum of your signers approves; smaller ones are signed
+            straight away.
           </Entry>
-          <Entry term="Governance is a queue, not a say-so">
-            Wallet provisioning, signer changes and policy edits are governed changes — they queue
-            exactly like transfers and never take effect on a single keyholder's say-so. A newly
-            invited signer stays pending until 4 of 7 current signers approve, then serves a
-            24-hour cooling-off before their first co-signature counts.
+          <Entry term="Quorum">
+            Your threshold is how many signers must approve. If you have fewer eligible signers
+            than the threshold, every current signer must approve instead. Each signer can vote
+            once; as soon as enough rejections make approval impossible, the transfer is rejected
+            and never signed.
           </Entry>
-          <Entry term="Audit log integrity">
-            Exports for regulators are one click and cryptographically chained — each row carries a
-            hash of the previous, so a removed or altered entry is detectable by anyone holding the
-            export.
+          <Entry term="Adding and removing signers">
+            The first signer sets the workspace up. Every signer after that is proposed and
+            approved by the existing signers, then waits out a cooling-off period (24 hours by
+            default) before their vote counts. Removing a signer, or changing the threshold, is
+            a proposal too.
           </Entry>
-          <Entry term="Key ceremonies (DKG / Feldman-VSS)">
-            Private keys never exist in plaintext — each key is threshold-encrypted shares dealt in
-            a verified DKG ceremony, and rotation re-deals shares without the key ever being
-            assembled. Feldman-VSS share commitments are verified at each ceremony, so a corrupted
-            or substituted share is detected before it can ever participate in a signature.
+          <Entry term="The signing key today">
+            One ECDSA key signs every transfer, and it is shared by every workspace on the
+            deployment. Your quorum controls whether a transfer is signed, not who holds the key.
+            Threshold (MPC) signing, where no single party holds a complete key, is the next
+            stage and is not live yet — the Keys page always shows exactly what is running.
+          </Entry>
+          <Entry term="Connected applications">
+            An application connects with its own named API key. It can submit transfers through
+            the same policy checks and approval queue as the console. Keys are shown once when
+            issued, record when they were last used, and can be revoked individually.
           </Entry>
         </Panel>
 
         <Panel title="Wallet" label="consumer &amp; agent wallets, no seed phrases">
-          <Entry term="Corporate wallet governance">
-            Creating, renaming or raising the limits of a corporate wallet is a governed change:
-            the request queues in Custody and needs sign-off from 2 of 3 senior officers before the
-            wallet activates. Payments above a wallet's single-transaction ceiling don't fail —
-            they escalate to the Custody signing queue automatically.
+          <Entry term="One wallet per chain">
+            Each account holds one wallet per chain (Ethereum, Polygon, Solana). The private key
+            is generated on the server and stored encrypted (AES-256-GCM) under a key derived for
+            your account — it is never shown to anyone, including you.
           </Entry>
           <Entry term="Social recovery">
-            Each trusted contact receives a single-use approval token (hash-stored). Two of three
-            approvals unlock a password reset, and keys rotate under the new credential — there's
-            no seed phrase to lose in the first place.
+            Instead of a seed phrase, you add trusted contacts. Recovering access takes approvals
+            from two of them.
           </Entry>
         </Panel>
       </Grid2>

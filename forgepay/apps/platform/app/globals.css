@@ -261,6 +261,12 @@ button {
   background: var(--paper-soft);
 }
 
+/* On an ink panel the text is light, so the light paper hover left hovered
+   rows unreadable. */
+.panel.ink .forge-table tr:hover td {
+  background: rgba(244, 242, 238, 0.08);
+}
+
 .forge-table .num,
 .forge-table .addr {
   font-family: 'JetBrains Mono', monospace;

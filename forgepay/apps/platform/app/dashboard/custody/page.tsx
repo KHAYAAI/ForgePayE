@@ -1,133 +1,110 @@
 'use client';
 
-import {
-  PageHeader,
-  Stat,
-  StatGrid,
-  Panel,
-  Pill,
-  DataTable,
-  Grid2,
-  LivePill,
-  Mono,
-  Addr,
-} from '@/components/forge/ui';
-import { useForge } from '@/components/forge/useForge';
+import Link from 'next/link';
+import { PageHeader, Stat, StatGrid, Panel, Pill, DataTable, LivePill, Mono, Addr } from '@/components/forge/ui';
+import { useCustody, formatEth, shortTime } from '@/components/forge/useCustody';
 
-/* ────────────────────────────────────────────────────────────────
-   FORGE Custody — Overview.
-   Live-wired to forge-custody GET /api/v1/console/summary via the
-   /api/forge/custody proxy; demo fixtures render when offline.
-   Signing queue lives in Signing, policy + signers in Governance,
-   key inventory in Keys, immutable log in Audit.
-   ──────────────────────────────────────────────────────────────── */
+/* FORGE Custody — Overview. Backed by openfireblocks
+   (services/openfireblocks) via lib/openfireblocks.ts. */
 
-interface CustodySummary {
-  stats: {
-    signatures_24h: number;
-    notional_24h_usd: number;
-    pending_approval: number;
-    rejected_7d: number;
-    active_keys: number;
-    workspaces: number;
-  };
-  signing_queue: Array<{
-    id: string;
-    workspace: string;
-    destination: string;
-    amount_usd: number;
-    blockchain: string;
-    status: string;
-    reason_code: string | null;
-    approvals: number;
-    approvals_required: number;
-    tx_hash: string | null;
-    created_at: string;
-  }>;
-}
-
-const EMPTY: CustodySummary = {
-  stats: { signatures_24h: 0, notional_24h_usd: 0, pending_approval: 0, rejected_7d: 0, active_keys: 0, workspaces: 0 },
-  signing_queue: [],
+const TX_TONE: Record<string, 'ok' | 'warn' | 'danger' | 'accent'> = {
+  signed: 'ok',
+  broadcasted: 'ok',
+  pending_approval: 'warn',
+  rejected: 'danger',
+  failed: 'danger',
 };
 
-const usd = (n: number) =>
-  n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(1)}M` : `$${Math.round(n / 1000)}K`;
-
 export default function CustodyOverview() {
-  const { data, live } = useForge<CustodySummary>('custody', EMPTY);
-  const pending = data.signing_queue.filter((r) => r.status === 'pending_approval');
+  const { data, live, act, busy, error, me } = useCustody();
+  const waitingOnMe = data.proposals.filter(
+    (p) => p.status === 'open' && me?.eligible && !p.votes.some((v) => v.email === data.viewer),
+  );
+  const noSigners = live && data.signers.every((s) => s.status !== 'active');
 
   return (
     <>
       <PageHeader
         eyebrow="FORGE / Custody"
-        title={
-          <>
-            Institutional <em>Custody</em>
-          </>
-        }
-        lede="Threshold-signed settlement for transfers above $1M. No single keyholder exists — every signature requires 4 of 7 encrypted shares, and every policy change is itself a governed vote."
+        title={<>Institutional <em>Custody</em></>}
+        lede="Every transfer is screened against policy and sanctions. Anything over 10 ETH waits for a quorum of your signers before it is signed."
         actions={<LivePill live={live} />}
       />
 
+      {noSigners && (
+        <Panel title="Set up your workspace" label="no signers yet" ink style={{ marginBottom: 20 }}>
+          <p className="lede" style={{ fontSize: 14, marginBottom: 16 }}>
+            Nothing can be approved until someone is a signer. The first signer is you; every signer
+            after that has to be voted in by the existing ones.
+          </p>
+          <button className="btn-primary" disabled={busy} onClick={() => act({ action: 'bootstrap_signer' })}>
+            Become the first signer
+          </button>
+          {error && <p style={{ color: 'var(--danger)', fontSize: 13, marginTop: 12 }}>{error}</p>}
+        </Panel>
+      )}
+
       <StatGrid>
-        <Stat label="Signatures / 24h" value={data.stats.signatures_24h} delta={`${usd(data.stats.notional_24h_usd)} notional`} />
-        <Stat label="Pending approval" value={data.stats.pending_approval} deltaTone={data.stats.pending_approval > 0 ? 'down' : undefined} delta={data.stats.pending_approval > 0 ? 'action required' : 'queue clear'} />
-        <Stat label="Policy rejections / 7d" value={data.stats.rejected_7d} delta="see audit log" />
-        <Stat label="Active keys" value={data.stats.active_keys} delta="4-of-7 threshold" />
-        <Stat label="Workspaces" value={data.stats.workspaces} delta="banks & institutions" />
-        <Stat label="Sanctions screens" value={data.stats.signatures_24h > 0 ? '100%' : '—'} delta={data.stats.signatures_24h > 0 ? 'every signing request' : 'no signings yet'} deltaTone="up" />
+        <Stat label="Signed / 24h" value={data.stats.signed_24h} delta={formatEth(data.stats.signed_wei_24h)} />
+        <Stat
+          label="Waiting for approval"
+          value={data.stats.pending_approval}
+          delta={data.stats.pending_approval > 0 ? 'see Signing Queue' : 'queue clear'}
+          deltaTone={data.stats.pending_approval > 0 ? 'down' : undefined}
+        />
+        <Stat label="Denied / 7d" value={data.stats.denied_7d} delta="policy, sanctions, risk" />
+        <Stat
+          label="Active signers"
+          value={data.stats.active_signers}
+          delta={`${data.settings.effective_required} approval(s) needed now`}
+        />
+        <Stat label="Connected apps" value={data.stats.connected_apps} delta="active API keys" />
+        <Stat
+          label="Signing key"
+          value={data.signing_key.threshold || '—'}
+          delta={data.signing_key.signer_reachable ? 'signer online' : 'signer unreachable'}
+          deltaTone={data.signing_key.signer_reachable ? 'up' : 'down'}
+        />
       </StatGrid>
 
-      <Panel title="Waiting on You" label="approvals blocking settlement" ink style={{ marginBottom: 20 }}>
+      <Panel title="Waiting on You" label="open approvals you haven't voted on" style={{ marginBottom: 20 }}>
         <DataTable
-          columns={['Request', 'Workspace', 'Destination', 'Amount', 'Approvals', 'Status']}
-          emptyMessage="No transfers waiting on approval."
-          rows={pending.map((r) => [
-            <Mono key="id">{r.id}</Mono>,
-            r.workspace,
-            <Addr key="d">{r.destination}</Addr>,
-            <Mono key="a">{usd(r.amount_usd)}</Mono>,
-            <Mono key="ap">{r.approvals} / {r.approvals_required}</Mono>,
-            <Pill key="s" tone="warn">{r.status.replace('_', ' ')}</Pill>,
+          columns={['What', 'Detail', 'Approvals', 'Raised by', '']}
+          emptyMessage={me ? 'Nothing is waiting on you.' : 'You are not a signer in this workspace.'}
+          rows={waitingOnMe.map((p) => [
+            <Mono key="k">{p.kind.replace('_', ' ')}</Mono>,
+            p.kind === 'approve_transaction'
+              ? `${formatEth(p.payload.request?.value)} → ${p.payload.request?.to?.slice(0, 10)}…`
+              : JSON.stringify(p.payload),
+            <Mono key="a">{p.votes.filter((v) => v.approve).length} / {p.required}</Mono>,
+            p.created_by,
+            <span key="b" style={{ display: 'flex', gap: 8 }}>
+              <button className="btn-primary btn-sm" disabled={busy} onClick={() => act({ action: 'vote', proposalId: p.id, approve: true })}>Approve</button>
+              <button className="btn-ghost btn-sm" disabled={busy} onClick={() => act({ action: 'vote', proposalId: p.id, approve: false })}>Reject</button>
+            </span>,
           ])}
         />
-        <p className="lede" style={{ fontSize: 13, marginTop: 14 }}>
-          Approve or reject from the Signing Queue tab.
-        </p>
+        {error && !noSigners && <p style={{ color: 'var(--danger)', fontSize: 13, marginTop: 12 }}>{error}</p>}
       </Panel>
 
-      <Grid2>
-        <Panel title="How a Transfer Settles" label="policy → approval → MPC → broadcast">
-          <ol style={{ listStyle: 'none' }}>
-            {[
-              ['1', 'Policy engine', 'destination whitelist, sanctions screen, amount tier — rejections are final and logged'],
-              ['2', 'Approvals', 'quorum by amount tier: 2-of-7 under $100K up to 6-of-7 + 2h cooling-off above $1M'],
-              ['3', 'MPC signing', '4-of-7 encrypted shares collected; no plaintext key ever exists'],
-              ['4', 'Broadcast', '12-block confirmation, then one event to the Revenue Ontology'],
-            ].map(([n, step, desc]) => (
-              <li key={step} style={{ display: 'flex', gap: 16, padding: '11px 0', borderBottom: '1px solid var(--hair)', alignItems: 'baseline' }}>
-                <span className="mono" style={{ minWidth: 18 }}>{n}</span>
-                <span style={{ fontWeight: 500, minWidth: 120 }}>{step}</span>
-                <span style={{ color: 'var(--steel)', fontSize: 13.5 }}>{desc}</span>
-              </li>
-            ))}
-          </ol>
-        </Panel>
-
-        <Panel title="Governance at a Glance" label="full matrix in Governance">
-          <DataTable
-            columns={['Action', 'Required', 'Cooling-off']}
-            rows={[
-              ['Transfer > $1M', <Mono key="r">6 of 7</Mono>, '2 hours'],
-              ['Create / change company wallet', <Mono key="r">2 of 3 seniors</Mono>, 'none'],
-              ['Add or remove a signer', <Mono key="r">4 of 7</Mono>, '24 hours'],
-              ['Change the policy table', <Mono key="r">4 of 7</Mono>, '24 hours'],
-            ]}
-          />
-        </Panel>
-      </Grid2>
+      <Panel title="Recent Transfers" label="every transfer this workspace has requested">
+        <DataTable
+          columns={['When', 'To', 'Amount', 'Status', 'Tx hash']}
+          emptyMessage="No transfers yet — start one from the Signing Queue."
+          rows={data.transactions.slice(0, 10).map((t) => [
+            <Mono key="w">{shortTime(t.created_at)}</Mono>,
+            <Addr key="to">{t.to_address}</Addr>,
+            <Mono key="a">{formatEth(t.amount)}</Mono>,
+            <Pill key="s" tone={TX_TONE[t.status] ?? 'accent'}>{t.status.replace('_', ' ')}</Pill>,
+            <Mono key="h">{t.tx_hash ? `${t.tx_hash.slice(0, 12)}…` : '—'}</Mono>,
+          ])}
+        />
+        {data.transactions.length > 10 && (
+          <p style={{ marginTop: 12, fontSize: 13 }}>
+            <Link href="/dashboard/custody/audit">Full history in the Audit Log →</Link>
+          </p>
+        )}
+      </Panel>
     </>
   );
 }

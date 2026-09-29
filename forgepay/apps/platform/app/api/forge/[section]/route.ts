@@ -14,12 +14,12 @@ import {
   getBureauDisputes,
   getBureauDualScores,
   getBureauStats,
-  getCustodySummary,
   getMerchantSummary,
   getOntologyEvents,
   getTreasurySummary,
 } from '@/lib/forge-services';
 import { getWalletSummary } from '@/lib/openprivy';
+import { getCustodyConsole } from '@/lib/openfireblocks';
 import { getCurrentUser } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
@@ -29,8 +29,14 @@ export async function GET(
   { params }: { params: { section: string } },
 ) {
   switch (params.section) {
-    case 'custody':
-      return NextResponse.json(await getCustodySummary());
+    case 'custody': {
+      const user = await getCurrentUser();
+      if (!user) return NextResponse.json({ live: false, data: null, error: 'unauthenticated' }, { status: 401 });
+      const result = await getCustodyConsole(user.tenantId);
+      return NextResponse.json(
+        result.live ? { ...result, data: { ...(result.data as object), viewer: user.email.toLowerCase() } } : result,
+      );
+    }
     case 'wallet': {
       const user = await getCurrentUser();
       if (!user) return NextResponse.json({ live: false, data: null, error: 'unauthenticated' }, { status: 401 });
@@ -60,7 +66,9 @@ export async function GET(
       // Cross-platform aggregate for the unified dashboard.
       const overviewUser = await getCurrentUser();
       const [custody, wallet, treasury, bureau, ontology] = await Promise.all([
-        getCustodySummary<Record<string, unknown>>(),
+        overviewUser
+          ? getCustodyConsole(overviewUser.tenantId)
+          : Promise.resolve({ live: false, data: null, error: 'unauthenticated' }),
         overviewUser
           ? getWalletSummary(overviewUser.tenantId)
           : Promise.resolve({ live: false, data: null, error: 'unauthenticated' }),

@@ -1,96 +1,79 @@
 'use client';
 
-import {
-  PageHeader,
-  Panel,
-  Pill,
-  DataTable,
-  LivePill,
-  Mono,
-} from '@/components/forge/ui';
-import { useForge } from '@/components/forge/useForge';
+import { FormEvent, useState } from 'react';
+import { PageHeader, Panel, Pill, DataTable, LivePill, Mono } from '@/components/forge/ui';
+import { useCustody, shortTime } from '@/components/forge/useCustody';
 
-/* ────────────────────────────────────────────────────────────────
-   FORGE Custody — Connected Applications.
-   Live-wired to forge-custody's console/summary `connected_applications`
-   field: one row per issued API key, joined to its workspace. This is
-   the real record of what's actually connected to custody — not a
-   marketing list of integrations, the literal key inventory.
-   ──────────────────────────────────────────────────────────────── */
+/* FORGE Custody — Connected Applications. Each is a named API key an
+   application uses to submit transfers; the same policy and approval queue
+   apply to them as to transfers requested here in the console. */
 
-interface ConnectedApp {
-  id: string;
-  key_name: string;
-  workspace_id: string;
-  workspace_name: string;
-  workspace_type: string;
-  status: 'active' | 'suspended';
-  connected_at: string;
-  last_used_at: string | null;
-  revoked_at: string | null;
-}
-
-interface CustodySummary { connected_applications?: ConnectedApp[] }
-
-const EMPTY: CustodySummary = { connected_applications: [] };
-
-const WORKSPACE_TONE: Record<string, 'ok' | 'warn' | 'danger' | 'accent'> = {
-  bank: 'ok',
-  fintech: 'accent',
-  fund: 'accent',
-  enterprise: 'accent',
-  other: 'warn',
+const input: React.CSSProperties = {
+  width: '100%', border: '1px solid var(--hair)', background: 'var(--paper)', padding: '10px 12px',
+  fontSize: 13.5, color: 'var(--ink)', borderRadius: 0, fontFamily: 'inherit',
 };
 
-const fmt = (iso: string | null) =>
-  iso ? new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : null;
-
 export default function CustodyConnections() {
-  const { data, live } = useForge<CustodySummary>('custody', EMPTY);
-  const apps = data.connected_applications ?? [];
-  const active = apps.filter((a) => !a.revoked_at);
+  const { data, live, act, busy, error, me } = useCustody();
+  const [name, setName] = useState('');
+  const [issued, setIssued] = useState<{ name: string; api_key: string } | null>(null);
+
+  async function issue(e: FormEvent) {
+    e.preventDefault();
+    const result = await act({ action: 'issue_api_key', name });
+    if (result) {
+      setIssued({ name: result.name, api_key: result.api_key });
+      setName('');
+    }
+  }
 
   return (
     <>
       <PageHeader
         eyebrow="FORGE / Custody / Connected Applications"
-        title={
-          <>
-            What's actually <em>connected</em>
-          </>
-        }
-        lede="Every API key issued against custody, joined to the workspace that holds it — the real integration inventory, not a description of what could connect."
+        title={<>What's actually <em>connected</em></>}
+        lede="Every application that can submit transfers to this workspace, each with its own key you can revoke on its own."
         actions={<LivePill live={live} />}
       />
 
-      <Panel title="Connected Applications" label="GET /api/v1/console/summary · one row per issued API key" ink>
+      {me?.eligible && (
+        <Panel title="Connect an Application" label="issues a new API key" style={{ marginBottom: 20 }}>
+          <form onSubmit={issue} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', gap: 12 }}>
+            <input style={input} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Treasury bot (production)" required />
+            <button className="btn-primary" type="submit" disabled={busy}>Issue key</button>
+          </form>
+          {issued && (
+            <div style={{ marginTop: 16, border: '1px solid var(--ink)', padding: 14 }}>
+              <p style={{ fontSize: 13, marginBottom: 8 }}>
+                <strong>{issued.name}</strong> — copy this key now. It will not be shown again.
+              </p>
+              <Mono>{issued.api_key}</Mono>
+              <p style={{ fontSize: 12.5, marginTop: 10, color: 'var(--steel)' }}>
+                Send it as <Mono>Authorization: Bearer &lt;key&gt;</Mono> to <Mono>POST /sign</Mono>.
+              </p>
+            </div>
+          )}
+          {error && <p style={{ fontSize: 13, marginTop: 12, color: 'var(--danger)' }}>{error}</p>}
+        </Panel>
+      )}
+
+      <Panel title="Connected Applications" label="one row per API key" ink>
         <DataTable
-          columns={['Application', 'Workspace', 'Type', 'Connected', 'Last used', 'Status']}
-          emptyMessage="No applications connected yet — issue an API key to a workspace to connect one."
-          rows={active.map((a) => [
-            <Mono key="k">{a.key_name}</Mono>,
-            a.workspace_name,
-            <Pill key="t" tone={WORKSPACE_TONE[a.workspace_type] ?? 'accent'}>{a.workspace_type}</Pill>,
-            <Mono key="c">{fmt(a.connected_at)}</Mono>,
-            a.last_used_at ? <Mono key="u">{fmt(a.last_used_at)}</Mono> : <span key="u" style={{ color: 'var(--steel)', fontStyle: 'italic' }}>never used</span>,
-            <Pill key="s" tone={a.status === 'active' ? 'ok' : 'danger'}>{a.status}</Pill>,
+          columns={['Application', 'Key', 'Issued by', 'Issued', 'Last used', 'Status', '']}
+          emptyMessage="No applications connected yet."
+          rows={data.api_keys.map((k) => [
+            <strong key="n">{k.name}</strong>,
+            <Mono key="p">{k.key_prefix}…</Mono>,
+            k.created_by ?? '—',
+            <Mono key="c">{shortTime(k.created_at)}</Mono>,
+            k.last_used_at ? <Mono key="u">{shortTime(k.last_used_at)}</Mono> : <span key="u" style={{ fontStyle: 'italic' }}>never</span>,
+            <Pill key="s" tone={k.revoked_at ? 'danger' : 'ok'}>{k.revoked_at ? 'revoked' : 'active'}</Pill>,
+            !k.revoked_at && me?.eligible ? (
+              <button key="r" className="btn-ghost btn-sm" disabled={busy} onClick={() => act({ action: 'revoke_api_key', keyId: k.id })}>Revoke</button>
+            ) : <span key="r" />,
           ])}
         />
       </Panel>
-
-      {apps.some((a) => a.revoked_at) && (
-        <Panel title="Revoked" label="keys no longer able to reach custody" style={{ marginTop: 20 }}>
-          <DataTable
-            columns={['Application', 'Workspace', 'Connected', 'Revoked']}
-            rows={apps.filter((a) => a.revoked_at).map((a) => [
-              <Mono key="k">{a.key_name}</Mono>,
-              a.workspace_name,
-              <Mono key="c">{fmt(a.connected_at)}</Mono>,
-              <Mono key="r">{fmt(a.revoked_at)}</Mono>,
-            ])}
-          />
-        </Panel>
-      )}
     </>
   );
 }

@@ -1,57 +1,49 @@
 'use client';
 
-import {
-  PageHeader,
-  Panel,
-  DataTable,
-  LivePill,
-  Mono,
-} from '@/components/forge/ui';
-import { useForge } from '@/components/forge/useForge';
+import { PageHeader, Panel, Pill, DataTable, LivePill, Mono } from '@/components/forge/ui';
+import { useCustody, shortTime } from '@/components/forge/useCustody';
 
-/* ────────────────────────────────────────────────────────────────
-   FORGE Custody — Audit Log.
-   Live-wired to forge-custody's real console/summary `recent_audit`
-   field (services/forge-custody/src/index.ts) — the last 10 audit
-   entries for the workspace. forge-custody's own GET /api/v1/audit
-   returns the full log, but requires a workspace API key the console
-   doesn't hold; console/summary's CONSOLE_SECRET-gated slice is what
-   this page can actually reach.
-   ──────────────────────────────────────────────────────────────── */
+/* FORGE Custody — Audit Log. openfireblocks' audit.events for this
+   workspace: every request, policy decision, vote and signature, with the
+   person who acted. */
 
-interface AuditRow { at: string; actor: string; action: string; resource: string | null; status: number | null }
-interface CustodySummary { recent_audit?: AuditRow[] }
-
-const EMPTY: CustodySummary = { recent_audit: [] };
+const TONE: Record<string, 'ok' | 'warn' | 'danger' | 'accent'> = {
+  executed: 'ok',
+  signed: 'ok',
+  broadcasted: 'ok',
+  open: 'accent',
+  pending: 'accent',
+  pending_approval: 'warn',
+  denied: 'danger',
+  rejected: 'danger',
+  failed: 'danger',
+};
 
 export default function CustodyAudit() {
-  const { data, live } = useForge<CustodySummary>('custody', EMPTY);
-  const rows = data.recent_audit ?? [];
+  const { data, live } = useCustody();
 
   return (
     <>
       <PageHeader
         eyebrow="FORGE / Custody / Audit Log"
-        title={
-          <>
-            Append-only, <em>even for admins</em>
-          </>
-        }
-        lede="Every access is a row: approvals, policy decisions, MPC ceremonies, even console reads. Nothing here can be edited or deleted — including by the people who run the platform."
+        title={<>Every action, <em>attributed</em></>}
+        lede="Requests, policy decisions, votes and signatures for this workspace, newest first, with who did each."
         actions={<LivePill live={live} />}
       />
 
-      <Panel title="Recent Audit Log" label="GET /api/v1/console/summary · last 10 entries">
+      <Panel title="Audit Log" label="last 50 events">
         <DataTable
-          columns={['Time', 'Actor', 'Action', 'Resource', 'Status']}
-          rows={rows.map((e, i) => [
-            <Mono key={`t${i}`}>{new Date(e.at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</Mono>,
-            e.actor,
-            <Mono key={`a${i}`}>{e.action}</Mono>,
-            e.resource ?? '—',
-            <Mono key={`s${i}`}>{e.status ?? '—'}</Mono>,
+          columns={['When', 'Event', 'Who', 'Detail', 'Status']}
+          emptyMessage="Nothing has happened in this workspace yet."
+          rows={data.audit.map((e) => [
+            <span key="w" style={{ whiteSpace: 'nowrap' }}><Mono>{shortTime(e.created_at)}</Mono></span>,
+            <Mono key="t">{e.event_type}</Mono>,
+            e.actor.includes('@') ? e.actor : <span key="a" style={{ color: 'var(--steel)' }}>system</span>,
+            <span key="d" title={e.error_message ?? e.message ?? ''} style={{ display: 'block', maxWidth: 420, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {e.error_message ?? e.message ?? '—'}
+            </span>,
+            <Pill key="s" tone={TONE[e.status] ?? 'accent'}>{e.status.replace('_', ' ')}</Pill>,
           ])}
-          emptyMessage="No custody activity recorded yet."
         />
       </Panel>
     </>

@@ -51,7 +51,7 @@ export default function PaymentsRouting() {
             rows={[
               [<Mono key="t">{'< $100K'}</Mono>, 'FORGE Wallet', 'server-side key'],
               [<Mono key="t">$100K – $1M</Mono>, 'FORGE Payments', 'fallback chain'],
-              [<Mono key="t">{'> $1M'}</Mono>, 'FORGE Custody', '4-of-7 MPC + approvals'],
+              [<Mono key="t">{'> $1M'}</Mono>, 'FORGE Custody', 'signer quorum approval'],
             ]}
           />
         </Panel>

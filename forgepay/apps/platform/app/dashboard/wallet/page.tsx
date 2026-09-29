@@ -65,7 +65,7 @@ const TX_TONE: Record<string, 'ok' | 'warn' | 'danger' | 'accent'> = {
 const CHAINS = ['ethereum', 'polygon', 'solana'] as const;
 
 export default function WalletConsole() {
-  const { data, live } = useForge<WalletSummary>('wallet', EMPTY);
+  const { data, live, reload } = useForge<WalletSummary>('wallet', EMPTY);
   const [chain, setChain] = useState<(typeof CHAINS)[number]>('ethereum');
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -84,6 +84,7 @@ export default function WalletConsole() {
         setError(body?.message ?? 'Could not create that wallet.');
         return;
       }
+      reload();
     } catch {
       setError('Could not reach the wallet service.');
     } finally {

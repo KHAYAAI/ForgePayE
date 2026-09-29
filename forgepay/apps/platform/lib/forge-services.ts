@@ -18,8 +18,8 @@ export interface LiveResult<T> {
 }
 
 export const SERVICE_URLS = {
-  custody: process.env.FORGE_CUSTODY_URL ?? 'http://localhost:3019',
-  wallet: process.env.FORGE_WALLET_URL ?? 'http://localhost:3020',
+  custody: process.env.OPENFIREBLOCKS_URL ?? 'http://localhost:8090',
+  wallet: process.env.OPENPRIVY_URL ?? 'http://localhost:3021',
   treasury: process.env.ENTERPRISE_TREASURY_URL ?? 'http://localhost:3012',
   bureau: process.env.AGENT_CREDIT_BUREAU_URL ?? 'http://localhost:3018',
   router: process.env.UNIFIED_ROUTER_URL ?? 'http://localhost:8000',
@@ -39,11 +39,6 @@ async function fetchJson<T>(url: string, headers: Record<string, string> = {}): 
   }
 }
 
-function consoleSecretHeaders(): Record<string, string> {
-  const secret = process.env.CONSOLE_SECRET;
-  return secret ? { 'x-console-secret': secret } : {};
-}
-
 // The bureau denies by default — every route but /health, /metrics and
 // GET /v1/plans requires a scoped key. The console reads and resolves
 // disputes across every agent, which only the admin key can do; it never
@@ -56,13 +51,6 @@ function bureauAuthHeaders(): Record<string, string> {
   return { authorization: `Bearer ${key}` };
 }
 
-export function getCustodySummary<T>(): Promise<LiveResult<T>> {
-  return fetchJson<T>(`${SERVICE_URLS.custody}/api/v1/console/summary`, consoleSecretHeaders());
-}
-
-export function getWalletSummary<T>(): Promise<LiveResult<T>> {
-  return fetchJson<T>(`${SERVICE_URLS.wallet}/api/v1/console/summary`, consoleSecretHeaders());
-}
 
 // enterprise-treasury denies every route but /health without an X-Api-Key
 // header (services/enterprise-treasury/src/index.ts) — this was never sent,
@@ -434,13 +422,13 @@ export async function getServiceHealth(): Promise<ServiceHealth[]> {
     // service's own routes/index.ts rather than assumed:
     //   unified-router      -> /healthz   (services/unified-router/src/routes/health.ts)
     //   agent-credit-bureau -> /health    (services/agent-credit-bureau/src/index.ts)
-    //   forge-custody       -> /api/health (services/forge-custody/src/index.ts)
-    //   forge-wallet        -> /api/health (services/forge-wallet/src/index.ts)
+    //   openfireblocks      -> /health/ready (api-gateway; checks its DB too)
+    //   open-privy          -> /metrics/health (services/backend monitoring module)
     //   enterprise-treasury -> /health    (services/enterprise-treasury/src/index.ts)
     { name: 'unified-router', url: `${SERVICE_URLS.router}/healthz` },
     { name: 'agent-credit-bureau', url: `${SERVICE_URLS.bureau}/health` },
-    { name: 'forge-custody', url: `${SERVICE_URLS.custody}/api/health` },
-    { name: 'forge-wallet', url: `${SERVICE_URLS.wallet}/api/health` },
+    { name: 'openfireblocks (custody)', url: `${SERVICE_URLS.custody}/health/ready` },
+    { name: 'open-privy (wallet)', url: `${SERVICE_URLS.wallet}/metrics/health` },
     { name: 'enterprise-treasury', url: `${SERVICE_URLS.treasury}/health` },
   ];
 

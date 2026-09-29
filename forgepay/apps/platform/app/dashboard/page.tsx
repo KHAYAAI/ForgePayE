@@ -17,7 +17,7 @@ import {
 import { useForge } from '@/components/forge/useForge';
 
 interface OverviewLive {
-  custody: { live: boolean; data: { stats?: { signatures_24h?: number; pending_approval?: number; notional_24h_usd?: number } } | null };
+  custody: { live: boolean; data: { stats?: { signed_24h?: number; pending_approval?: number } } | null };
   wallet: { live: boolean; data: { stats?: { total_wallets?: number; transactions_total?: number } } | null };
   treasury: { live: boolean; data: { cash_position?: { data?: { totalUsd?: number } } } | null };
   bureau: { live: boolean; data: { stats?: { totalAgents?: number; totalDebt?: number; inquiries24h?: number } } | null };
@@ -82,8 +82,8 @@ export default function UnifiedDashboard() {
       href: '/dashboard/custody',
       key: 'custody',
       name: 'FORGE Custody',
-      role: 'Institutional 4-of-7 threshold signing',
-      metric: custody ? `${custody.signatures_24h ?? 0} signatures / 24h` : '—',
+      role: 'Policy-screened, quorum-approved signing',
+      metric: custody ? `${custody.signed_24h ?? 0} signed / 24h` : '—',
       live: !!custody,
     },
     {
@@ -166,7 +166,7 @@ export default function UnifiedDashboard() {
 
       <StatGrid>
         <Stat label="Ontology events / 24h" value={events.length} delta={overview?.ontology?.live ? 'from revenue_events' : 'ontology feed unreachable'} />
-        <Stat label="Custody signatures / 24h" value={custody?.signatures_24h ?? '—'} delta={custody ? `${custody.pending_approval ?? 0} pending approval` : 'custody unreachable'} />
+        <Stat label="Custody signed / 24h" value={custody?.signed_24h ?? '—'} delta={custody ? `${custody.pending_approval ?? 0} pending approval` : 'custody unreachable'} />
         <Stat label="Agent lines drawn" value={bureau?.totalDebt != null ? money(bureau.totalDebt) : '—'} delta={bureau ? `${bureau.totalAgents ?? 0} agents scored` : 'bureau unreachable'} />
         <Stat label="Consolidated cash" value={treasury?.totalUsd != null ? `$${(treasury.totalUsd / 1_000_000).toFixed(1)}M` : '—'} delta={treasury ? 'from cash-position' : 'treasury unreachable'} />
         <Stat label="Wallet transactions" value={wallet?.transactions_total ?? '—'} delta={wallet ? `${(wallet.total_wallets ?? 0).toLocaleString('en-US')} wallets` : 'wallet unreachable'} />
@@ -203,7 +203,7 @@ export default function UnifiedDashboard() {
             {
               tier: '> $1M',
               path: 'FORGE Custody',
-              desc: 'Institutional transfers require policy evaluation, multi-party approval, and 4-of-7 threshold signing.',
+              desc: 'Institutional transfers pass policy and sanctions screening, then wait for a quorum of named signers before they are signed.',
             },
           ].map((t) => (
             <div key={t.tier} style={{ background: 'var(--ink)', padding: '18px 20px' }}>
@@ -266,7 +266,7 @@ export default function UnifiedDashboard() {
               ['02', 'Agent Credit Bureau', 'Score 75/100 checked; requires credit extension past R25K line.'],
               ['03', 'Enterprise Treasury', 'Treasury manager approves extension to R100K — one click.'],
               ['04', 'FORGE Payments', 'Routes institutional-size credit transfer to Custody.'],
-              ['05', 'FORGE Custody', 'Policy pass → approvals → 4-of-7 threshold signature → broadcast.'],
+              ['05', 'FORGE Custody', 'Policy pass → signer quorum approves → signed → broadcast.'],
               ['06', 'Revenue Ontology', 'Confirmed event recorded once; every platform reads it.'],
               ['07', 'Agent Credit Bureau', 'On-time repayment lifts score 78 → 82; line grows to R250K.'],
             ].map(([n, sys, desc]) => (

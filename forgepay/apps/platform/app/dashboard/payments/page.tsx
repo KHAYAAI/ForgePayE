@@ -97,7 +97,7 @@ export default function PaymentsOverview() {
           {[
             ['< $100K', 'Direct via FORGE Wallet — signed server-side, 12-block confirmation.'],
             ['$100K – $1M', 'FORGE Payments with fallback chain: card → ACH → USDC. No payment dies on a single rail.'],
-            ['> $1M', 'Escalates to FORGE Custody — 4-of-7 MPC signing queue, approvals enforced.'],
+            ['> $1M', 'Escalates to FORGE Custody — held until a quorum of signers approves.'],
           ].map(([tier, desc]) => (
             <li key={tier} style={{ display: 'flex', gap: 16, padding: '11px 0', borderBottom: '1px solid rgba(244,242,238,0.14)', alignItems: 'baseline' }}>
               <span className="mono" style={{ minWidth: 92 }}>{tier}</span>
