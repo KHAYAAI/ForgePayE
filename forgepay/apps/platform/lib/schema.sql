@@ -102,3 +102,23 @@ CREATE TABLE IF NOT EXISTS audit_log (
 
 CREATE INDEX IF NOT EXISTS idx_audit_tenant_time ON audit_log(tenant_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_actor        ON audit_log(actor_user_id, created_at DESC);
+
+-- Teammate invitations. Only the sha256 of the token is stored, so a database
+-- read can't be turned into a working invite link. An invitation is usable
+-- while accepted_at, revoked_at are NULL and expires_at is in the future.
+CREATE TABLE IF NOT EXISTS invitations (
+  id          TEXT PRIMARY KEY,
+  tenant_id   TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  email       TEXT NOT NULL,
+  role        TEXT NOT NULL CHECK (role IN ('admin', 'approver', 'analyst')),
+  token_hash  TEXT NOT NULL UNIQUE,
+  invited_by  TEXT NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at  TIMESTAMPTZ NOT NULL,
+  accepted_at TIMESTAMPTZ,
+  revoked_at  TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_invitations_tenant ON invitations(tenant_id);
+-- At most one live invitation per address per tenant.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_invitations_live
+  ON invitations(tenant_id, lower(email)) WHERE accepted_at IS NULL AND revoked_at IS NULL;

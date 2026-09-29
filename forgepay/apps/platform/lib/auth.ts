@@ -105,11 +105,20 @@ export async function getValidSession(token: string): Promise<TokenPayload | nul
   );
   if (!session) return null;
 
+  // The token carries the role it was issued with, which can be days old. Read
+  // the user's current role, tenant and status so a demoted or deactivated
+  // teammate loses access immediately instead of when the token expires.
+  const current = await queryOne<{ role: Role; tenant_id: string; status: string }>(
+    `SELECT role, tenant_id, status FROM users WHERE id = $1`,
+    [payload.userId],
+  );
+  if (!current || current.status !== 'active') return null;
+
   void execute(`UPDATE sessions SET last_seen_at = NOW() WHERE id = $1`, [payload.jti]).catch((err) =>
     console.error('[auth] failed to touch session last_seen_at:', err),
   );
 
-  return payload;
+  return { ...payload, role: current.role, tenantId: current.tenant_id };
 }
 
 export async function getCurrentUser(): Promise<TokenPayload | null> {

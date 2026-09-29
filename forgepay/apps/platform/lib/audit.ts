@@ -24,7 +24,10 @@ export type AuditAction =
   | 'session.revoked_all'
   | 'user.role_changed'
   | 'user.api_key_rotated'
-  | 'tenant.products_updated';
+  | 'tenant.products_updated'
+  | 'team.invited'
+  | 'team.invite_revoked'
+  | 'team.invite_accepted';
 
 export interface AuditEventInput {
   tenantId?: string | null;
