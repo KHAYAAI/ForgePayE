@@ -42,6 +42,7 @@ import {
   audit,
   auditLog,
   createKey,
+  apiKeys,
   createPolicy,
   createWorkspace,
   issueApiKey,
@@ -462,6 +463,20 @@ export async function buildApp() {
         resource: e.resourceId,
         status: e.statusCode,
       })),
+      connected_applications: [...apiKeys.values()].map((k) => {
+        const ws = workspaces.get(k.workspaceId);
+        return {
+          id: k.id,
+          key_name: k.name,
+          workspace_id: k.workspaceId,
+          workspace_name: ws?.name ?? k.workspaceId,
+          workspace_type: ws?.institutionType ?? 'other',
+          status: ws?.status ?? 'active',
+          connected_at: k.createdAt,
+          last_used_at: k.lastUsedAt,
+          revoked_at: k.revokedAt,
+        };
+      }),
     };
   });
 

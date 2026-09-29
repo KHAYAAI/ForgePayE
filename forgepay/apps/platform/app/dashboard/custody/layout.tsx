@@ -14,6 +14,7 @@ export default async function CustodyLayout({ children }: { children: React.Reac
           { href: '/dashboard/custody/signing', label: 'Signing Queue' },
           { href: '/dashboard/custody/governance', label: 'Governance' },
           { href: '/dashboard/custody/keys', label: 'Keys' },
+          { href: '/dashboard/custody/connections', label: 'Connected Apps' },
           { href: '/dashboard/custody/audit', label: 'Audit Log' },
         ]}
       />
