@@ -326,10 +326,6 @@ export default function BureauAgents() {
                   </li>
                 ))}
               </ol>
-              <p className="lede" style={{ fontSize: 13, marginTop: 14 }}>
-                Factors are the top reasons for the score, ranked by model weight — the same
-                explainability a lender sees on a pulled report.
-              </p>
             </>
           ) : (
             <p className="lede" style={{ fontSize: 13 }}>No agents in the register yet.</p>
@@ -347,10 +343,6 @@ export default function BureauAgents() {
               <Mono key={`a${i}`}>{e.amount ?? '—'}</Mono>,
             ])}
           />
-          <p className="lede" style={{ fontSize: 13, marginTop: 14 }}>
-            Hard inquiries are themselves credit events — every $2.80 pull is on the file, visible
-            to the agent's operator, and disputable under the FCRA-style process in Disputes.
-          </p>
         </Panel>
       </Grid2>
     </>

@@ -53,11 +53,6 @@ export default function CustodyAudit() {
           ])}
           emptyMessage="No custody activity recorded yet."
         />
-        <p className="lede" style={{ fontSize: 13, marginTop: 14 }}>
-          Exports for regulators are one click and cryptographically chained — each row carries a
-          hash of the previous, so a removed or altered entry is detectable by anyone holding the
-          export.
-        </p>
       </Panel>
     </>
   );

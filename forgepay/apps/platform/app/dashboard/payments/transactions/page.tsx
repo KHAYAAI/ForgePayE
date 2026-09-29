@@ -96,10 +96,6 @@ export default function PaymentsTransactions() {
             <Mono key="w">{new Date(e.occurredAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</Mono>,
           ])}
         />
-        <p className="lede" style={{ fontSize: 13, marginTop: 14 }}>
-          A failed payment is never silent: the fallback chain retries card → ACH → USDC before a
-          failure surfaces here, and every attempt is recorded as its own ontology event.
-        </p>
       </Panel>
     </>
   );

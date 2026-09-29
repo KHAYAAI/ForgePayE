@@ -119,11 +119,6 @@ export default function CreditBureauDualMode() {
             ];
           })}
         />
-        <p className="lede" style={{ fontSize: 13, marginTop: 14 }}>
-          Mode 1 always makes the lending decision. Mode 2 exists to catch what a credit file
-          can't: an agent whose on-book profile looks healthy but whose live operational behavior
-          — failure rates, budget breaches — has deteriorated.
-        </p>
       </Panel>
 
       <Grid2>
@@ -136,10 +131,6 @@ export default function CreditBureauDualMode() {
               [<Pill key="l" tone="danger">low</Pill>, <Mono key="v">&gt; 100 pts</Mono>, 'Behavior and credit file misaligned — manual review required.'],
             ]}
           />
-          <p className="lede" style={{ fontSize: 13, marginTop: 14 }}>
-            When Mode 2 has not yet settled, consensus reports MEDIUM and Mode 1 stands alone as
-            authoritative.
-          </p>
         </Panel>
 
         <Panel title="On-Chain Settlement" label="Mode 2 scores settle for external verification" ink>
@@ -154,11 +145,6 @@ export default function CreditBureauDualMode() {
               <Mono key="at">{s.settledAt}</Mono>,
             ])}
           />
-          <p className="lede" style={{ fontSize: 13, marginTop: 14 }}>
-            Settled Mode 2 scores are readable by any external protocol — the bureau's audit trail
-            without exposing the underlying credit file. Settlement runs on a schedule; the FICO
-            file never leaves FORGE.
-          </p>
         </Panel>
       </Grid2>
 

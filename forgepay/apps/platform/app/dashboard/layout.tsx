@@ -101,6 +101,9 @@ export default async function DashboardLayout({
               <Link href="/dashboard/products" className={styles.navItem}>
                 Products
               </Link>
+              <Link href="/dashboard/help" className={styles.navItem}>
+                Help
+              </Link>
               <Link href="/dashboard/settings" className={styles.navItem}>
                 Settings<span className={styles.navTag}>2FA</span>
               </Link>

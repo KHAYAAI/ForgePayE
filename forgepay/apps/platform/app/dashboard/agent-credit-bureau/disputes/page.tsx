@@ -81,7 +81,7 @@ export default function BureauDisputes() {
             The right to <em>contest the file</em>
           </>
         }
-        lede="FCRA-style process: an operator disputes an event, the furnisher gets 30 days to substantiate it, and an unanswered dispute deletes the event. Scores recompute the moment a dispute resolves."
+        lede="Every dispute filed against the credit file, with its resolution clock and current status."
         actions={<LivePill live={live} />}
       />
 
@@ -122,11 +122,6 @@ export default function BureauDisputes() {
             ),
           ])}
         />
-        <p className="lede" style={{ fontSize: 13, marginTop: 14 }}>
-          Every dispute and its resolution are themselves credit events — the file records that the
-          file was contested. Furnishers who repeatedly post corrected data lose contributor query
-          credits.
-        </p>
       </Panel>
     </>
   );

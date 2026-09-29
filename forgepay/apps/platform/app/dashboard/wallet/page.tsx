@@ -130,12 +130,6 @@ export default function WalletConsole() {
             ),
           ])}
         />
-        <p className="lede" style={{ fontSize: 13, marginTop: 14 }}>
-          Creating, renaming or raising the limits of a corporate wallet is a governed change: the
-          request queues in Custody and needs sign-off from 2 of 3 senior officers before the
-          wallet activates. Payments above a wallet's single-transaction ceiling don't fail — they
-          escalate to the Custody signing queue automatically.
-        </p>
       </Panel>
 
       <Grid2>
@@ -165,10 +159,6 @@ export default function WalletConsole() {
               <Pill key="s" tone={REC_TONE[r.status]}>{r.status}</Pill>,
             ])}
           />
-          <p className="lede" style={{ fontSize: 13, marginTop: 14 }}>
-            Each trusted contact receives a single-use approval token (hash-stored). Two of three
-            approvals unlock a password reset; keys rotate under the new credential.
-          </p>
         </Panel>
       </Grid2>
 

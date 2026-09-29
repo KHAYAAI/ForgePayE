@@ -105,10 +105,6 @@ export default function PaymentsOverview() {
             </li>
           ))}
         </ol>
-        <p className="lede" style={{ fontSize: 13, marginTop: 14 }}>
-          Routing is policy, not code changes — thresholds live in Treasury money-movement rules
-          and apply across every merchant.
-        </p>
       </Panel>
     </>
   );

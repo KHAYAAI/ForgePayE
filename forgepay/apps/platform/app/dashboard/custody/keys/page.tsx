@@ -71,10 +71,6 @@ export default function CustodyKeys() {
             <Pill key="r" tone={ROTATION_TONE[k.rotation_status]}>{k.rotation_status}</Pill>,
           ])}
         />
-        <p className="lede" style={{ fontSize: 13, marginTop: 14 }}>
-          Feldman-VSS share commitments are verified at each ceremony — a corrupted or substituted
-          share is detected before it can ever participate in a signature.
-        </p>
       </Panel>
 
       <Grid2>

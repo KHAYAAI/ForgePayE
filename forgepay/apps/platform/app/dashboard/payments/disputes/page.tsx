@@ -46,11 +46,6 @@ export default function PaymentsDisputes() {
           rows={[]}
           emptyMessage="No disputes filed against your account."
         />
-        <p className="lede" style={{ fontSize: 13, marginTop: 14 }}>
-          Refunds above R10,000 require a second approver (dual control) — the request routes to
-          Compliance before funds move. Lost disputes automatically post a negative event to the
-          merchant's ontology record.
-        </p>
       </Panel>
     </>
   );

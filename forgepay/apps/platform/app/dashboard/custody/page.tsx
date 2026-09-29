@@ -94,8 +94,7 @@ export default function CustodyOverview() {
           ])}
         />
         <p className="lede" style={{ fontSize: 13, marginTop: 14 }}>
-          Approve or reject from the Signing Queue tab — approvals are signed API calls from
-          registered approver roles, distinct approvers enforced server-side.
+          Approve or reject from the Signing Queue tab.
         </p>
       </Panel>
 
@@ -127,10 +126,6 @@ export default function CustodyOverview() {
               ['Change the policy table', <Mono key="r">4 of 7</Mono>, '24 hours'],
             ]}
           />
-          <p className="lede" style={{ fontSize: 13, marginTop: 14 }}>
-            Wallet provisioning, signer changes and policy edits queue exactly like transfers —
-            nothing takes effect on a single keyholder's say-so.
-          </p>
         </Panel>
       </Grid2>
     </>

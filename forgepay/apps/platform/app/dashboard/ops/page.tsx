@@ -85,11 +85,6 @@ export default function OpsDashboard() {
             s.error ?? '—',
           ])}
         />
-        <p className="lede" style={{ fontSize: 13, marginTop: 14 }}>
-          A service reporting unreachable here is exactly why pages that depend on it (Custody,
-          Wallet, Enterprise Treasury, Agent Credit Bureau) show a real empty state instead of
-          data — nothing on those pages is ever backfilled with a placeholder.
-        </p>
       </Panel>
     </>
   );

@@ -62,10 +62,6 @@ export default function BureauDevelopers() {
               </li>
             ))}
           </ol>
-          <p className="lede" style={{ fontSize: 13, marginTop: 14 }}>
-            The integrations are how inquiry volume compounds — one agent pipeline can pull hundreds
-            of scores a day.
-          </p>
         </Panel>
       </Grid2>
 
@@ -94,10 +90,6 @@ export default function BureauDevelopers() {
             ['Bank', 'Verified settlement history', <Mono key="c">0.5 queries / record</Mono>],
           ]}
         />
-        <p className="lede" style={{ fontSize: 13, marginTop: 14 }}>
-          Contributors start with 5,000 queries; capacity grows with every record furnished — the
-          bureau gets richer, the contributor's pulls get cheaper.
-        </p>
       </Panel>
     </>
   );

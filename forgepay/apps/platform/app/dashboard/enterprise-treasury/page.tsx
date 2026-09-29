@@ -139,11 +139,6 @@ export default function EnterpriseTreasury() {
             ),
           ])}
         />
-        <p className="lede" style={{ fontSize: 13, marginTop: 14 }}>
-          Approving an agent credit extension updates the line in the Agent Credit Bureau and
-          authorizes FORGE Custody to settle draws from the enterprise custody account. Repayment
-          auto-sweeps principal + fee back on term.
-        </p>
       </Panel>
 
       <Grid2>

@@ -113,12 +113,6 @@ export default function CustodySigning() {
             ),
           ])}
         />
-        <p className="lede" style={{ fontSize: 13, marginTop: 14 }}>
-          When the quorum completes, the MPC orchestrator collects encrypted shares and the status
-          moves to <Mono>signing</Mono> — no human ever touches key material. A policy rejection
-          (like <Mono>DESTINATION_NOT_WHITELISTED</Mono>) is final; resubmission requires a
-          whitelist change, which is itself a governed vote.
-        </p>
       </Panel>
     </>
   );

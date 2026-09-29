@@ -54,11 +54,6 @@ export default function PaymentsRouting() {
               [<Mono key="t">{'> $1M'}</Mono>, 'FORGE Custody', '4-of-7 MPC + approvals'],
             ]}
           />
-          <p className="lede" style={{ fontSize: 13, marginTop: 14 }}>
-            A payment above a wallet's single-transaction ceiling doesn't fail — the wallet refuses
-            with <Mono>409 route:forge-custody</Mono> and the router re-submits it to the Custody
-            signing queue.
-          </p>
         </Panel>
       </Grid2>
     </>

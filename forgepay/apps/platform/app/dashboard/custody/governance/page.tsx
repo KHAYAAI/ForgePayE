@@ -52,10 +52,6 @@ export default function CustodyGovernance() {
             p.cooldown,
           ])}
         />
-        <p className="lede" style={{ fontSize: 13, marginTop: 14 }}>
-          Wallet provisioning, signer changes and policy edits are governed changes — they queue
-          exactly like transfers and never take effect on a single keyholder's say-so.
-        </p>
       </Panel>
 
       <Panel
@@ -68,10 +64,6 @@ export default function CustodyGovernance() {
           rows={[]}
           emptyMessage="No signers added yet."
         />
-        <p className="lede" style={{ fontSize: 13, marginTop: 14 }}>
-          A newly invited signer stays <strong>pending</strong> until 4 of 7 current signers
-          approve, then serves a 24-hour cooling-off before their first co-signature counts.
-        </p>
       </Panel>
     </>
   );
