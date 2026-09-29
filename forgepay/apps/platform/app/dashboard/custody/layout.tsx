@@ -1,8 +1,10 @@
 import { ProductNav } from '@/components/forge/ProductNav';
+import { requireProduct } from '@/lib/products';
 
 /* FORGE Custody — standalone product console. */
 
-export default function CustodyLayout({ children }: { children: React.ReactNode }) {
+export default async function CustodyLayout({ children }: { children: React.ReactNode }) {
+  await requireProduct('custody');
   return (
     <>
       <ProductNav

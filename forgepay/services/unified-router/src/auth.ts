@@ -189,6 +189,9 @@ const PUBLIC_ROUTES = new Set<string>([
   // operator key at this outer gate) so the console's server-side proxy can
   // reach it with its own internal secret instead of the platform master key.
   'GET /v1/merchant/summary',
+  // Genuinely public — the product catalog (names, taglines, availability),
+  // no customer data. See routes/merchant.ts.
+  'GET /v1/products/catalog',
 ]);
 
 /**

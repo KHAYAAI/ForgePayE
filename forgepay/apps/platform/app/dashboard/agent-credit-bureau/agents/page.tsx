@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { FormEvent, useState } from 'react';
 import {
   PageHeader,
   Panel,
@@ -14,6 +14,51 @@ import {
 } from '@/components/forge/ui';
 import { useForge } from '@/components/forge/useForge';
 import { gradeFor, gradeTone } from '@/lib/credit-grade';
+
+const fieldLabel: React.CSSProperties = {
+  display: 'block',
+  fontFamily: "'JetBrains Mono', monospace",
+  fontSize: 9.5,
+  letterSpacing: 1.4,
+  textTransform: 'uppercase',
+  color: 'var(--steel)',
+  marginBottom: 6,
+};
+
+const fieldInput: React.CSSProperties = {
+  width: '100%',
+  border: '1px solid var(--hair)',
+  background: 'var(--paper)',
+  padding: '10px 12px',
+  fontSize: 13.5,
+  color: 'var(--ink)',
+  borderRadius: 0,
+  fontFamily: 'inherit',
+};
+
+const OPERATOR_TYPES = ['individual', 'llc', 'corp', 'dao'] as const;
+
+interface RegisterForm {
+  agentId: string;
+  did: string;
+  operatorEntityId: string;
+  operatorEntityType: (typeof OPERATOR_TYPES)[number];
+  evmAddress: string;
+  operatorLegalName: string;
+  operatorCountry: string;
+  operatorRegistrationNumber: string;
+}
+
+const BLANK_FORM: RegisterForm = {
+  agentId: '',
+  did: '',
+  operatorEntityId: '',
+  operatorEntityType: 'individual',
+  evmAddress: '',
+  operatorLegalName: '',
+  operatorCountry: '',
+  operatorRegistrationNumber: '',
+};
 
 /* ────────────────────────────────────────────────────────────────
    Agent Credit Bureau — Agents.
@@ -66,9 +111,51 @@ const EMPTY_FILE: AgentFile = { factors: [], events: [] };
 export default function BureauAgents() {
   const { data, live } = useForge<BureauSummary>('bureau', EMPTY);
   const [selected, setSelected] = useState<string | null>(null);
+  const [form, setForm] = useState<RegisterForm>(BLANK_FORM);
+  const [registering, setRegistering] = useState(false);
+  const [registerError, setRegisterError] = useState<string | null>(null);
+  const [registered, setRegistered] = useState(false);
 
   const agents = data.agents ?? [];
   const agent = agents.find((a) => a.agentId === selected) ?? agents[0] ?? null;
+
+  async function handleRegister(e: FormEvent) {
+    e.preventDefault();
+    setRegistering(true);
+    setRegisterError(null);
+    setRegistered(false);
+    try {
+      const res = await fetch('/api/forge/bureau-register', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          agentId: form.agentId,
+          did: form.did,
+          operatorEntityId: form.operatorEntityId,
+          operatorEntityType: form.operatorEntityType,
+          evmAddress: form.evmAddress || undefined,
+          operatorLegalName: form.operatorLegalName || undefined,
+          operatorCountry: form.operatorCountry ? form.operatorCountry.toUpperCase() : undefined,
+          operatorRegistrationNumber: form.operatorRegistrationNumber || undefined,
+        }),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        const detail = body?.detail;
+        const fieldErrors = detail?.details?.fieldErrors as Record<string, string[]> | undefined;
+        const firstFieldError = fieldErrors && Object.values(fieldErrors).flat().find(Boolean);
+        setRegisterError(detail?.message ?? firstFieldError ?? body?.message ?? 'Could not register that agent.');
+        return;
+      }
+      setForm(BLANK_FORM);
+      setRegistered(true);
+      setSelected(form.agentId);
+    } catch {
+      setRegisterError('Could not reach the bureau service.');
+    } finally {
+      setRegistering(false);
+    }
+  }
 
   // Per-agent credit file — factors + history — fetched separately per
   // selection since the register (above) carries only summary fields.
@@ -90,6 +177,99 @@ export default function BureauAgents() {
         lede="Every scored agent with its full credit file — factors, events, delinquencies and who pulled the report. Select a row to open the file."
         actions={<LivePill live={live} />}
       />
+
+      <Panel title="Register an Agent" label="POST /v1/agents/:agentId/profile" style={{ marginBottom: 20 }}>
+        <form onSubmit={handleRegister} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 16 }}>
+          <div>
+            <label style={fieldLabel}>Agent ID</label>
+            <input
+              style={fieldInput}
+              value={form.agentId}
+              onChange={(e) => setForm({ ...form, agentId: e.target.value })}
+              placeholder="agent_..."
+              required
+            />
+          </div>
+          <div>
+            <label style={fieldLabel}>DID</label>
+            <input
+              style={fieldInput}
+              value={form.did}
+              onChange={(e) => setForm({ ...form, did: e.target.value })}
+              placeholder="did:forge:agent_..."
+              required
+            />
+          </div>
+          <div>
+            <label style={fieldLabel}>Operator entity ID</label>
+            <input
+              style={fieldInput}
+              value={form.operatorEntityId}
+              onChange={(e) => setForm({ ...form, operatorEntityId: e.target.value })}
+              placeholder="entity_..."
+              required
+            />
+          </div>
+          <div>
+            <label style={fieldLabel}>Operator entity type</label>
+            <select
+              style={fieldInput}
+              value={form.operatorEntityType}
+              onChange={(e) => setForm({ ...form, operatorEntityType: e.target.value as RegisterForm['operatorEntityType'] })}
+            >
+              {OPERATOR_TYPES.map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label style={fieldLabel}>EVM address · optional</label>
+            <input
+              style={fieldInput}
+              value={form.evmAddress}
+              onChange={(e) => setForm({ ...form, evmAddress: e.target.value })}
+              placeholder="0x..."
+            />
+          </div>
+          <div>
+            <label style={fieldLabel}>Operator legal name · optional</label>
+            <input
+              style={fieldInput}
+              value={form.operatorLegalName}
+              onChange={(e) => setForm({ ...form, operatorLegalName: e.target.value })}
+            />
+          </div>
+          <div>
+            <label style={fieldLabel}>Operator country · optional</label>
+            <input
+              style={fieldInput}
+              value={form.operatorCountry}
+              onChange={(e) => setForm({ ...form, operatorCountry: e.target.value })}
+              placeholder="ZA"
+              maxLength={2}
+            />
+          </div>
+          <div>
+            <label style={fieldLabel}>Registration number · optional</label>
+            <input
+              style={fieldInput}
+              value={form.operatorRegistrationNumber}
+              onChange={(e) => setForm({ ...form, operatorRegistrationNumber: e.target.value })}
+            />
+          </div>
+          <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+            <button className="btn-primary" type="submit" disabled={registering}>
+              {registering ? 'Registering…' : 'Register agent'}
+            </button>
+          </div>
+        </form>
+        {registerError && (
+          <p className="lede" style={{ fontSize: 13, color: 'var(--danger)', marginTop: 14 }}>{registerError}</p>
+        )}
+        {registered && !registerError && (
+          <p className="lede" style={{ fontSize: 13, color: 'var(--ok)', marginTop: 14 }}>Agent registered — it will appear in the register below on the next refresh.</p>
+        )}
+      </Panel>
 
       <Panel title="Agent Register" label="GET /v1/agents · select a row for the credit file" style={{ marginBottom: 20 }}>
         <DataTable

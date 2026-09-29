@@ -115,4 +115,33 @@ export async function buildMerchantRoutes(app: FastifyInstance) {
       });
     },
   );
+
+  // GET /v1/products/catalog — the real product list, including which ones
+  // are actually available to turn on (see db/migrations/002_product_topology.sql).
+  // Genuinely public: feature names and availability, no customer data.
+  interface ProductRow {
+    key: string;
+    name: string;
+    tagline: string | null;
+    availability: 'available' | 'waitlist' | 'private' | 'retired';
+    requires: string[];
+    sort_order: number;
+  }
+  app.get('/v1/products/catalog', async (_req, reply) => {
+    const result = await db.query<ProductRow>(
+      'public',
+      `SELECT key, name, tagline, availability, requires, sort_order
+         FROM products WHERE availability != 'retired' ORDER BY sort_order`,
+      [],
+    );
+    return reply.send({
+      data: result.rows.map((p) => ({
+        key: p.key,
+        name: p.name,
+        tagline: p.tagline,
+        availability: p.availability,
+        requires: p.requires,
+      })),
+    });
+  });
 }

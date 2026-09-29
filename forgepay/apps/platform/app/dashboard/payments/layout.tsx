@@ -1,8 +1,10 @@
 import { ProductNav } from '@/components/forge/ProductNav';
+import { requireProduct } from '@/lib/products';
 
 /* FORGE Payments — standalone product console. */
 
-export default function PaymentsLayout({ children }: { children: React.ReactNode }) {
+export default async function PaymentsLayout({ children }: { children: React.ReactNode }) {
+  await requireProduct('payments');
   return (
     <>
       <ProductNav

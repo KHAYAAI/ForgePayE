@@ -1,8 +1,10 @@
 import { ProductNav } from '@/components/forge/ProductNav';
+import { requireProduct } from '@/lib/products';
 
 /* FORGE Agent Credit Bureau — standalone product console. */
 
-export default function BureauLayout({ children }: { children: React.ReactNode }) {
+export default async function BureauLayout({ children }: { children: React.ReactNode }) {
+  await requireProduct('credit-bureau');
   return (
     <>
       <ProductNav

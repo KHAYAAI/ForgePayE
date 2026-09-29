@@ -3,18 +3,16 @@ import styles from './dashboard.module.css';
 import Link from 'next/link';
 import { getCurrentUser } from '@/lib/auth';
 import { can } from '@/lib/rbac';
+import { getEnabledProducts } from '@/lib/products';
 
 /**
  * FORGE console shell.
  *
- * One interconnected surface for every FORGE platform:
- * Payments, Custody (institutional signing), Wallet (consumer/agent),
- * Agent Credit Bureau, Enterprise Treasury, merchant Credit Bureau,
- * plus operations and analytics.
- *
- * Server component: reads the session so navigation is role-aware. The
- * route itself is already guarded by middleware.ts — this only tailors
- * which controls are shown.
+ * Server component: reads the session so navigation is role- and
+ * product-aware. A platform the tenant hasn't turned on (see
+ * /dashboard/products) doesn't appear here at all — the route itself
+ * still redirects if visited directly (defense in depth), but there's
+ * no reason to show a link to something that isn't on.
  */
 export default async function DashboardLayout({
   children,
@@ -23,6 +21,9 @@ export default async function DashboardLayout({
 }) {
   const user = await getCurrentUser();
   const role = user?.role;
+  const enabled = user ? await getEnabledProducts(user.tenantId) : [];
+  const has = (key: string) => enabled.includes(key);
+
   return (
     <div className={styles.dashboardContainer}>
       <header className={styles.topbar}>
@@ -47,34 +48,38 @@ export default async function DashboardLayout({
               </Link>
             </div>
 
-            <div className={styles.navSection}>
-              <h3>Platforms</h3>
-              <Link href="/dashboard/payments" className={styles.navItem}>
-                Payments
-              </Link>
-              <Link href="/dashboard/custody" className={styles.navItem}>
-                Custody<span className={styles.navTag}>MPC</span>
-              </Link>
-              <Link href="/dashboard/wallet" className={styles.navItem}>
-                Wallet<span className={styles.navTag}>DID</span>
-              </Link>
-              <Link href="/dashboard/agent-credit-bureau" className={styles.navItem}>
-                Agent Credit Bureau
-              </Link>
-              <Link href="/dashboard/enterprise-treasury" className={styles.navItem}>
-                Enterprise Treasury
-              </Link>
-            </div>
+            {(has('payments') || has('custody') || has('wallet') || has('credit-bureau')) && (
+              <div className={styles.navSection}>
+                <h3>Platforms</h3>
+                {has('payments') && (
+                  <Link href="/dashboard/payments" className={styles.navItem}>Payments</Link>
+                )}
+                {has('custody') && (
+                  <Link href="/dashboard/custody" className={styles.navItem}>Custody<span className={styles.navTag}>MPC</span></Link>
+                )}
+                {has('wallet') && (
+                  <Link href="/dashboard/wallet" className={styles.navItem}>Wallet<span className={styles.navTag}>DID</span></Link>
+                )}
+                {has('credit-bureau') && (
+                  <Link href="/dashboard/agent-credit-bureau" className={styles.navItem}>Agent Credit Bureau</Link>
+                )}
+                {has('treasury') && (
+                  <Link href="/dashboard/enterprise-treasury" className={styles.navItem}>Enterprise Treasury</Link>
+                )}
+              </div>
+            )}
 
-            <div className={styles.navSection}>
-              <h3>Merchant Products</h3>
-              <Link href="/dashboard/treasury" className={styles.navItem}>
-                Merchant Treasury
-              </Link>
-              <Link href="/dashboard/credit-bureau" className={styles.navItem}>
-                Credit Bureau<span className={styles.navTag}>Dual</span>
-              </Link>
-            </div>
+            {(has('treasury') || has('credit-bureau')) && (
+              <div className={styles.navSection}>
+                <h3>Merchant Products</h3>
+                {has('treasury') && (
+                  <Link href="/dashboard/treasury" className={styles.navItem}>Merchant Treasury</Link>
+                )}
+                {has('credit-bureau') && (
+                  <Link href="/dashboard/credit-bureau" className={styles.navItem}>Credit Bureau<span className={styles.navTag}>Dual</span></Link>
+                )}
+              </div>
+            )}
 
             <div className={styles.navSection}>
               <h3>Operations</h3>
@@ -93,6 +98,9 @@ export default async function DashboardLayout({
 
             <div className={styles.navSection}>
               <h3>Account</h3>
+              <Link href="/dashboard/products" className={styles.navItem}>
+                Products
+              </Link>
               <Link href="/dashboard/settings" className={styles.navItem}>
                 Settings<span className={styles.navTag}>2FA</span>
               </Link>

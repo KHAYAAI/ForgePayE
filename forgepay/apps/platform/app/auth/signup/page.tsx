@@ -56,7 +56,9 @@ export default function SignupPage() {
         throw new Error(data.error || 'Signup failed');
       }
 
-      router.push('/dashboard/payments');
+      // Nothing is enabled for a new tenant yet — send them to pick products
+      // rather than assuming Payments (or anything else) is what they want.
+      router.push('/dashboard/products');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Signup failed');
     } finally {

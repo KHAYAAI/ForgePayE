@@ -288,6 +288,37 @@ export async function postBureauVerify<T = Record<string, unknown>>(agentId: str
 }
 
 /** Advance or resolve a dispute. A write, so not cached/polled. */
+export interface RegisterAgentInput {
+  agentId: string;
+  did: string;
+  operatorEntityId: string;
+  operatorEntityType: 'individual' | 'llc' | 'corp' | 'dao';
+  evmAddress?: string;
+  operatorLegalName?: string;
+  operatorCountry?: string;
+  operatorRegistrationNumber?: string;
+}
+
+/** Real agent registration — POST /v1/agents/:agentId/profile. The console's only write path onto the bureau register. */
+export async function registerBureauAgent<T = Record<string, unknown>>(
+  input: RegisterAgentInput,
+): Promise<{ ok: true; data: T } | { ok: false; status: number; error: unknown }> {
+  const { agentId } = input;
+  try {
+    const res = await fetch(`${SERVICE_URLS.bureau}/v1/agents/${encodeURIComponent(agentId)}/profile`, {
+      method: 'POST',
+      headers: { ...bureauAuthHeaders(), 'content-type': 'application/json' },
+      body: JSON.stringify(input),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    const json = await res.json().catch(() => null);
+    if (!res.ok) return { ok: false, status: res.status, error: json };
+    return { ok: true, data: json.data as T };
+  } catch (err) {
+    return { ok: false, status: 0, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 export async function putBureauDispute<T = Record<string, unknown>>(
   disputeId: string,
   body: { status: string; resolution?: string; correction?: unknown },
@@ -325,6 +356,21 @@ export async function getMerchantSummary<T>(email: string): Promise<LiveResult<T
   );
   if (!res.live) return { live: false, data: null, error: res.error };
   return { live: true, data: res.data?.data ?? null };
+}
+
+export interface CatalogProduct {
+  key: string;
+  name: string;
+  tagline: string | null;
+  availability: 'available' | 'waitlist' | 'private' | 'retired';
+  requires: string[];
+}
+
+/** The real product catalog — including which products are actually available today, not just built. */
+export async function getProductCatalog(): Promise<LiveResult<CatalogProduct[]>> {
+  const res = await fetchJson<{ data: CatalogProduct[] }>(`${SERVICE_URLS.router}/v1/products/catalog`);
+  if (!res.live) return { live: false, data: null, error: res.error };
+  return { live: true, data: res.data?.data ?? [] };
 }
 
 export interface WebhookEndpoint {

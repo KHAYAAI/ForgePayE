@@ -130,8 +130,8 @@ export function DataTable({
       <table className="forge-table">
         <thead>
           <tr>
-            {columns.map((c) => (
-              <th key={c}>{c}</th>
+            {columns.map((c, i) => (
+              <th key={i}>{c}</th>
             ))}
           </tr>
         </thead>

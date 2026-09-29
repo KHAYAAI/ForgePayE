@@ -19,6 +19,16 @@ ALTER TABLE tenants ADD COLUMN IF NOT EXISTS domain TEXT;
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS workos_organization_id TEXT;
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS sso_required BOOLEAN NOT NULL DEFAULT false;
 
+-- Which products this tenant has actually turned on. Empty for every new
+-- signup on purpose — the console must not show Custody, Wallet, Treasury
+-- etc. as if they were in use before the tenant ever chose them. Console-
+-- native preference, deliberately separate from unified-router's billing
+-- entitlements (customers.products / entitlements table): this gates what
+-- the *nav* shows, not what's paid for — Payments' own "activated" state
+-- (has this tenant completed checkout) is tracked in unified-router and
+-- checked independently once Payments is turned on here.
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS enabled_products TEXT[] NOT NULL DEFAULT '{}';
+
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tenants_domain ON tenants(domain) WHERE domain IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS users (
