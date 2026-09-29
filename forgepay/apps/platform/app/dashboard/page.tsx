@@ -18,7 +18,7 @@ import { useForge } from '@/components/forge/useForge';
 
 interface OverviewLive {
   custody: { live: boolean; data: { stats?: { signatures_24h?: number; pending_approval?: number; notional_24h_usd?: number } } | null };
-  wallet: { live: boolean; data: { stats?: { total_wallets?: number; transactions_24h?: number } } | null };
+  wallet: { live: boolean; data: { stats?: { total_wallets?: number; transactions_total?: number } } | null };
   treasury: { live: boolean; data: { cash_position?: { data?: { totalUsd?: number } } } | null };
   bureau: { live: boolean; data: { stats?: { totalAgents?: number; totalDebt?: number; inquiries24h?: number } } | null };
   ontology: { live: boolean; data: { data?: OntologyEvent[] } | null };
@@ -169,7 +169,7 @@ export default function UnifiedDashboard() {
         <Stat label="Custody signatures / 24h" value={custody?.signatures_24h ?? '—'} delta={custody ? `${custody.pending_approval ?? 0} pending approval` : 'custody unreachable'} />
         <Stat label="Agent lines drawn" value={bureau?.totalDebt != null ? money(bureau.totalDebt) : '—'} delta={bureau ? `${bureau.totalAgents ?? 0} agents scored` : 'bureau unreachable'} />
         <Stat label="Consolidated cash" value={treasury?.totalUsd != null ? `$${(treasury.totalUsd / 1_000_000).toFixed(1)}M` : '—'} delta={treasury ? 'from cash-position' : 'treasury unreachable'} />
-        <Stat label="Wallet transactions / 24h" value={wallet?.transactions_24h ?? '—'} delta={wallet ? `${(wallet.total_wallets ?? 0).toLocaleString('en-US')} wallets` : 'wallet unreachable'} />
+        <Stat label="Wallet transactions" value={wallet?.transactions_total ?? '—'} delta={wallet ? `${(wallet.total_wallets ?? 0).toLocaleString('en-US')} wallets` : 'wallet unreachable'} />
         <Stat label="Services online" value={`${liveCount} / 5`} delta="custody · wallet · treasury · bureau · ontology" />
       </StatGrid>
 

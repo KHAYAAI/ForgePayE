@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import {
   PageHeader,
   Stat,
@@ -15,81 +16,80 @@ import {
 import { useForge } from '@/components/forge/useForge';
 
 /* ────────────────────────────────────────────────────────────────
-   FORGE Wallet — consumer & agent wallets, did:forge identity.
-   (OpenPrivy, integrated into the FORGE ecosystem.)
-   Live-wired to forge-wallet GET /api/v1/console/summary via the
-   /api/forge/wallet proxy; demo fixtures render when offline.
+   FORGE Wallet — backed by open-privy, a real NestJS service with its
+   own Postgres database (services/backend in the open-privy repo,
+   vendored as the forge-wallet replacement). Every field on this page
+   comes from open-privy's real wallet/transactions/recovery endpoints
+   via lib/openprivy.ts — nothing here is simulated.
+
+   Chain balances are deliberately not shown: they require a live RPC
+   call per wallet, and this deployment's network egress doesn't reach
+   any RPC provider. A real deployment with a configured
+   ETHEREUM_RPC_SEPOLIA / ETHEREUM_RPC_POLYGON would show them.
    ──────────────────────────────────────────────────────────────── */
+
+interface Wallet { id: string; address: string; chain: string; createdAt: string }
+interface Transaction {
+  id: string; txHash: string | null; fromAddress: string; toAddress: string;
+  amount: string; status: string; createdAt: string; confirmedAt: string | null;
+}
+interface RecoveryContact { id: string; contactEmail: string; contactName: string; isVerified: boolean }
 
 interface WalletSummary {
   stats: {
     total_wallets: number;
-    agent_wallets: number;
-    user_wallets: number;
-    transactions_24h: number;
-    confirmed_rate_24h: number;
-    gas_sponsored_24h_usd: number;
-    recoveries_open: number;
-    routed_to_custody_24h: number;
+    chains: string[];
+    transactions_total: number;
+    confirmed_rate: number;
+    recovery_guardians: number;
+    recovery_required_approvals: number;
   };
-  recent_transactions: Array<{
-    id: string;
-    from_did: string;
-    to_address: string;
-    amount: number;
-    currency: string;
-    blockchain: string;
-    status: string;
-    created_at: string;
-  }>;
-  recovery_requests: Array<{
-    id: string;
-    user_did: string;
-    approvals: number;
-    required_approvals: number;
-    status: string;
-    created_at: string;
-  }>;
-  dids: Array<{ did: string; type: 'user' | 'agent'; chains: string[]; tx_count: number }>;
-  corporate_wallets?: Array<{
-    name: string;
-    did: string;
-    purpose: string;
-    daily_limit: string;
-    single_tx_ceiling: string;
-    status: 'active' | 'pending_approval';
-    approvals?: string;
-  }>;
+  wallets: Wallet[];
+  recent_transactions: Transaction[];
+  recovery_contacts: RecoveryContact[];
 }
 
 const EMPTY: WalletSummary = {
-  stats: {
-    total_wallets: 0, agent_wallets: 0, user_wallets: 0, transactions_24h: 0,
-    confirmed_rate_24h: 0, gas_sponsored_24h_usd: 0, recoveries_open: 0, routed_to_custody_24h: 0,
-  },
+  stats: { total_wallets: 0, chains: [], transactions_total: 0, confirmed_rate: 0, recovery_guardians: 0, recovery_required_approvals: 0 },
+  wallets: [],
   recent_transactions: [],
-  recovery_requests: [],
-  dids: [],
-  corporate_wallets: [],
+  recovery_contacts: [],
 };
 
 const TX_TONE: Record<string, 'ok' | 'warn' | 'danger' | 'accent'> = {
-  created: 'warn',
-  signed: 'accent',
-  broadcast: 'warn',
+  pending: 'warn',
   confirmed: 'ok',
   failed: 'danger',
 };
 
-const REC_TONE: Record<string, 'ok' | 'warn' | 'danger' | 'accent'> = {
-  pending: 'warn',
-  approved: 'accent',
-  completed: 'ok',
-  expired: 'danger',
-};
+const CHAINS = ['ethereum', 'polygon', 'solana'] as const;
 
 export default function WalletConsole() {
   const { data, live } = useForge<WalletSummary>('wallet', EMPTY);
+  const [chain, setChain] = useState<(typeof CHAINS)[number]>('ethereum');
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleCreate() {
+    setCreating(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/forge/wallet-create', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ chain }),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        setError(body?.message ?? 'Could not create that wallet.');
+        return;
+      }
+    } catch {
+      setError('Could not reach the wallet service.');
+    } finally {
+      setCreating(false);
+    }
+  }
 
   return (
     <>
@@ -100,98 +100,74 @@ export default function WalletConsole() {
             Wallets without <em>seed phrases</em>
           </>
         }
-        lede="Email in, wallet out. Keys encrypted with AES-256-GCM, recovery through 2-of-3 trusted contacts, and a did:forge identity for every user and agent."
+        lede="Keys encrypted with AES-256-GCM, one wallet per chain, recovery through trusted contacts instead of a seed phrase to lose."
         actions={<LivePill live={live} />}
       />
 
       <StatGrid>
-        <Stat label="Total wallets" value={data.stats.total_wallets.toLocaleString('en-US')} delta={`${data.stats.user_wallets.toLocaleString('en-US')} users`} />
-        <Stat label="Agent wallets" value={data.stats.agent_wallets.toLocaleString('en-US')} delta="did:forge:agent_*" />
-        <Stat label="Transactions / 24h" value={data.stats.transactions_24h.toLocaleString('en-US')} delta={`${data.stats.confirmed_rate_24h}% confirmed`} deltaTone={data.stats.confirmed_rate_24h >= 99 ? 'up' : 'down'} />
-        <Stat label="Gas sponsored / 24h" value={`$${data.stats.gas_sponsored_24h_usd}`} delta="~$0.10 per tx" />
-        <Stat label="Recoveries open" value={data.stats.recoveries_open} delta="2-of-3 contacts required" />
-        <Stat label="Routed to Custody" value={data.stats.routed_to_custody_24h} delta="above $100K tier" />
+        <Stat label="Total wallets" value={data.stats.total_wallets.toLocaleString('en-US')} delta={data.stats.chains.join(' · ') || 'no chains yet'} />
+        <Stat label="Transactions" value={data.stats.transactions_total.toLocaleString('en-US')} delta={`${data.stats.confirmed_rate}% confirmed`} deltaTone={data.stats.confirmed_rate >= 90 ? 'up' : undefined} />
+        <Stat label="Recovery guardians" value={data.stats.recovery_guardians} delta={`${data.stats.recovery_required_approvals} approvals required`} />
       </StatGrid>
 
-      <Panel title="Corporate Wallets" label="provisioning requires 2-of-3 senior custody sign-off" style={{ marginBottom: 20 }}>
+      <Panel title="Create a Wallet" label="POST /wallet/create · one per chain" style={{ marginBottom: 20 }}>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end' }}>
+          <div>
+            <label style={{ display: 'block', fontFamily: "'JetBrains Mono', monospace", fontSize: 9.5, letterSpacing: 1.4, textTransform: 'uppercase', color: 'var(--steel)', marginBottom: 6 }}>
+              Chain
+            </label>
+            <select
+              value={chain}
+              onChange={(e) => setChain(e.target.value as (typeof CHAINS)[number])}
+              style={{ border: '1px solid var(--hair)', background: 'var(--paper)', padding: '10px 12px', fontSize: 13.5, color: 'var(--ink)', fontFamily: 'inherit' }}
+            >
+              {CHAINS.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <button className="btn-primary" onClick={handleCreate} disabled={creating}>
+            {creating ? 'Creating…' : 'Create wallet'}
+          </button>
+        </div>
+        {error && <p className="lede" style={{ fontSize: 13, color: 'var(--danger)', marginTop: 14 }}>{error}</p>}
+      </Panel>
+
+      <Panel title="Wallets" label="GET /wallet/list" style={{ marginBottom: 20 }}>
         <DataTable
-          columns={['Wallet', 'DID', 'Purpose', 'Daily limit', 'Single-tx ceiling', 'Status']}
-          emptyMessage="No corporate wallets provisioned yet."
-          rows={(data.corporate_wallets ?? []).map((w) => [
-            <strong key="n">{w.name}</strong>,
-            <Addr key="d">{w.did}</Addr>,
-            w.purpose,
-            <Mono key="l">{w.daily_limit}</Mono>,
-            <Mono key="c">{w.single_tx_ceiling}</Mono>,
-            w.status === 'active' ? (
-              <Pill key="s" tone="ok">active</Pill>
-            ) : (
-              <Pill key="s" tone="warn">{`pending · ${w.approvals ?? 'awaiting seniors'}`}</Pill>
-            ),
+          columns={['Address', 'Chain', 'Created']}
+          emptyMessage="No wallets created yet."
+          rows={data.wallets.map((w) => [
+            <Addr key="a">{w.address}</Addr>,
+            <Pill key="c" tone="accent">{w.chain}</Pill>,
+            <Mono key="d">{new Date(w.createdAt).toLocaleDateString('en-US')}</Mono>,
           ])}
         />
       </Panel>
 
       <Grid2>
-        <Panel title="Recent Transactions" label="signed server-side · key never leaves backend">
+        <Panel title="Recent Transactions" label="GET /transactions/history · signed server-side">
           <DataTable
-            columns={['Tx', 'From (DID)', 'To', 'Amount', 'Chain', 'Status']}
+            columns={['Tx', 'From', 'To', 'Amount', 'Status']}
             emptyMessage="No transactions yet."
             rows={data.recent_transactions.map((t) => [
               <Mono key="t">{t.id.slice(0, 8)}</Mono>,
-              <Addr key="f">{t.from_did}</Addr>,
-              <Addr key="to">{t.to_address}</Addr>,
-              <Mono key="a">${t.amount.toLocaleString('en-US')} {t.currency}</Mono>,
-              t.blockchain,
+              <Addr key="f">{t.fromAddress}</Addr>,
+              <Addr key="to">{t.toAddress}</Addr>,
+              <Mono key="a">{t.amount}</Mono>,
               <Pill key="s" tone={TX_TONE[t.status]}>{t.status}</Pill>,
             ])}
           />
         </Panel>
 
-        <Panel title="Recovery Requests" label="social recovery — no seed phrase">
+        <Panel title="Recovery Contacts" label="GET /recovery/contacts · social recovery">
           <DataTable
-            columns={['Request', 'User', 'Approvals', 'Status']}
-            emptyMessage="No recovery requests yet."
-            rows={data.recovery_requests.map((r) => [
-              <Mono key="r">{r.id.slice(0, 10)}</Mono>,
-              <Addr key="u">{r.user_did}</Addr>,
-              <Mono key="a">{r.approvals} of {r.required_approvals} required</Mono>,
-              <Pill key="s" tone={REC_TONE[r.status]}>{r.status}</Pill>,
+            columns={['Contact', 'Email', 'Verified']}
+            emptyMessage="No recovery contacts added yet."
+            rows={data.recovery_contacts.map((c) => [
+              c.contactName,
+              <Mono key="e">{c.contactEmail}</Mono>,
+              <Pill key="v" tone={c.isVerified ? 'ok' : 'warn'}>{c.isVerified ? 'verified' : 'pending'}</Pill>,
             ])}
           />
-        </Panel>
-      </Grid2>
-
-      <Grid2>
-        <Panel title="DID Registry" label="read by Agent Credit Bureau" ink>
-          <DataTable
-            columns={['DID', 'Type', 'Chains', 'Tx count']}
-            emptyMessage="No DIDs registered yet."
-            rows={data.dids.map((d) => [
-              <Mono key="d">{d.did}</Mono>,
-              <Pill key="t" tone={d.type === 'agent' ? 'accent' : undefined}>{d.type}</Pill>,
-              d.chains.join(' · '),
-              <Mono key="c">{d.tx_count.toLocaleString('en-US')}</Mono>,
-            ])}
-          />
-        </Panel>
-
-        <Panel title="Signing & Routing Contract" label="tier enforcement at the wallet edge">
-          <ol style={{ listStyle: 'none' }}>
-            {[
-              ['< $100K', 'Wallet signs directly. Password-derived key decrypts in-memory; signature; broadcast; 12-block poll.'],
-              ['≥ $100K', 'Wallet refuses with 409 route:forge-custody. FORGE Payments re-routes through institutional threshold signing.'],
-              ['Every tx', 'Confirmed event emitted to the Revenue Ontology with HMAC-signed webhook — one record, every platform reads it.'],
-            ].map(([tier, desc]) => (
-              <li
-                key={tier}
-                style={{ display: 'flex', gap: 16, padding: '11px 0', borderBottom: '1px solid var(--hair)', alignItems: 'baseline' }}
-              >
-                <span className="mono" style={{ minWidth: 82 }}>{tier}</span>
-                <span style={{ color: 'var(--steel)', fontSize: 13.5 }}>{desc}</span>
-              </li>
-            ))}
-          </ol>
         </Panel>
       </Grid2>
     </>

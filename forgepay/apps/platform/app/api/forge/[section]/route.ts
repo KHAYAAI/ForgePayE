@@ -18,8 +18,8 @@ import {
   getMerchantSummary,
   getOntologyEvents,
   getTreasurySummary,
-  getWalletSummary,
 } from '@/lib/forge-services';
+import { getWalletSummary } from '@/lib/openprivy';
 import { getCurrentUser } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
@@ -31,8 +31,11 @@ export async function GET(
   switch (params.section) {
     case 'custody':
       return NextResponse.json(await getCustodySummary());
-    case 'wallet':
-      return NextResponse.json(await getWalletSummary());
+    case 'wallet': {
+      const user = await getCurrentUser();
+      if (!user) return NextResponse.json({ live: false, data: null, error: 'unauthenticated' }, { status: 401 });
+      return NextResponse.json(await getWalletSummary(user.tenantId));
+    }
     case 'treasury':
       return NextResponse.json(await getTreasurySummary());
     case 'payments': {
@@ -55,9 +58,12 @@ export async function GET(
       return NextResponse.json(await getOntologyEvents());
     case 'overview': {
       // Cross-platform aggregate for the unified dashboard.
+      const overviewUser = await getCurrentUser();
       const [custody, wallet, treasury, bureau, ontology] = await Promise.all([
         getCustodySummary<Record<string, unknown>>(),
-        getWalletSummary<Record<string, unknown>>(),
+        overviewUser
+          ? getWalletSummary(overviewUser.tenantId)
+          : Promise.resolve({ live: false, data: null, error: 'unauthenticated' }),
         getTreasurySummary<Record<string, unknown>>(),
         getBureauStats<Record<string, unknown>>(),
         getOntologyEvents<Record<string, unknown>>(),

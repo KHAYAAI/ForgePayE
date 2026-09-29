@@ -29,6 +29,14 @@ ALTER TABLE tenants ADD COLUMN IF NOT EXISTS sso_required BOOLEAN NOT NULL DEFAU
 -- checked independently once Payments is turned on here.
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS enabled_products TEXT[] NOT NULL DEFAULT '{}';
 
+-- The tenant's identity in open-privy (the real wallet-custody backend FORGE
+-- Wallet is now backed by). NULL until first wallet access, when
+-- lib/openprivy.ts provisions a row directly in open-privy's own `users`
+-- table (its real signup flow requires Supabase, which we don't run) and
+-- records the resulting id here. One open-privy user per FORGE tenant, not
+-- per FORGE human user — wallets in the console are a tenant-level resource.
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS openprivy_user_id UUID;
+
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tenants_domain ON tenants(domain) WHERE domain IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS users (
