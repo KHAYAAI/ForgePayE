@@ -140,7 +140,7 @@ export default function CreditBureauProductPage() {
             <h4 style={{ marginBottom: 12, color: 'var(--navy)' }}>Year one: cash</h4>
             <p style={{ fontSize: 14, color: 'var(--text-light)', lineHeight: 1.6 }}>
               25% of every paid inquiry is shared with the furnishers whose data shaped the score,
-              paid in USDC. Attribution is weighted by scoring impact, not by event count — a
+              paid in the stablecoin each furnisher chooses (USDC, ZARP or OUSD). Attribution is weighted by scoring impact, not by event count — a
               furnisher earns for data that moved the score, not for volume.
             </p>
           </div>

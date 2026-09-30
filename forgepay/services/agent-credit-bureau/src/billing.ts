@@ -29,7 +29,8 @@
  */
 
 import { randomUUID } from 'crypto';
-import type { BillingAccount, BillingTransaction, TopUpReceipt, Subscription, PlanId } from './types';
+import type { BillingAccount, BillingTransaction, TopUpReceipt, Subscription, PlanId, PaymentAsset } from './types';
+import { PAYMENT_ASSETS } from './types';
 import { INQUIRY_FEE_USD } from './grade';
 import { entitlementForNextPull, periodHasLapsed, DEFAULT_PLAN_ID } from './plans';
 import {
@@ -278,10 +279,14 @@ const BUREAU_MERCHANT_ID = process.env['BUREAU_X402_MERCHANT_ID'] ?? 'forgepay-c
 interface X402PayResponse {
   receipt_id: string;
   deposit_id: string;
-  amount_usdc: number;
+  pay_to?: string;
+  asset?: { symbol: string; chain: string; contract: string; decimals: number; unit?: string };
+  amount_usd?: number;
+  amount_asset?: string;
   amount_units: string;
+  fx?: { pair: string; rate: string; as_of: string; source: string };
   chain: string;
-  token: string;
+  token?: string;
   expires_at: string;
   status: string;
 }
@@ -289,6 +294,30 @@ interface X402PayResponse {
 interface X402VerifyResponse {
   status: string;
   valid: boolean;
+  asset?: string;
+  received_units?: string | null;
+  amount_units?: string;
+}
+
+/**
+ * The asset a top-up is paid in when the caller doesn't say. USDC unless the
+ * operator sets BUREAU_DEFAULT_ASSET to ZARP or OUSD.
+ */
+export function defaultAsset(): PaymentAsset {
+  const v = (process.env['BUREAU_DEFAULT_ASSET'] ?? 'USDC').toUpperCase();
+  return (PAYMENT_ASSETS as readonly string[]).includes(v) ? (v as PaymentAsset) : 'USDC';
+}
+
+/** Chain top-ups are paid on. */
+const TOPUP_CHAIN = process.env['BUREAU_TOPUP_CHAIN'] ?? 'base';
+
+/**
+ * Every call to stablecoin-gateway must carry a key: its auth plugin rejects a
+ * request with none before anything else. (furnisher-payouts.ts does the same.)
+ */
+function gatewayAuthHeaders(): Record<string, string> {
+  const key = process.env['STABLECOIN_GATEWAY_API_KEY'];
+  return key ? { 'x-api-key': key } : {};
 }
 
 export type TopUpOutcome =
@@ -298,27 +327,39 @@ export type TopUpOutcome =
       gateway: {
         receiptId: string;
         depositId: string;
+        /** Send to this address. */
+        payTo?: string;
+        asset: string;
+        contract?: string;
+        decimals?: number;
+        /** Whole tokens to send, and the exact smallest units. */
+        amountAsset?: string;
         amountUnits: string;
+        /** For ZARP: the locked ZAR-per-USD rate. */
+        fxRate?: string;
         chain: string;
         token: string;
         expiresAt: string;
       };
     }
-  | { ok: false; reason: 'not_configured' | 'call_failed' | 'amount_invalid'; message: string };
+  | { ok: false; reason: 'not_configured' | 'call_failed' | 'amount_invalid' | 'asset_unavailable'; message: string };
 
 /**
- * Open a top-up: ask stablecoin-gateway to create an x402 payment intent for
- * `amountUsd`, addressed to the bureau's own merchant id, and track it
- * locally so a later `confirmTopUp` can be checked for replay.
+ * Open a top-up: ask stablecoin-gateway to quote `amountUsd` in `asset` (USDC,
+ * ZARP or OUSD) and open a payment for it, addressed to the bureau's own
+ * merchant id, and track it locally so a later `confirmTopUp` can be checked
+ * for replay.
  *
- * This only opens the ledger-side intent. The caller still has to actually
- * broadcast USDC — the vault address and asset details live at
- * `GET {STABLECOIN_GATEWAY_URL}/x402/payment-required`, which this
- * deliberately does not re-fetch and re-embed on every top-up: that address
- * is a gateway-wide constant, not something scoped per payment intent, so a
- * caller resolves it once rather than the bureau proxying it on every call.
+ * The ledger is USD. A ZARP top-up is priced in rand at the rate the gateway
+ * locks when it is opened, but what is credited on confirmation is exactly the
+ * USD value requested here.
+ *
+ * This only opens the intent. The response names the one-time address and the
+ * exact amount of that token to send; the payer still has to send it.
  */
-export async function requestTopUp(requestorId: string, amountUsd: number): Promise<TopUpOutcome> {
+export async function requestTopUp(
+  requestorId: string, amountUsd: number, asset: PaymentAsset = defaultAsset(),
+): Promise<TopUpOutcome> {
   const base = gatewayUrl();
   if (!base) {
     return { ok: false, reason: 'not_configured', message: 'STABLECOIN_GATEWAY_URL is not set — top-ups are unavailable.' };
@@ -330,10 +371,15 @@ export async function requestTopUp(requestorId: string, amountUsd: number): Prom
   try {
     const res = await fetch(`${base.replace(/\/$/, '')}/x402/pay`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...gatewayAuthHeaders() },
       body: JSON.stringify({
         resource_url: `bureau:topup:${requestorId}`,
-        amount_usdc:  amountUsd,
+        amount_usd:   amountUsd,
+        // Older gateways only understand this name, and only for USDC. It is not sent for
+        // other assets: an old gateway would ignore `asset` and quote USDC instead.
+        ...(asset === 'USDC' ? { amount_usdc: amountUsd } : {}),
+        asset,
+        chain:        TOPUP_CHAIN,
         merchant_id:  BUREAU_MERCHANT_ID,
         agent_id:     requestorId,
       }),
@@ -341,16 +387,38 @@ export async function requestTopUp(requestorId: string, amountUsd: number): Prom
     });
     if (!res.ok) {
       const body = await res.text().catch(() => '');
-      return { ok: false, reason: 'call_failed', message: `stablecoin-gateway /x402/pay returned ${res.status}: ${body}` };
+      // The gateway says 503 when an asset can't be quoted right now (unverified token, no rand rate).
+      return {
+        ok: false,
+        reason: res.status === 503 ? 'asset_unavailable' : 'call_failed',
+        message: res.status === 503
+          ? `${asset} is not available for top-ups right now: ${extractMessage(body)}`
+          : `stablecoin-gateway /x402/pay returned ${res.status}: ${body}`,
+      };
     }
 
     const gateway = (await res.json()) as X402PayResponse;
+    const paidIn = (gateway.asset?.symbol ?? gateway.token ?? 'USDC').toUpperCase();
+    // An old gateway ignores `asset` and answers in USDC. Accepting that would credit a
+    // payment the requestor believes is in another token — refuse it.
+    if (paidIn !== asset) {
+      return { ok: false, reason: 'asset_unavailable', message: `Asked for a ${asset} top-up but the gateway quoted ${paidIn}; it may not support ${asset}.` };
+    }
+
     const receipt: TopUpReceipt = {
       receiptId:  gateway.receipt_id,
       requestorId,
       amountUsd,
       status:     'pending',
       createdAt:  new Date().toISOString(),
+      asset,
+      chain:      gateway.asset?.chain ?? gateway.chain,
+      assetUnits: gateway.amount_units,
+      ...(gateway.amount_asset ? { assetAmount: gateway.amount_asset } : {}),
+      ...(gateway.asset?.decimals !== undefined ? { decimals: gateway.asset.decimals } : {}),
+      ...(gateway.fx && gateway.asset?.unit === 'ZAR' ? { fxRate: gateway.fx.rate, fxPair: gateway.fx.pair } : {}),
+      ...(gateway.pay_to ? { payTo: gateway.pay_to } : {}),
+      ...(gateway.asset?.contract ? { contract: gateway.asset.contract } : {}),
     };
     setTopUpReceipt(receipt);
 
@@ -360,9 +428,15 @@ export async function requestTopUp(requestorId: string, amountUsd: number): Prom
       gateway: {
         receiptId:   gateway.receipt_id,
         depositId:   gateway.deposit_id,
+        ...(gateway.pay_to ? { payTo: gateway.pay_to } : {}),
+        asset,
+        ...(gateway.asset?.contract ? { contract: gateway.asset.contract } : {}),
+        ...(gateway.asset?.decimals !== undefined ? { decimals: gateway.asset.decimals } : {}),
+        ...(gateway.amount_asset ? { amountAsset: gateway.amount_asset } : {}),
         amountUnits: gateway.amount_units,
-        chain:       gateway.chain,
-        token:       gateway.token,
+        ...(receipt.fxRate ? { fxRate: receipt.fxRate } : {}),
+        chain:       receipt.chain ?? gateway.chain,
+        token:       paidIn,
         expiresAt:   gateway.expires_at,
       },
     };
@@ -375,11 +449,15 @@ export async function requestTopUp(requestorId: string, amountUsd: number): Prom
   }
 }
 
+function extractMessage(body: string): string {
+  try { const j = JSON.parse(body) as { message?: string; error?: string }; return j.message ?? j.error ?? body; } catch { return body; }
+}
+
 export type ConfirmOutcome =
   | { ok: true; alreadyConfirmed: boolean; account: BillingAccount }
   | {
       ok: false;
-      reason: 'not_found' | 'requestor_mismatch' | 'not_configured' | 'not_yet_paid' | 'call_failed';
+      reason: 'not_found' | 'requestor_mismatch' | 'not_configured' | 'not_yet_paid' | 'call_failed' | 'amount_mismatch';
       message: string;
     };
 
@@ -411,6 +489,7 @@ export async function confirmTopUp(receiptId: string, requestorId: string): Prom
 
   try {
     const res = await fetch(`${base.replace(/\/$/, '')}/x402/verify/${receiptId}`, {
+      headers: gatewayAuthHeaders(),
       signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) {
@@ -419,6 +498,18 @@ export async function confirmTopUp(receiptId: string, requestorId: string): Prom
     const verification = (await res.json()) as X402VerifyResponse;
     if (!verification.valid) {
       return { ok: false, reason: 'not_yet_paid', message: `Payment not yet confirmed on-chain (status: ${verification.status}).` };
+    }
+    // Belt and braces: the gateway says it is paid; check it is paid in the token and
+    // amount this receipt asked for before crediting dollars for it.
+    if (receipt.asset && verification.asset && verification.asset.toUpperCase() !== receipt.asset) {
+      return { ok: false, reason: 'amount_mismatch', message: `Receipt is for ${receipt.asset} but the gateway confirmed a ${verification.asset} payment.` };
+    }
+    if (receipt.assetUnits && verification.received_units) {
+      let short = false;
+      try { short = BigInt(verification.received_units) < BigInt(receipt.assetUnits); } catch { short = true; }
+      if (short) {
+        return { ok: false, reason: 'amount_mismatch', message: `Gateway confirmed ${verification.received_units} units but this top-up needs ${receipt.assetUnits}.` };
+      }
     }
   } catch (err) {
     return {

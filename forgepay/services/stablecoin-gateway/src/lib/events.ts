@@ -12,8 +12,9 @@ export interface StablecoinPaymentEvent {
   merchantId:  string;
   depositId:   string;
   chain:       string;
-  token:       'USDC' | 'USDT';
-  amountUnits: string;   // token units (USDC/USDT have 6 decimals)
+  token:       'USDC' | 'USDT' | 'ZARP' | 'OUSD';
+  amountUnits: string;   // token units; decimals vary by asset (see `decimals`)
+  decimals?:   number;
   amountUsd:   number;   // human-readable USD value
   txHash?:     string;
   fromAddress?: string;

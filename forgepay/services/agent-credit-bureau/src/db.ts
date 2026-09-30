@@ -252,6 +252,18 @@ export async function runMigrations(): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_billing_topups_requestor_id
         ON billing_topups(requestor_id);
 
+      -- Which token the top-up is paid in, and exactly what was asked. Older rows are USDC.
+      ALTER TABLE billing_topups
+        ADD COLUMN IF NOT EXISTS asset TEXT,
+        ADD COLUMN IF NOT EXISTS chain TEXT,
+        ADD COLUMN IF NOT EXISTS asset_amount TEXT,
+        ADD COLUMN IF NOT EXISTS asset_units TEXT,
+        ADD COLUMN IF NOT EXISTS decimals INTEGER,
+        ADD COLUMN IF NOT EXISTS fx_rate TEXT,
+        ADD COLUMN IF NOT EXISTS fx_pair TEXT,
+        ADD COLUMN IF NOT EXISTS pay_to TEXT,
+        ADD COLUMN IF NOT EXISTS contract TEXT;
+
       -- ── The furnisher money ledger ────────────────────────────────────────
       --
       -- One row per furnisher per paid inquiry: what that contributor earned
@@ -557,12 +569,15 @@ export async function loadAllBillingTransactions(): Promise<BillingTransaction[]
 export async function upsertTopUpReceipt(r: TopUpReceipt): Promise<void> {
   await pool.query(
     `INSERT INTO billing_topups
-       (receipt_id, requestor_id, amount_usd_cents, status, created_at, confirmed_at)
-     VALUES ($1, $2, $3, $4, $5, $6)
+       (receipt_id, requestor_id, amount_usd_cents, status, created_at, confirmed_at,
+        asset, chain, asset_amount, asset_units, decimals, fx_rate, fx_pair, pay_to, contract)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
      ON CONFLICT (receipt_id) DO UPDATE SET
        status = EXCLUDED.status,
        confirmed_at = EXCLUDED.confirmed_at`,
-    [r.receiptId, r.requestorId, Math.round(r.amountUsd * 100), r.status, r.createdAt, r.confirmedAt ?? null],
+    [r.receiptId, r.requestorId, Math.round(r.amountUsd * 100), r.status, r.createdAt, r.confirmedAt ?? null,
+     r.asset ?? null, r.chain ?? null, r.assetAmount ?? null, r.assetUnits ?? null, r.decimals ?? null,
+     r.fxRate ?? null, r.fxPair ?? null, r.payTo ?? null, r.contract ?? null],
   );
 }
 
@@ -570,7 +585,10 @@ export async function loadAllTopUpReceipts(): Promise<TopUpReceipt[]> {
   const res = await pool.query<{
     receipt_id: string; requestor_id: string; amount_usd_cents: string;
     status: string; created_at: Date; confirmed_at: Date | null;
-  }>(`SELECT receipt_id, requestor_id, amount_usd_cents, status, created_at, confirmed_at
+    asset: string | null; chain: string | null; asset_amount: string | null; asset_units: string | null;
+    decimals: number | null; fx_rate: string | null; fx_pair: string | null; pay_to: string | null; contract: string | null;
+  }>(`SELECT receipt_id, requestor_id, amount_usd_cents, status, created_at, confirmed_at,
+             asset, chain, asset_amount, asset_units, decimals, fx_rate, fx_pair, pay_to, contract
         FROM billing_topups`);
   return res.rows.map((r) => ({
     receiptId:   r.receipt_id,
@@ -579,6 +597,15 @@ export async function loadAllTopUpReceipts(): Promise<TopUpReceipt[]> {
     status:      r.status as TopUpReceipt['status'],
     createdAt:   r.created_at.toISOString(),
     confirmedAt: r.confirmed_at ? r.confirmed_at.toISOString() : undefined,
+    ...(r.asset ? { asset: r.asset as TopUpReceipt['asset'] } : {}),
+    ...(r.chain ? { chain: r.chain } : {}),
+    ...(r.asset_amount ? { assetAmount: r.asset_amount } : {}),
+    ...(r.asset_units ? { assetUnits: r.asset_units } : {}),
+    ...(r.decimals !== null ? { decimals: r.decimals } : {}),
+    ...(r.fx_rate ? { fxRate: r.fx_rate } : {}),
+    ...(r.fx_pair ? { fxPair: r.fx_pair } : {}),
+    ...(r.pay_to ? { payTo: r.pay_to } : {}),
+    ...(r.contract ? { contract: r.contract } : {}),
   }));
 }
 

@@ -14,8 +14,12 @@
  */
 
 import type { FastifyInstance } from 'fastify';
+import { ASSET_SYMBOLS } from '../lib/assets.js';
+import { gatewayContext } from '../lib/context.js';
+import { quoteAmount, AssetUnavailableError } from '../lib/deposit-open.js';
+import { RateUnavailableError } from '../lib/fx.js';
 import {
-  createPayout, getPayout, listPayouts, approvePayout, rejectPayout, submitPayout,
+  createPayout, findPayoutByExternalId, getPayout, listPayouts, approvePayout, rejectPayout, submitPayout,
   validatePayoutRequest, requiresApproval,
   PAYOUT_AUTO_APPROVE_MAX_USD, PAYOUT_ABSOLUTE_MAX_USD, currentBroadcaster,
   type PayoutStatus,
@@ -26,7 +30,11 @@ interface CreateBody {
   payee_id?:      string;
   payee_address?: string;
   chain?:         string;
+  /** USD value to pay. `amount_usdc` is the older name for the same thing. */
+  amount_usd?:    number;
   amount_usdc?:   number;
+  /** Which token to send. Default USDC. */
+  asset?:         string;
   reason?:        string;
 }
 
@@ -37,6 +45,7 @@ export async function buildPayoutRoutes(app: FastifyInstance) {
       auto_approve_max_usd: PAYOUT_AUTO_APPROVE_MAX_USD,
       absolute_max_usd:     PAYOUT_ABSOLUTE_MAX_USD,
       broadcaster:          currentBroadcaster().name,
+      assets:               ASSET_SYMBOLS,
       note: currentBroadcaster().name === 'unconfigured'
         ? 'No outbound signer is configured. Payouts can be recorded and approved, but ' +
           'submission is refused in production rather than simulated.'
@@ -56,21 +65,55 @@ export async function buildPayoutRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'ValidationError', field: 'reason', message: 'reason is required' });
     }
 
+    const amountUsd = body.amount_usd ?? body.amount_usdc;
     const invalid = validatePayoutRequest({
       externalId:   body.external_id ?? '',
       payeeAddress: body.payee_address ?? '',
-      amountUsdc:   body.amount_usdc ?? NaN,
+      amountUsdc:   amountUsd ?? NaN,
     });
     if (invalid) {
       return reply.code(400).send({ error: 'ValidationError', ...invalid });
+    }
+
+    const symbol = body.asset ?? 'USDC';
+    if (!(ASSET_SYMBOLS as readonly string[]).includes(symbol)) {
+      return reply.code(400).send({ error: 'ValidationError', field: 'asset', message: `asset must be one of ${ASSET_SYMBOLS.join(', ')}` });
+    }
+    const chain = body.chain ?? 'base';
+
+    // A retry of a payout that already exists returns it as it was recorded — priced
+    // at the rate of the time it was created — even if a fresh quote isn't possible now.
+    const existing = await findPayoutByExternalId(requestedBy, body.external_id!);
+    if (existing) {
+      return reply.code(200).send({ data: existing, deduplicated: true, requires_approval: requiresApproval(existing.amountUsdc) });
+    }
+
+    let asset;
+    try {
+      const ctx = await gatewayContext();
+      // Money going out rounds down: never send more than the USD value approved.
+      const q = await quoteAmount(ctx.registry, ctx.rates, symbol, chain, amountUsd!, 'floor');
+      asset = {
+        symbol, units: q.units, decimals: q.asset.decimals,
+        ...(q.asset.unit === 'ZAR' ? { fxRate: q.quote.rate, fxPair: q.quote.pair } : {}),
+      };
+    } catch (err) {
+      if (err instanceof AssetUnavailableError || err instanceof RateUnavailableError) {
+        return reply.code(503).send({ error: err instanceof RateUnavailableError ? 'RateUnavailable' : 'AssetUnavailable', message: err.message });
+      }
+      if (err instanceof RangeError) {
+        return reply.code(400).send({ error: 'ValidationError', field: 'amount_usd', message: err.message });
+      }
+      throw err;
     }
 
     const { payout, deduplicated } = await createPayout({
       externalId:   body.external_id!,
       payeeId:      body.payee_id,
       payeeAddress: body.payee_address!,
-      chain:        body.chain ?? 'base',
-      amountUsdc:   body.amount_usdc!,
+      chain,
+      amountUsdc:   amountUsd!,
+      asset,
       reason:       body.reason,
       requestedBy,
     });

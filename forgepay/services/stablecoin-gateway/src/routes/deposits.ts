@@ -10,13 +10,16 @@ import type { FastifyInstance } from 'fastify';
 import { randomUUID } from 'node:crypto';
 import { getDb } from '../lib/db.js';
 import { config } from '../config.js';
-import { encryptPrivateKey } from '../lib/keystore.js';
+import { ASSET_SYMBOLS } from '../lib/assets.js';
+import { gatewayContext } from '../lib/context.js';
+import { openDeposit, AssetUnavailableError } from '../lib/deposit-open.js';
+import { RateUnavailableError } from '../lib/fx.js';
 import { merchantAccessError } from '../plugins/api-key-auth.js';
 
 interface CreateDepositBody {
   merchant_id:    string;
   amount_usd:     number;       // human-readable USD amount
-  token:          'USDC' | 'USDT';
+  token:          'USDC' | 'USDT' | 'ZARP' | 'OUSD';
   chain:          'ethereum' | 'polygon' | 'base' | 'arbitrum' | 'solana';
   payment_id?:    string;       // link to a ForgePay payment record
   metadata?:      Record<string, string>;
@@ -34,7 +37,7 @@ export async function buildDepositRoutes(app: FastifyInstance) {
           properties: {
             merchant_id: { type: 'string' },
             amount_usd:  { type: 'number', minimum: 0.01 },
-            token:       { type: 'string', enum: ['USDC', 'USDT'] },
+            token:       { type: 'string', enum: [...ASSET_SYMBOLS] },
             chain:       { type: 'string', enum: ['ethereum', 'polygon', 'base', 'arbitrum', 'solana'] },
             payment_id:  { type: 'string' },
             metadata:    { type: 'object' },
@@ -54,51 +57,38 @@ export async function buildDepositRoutes(app: FastifyInstance) {
         return;
       }
 
-      // Convert USD amount to token units (USDC/USDT both have 6 decimals)
-      const amountUnits = Math.round(amount_usd * 1_000_000).toString();
-      const depositId   = randomUUID();
-
-      // Generate a fresh EVM deposit address using ethers.js HD wallet.
-      // In production: use a deterministic path from a hardware wallet or KMS.
-      // For now: generate a fresh random wallet per deposit (simpler, less efficient).
-      const { ethers } = await import('ethers');
-      const wallet     = ethers.Wallet.createRandom();
-      const address    = wallet.address;
-      const privateKey = wallet.privateKey;
-
-      const expiresAt = new Date(Date.now() + config.depositAddressTtlSeconds * 1000).toISOString();
-
-      const db = getDb();
-      await db.query(
-        `INSERT INTO stablecoin_deposits
-           (id, merchant_id, address, private_key_enc, chain, token, amount_units,
-            amount_usd, payment_id, metadata, status, expires_at, created_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending',$11,now())`,
-        [
-          depositId,
-          merchant_id,
-          address,
-          encryptPrivateKey(privateKey),
-          chain,
-          token,
-          amountUnits,
-          amount_usd,
-          payment_id ?? null,
-          metadata ? JSON.stringify(metadata) : null,
-          expiresAt,
-        ],
-      );
+      const ctx = await gatewayContext();
+      let opened;
+      try {
+        opened = await openDeposit(getDb(), ctx.registry, ctx.rates, {
+          merchantId: merchant_id, symbol: token, chain, amountUsd: amount_usd,
+          ttlSeconds: config.depositAddressTtlSeconds, paymentId: payment_id ?? null, metadata: metadata ?? null,
+        }, () => ctx.currentBlock(chain));
+      } catch (err) {
+        if (err instanceof AssetUnavailableError || err instanceof RateUnavailableError) {
+          reply.code(503).send({ error: err instanceof RateUnavailableError ? 'RateUnavailable' : 'AssetUnavailable', message: err.message });
+          return;
+        }
+        if (err instanceof RangeError) {
+          reply.code(400).send({ error: 'ValidationError', field: 'amount_usd', message: err.message });
+          return;
+        }
+        throw err;
+      }
+      const { quoted } = opened;
 
       reply.code(201).send({
-        id:           depositId,
-        address,
+        id:           opened.id,
+        address:      opened.address,
         chain,
-        token,
+        token:        quoted.asset.symbol,
+        decimals:     quoted.asset.decimals,
         amount_usd,
-        amount_units: amountUnits,
-        expires_at:   expiresAt,
+        amount_asset: quoted.amountAsset,
+        amount_units: quoted.units.toString(),
+        expires_at:   opened.expiresAt,
         status:       'pending',
-        payment_instructions: `Send exactly ${amount_usd} ${token} to ${address} on ${chain}.`,
+        payment_instructions: `Send exactly ${quoted.amountAsset} ${quoted.asset.symbol} to ${opened.address} on ${chain}.`,
       });
     },
   );

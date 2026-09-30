@@ -50,7 +50,7 @@ import { issueConsent, verifyConsent, revokeConsent, consumeConsent, type Consen
 import { resolveDispute, withEscalationCheck, furnisherForEvent, type DisputeCorrection } from './disputes';
 import {
   getAccountSummary, creditAccount, chargeInquiryFee, billingHistory,
-  requestTopUp, confirmTopUp, centsToUsd, usdToCents,
+  requestTopUp, confirmTopUp, centsToUsd, usdToCents, defaultAsset,
   chargeForPull, setPlan,
 } from './billing';
 import { PLANS, getPlan, planAnnualUsdCents, LIST_INQUIRY_USD, FURNISHER_SHARE_OF_LIST_USD, VOLUME_BANDS } from './plans';
@@ -76,6 +76,7 @@ import {
   persistenceFailures, totalPersistenceFailures,
 } from './store';
 import type { PlanId } from './types';
+import { PAYMENT_ASSETS } from './types';
 import {
   buildLenderReport, renderLenderReportMarkdown,
   REASON_CODE_CATALOG, LENDER_REPORT_SCHEMA_VERSION,
@@ -309,6 +310,8 @@ const IssueConsentSchema = z.object({
 const PayoutDestinationSchema = z.object({
   payoutAddress: z.string().regex(/^0x[0-9a-fA-F]{40}$/, 'must be a 0x-prefixed 20-byte EVM address'),
   payoutChain:   z.string().min(1).optional(),
+  /** Which stablecoin the furnisher is paid in. */
+  payoutAsset:   z.enum(PAYMENT_ASSETS).optional(),
 });
 
 const RevokeConsentSchema = z.object({
@@ -318,6 +321,8 @@ const RevokeConsentSchema = z.object({
 
 const TopUpSchema = z.object({
   amountUsd: z.number().positive().max(10_000),
+  /** Pay in USDC, ZARP (rand) or OUSD. The balance is credited in USD either way. */
+  asset:     z.enum(PAYMENT_ASSETS).optional(),
 });
 
 const AdminCreditSchema = z.object({
@@ -1256,7 +1261,35 @@ async function buildApp() {
     },
   );
 
-  // POST /v1/billing/:requestorId/topup — open an x402 USDC top-up
+  // GET /v1/billing/assets — which tokens can be used to top up or be paid out in right now.
+  // Read through from stablecoin-gateway, which checks each token's contract on-chain and
+  // needs a fresh rand rate before it will price ZARP. Public, like the rate card.
+  app.get('/v1/billing/assets', async (_req, reply) => {
+    const base = process.env['STABLECOIN_GATEWAY_URL'];
+    if (!base) return reply.status(503).send({ error: 'NotConfigured', message: 'STABLECOIN_GATEWAY_URL is not set.' });
+    try {
+      const res = await fetch(`${base.replace(/\/$/, '')}/assets`, {
+        headers: process.env['STABLECOIN_GATEWAY_API_KEY'] ? { 'x-api-key': process.env['STABLECOIN_GATEWAY_API_KEY'] } : {},
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!res.ok) return reply.status(502).send({ error: 'GatewayError', message: `stablecoin-gateway /assets returned ${res.status}` });
+      const body = await res.json() as { assets: Array<{ symbol: string; chain: string; unit: string; decimals: number | null; status: string; quotable: boolean; problem?: string }>; rates: unknown };
+      const offered = body.assets.filter((a) => (PAYMENT_ASSETS as readonly string[]).includes(a.symbol));
+      return reply.send({
+        data: {
+          default: defaultAsset(),
+          ledgerCurrency: 'USD',
+          assets: offered.map((a) => ({ symbol: a.symbol, chain: a.chain, pegged: a.unit, decimals: a.decimals, usable: a.quotable, ...(a.problem ? { problem: a.problem } : {}) })),
+          rates: body.rates,
+          note: 'Balances and prices are in USD. A ZARP payment is priced in rand at the rate the gateway locks when the top-up is opened.',
+        },
+      });
+    } catch (err) {
+      return reply.status(502).send({ error: 'GatewayError', message: `stablecoin-gateway /assets call failed: ${err instanceof Error ? err.message : String(err)}` });
+    }
+  });
+
+  // POST /v1/billing/:requestorId/topup — open an x402 stablecoin top-up (USDC, ZARP or OUSD)
   app.post<{ Params: { requestorId: string } }>('/v1/billing/:requestorId/topup', async (req, reply) => {
     const denied = contributorAccessError(req.auth, req.params.requestorId);
     if (denied) return reply.status(403).send(denied);
@@ -1264,9 +1297,10 @@ async function buildApp() {
     const parse = TopUpSchema.safeParse(req.body);
     if (!parse.success) return reply.status(400).send({ error: 'ValidationError', details: parse.error.flatten() });
 
-    const outcome = await requestTopUp(req.params.requestorId, parse.data.amountUsd);
+    const outcome = await requestTopUp(req.params.requestorId, parse.data.amountUsd, parse.data.asset);
     if (!outcome.ok) {
       const status = outcome.reason === 'not_configured' ? 503
+        : outcome.reason === 'asset_unavailable' ? 503
         : outcome.reason === 'amount_invalid' ? 400
         : 502;
       return reply.status(status).send({ error: 'TopUpFailed', reason: outcome.reason, message: outcome.message });
@@ -1278,10 +1312,14 @@ async function buildApp() {
         amountUsd: outcome.receipt.amountUsd,
         status:    outcome.receipt.status,
         gateway:   outcome.gateway,
-        note:
-          'Send USDC on Base for this amount to the vault address published at ' +
-          'GET {STABLECOIN_GATEWAY_URL}/x402/payment-required, then confirm with ' +
-          'POST /v1/billing/:requestorId/topup/:receiptId/confirm once the transfer has settled.',
+        note: outcome.gateway.payTo
+          ? `Send exactly ${outcome.gateway.amountAsset ?? outcome.gateway.amountUnits + ' units of'} ${outcome.gateway.asset} on ` +
+            `${outcome.gateway.chain} to ${outcome.gateway.payTo} before ${outcome.gateway.expiresAt}` +
+            `${outcome.gateway.fxRate ? ` (priced at R${outcome.gateway.fxRate} to the dollar, locked for this payment)` : ''}. ` +
+            `Your balance is credited $${outcome.receipt.amountUsd.toFixed(2)} once the transfer is final; confirm with ` +
+            `POST /v1/billing/:requestorId/topup/:receiptId/confirm.`
+          : 'Send the asset and amount named above to the address the gateway returns, then confirm with ' +
+            'POST /v1/billing/:requestorId/topup/:receiptId/confirm once the transfer has settled.',
       },
     });
   });
@@ -1830,8 +1868,10 @@ async function buildApp() {
     }
 
     const previous = contributor.payoutAddress;
+    const previousAsset = contributor.payoutAsset;
     contributor.payoutAddress = parse.data.payoutAddress;
     if (parse.data.payoutChain) contributor.payoutChain = parse.data.payoutChain;
+    if (parse.data.payoutAsset) contributor.payoutAsset = parse.data.payoutAsset;
     setContributor(contributor);
 
     // Logged as a change, with the old value, because redirecting where money
@@ -1842,6 +1882,8 @@ async function buildApp() {
         from: previous ?? '(unset)',
         to: contributor.payoutAddress,
         chain: contributor.payoutChain ?? '(default)',
+        asset: contributor.payoutAsset ?? '(default)',
+        previousAsset: previousAsset ?? '(unset)',
       },
       'furnisher payout destination changed',
     );
@@ -1851,6 +1893,7 @@ async function buildApp() {
         contributorId: contributor.id,
         payoutAddress: contributor.payoutAddress,
         payoutChain:   contributor.payoutChain ?? null,
+        payoutAsset:   contributor.payoutAsset ?? null,
         previousAddress: previous ?? null,
       },
     });

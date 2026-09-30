@@ -1,0 +1,242 @@
+#!/usr/bin/env node
+/**
+ * Multi-asset end-to-end: the real gateway (tsx), a real Postgres, and real ERC-20
+ * contracts on a local chain standing in for USDC, ZARP and OUSD. Verifies quoting,
+ * x402 top-ups, settlement (partial, late, wrong-token, restart), and outbound
+ * payouts in each asset.
+ *
+ * Needs: Postgres reachable with the env below, and ganache (chain 1337) on :8545.
+ *   GW_DIR      stablecoin-gateway directory (default: this script's parent)
+ *   PGHOST/PGUSER/PGPASSWORD, RPC_URL, FUNDER_MNEMONIC
+ */
+const { spawn, execSync } = require('child_process');
+const path = require('path');
+const fs = require('fs');
+const GW = process.env.GW_DIR || path.resolve(__dirname, '..');
+const { ethers } = require(require.resolve('ethers', { paths: [GW] }));
+const { Pool } = require(require.resolve('pg', { paths: [GW] }));
+
+const RPC = process.env.RPC_URL || 'http://127.0.0.1:8545';
+const PORT = Number(process.env.GW_PORT || 8021);
+const BASE = `http://127.0.0.1:${PORT}`;
+const DB = process.env.E2E_DB || 'forgepay_sgw_e2e';
+const PG = { host: process.env.PGHOST || 'localhost', user: process.env.PGUSER || 'forgepay', password: process.env.PGPASSWORD || 'devpassword' };
+const MNEMONIC = process.env.FUNDER_MNEMONIC || 'test test test test test test test test test test test junk';
+
+let pass = 0, fail = 0;
+const check = (name, ok, detail = '') => { ok ? pass++ : fail++; console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? ' — ' + detail : ''}`); };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function waitFor(fn, ms = 30000, every = 400) { const end = Date.now() + ms; for (;;) { const v = await fn(); if (v) return v; if (Date.now() > end) return null; await sleep(every); } }
+
+const provider = new ethers.JsonRpcProvider(RPC, undefined, { staticNetwork: ethers.Network.from(1337), cacheTimeout: -1 });
+const funder = ethers.HDNodeWallet.fromPhrase(MNEMONIC).connect(provider);
+const fixture = JSON.parse(fs.readFileSync(path.join(GW, 'tests/fixtures/MockToken.json'), 'utf8'));
+const mine = async (n = 1) => { for (let i = 0; i < n; i++) await provider.send('evm_mine', []); };
+
+async function deploy(symbol, decimals) {
+  const f = new ethers.ContractFactory(fixture.abi, fixture.bytecode, funder);
+  const c = await f.deploy(symbol, decimals);
+  await c.waitForDeployment();
+  return c;
+}
+
+let gw = null;
+async function startGateway(extraEnv = {}) {
+  gw = spawn(path.join(GW, 'node_modules/.bin/tsx'), ['src/index.ts'], {
+    cwd: GW, stdio: ['ignore', fs.openSync(`${GW}/.e2e-gateway.log`, 'a'), fs.openSync(`${GW}/.e2e-gateway.log`, 'a')],
+    env: {
+      ...process.env, NODE_ENV: 'development', PORT: String(PORT),
+      POSTGRES_HOST: PG.host, POSTGRES_DB: DB, POSTGRES_USER: PG.user, POSTGRES_PASSWORD: PG.password, INTERNAL_WEBHOOK_SECRET: 'e2e',
+      BASE_RPC_URL: RPC, BASE_CHAIN_ID: '1337', BASE_CONFIRMATIONS: '2', DEPOSIT_MONITOR_CHAINS: 'base',
+      SETTLEMENT_INTERVAL_MS: '700', SETTLEMENT_EXPIRY_GRACE_MS: '1500', SETTLEMENT_LATE_SCAN_EVERY: '3', ASSET_VERIFY_INTERVAL_MS: '600000',
+      ASSET_USDC_ETHEREUM: 'off', ASSET_USDC_POLYGON: 'off', ASSET_USDC_ARBITRUM: 'off',
+      ASSET_USDT_ETHEREUM: 'off', ASSET_USDT_POLYGON: 'off', ASSET_USDT_ARBITRUM: 'off',
+      PAYOUT_SIGNER_ENABLED: 'true', PAYOUT_SIGNER_CHAIN: 'base', PAYOUT_SIGNER_CHAIN_ID: '1337', PAYOUT_SIGNER_RPC_URL: RPC,
+      PAYOUT_SIGNER_DAILY_MAX_USD: '1000000', PAYOUT_SIGNER_PRIVATE_KEY: signer.privateKey, PAYOUT_SIGNER_CONFIRMATIONS: '1',
+      PAYOUT_AUTO_APPROVE_MAX_USD: '100', PAYOUT_ABSOLUTE_MAX_USD: '25000', X402_MAX_AMOUNT_USDC: '1000',
+      ...tokenEnv, ...extraEnv,
+    },
+  });
+  const up = await waitFor(async () => (await fetch(`${BASE}/healthz`).then((r) => r.ok).catch(() => false)), 60000);
+  if (!up) throw new Error('gateway did not start; see ' + GW + '/.e2e-gateway.log');
+}
+async function stopGateway() {
+  if (!gw) return;
+  gw.kill('SIGTERM');
+  await waitFor(async () => gw.exitCode !== null || gw.signalCode !== null, 8000);
+  gw = null;
+}
+const H = { 'content-type': 'application/json', authorization: 'Bearer e2e-admin', 'x-forge-service': 'e2e-bureau' };
+async function api(method, p, body) {
+  const r = await fetch(BASE + p, { method, headers: H, body: body ? JSON.stringify(body) : undefined });
+  return { status: r.status, body: await r.json().catch(() => null) };
+}
+
+const signer = ethers.Wallet.createRandom();
+let tokenEnv = {};
+let tokens = {};
+let db;
+
+(async () => {
+  console.log('Setup: fresh database (migrations must stand alone), three real token contracts');
+  const admin = new Pool({ ...PG, database: 'postgres' });
+  await admin.query(`DROP DATABASE IF EXISTS ${DB}`); await admin.query(`CREATE DATABASE ${DB}`); await admin.end();
+  db = new Pool({ ...PG, database: DB });
+  tokens = { USDC: await deploy('USDC', 6), ZARP: await deploy('ZARP', 18), OUSD: await deploy('OUSD', 6) };
+  const addr = Object.fromEntries(await Promise.all(Object.entries(tokens).map(async ([k, c]) => [k, await c.getAddress()])));
+  tokenEnv = { ASSET_USDC_BASE: addr.USDC, ASSET_ZARP_BASE: addr.ZARP, ASSET_OUSD_BASE: addr.OUSD };
+  console.log('  tokens:', JSON.stringify(addr));
+  await (await funder.sendTransaction({ to: signer.address, value: ethers.parseEther('5') })).wait();
+  for (const k of Object.keys(tokens)) {
+    const d = await tokens[k].decimals();
+    await (await tokens[k].mint(signer.address, ethers.parseUnits('100000', d))).wait(); // the payout wallet
+    await (await tokens[k].mint(funder.address, ethers.parseUnits('1000000000', d))).wait(); // the "payer"
+  }
+
+  await startGateway();
+  const units = async (sym) => Number(await tokens[sym].decimals());
+  const pay = (sym, to, amount) => tokens[sym].connect(funder).transfer(to, amount).then((t) => t.wait());
+  const depositRow = async (id) => (await db.query(`SELECT * FROM stablecoin_deposits WHERE id=$1`, [id])).rows[0];
+  const verify = async (id) => (await api('GET', `/x402/verify/${id}`)).body;
+  const settle = async (id, want, ms = 25000) => waitFor(async () => { const v = await verify(id); return v.status === want ? v : null; }, ms);
+
+  console.log('1. The assets, read from the chain');
+  let a = (await api('GET', '/assets')).body;
+  const st = (sym) => a.assets.find((x) => x.symbol === sym && x.chain === 'base');
+  check('migrations ran on an empty database and the gateway is up', (await db.query(`SELECT count(*)::int n FROM x402_payments`)).rows[0].n === 0);
+  check('USDC is available with 6 decimals', st('USDC')?.status === 'available' && st('USDC').decimals === 6);
+  check('ZARP is available with 18 decimals, read from the contract', st('ZARP')?.status === 'available' && st('ZARP').decimals === 18, JSON.stringify(st('ZARP')));
+  check('OUSD is available with 6 decimals, read from the contract', st('OUSD')?.status === 'available' && st('OUSD').decimals === 6);
+  check('ZARP is not quotable yet: there is no rand rate', st('ZARP').quotable === false && a.rates['USD/ZAR'].fresh === false);
+
+  console.log('2. The rand rate is an operator decision, and safeguarded');
+  const noRate = await api('POST', '/x402/pay', { resource_url: 'bureau:topup:r1', merchant_id: 'forgepay-credit-bureau', amount_usd: 10, asset: 'ZARP' });
+  check('paying in ZARP without a rate is refused, not guessed', noRate.status === 503 && noRate.body?.error === 'RateUnavailable', noRate.body?.message);
+  check('a rate with no source is refused', (await api('PUT', '/assets/rates/USD-ZAR', { rate: 18.5 })).status === 400);
+  check('an implausible rate is refused', (await api('PUT', '/assets/rates/USD-ZAR', { rate: 1850, source: 'typo' })).status === 400);
+  check('a proper rate is accepted', (await api('PUT', '/assets/rates/USD-ZAR', { rate: 18.5, source: 'ops desk' })).status === 201);
+  check('a jump of over 25% needs explicit confirmation', (await api('PUT', '/assets/rates/USD-ZAR', { rate: 26, source: 'ops desk' })).status === 409);
+  a = (await api('GET', '/assets')).body;
+  check('ZARP is now quotable, at 18.5', st('ZARP').quotable === true && a.rates['USD/ZAR'].rate === '18.5');
+
+  console.log('3. A ZARP top-up, end to end');
+  const z = await api('POST', '/x402/pay', { resource_url: 'bureau:topup:req1', merchant_id: 'forgepay-credit-bureau', agent_id: 'req1', amount_usd: 10, asset: 'ZARP' });
+  check('the bureau\'s string merchant id is accepted (it used to be rejected as a UUID)', z.status === 201, JSON.stringify(z.body).slice(0, 200));
+  check('$10 at R18.5 is 185 ZARP, exactly, in 18-decimal units', z.body.amount_asset === '185' && z.body.amount_units === (185n * 10n ** 18n).toString());
+  check('it names a one-time address to pay, the token contract and the locked rate', /^0x[0-9a-fA-F]{40}$/.test(z.body.pay_to) && z.body.asset.contract === addr.ZARP && z.body.fx.rate === '18.5');
+  check('the deposit behind it exists (the foreign key that used to fail)', !!(await depositRow(z.body.deposit_id)));
+  check('it is not valid before it is paid', (await verify(z.body.receipt_id)).valid === false);
+  await pay('ZARP', z.body.pay_to, BigInt(z.body.amount_units));
+  const seen = await waitFor(async () => (await depositRow(z.body.deposit_id)).status === 'confirming', 15000);
+  check('the transfer is seen but not yet final (2 confirmations needed)', !!seen && (await verify(z.body.receipt_id)).valid === false);
+  await mine(3);
+  const done = await settle(z.body.receipt_id, 'confirmed');
+  check('once final, the receipt is confirmed and valid', !!done && done.valid === true, done && `tx ${String(done.tx_hash).slice(0, 12)}…`);
+  check('it records exactly what arrived', done.received_units === z.body.amount_units);
+  check('and it stays valid after its 5-minute payment window', (await db.query(`UPDATE x402_payments SET expires_at = now() - interval '1 hour' WHERE id=$1`, [z.body.receipt_id])) && (await verify(z.body.receipt_id)).valid === true);
+
+  console.log('4. Partial, over-, wrong-token and late payments');
+  const o = await api('POST', '/x402/pay', { resource_url: 'bureau:topup:req2', merchant_id: 'forgepay-credit-bureau', amount_usd: 10, asset: 'OUSD' });
+  check('$10 in OUSD (6 decimals) is 10 OUSD', o.body.amount_units === '10000000' && o.body.fx.rate === '1');
+  await pay('OUSD', o.body.pay_to, 9_000_000n); await mine(3);
+  await waitFor(async () => (await depositRow(o.body.deposit_id)).received_amount_units === '9000000', 15000);
+  let row = await depositRow(o.body.deposit_id);
+  check('9 of 10 OUSD is recorded as a partial payment and is NOT a confirmation', row.status === 'pending' && row.received_amount_units === '9000000' && (await verify(o.body.receipt_id)).valid === false);
+  await pay('OUSD', o.body.pay_to, 1_000_000n); await mine(3);
+  check('the remaining 1 OUSD completes it (amounts add up)', !!(await settle(o.body.receipt_id, 'confirmed')));
+
+  const w = await api('POST', '/x402/pay', { resource_url: 'bureau:topup:req3', merchant_id: 'forgepay-credit-bureau', amount_usd: 5, asset: 'USDC' });
+  await pay('ZARP', w.body.pay_to, 10n ** 24n); await pay('OUSD', w.body.pay_to, 50_000_000n); await mine(3);
+  await sleep(3000);
+  check('ZARP or OUSD sent to a USDC payment does not satisfy it', (await depositRow(w.body.deposit_id)).status === 'pending');
+  await pay('USDC', w.body.pay_to, 6_000_000n); await mine(3);
+  const over = await settle(w.body.receipt_id, 'confirmed');
+  check('an overpayment in the right token confirms, recording what arrived', !!over && over.received_units === '6000000');
+
+  // Arrives just after expiry but inside the grace period: seen while the deposit is still open.
+  const late = await api('POST', '/x402/pay', { resource_url: 'bureau:topup:req4', merchant_id: 'forgepay-credit-bureau', amount_usd: 5, asset: 'OUSD' });
+  await db.query(`UPDATE stablecoin_deposits SET expires_at = now() - interval '300 milliseconds' WHERE id=$1`, [late.body.deposit_id]);
+  await sleep(400);
+  await pay('OUSD', late.body.pay_to, 5_000_000n); await mine(3);
+  const exp = await settle(late.body.receipt_id, 'expired');
+  check('a payment that lands after expiry is never credited', !!exp && exp.valid === false);
+  row = await waitFor(async () => { const r = await depositRow(late.body.deposit_id); return r.late_units ? r : null; }, 12000);
+  check('but is recorded as late, for reconciliation', row?.late_units === '5000000', `late_units=${row?.late_units}`);
+  // Arrives long after the deposit expired and stopped being settled: found by the late scan.
+  const late2 = await api('POST', '/x402/pay', { resource_url: 'bureau:topup:req4b', merchant_id: 'forgepay-credit-bureau', amount_usd: 5, asset: 'OUSD' });
+  await db.query(`UPDATE stablecoin_deposits SET expires_at = now() - interval '5 seconds' WHERE id=$1`, [late2.body.deposit_id]);
+  await settle(late2.body.receipt_id, 'expired');
+  await pay('OUSD', late2.body.pay_to, 5_000_000n); await mine(3);
+  row = await waitFor(async () => { const r = await depositRow(late2.body.deposit_id); return r.late_units ? r : null; }, 20000);
+  check('a payment to an address that already expired is still found, and never credited', row?.late_units === '5000000' && (await verify(late2.body.receipt_id)).valid === false, `late_units=${row?.late_units}`);
+  const idle = await api('POST', '/x402/pay', { resource_url: 'bureau:topup:req5', merchant_id: 'forgepay-credit-bureau', amount_usd: 5, asset: 'USDC' });
+  await db.query(`UPDATE stablecoin_deposits SET expires_at = now() - interval '5 seconds' WHERE id=$1`, [idle.body.deposit_id]);
+  check('an unpaid payment simply expires', !!(await settle(idle.body.receipt_id, 'expired')));
+
+  console.log('5. Settlement survives a restart');
+  const rs = await api('POST', '/x402/pay', { resource_url: 'bureau:topup:req6', merchant_id: 'forgepay-credit-bureau', amount_usd: 20, asset: 'ZARP' });
+  await stopGateway();
+  await pay('ZARP', rs.body.pay_to, BigInt(rs.body.amount_units)); await mine(3);
+  await startGateway();
+  check('a payment made while the gateway was down is found and confirmed after it restarts', !!(await settle(rs.body.receipt_id, 'confirmed')));
+
+  console.log('6. Older callers keep working');
+  const legacy = await api('POST', '/x402/pay', { resource_url: 'r', merchant_id: 'm1', amount_usdc: 2 });
+  check('amount_usdc with no asset is a USDC payment', legacy.status === 201 && legacy.body.token === 'USDC' && legacy.body.amount_units === '2000000' && legacy.body.amount_usdc === 2);
+  const dep = await api('POST', '/deposits', { merchant_id: 'm1', amount_usd: 3, token: 'ZARP', chain: 'base' });
+  check('POST /deposits can take ZARP too', dep.status === 201 && dep.body.decimals === 18 && dep.body.amount_asset === '55.5', JSON.stringify(dep.body).slice(0, 160));
+  const pr = await fetch(`${BASE}/x402/payment-required?amount=10`, { headers: H });
+  const prb = await pr.json();
+  check('the 402 challenge lists every asset with its price in that asset', pr.status === 402 && ['USDC', 'ZARP', 'OUSD'].every((s) => prb.accepts.some((x) => x.extra.symbol === s)) && prb.accepts.find((x) => x.extra.symbol === 'ZARP').extra.amountAsset === '185');
+
+  console.log('7. Outbound payouts in each asset');
+  const payee = ethers.Wallet.createRandom().address;
+  const p1 = await api('POST', '/payouts', { external_id: 'e2e-z1', payee_id: 'contrib-1', payee_address: payee, chain: 'base', amount_usd: 50, asset: 'ZARP', reason: 'furnisher share' });
+  check('a $50 ZARP payout is recorded with its units and locked rate', p1.status === 201 && p1.body.data.asset === 'ZARP' && p1.body.data.amountUnits === (925n * 10n ** 18n).toString() && p1.body.data.fxRate === '18.5', JSON.stringify(p1.body.data));
+  check('it needs no approval (under the USD threshold)', p1.body.requires_approval === false && p1.body.data.status === 'approved');
+  const sub = await api('POST', `/payouts/${p1.body.data.id}/submit`, {});
+  check('submitting sends it', sub.status === 200 && sub.body.data.status === 'confirmed', JSON.stringify(sub.body).slice(0, 200));
+  check('the payee received exactly 925 ZARP on-chain', (await tokens.ZARP.balanceOf(payee)) === 925n * 10n ** 18n);
+  await api('PUT', '/assets/rates/USD-ZAR', { rate: 19, source: 'ops desk' });
+  const p1again = await api('POST', '/payouts', { external_id: 'e2e-z1', payee_id: 'contrib-1', payee_address: payee, chain: 'base', amount_usd: 50, asset: 'ZARP', reason: 'furnisher share' });
+  check('a retry after the rate moved returns the original payout at the original rate, sending nothing more', p1again.status === 200 && p1again.body.deduplicated === true && p1again.body.data.amountUnits === p1.body.data.amountUnits && p1again.body.data.fxRate === '18.5');
+  const payee2 = ethers.Wallet.createRandom().address;
+  const p2 = await api('POST', '/payouts', { external_id: 'e2e-o1', payee_id: 'contrib-2', payee_address: payee2, chain: 'base', amount_usd: 40, asset: 'OUSD', reason: 'share' });
+  await api('POST', `/payouts/${p2.body.data.id}/submit`, {});
+  check('an OUSD payout sends exactly 40 OUSD (6 decimals)', (await tokens.OUSD.balanceOf(payee2)) === 40_000_000n);
+  const p3 = await api('POST', '/payouts', { external_id: 'e2e-u1', payee_id: 'contrib-3', payee_address: payee2, chain: 'base', amount_usdc: 12.34, reason: 'legacy caller, no asset' });
+  await api('POST', `/payouts/${p3.body.data.id}/submit`, {});
+  check('a legacy request (amount_usdc, no asset) still pays USDC', p3.body.data.asset === 'USDC' && (await tokens.USDC.balanceOf(payee2)) === 12_340_000n);
+  const p4 = await api('POST', '/payouts', { external_id: 'e2e-z2', payee_id: 'contrib-4', payee_address: payee, chain: 'base', amount_usd: 500, asset: 'ZARP', reason: 'large' });
+  check('a large ZARP payout waits for approval (judged in USD)', p4.body.requires_approval === true && p4.body.data.status === 'pending_approval');
+  check('and cannot be submitted until approved', (await api('POST', `/payouts/${p4.body.data.id}/submit`, {})).status >= 400);
+  await api('POST', `/payouts/${p4.body.data.id}/approve`, { approved_by: 'ops' });
+  const sub4 = await api('POST', `/payouts/${p4.body.data.id}/submit`, {});
+  check('once approved it is sent at the rate it was created at (19, since the rate had moved)', sub4.body.data?.status === 'confirmed' && sub4.body.data.fxRate === '19' && (await tokens.ZARP.balanceOf(payee)) === (925n + 9500n) * 10n ** 18n);
+  // Leave the hot wallet with about $10k of OUSD, then ask for $20k.
+  await (await tokens.OUSD.connect(signer.connect(provider)).transfer(funder.address, 90_000_000_000n)).wait();
+  const p5 = await api('POST', '/payouts', { external_id: 'e2e-big', payee_id: 'c', payee_address: payee, chain: 'base', amount_usd: 20000, asset: 'OUSD', reason: 'too big for the wallet' });
+  await api('POST', `/payouts/${p5.body.data.id}/approve`, { approved_by: 'ops' });
+  const sub5 = await api('POST', `/payouts/${p5.body.data.id}/submit`, {});
+  check('a payout the hot wallet cannot cover fails clearly and is not retried', sub5.status >= 400 && /short of/.test(sub5.body?.message ?? JSON.stringify(sub5.body)) && (await api('GET', `/payouts/${p5.body.data.id}`)).body.data.status === 'failed', sub5.body?.message);
+  check('a payout over the USD ceiling is refused up front', (await api('POST', '/payouts', { external_id: 'e2e-huge', payee_id: 'c', payee_address: payee, chain: 'base', amount_usd: 90000, asset: 'ZARP', reason: 'x' })).status === 400);
+  check('an unknown asset is refused', (await api('POST', '/payouts', { external_id: 'e2e-x', payee_id: 'c', payee_address: payee, chain: 'base', amount_usd: 1, asset: 'DOGE', reason: 'x' })).status === 400);
+
+  console.log('8. A wrong address is caught, not trusted');
+  await stopGateway();
+  await startGateway({ ASSET_ZARP_BASE: addr.OUSD }); // ZARP configured to OUSD's contract
+  a = (await api('GET', '/assets')).body;
+  check('ZARP pointed at a contract that calls itself OUSD is unavailable, with the reason', st('ZARP')?.status === 'unavailable' && /calls itself "OUSD", not ZARP/.test(st('ZARP').problem || ''), st('ZARP')?.problem);
+  const bad = await api('POST', '/x402/pay', { resource_url: 'r', merchant_id: 'm', amount_usd: 1, asset: 'ZARP' });
+  check('so a ZARP payment is refused', bad.status === 503 && bad.body.error === 'AssetUnavailable');
+  check('while USDC and OUSD still work', (await api('POST', '/x402/pay', { resource_url: 'r', merchant_id: 'm', amount_usd: 1, asset: 'OUSD' })).status === 201);
+  await stopGateway();
+  await startGateway({ ASSET_ZARP_BASE_DECIMALS: '6' }); // pinned decimals disagree with the contract's 18
+  a = (await api('GET', '/assets')).body;
+  check('decimals pinned to a value the contract contradicts disable the asset', st('ZARP')?.status === 'unavailable' && /reports 18 decimals, configured 6/.test(st('ZARP').problem || ''));
+
+  await stopGateway();
+  await db.end();
+  console.log(`\n${pass}/${pass + fail} passed`);
+  process.exit(fail ? 1 : 0);
+})().catch(async (e) => { console.error('SCRIPT FAILED:', e.stack || e.message); await stopGateway().catch(() => {}); process.exit(1); });

@@ -31,7 +31,9 @@ import rateLimit from '@fastify/rate-limit';
 import cors from '@fastify/cors';
 import { config } from './config.js';
 import { getDb } from './lib/db.js';
-import { startChainMonitor } from './lib/monitor.js';
+import { startSettlement } from './lib/settlement.js';
+import { gatewayContext } from './lib/context.js';
+import { buildAssetRoutes } from './routes/assets.js';
 import { buildDepositRoutes } from './routes/deposits.js';
 import { buildX402Routes } from './routes/x402.js';
 import { buildPayoutRoutes } from './routes/payouts.js';
@@ -78,6 +80,9 @@ export async function buildApp() {
   // Register routes
   await app.register(buildDepositRoutes,         { prefix: '/deposits' });
   await app.register(buildX402Routes,            { prefix: '/x402' });
+
+  // Which assets (USDC, USDT, ZARP, OUSD) are usable right now, and the rand rate.
+  await app.register(buildAssetRoutes,           { prefix: '/assets' });
 
   // Outbound. The inverse of /x402 — the rail the credit bureau uses to pay
   // furnishers the revenue share it computes. Submission is refused rather than
@@ -172,17 +177,13 @@ async function main() {
     console.log(`[stablecoin-gateway] Outbound payouts not signed: ${signer.reason}`);
   }
 
-  // Start EVM chain monitors (fire-and-forget — don't block server startup)
+  // Which chains to watch.
   //
-  // Configurable, defaulting to the original fixed set of four so nothing
-  // that already relies on all-chains-on-by-default changes behavior. Exists
-  // because these monitors use ethers' background polling/subscription
-  // machinery, which has async paths deep enough that a flaky RPC can still
-  // reach the process-wide unhandled-rejection handler despite the
-  // defenses in monitor.ts — a real gap, not yet fully closed. A deployment
-  // with no real, working RPC provider for a given chain (e.g. this
-  // service's own default public endpoints, meant as placeholders — see
-  // config.ts) should not run that chain's monitor until it has one.
+  // Configurable, defaulting to the original fixed set of four so nothing that
+  // already relies on all-chains-on-by-default changes behavior. A deployment with
+  // no real, working RPC provider for a given chain (e.g. this service's own
+  // default public endpoints, meant as placeholders — see config.ts) should not
+  // watch that chain until it has one.
   const ALL_MONITORED_CHAINS = ['ethereum', 'polygon', 'base', 'arbitrum'] as const;
   type MonitoredChain = (typeof ALL_MONITORED_CHAINS)[number];
   const isMonitoredChain = (c: string): c is MonitoredChain =>
@@ -192,11 +193,42 @@ async function main() {
   const chains = configuredChains !== undefined
     ? configuredChains.split(',').map((c) => c.trim()).filter(isMonitoredChain)
     : ALL_MONITORED_CHAINS;
-  for (const chain of chains) {
-    startChainMonitor(chain, db).catch((err) =>
-      console.error(`Chain monitor failed for ${chain}:`, err),
-    );
-  }
+
+  // Check every configured token against the chain before anything is quoted or
+  // paid in it: code at the address, the expected symbol, decimals read from the
+  // contract. An asset that fails is unavailable, not guessed. Re-checked on a
+  // timer so one that came up late (an RPC that was down at boot) becomes usable
+  // without a restart.
+  const ctx = await gatewayContext();
+  const verifyAssets = async () => {
+    try {
+      const statuses = await ctx.registry.verify();
+      for (const st of statuses) {
+        const line = `[stablecoin-gateway] ${st.symbol} on ${st.chain}: ${st.status}` +
+          (st.decimals !== null ? ` (${st.decimals} decimals)` : '') + (st.problem ? ` — ${st.problem}` : '');
+        (st.status === 'available' ? console.log : console.warn)(line);
+      }
+      return statuses.every((st) => st.status === 'available');
+    } catch (err) {
+      console.error('[stablecoin-gateway] Asset verification failed:', err);
+      return false;
+    }
+  };
+  let allVerified = await verifyAssets();
+  setInterval(() => { void verifyAssets().then((ok) => { allVerified = ok; }); },
+    Number(process.env['ASSET_VERIFY_INTERVAL_MS'] ?? (allVerified ? 600_000 : 60_000))).unref();
+
+  // Settlement: read each chain's transfers to open deposits and confirm them once
+  // final. Replaces the event-subscription monitor (lib/settlement.ts explains why).
+  startSettlement(
+    [...chains], (chain) => ctx.chainApi(chain), db, ctx.registry,
+    {
+      confirmations: (chain) => (config.confirmations as Record<string, number>)[chain] ?? 12,
+      expiryGraceMs: Number(process.env['SETTLEMENT_EXPIRY_GRACE_MS'] ?? 5 * 60_000),
+      lateEveryPasses: Number(process.env['SETTLEMENT_LATE_SCAN_EVERY'] ?? 30),
+    },
+    Number(process.env['SETTLEMENT_INTERVAL_MS'] ?? '10000'),
+  );
 
   // Start shielded-deposit monitors (only where NullifierRegistry is deployed)
   if (config.shielded.enabled) {

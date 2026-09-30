@@ -178,10 +178,21 @@ export function resolveSignerConfig(): SignerConfig {
 
   const confirmations = Math.max(1, Number(process.env['PAYOUT_SIGNER_CONFIRMATIONS'] ?? '1'));
 
+  // A development chain has its own id. Refused in production, where a wrong id is a wrong network.
+  let chainId = token.chainId;
+  const override = process.env['PAYOUT_SIGNER_CHAIN_ID'];
+  if (override) {
+    if (process.env['NODE_ENV'] === 'production') {
+      throw new PayoutSignerConfigError('PAYOUT_SIGNER_CHAIN_ID may not be set in production.');
+    }
+    chainId = Number(override);
+    if (!Number.isInteger(chainId) || chainId <= 0) throw new PayoutSignerConfigError('PAYOUT_SIGNER_CHAIN_ID must be a positive integer.');
+  }
+
   return {
     chain,
     usdcAddress: token.address,
-    chainId: token.chainId,
+    chainId,
     rpcUrl,
     dailyMaxUsd,
     confirmations,
@@ -211,17 +222,30 @@ export async function spentLast24hUsd(): Promise<number> {
 
 // ── The broadcaster ───────────────────────────────────────────────────────────
 
-export class UsdcPayoutBroadcaster implements PayoutBroadcaster {
-  readonly name = 'usdc-erc20';
+/**
+ * Sends ERC-20 stablecoins — USDC, USDT, ZARP or OUSD — from one hot wallet.
+ *
+ * Which token, and how many units of it, is decided when the payout is created and
+ * stored on the row; this only checks that what it is about to send is still what
+ * the registry says that token is (same contract, same decimals) and then sends
+ * exactly `payout.amountUnits`. It never re-derives an amount from a rate.
+ */
+export class Erc20PayoutBroadcaster implements PayoutBroadcaster {
+  readonly name = 'erc20';
 
   private readonly provider: ethers.JsonRpcProvider;
   private readonly wallet: ethers.Wallet;
-  private readonly usdc: ethers.Contract;
+  private readonly registryFor: () => Promise<{ get(symbol: string, chain: string): { address: string; decimals: number; symbol: string } | undefined; whyNot(symbol: string, chain: string): string }>;
 
-  constructor(private readonly cfg: SignerConfig, privateKey: string) {
-    this.provider = new ethers.JsonRpcProvider(cfg.rpcUrl, cfg.chainId);
+  constructor(
+    private readonly cfg: SignerConfig, privateKey: string,
+    registryFor?: () => Promise<{ get(symbol: string, chain: string): { address: string; decimals: number; symbol: string } | undefined; whyNot(symbol: string, chain: string): string }>,
+  ) {
+    // No response caching: ethers otherwise reuses a transaction count for 250ms, so two
+    // payouts sent back to back (a settlement run does exactly that) would share a nonce.
+    this.provider = new ethers.JsonRpcProvider(cfg.rpcUrl, cfg.chainId, { cacheTimeout: -1 });
     this.wallet = new ethers.Wallet(privateKey, this.provider);
-    this.usdc = new ethers.Contract(cfg.usdcAddress, ERC20_ABI, this.wallet);
+    this.registryFor = registryFor ?? (async () => (await import('./assets.js')).assetRegistry());
   }
 
   /** The address funds leave from. Safe to log and to expose to an operator. */
@@ -229,7 +253,16 @@ export class UsdcPayoutBroadcaster implements PayoutBroadcaster {
     return this.wallet.address;
   }
 
-  async broadcast(payout: Payout): Promise<BroadcastResult> {
+  /** Sends are strictly one at a time: a wallet has one nonce sequence, and two in flight would race for it. */
+  private sending: Promise<unknown> = Promise.resolve();
+
+  broadcast(payout: Payout): Promise<BroadcastResult> {
+    const run = this.sending.then(() => this.send(payout), () => this.send(payout));
+    this.sending = run.catch(() => undefined);
+    return run;
+  }
+
+  private async send(payout: Payout): Promise<BroadcastResult> {
     const cfg = this.cfg;
 
     // ── Preflight. Every check below refuses; none of them adjusts the
@@ -262,16 +295,29 @@ export class UsdcPayoutBroadcaster implements PayoutBroadcaster {
       );
     }
 
-    // USDC has 6 decimals. parseUnits on a fixed-precision string, never
-    // arithmetic on a float — a rounding error here is a rounding error in
-    // someone's payment.
-    const amountUnits = ethers.parseUnits(payout.amountUsdc.toFixed(USDC_DECIMALS), USDC_DECIMALS);
+    // Which token this payout is in, checked against the registry as it stands now. A
+    // token that has stopped verifying (different contract, changed decimals, a chain
+    // problem) is refused: sending units computed for one token to another is a loss.
+    const registry = await this.registryFor();
+    const asset = registry.get(payout.asset, cfg.chain);
+    if (!asset) {
+      throw new Error(`Payout ${payout.id} is in ${payout.asset}, which is not available on ${cfg.chain}: ${registry.whyNot(payout.asset, cfg.chain)}`);
+    }
+    if (asset.decimals !== payout.decimals) {
+      throw new Error(
+        `Payout ${payout.id} was priced with ${payout.decimals} decimals but ${payout.asset} now reads ${asset.decimals}. ` +
+        `Refusing: the amount would be wrong by a power of ten.`,
+      );
+    }
+    const amountUnits = BigInt(payout.amountUnits);
+    if (amountUnits <= 0n) throw new Error(`Payout ${payout.id} has no amount to send.`);
 
-    const balance = (await this.usdc['balanceOf']!(this.wallet.address)) as bigint;
+    const token = new ethers.Contract(asset.address, ERC20_ABI, this.wallet);
+    const balance = (await token['balanceOf']!(this.wallet.address)) as bigint;
     if (balance < amountUnits) {
       throw new Error(
-        `Signing wallet holds ${ethers.formatUnits(balance, USDC_DECIMALS)} USDC on ${cfg.chain}, ` +
-        `short of the ${payout.amountUsdc} required for payout ${payout.id}.`,
+        `Signing wallet holds ${ethers.formatUnits(balance, asset.decimals)} ${payout.asset} on ${cfg.chain}, ` +
+        `short of the ${ethers.formatUnits(amountUnits, asset.decimals)} required for payout ${payout.id}.`,
       );
     }
 
@@ -287,16 +333,16 @@ export class UsdcPayoutBroadcaster implements PayoutBroadcaster {
     // and will mark it failed rather than re-arming it, precisely because a
     // transfer that errors may still have landed on-chain.
     (await log()).info(
-      { payoutId: payout.id, chain: cfg.chain, amountUsdc: payout.amountUsdc, to: payout.payeeAddress },
-      '[payout-signer] broadcasting USDC transfer',
+      { payoutId: payout.id, chain: cfg.chain, asset: payout.asset, amountUnits: payout.amountUnits, amountUsdc: payout.amountUsdc, to: payout.payeeAddress },
+      `[payout-signer] broadcasting ${payout.asset} transfer`,
     );
 
-    const tx = await this.usdc['transfer']!(payout.payeeAddress, amountUnits);
+    const tx = await token['transfer']!(payout.payeeAddress, amountUnits);
     const receipt = await tx.wait(cfg.confirmations);
 
     if (!receipt || receipt.status !== 1) {
       throw new Error(
-        `USDC transfer for payout ${payout.id} reverted on-chain (tx ${tx.hash}). ` +
+        `${payout.asset} transfer for payout ${payout.id} reverted on-chain (tx ${tx.hash}). ` +
         `Reconcile before re-issuing.`,
       );
     }
@@ -309,6 +355,9 @@ export class UsdcPayoutBroadcaster implements PayoutBroadcaster {
     return { txHash: tx.hash };
   }
 }
+
+/** Older name, kept for callers that import it. */
+export const UsdcPayoutBroadcaster = Erc20PayoutBroadcaster;
 
 // ── Installation ──────────────────────────────────────────────────────────────
 
@@ -348,9 +397,9 @@ export function installPayoutSigner(): InstallResult {
     );
   }
 
-  let broadcaster: UsdcPayoutBroadcaster;
+  let broadcaster: Erc20PayoutBroadcaster;
   try {
-    broadcaster = new UsdcPayoutBroadcaster(cfg, key);
+    broadcaster = new Erc20PayoutBroadcaster(cfg, key);
   } catch (err) {
     // ethers throws on a malformed key with a message that can echo the input.
     // Never let that reach a log.
@@ -364,7 +413,7 @@ export function installPayoutSigner(): InstallResult {
 
   void log().then((l) => l.warn(
     { chain: cfg.chain, from: broadcaster.address, dailyMaxUsd: cfg.dailyMaxUsd },
-    '[payout-signer] LIVE SIGNER INSTALLED — this service can now move USDC',
+    '[payout-signer] LIVE SIGNER INSTALLED — this service can now move stablecoins',
   ));
 
   return { installed: true, address: broadcaster.address, chain: cfg.chain };

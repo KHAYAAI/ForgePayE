@@ -159,7 +159,7 @@ describe('key handling', () => {
     expect(result.installed).toBe(true);
     expect(result.address).toMatch(/^0x[0-9a-fA-F]{40}$/);
     expect(result.chain).toBe('base');
-    expect(currentBroadcaster().name).toBe('usdc-erc20');
+    expect(currentBroadcaster().name).toBe('erc20');
   });
 });
 

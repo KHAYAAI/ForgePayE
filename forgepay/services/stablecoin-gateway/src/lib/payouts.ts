@@ -1,5 +1,5 @@
 /**
- * Outbound USDC payouts.
+ * Outbound stablecoin payouts (USDC, USDT, ZARP, OUSD).
  *
  * ─────────────────────────────────────────────────────────────────────────────
  * Why this exists
@@ -91,7 +91,16 @@ export interface Payout {
   payeeId: string;
   payeeAddress: string;
   chain: string;
+  /** The payout's value in USD (the name is historical). Ceilings and approval are judged on this. */
   amountUsdc: number;
+  /** Which token is sent. */
+  asset: string;
+  /** Exactly what is sent, in that token's smallest unit. Fixed when the payout is created. */
+  amountUnits: string;
+  decimals: number;
+  /** The rate the units were computed at (ZARP only: ZAR per USD), and its pair. */
+  fxRate?: string;
+  fxPair?: string;
   status: PayoutStatus;
   reason: string;
   requestedBy: string;
@@ -205,6 +214,11 @@ interface PayoutRow {
   payee_address: string;
   chain: string;
   amount_usdc: string;
+  asset: string | null;
+  amount_units: string | null;
+  decimals: number | null;
+  fx_rate: string | null;
+  fx_pair: string | null;
   status: PayoutStatus;
   reason: string;
   requested_by: string;
@@ -224,6 +238,12 @@ function rowToPayout(row: PayoutRow): Payout {
     payeeAddress: row.payee_address,
     chain: row.chain,
     amountUsdc: Number(row.amount_usdc),
+    asset: row.asset ?? 'USDC',
+    // Rows from before multi-asset support are USDC with 6 decimals.
+    amountUnits: row.amount_units ?? String(Math.round(Number(row.amount_usdc) * 1_000_000)),
+    decimals: row.decimals ?? 6,
+    ...(row.fx_rate ? { fxRate: String(Number(row.fx_rate)) } : {}),
+    ...(row.fx_pair ? { fxPair: row.fx_pair } : {}),
     status: row.status,
     reason: row.reason,
     requestedBy: row.requested_by,
@@ -242,6 +262,8 @@ export interface CreatePayoutInput {
   payeeAddress: string;
   chain: string;
   amountUsdc: number;
+  /** What to send. Omitted means USDC, priced 1:1. */
+  asset?: { symbol: string; units: bigint; decimals: number; fxRate?: string; fxPair?: string };
   reason: string;
   requestedBy: string;
 }
@@ -265,14 +287,20 @@ export async function createPayout(input: CreatePayoutInput): Promise<CreatePayo
   const id = randomUUID();
   const status: PayoutStatus = requiresApproval(input.amountUsdc) ? 'pending_approval' : 'approved';
 
+  const asset = input.asset ?? {
+    symbol: 'USDC', units: BigInt(Math.round(input.amountUsdc * 1_000_000)), decimals: 6,
+  };
+
   const inserted = await conn.query<PayoutRow>(
     `INSERT INTO payouts
-       (id, external_id, payee_id, payee_address, chain, amount_usdc, status, reason, requested_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       (id, external_id, payee_id, payee_address, chain, amount_usdc, amount_usd, asset, amount_units, decimals,
+        fx_rate, fx_pair, status, reason, requested_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8, $9, $10, $11, $12, $13, $14)
      ON CONFLICT (requested_by, external_id) DO NOTHING
      RETURNING *`,
     [id, input.externalId, input.payeeId, input.payeeAddress, input.chain,
-     input.amountUsdc, status, input.reason, input.requestedBy],
+     input.amountUsdc, asset.symbol, asset.units.toString(), asset.decimals,
+     asset.fxRate ?? null, asset.fxPair ?? null, status, input.reason, input.requestedBy],
   );
 
   if (inserted.rows.length > 0) {
@@ -284,6 +312,19 @@ export async function createPayout(input: CreatePayoutInput): Promise<CreatePayo
     [input.requestedBy, input.externalId],
   );
   return { payout: rowToPayout(existing.rows[0]), deduplicated: true };
+}
+
+/**
+ * The payout already recorded under this requester's `external_id`, if any.
+ *
+ * Looked up before pricing a retry: the amount of an existing payout was fixed
+ * when it was created, so a retry must be able to return it even if the rate it
+ * would need for a fresh quote is unavailable at that moment.
+ */
+export async function findPayoutByExternalId(requestedBy: string, externalId: string): Promise<Payout | null> {
+  const conn = await db();
+  const r = await conn.query<PayoutRow>(`SELECT * FROM payouts WHERE requested_by = $1 AND external_id = $2`, [requestedBy, externalId]);
+  return r.rows[0] ? rowToPayout(r.rows[0]) : null;
 }
 
 export async function getPayout(id: string): Promise<Payout | null> {
@@ -393,7 +434,7 @@ export async function submitPayout(id: string): Promise<SubmitResult> {
         WHERE id = $1 RETURNING *`,
       [id, txHash],
     );
-    (await log()).info({ payoutId: id, txHash, amountUsdc: payout.amountUsdc }, '[payouts] payout confirmed');
+    (await log()).info({ payoutId: id, txHash, amountUsdc: payout.amountUsdc, asset: payout.asset }, '[payouts] payout confirmed');
     return { ok: true, payout: rowToPayout(confirmed.rows[0]), alreadySubmitted: false };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

@@ -319,6 +319,12 @@ export interface DataContributor {
    */
   payoutAddress?: string;
   payoutChain?: string;
+  /**
+   * Which stablecoin this furnisher is paid in (USDC, ZARP or OUSD). Its share is owed in
+   * USD either way; this only chooses the token it is converted to when sent.
+   * Unset means the bureau's default (FURNISHER_PAYOUT_ASSET, else USDC).
+   */
+  payoutAsset?: PaymentAsset;
 
   /**
    * When this furnisher first became active — the start of its cash-share year.
@@ -471,11 +477,33 @@ export interface BillingTransaction {
 export interface TopUpReceipt {
   receiptId: string;
   requestorId: string;
+  /** The USD value that will be credited to the ledger (the ledger is always USD cents). */
   amountUsd: number;
   status: 'pending' | 'confirmed';
   createdAt: string;
   confirmedAt?: string;
+
+  /** The token the requestor was told to pay in. Absent on receipts from before multi-asset support (USDC). */
+  asset?: PaymentAsset;
+  chain?: string;
+  /** What the payer must send: whole tokens ("185") and exact smallest units. */
+  assetAmount?: string;
+  assetUnits?: string;
+  decimals?: number;
+  /** For ZARP: ZAR per USD, locked when the top-up was opened. */
+  fxRate?: string;
+  fxPair?: string;
+  /** The one-time address to send to, and the token contract. */
+  payTo?: string;
+  contract?: string;
 }
+
+/**
+ * The stablecoins the bureau can be paid in and can pay out in. All three settle
+ * through stablecoin-gateway; the ledger stays in USD.
+ */
+export const PAYMENT_ASSETS = ['USDC', 'ZARP', 'OUSD'] as const;
+export type PaymentAsset = (typeof PAYMENT_ASSETS)[number];
 
 // ── Subscription plans ────────────────────────────────────────────────────────
 

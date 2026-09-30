@@ -41,7 +41,8 @@
  */
 
 import { randomUUID } from 'crypto';
-import type { AttributionEntry, DataContributor } from './types';
+import type { AttributionEntry, DataContributor, PaymentAsset } from './types';
+import { PAYMENT_ASSETS } from './types';
 import {
   listAttributions, recordAttribution, getContributor, contributors,
 } from './store';
@@ -98,6 +99,8 @@ export interface OwedLine {
   amountUsdCents: number;
   amountUsd: number;
   payoutAddress?: string;
+  /** The token this furnisher will be paid in. */
+  payoutAsset?: PaymentAsset;
   /** Set when this line cannot be paid; the run reports it rather than skipping it. */
   blocked?: 'no_payout_address' | 'contributor_suspended';
 }
@@ -116,6 +119,7 @@ function toLine(c: DataContributor, period: string, entries: AttributionEntry[])
     amountUsdCents: cents,
     amountUsd: cents / 100,
     ...(c.payoutAddress ? { payoutAddress: c.payoutAddress } : {}),
+    payoutAsset: payoutAssetFor(c),
     ...(blocked ? { blocked } : {}),
   };
 }
@@ -155,8 +159,18 @@ function gatewayAuthHeaders(): Record<string, string> {
 
 const DEFAULT_CHAIN = process.env['FURNISHER_PAYOUT_CHAIN'] ?? 'base';
 
+/**
+ * The token a furnisher is paid in: its own choice if it has made one, else
+ * FURNISHER_PAYOUT_ASSET, else USDC. Its share is owed in USD whichever it is.
+ */
+export function payoutAssetFor(c: DataContributor | undefined): PaymentAsset {
+  if (c?.payoutAsset) return c.payoutAsset;
+  const v = (process.env['FURNISHER_PAYOUT_ASSET'] ?? 'USDC').toUpperCase();
+  return (PAYMENT_ASSETS as readonly string[]).includes(v) ? (v as PaymentAsset) : 'USDC';
+}
+
 interface GatewayPayoutResponse {
-  data: { id: string; status: string; amount_usdc?: number };
+  data: { id: string; status: string; amountUsdc?: number; asset?: string; amountUnits?: string; decimals?: number; fxRate?: string };
   deduplicated: boolean;
   requires_approval: boolean;
 }
@@ -177,6 +191,10 @@ export function payoutExternalId(contributorId: string, period: string): string 
 export interface SettledLine extends OwedLine {
   payoutId?: string;
   payoutStatus?: string;
+  /** What was actually sent: the token, the exact units, and (ZARP) the ZAR-per-USD rate it was priced at. */
+  asset?: PaymentAsset;
+  amountUnits?: string;
+  fxRate?: string;
   /** True when the gateway already had this payout — a retry, not a second transfer. */
   deduplicated?: boolean;
   requiresApproval?: boolean;
@@ -248,6 +266,7 @@ export async function settleFurnisherPeriod(period: string, now: Date = new Date
     if (cents <= 0) continue;
 
     const contributor = getContributor(line.contributorId);
+    const asset = payoutAssetFor(contributor);
     try {
       const res = await fetch(`${root}/payouts`, {
         method: 'POST',
@@ -261,7 +280,12 @@ export async function settleFurnisherPeriod(period: string, now: Date = new Date
           payee_id:      line.contributorId,
           payee_address: line.payoutAddress,
           chain:         contributor?.payoutChain ?? DEFAULT_CHAIN,
-          amount_usdc:   cents / 100,
+          // The share is owed in USD; the gateway converts it to `asset` and fixes the units.
+          amount_usd:    cents / 100,
+          // Older gateways only read this name, and only for USDC. Not sent for other assets:
+          // such a gateway would ignore `asset` and pay USDC instead.
+          ...(asset === 'USDC' ? { amount_usdc: cents / 100 } : {}),
+          asset,
           reason:        `Furnisher revenue share — ${line.contributorName}, ${period} (${entries.length} inquiries)`,
         }),
         signal: AbortSignal.timeout(10_000),
@@ -275,6 +299,16 @@ export async function settleFurnisherPeriod(period: string, now: Date = new Date
 
       const body = await res.json() as GatewayPayoutResponse;
 
+      // A gateway that predates multi-asset support ignores `asset` and records a USDC payout.
+      // If the furnisher chose ZARP or OUSD, that is a payment in the wrong token: don't mark
+      // the entries settled, and say so loudly. (The payout may already exist at the gateway.)
+      const recorded = (body.data.asset ?? 'USDC').toUpperCase();
+      if (recorded !== asset) {
+        failed++;
+        lines.push({ ...line, error: `gateway recorded the payout in ${recorded}, not ${asset}; entries left unsettled (check payout ${body.data.id} at the gateway)` });
+        continue;
+      }
+
       // Only now are the entries considered paid. Marking them before the
       // gateway accepted would lose the debt if the call failed.
       const settledAt = now.toISOString();
@@ -287,6 +321,9 @@ export async function settleFurnisherPeriod(period: string, now: Date = new Date
         ...line,
         payoutId: body.data.id,
         payoutStatus: body.data.status,
+        asset,
+        ...(body.data.amountUnits ? { amountUnits: body.data.amountUnits } : {}),
+        ...(body.data.fxRate ? { fxRate: body.data.fxRate } : {}),
         deduplicated: body.deduplicated,
         requiresApproval: body.requires_approval,
       });
