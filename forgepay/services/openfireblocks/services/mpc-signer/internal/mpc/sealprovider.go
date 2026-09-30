@@ -469,7 +469,13 @@ func (k *kmsProvider) Load(ctx context.Context, dataDir, nodeID string, create b
 	if len(out.Plaintext) != 32 {
 		return nil, errors.New("KMS returned a seal key of the wrong length")
 	}
-	w := &wrappedKey{Provider: ProviderAWSKMS, KeyRef: keyID, Node: nodeID, Ciphertext: base64.StdEncoding.EncodeToString(out.CiphertextBlob), CreatedAt: time.Now().UTC().Format(time.RFC3339)}
+	// Keep the key's ARN, not the alias it was asked for: an alias can later be repointed at a
+	// different key, which would strand everything wrapped under it.
+	ref := keyID
+	if out.KeyId != nil && *out.KeyId != "" {
+		ref = *out.KeyId
+	}
+	w := &wrappedKey{Provider: ProviderAWSKMS, KeyRef: ref, Node: nodeID, Ciphertext: base64.StdEncoding.EncodeToString(out.CiphertextBlob), CreatedAt: time.Now().UTC().Format(time.RFC3339)}
 	if err := writeWrapped(wrappedPath(dataDir), w); err != nil {
 		return nil, err
 	}

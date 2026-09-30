@@ -262,6 +262,18 @@ export class Erc20PayoutBroadcaster implements PayoutBroadcaster {
     return run;
   }
 
+  /** Whether the wallet holds this payout's token and some native coin for gas, right now. */
+  async canCover(payout: Payout): Promise<{ ok: boolean; reason?: string }> {
+    const registry = await this.registryFor();
+    const asset = registry.get(payout.asset, this.cfg.chain);
+    if (!asset) return { ok: true }; // let the send itself refuse with the precise reason
+    const token = new ethers.Contract(asset.address, ERC20_ABI, this.provider);
+    const balance = (await token['balanceOf']!(this.wallet.address)) as bigint;
+    if (balance < BigInt(payout.amountUnits)) return { ok: false, reason: `holds ${balance} of ${BigInt(payout.amountUnits)} ${payout.asset} units needed` };
+    if ((await this.provider.getBalance(this.wallet.address)) === 0n) return { ok: false, reason: 'no native coin for gas' };
+    return { ok: true };
+  }
+
   /** What the chain says about a transfer this signer sent earlier. */
   async reconcile(payout: Payout): Promise<ChainOutcome> {
     if (!payout.txHash) return 'pending';

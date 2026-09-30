@@ -134,6 +134,11 @@ export interface PayoutBroadcaster {
   broadcast(payout: Payout, hooks?: BroadcastHooks): Promise<BroadcastResult>;
   /** What the chain says about a transaction this broadcaster sent earlier. */
   reconcile?(payout: Payout): Promise<ChainOutcome>;
+  /**
+   * Whether the sending wallet can cover this payout right now. A payout that can't be covered
+   * yet is left approved and tried again later, rather than being sent to fail.
+   */
+  canCover?(payout: Payout): Promise<{ ok: boolean; reason?: string }>;
 }
 
 export class PayoutsNotConfiguredError extends Error {
@@ -417,10 +422,10 @@ export async function listStaleSubmitted(olderThanMs: number): Promise<Payout[]>
 }
 
 /** Approved payouts waiting to be sent, oldest first. */
-export async function listApprovedIds(limit: number): Promise<string[]> {
+export async function listApproved(limit: number): Promise<Payout[]> {
   const conn = await db();
-  const r = await conn.query<{ id: string }>(`SELECT id FROM payouts WHERE status = 'approved' ORDER BY created_at LIMIT $1`, [limit]);
-  return r.rows.map((x) => x.id);
+  const r = await conn.query<PayoutRow>(`SELECT * FROM payouts WHERE status = 'approved' ORDER BY created_at LIMIT $1`, [limit]);
+  return r.rows.map(rowToPayout);
 }
 
 /**

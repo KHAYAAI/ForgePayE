@@ -55,9 +55,12 @@ crash stays counted until it ages out of the window.
    `mpc-node seal-migrate -id node1 -data DIR -from file -to vault`. After a Vault key rotation,
    `mpc-node seal-rewrap`. The key service is needed at start-up, not while signing.
 4. **Policy.** Write `policy.json` on each node's host (`deploy/mpc/policy.example.json`).
-5. **Check.** `mpc-node preflight -id node1 -data DIR -cluster cluster.json` prints what production
+5. **Check the key service for real.** `mpc-node seal-check -provider vault|awskms` wraps and unwraps a throwaway key against the
+   actual Vault or KMS and confirms it won't load for another node and that a tampered file is refused. `deploy/aws/kms-policy.example.json`
+   is a least-privilege IAM policy for the KMS case.
+6. **Check.** `mpc-node preflight -id node1 -data DIR -cluster cluster.json` prints what production
    start-up would refuse and what it merely dislikes. Exit status is non-zero on failure.
-6. Run with `MPC_ENV=production` (`deploy/mpc/node.env.example`, `Dockerfile.node`).
+7. Run with `MPC_ENV=production` (`deploy/mpc/node.env.example`, `Dockerfile.node`).
 
 `scripts/mpc-dev-cluster.sh` can exercise the same paths locally: `MPC_DEV_TLS=1`, `MPC_DEV_SEAL=vault`.
 
@@ -142,7 +145,8 @@ console says so rather than implying funds moved. With it:
 | `KEY_BACKFILL_ON_START`, `KEY_BACKFILL_MAX_ATTEMPTS`, `FLEET_REFRESH_SAME` | gateway | key backfill; whether a fleet rotation also refreshes workspaces already on the target committee |
 
 ## What is not verified
-- **AWS KMS** is tested against a local fake speaking KMS's protocol, not a real AWS account.
+- **AWS KMS** is tested against a local fake speaking KMS's protocol, not a real AWS account. `mpc-node seal-check -provider awskms` runs the
+  same provider code against a real account in one command; it has not been run from this repo's test environment.
 - **Separate hosts.** Nothing here can be proven on one machine: the mTLS, domain rule and preflight are
   exercised locally, but real network partitions, clock skew and per-host secrets are not.
 - **The container image and example manifests** were not built or run (no container runtime here).

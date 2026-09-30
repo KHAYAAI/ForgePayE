@@ -40,7 +40,12 @@ export interface KeyWrapper {
   readonly name: 'env' | 'vault' | 'awskms';
   /** A reference stored with the wrapped key (which Vault key / KMS key). */
   readonly ref: string;
-  wrap(dek: Buffer, context: string): Promise<string>;
+  /**
+   * Returns the wrapped key, or it with a more precise reference to store instead of `ref`
+   * (KMS resolves an alias to the key's ARN, and the ARN is what must be kept: an alias can
+   * later be pointed at a different key, which would strand everything wrapped under it).
+   */
+  wrap(dek: Buffer, context: string): Promise<string | { wrapped: string; ref: string }>;
   unwrap(wrapped: string, ref: string, context: string): Promise<Buffer>;
 }
 
@@ -122,7 +127,7 @@ export class KmsWrapper implements KeyWrapper {
   async wrap(dek: Buffer, context: string) {
     const { EncryptCommand } = await import('@aws-sdk/client-kms');
     const r = await (await this.api()).send(new EncryptCommand({ KeyId: this.ref, Plaintext: dek, EncryptionContext: { purpose: context } }));
-    return Buffer.from(r.CiphertextBlob as Uint8Array).toString('base64');
+    return { wrapped: Buffer.from(r.CiphertextBlob as Uint8Array).toString('base64'), ref: (r.KeyId as string | undefined) ?? this.ref };
   }
   async unwrap(wrapped: string, ref: string, context: string) {
     const { DecryptCommand } = await import('@aws-sdk/client-kms');
@@ -193,7 +198,7 @@ interface SealedV2 {
 }
 interface SealedLegacy { iv: string; ct: string; tag: string }
 
-let dekCache: { dek: Buffer; wrapped: string; provider: string; ref: string; context: string; expires: number; uses: number } | null = null;
+let dekCache: { dek: Buffer; wrapped: string; provider: string; ref: string; configuredRef: string; context: string; expires: number; uses: number } | null = null;
 const unwrapCache = new Map<string, { dek: Buffer; expires: number }>();
 
 function dekTtlMs() { return Math.max(1, Number(process.env['KEY_WRAP_DEK_TTL_SECONDS'] ?? '3600')) * 1000; }
@@ -201,15 +206,17 @@ const MAX_DEK_USES = 10_000;
 
 async function currentDek(w: KeyWrapper): Promise<NonNullable<typeof dekCache>> {
   const now = Date.now();
-  if (dekCache && dekCache.expires > now && dekCache.uses < MAX_DEK_USES && dekCache.provider === w.name && dekCache.ref === w.ref) {
+  if (dekCache && dekCache.expires > now && dekCache.uses < MAX_DEK_USES && dekCache.provider === w.name && dekCache.configuredRef === w.ref) {
     dekCache.uses++;
     return dekCache;
   }
   const dek = randomBytes(32);
   // The wrap context for a shared DEK is a constant: per-row binding is done in the AES layer (AAD).
   const context = 'deposit-keys';
-  const wrapped = await w.wrap(dek, context);
-  dekCache = { dek, wrapped, provider: w.name, ref: w.ref, context, expires: now + dekTtlMs(), uses: 1 };
+  const res = await w.wrap(dek, context);
+  const wrapped = typeof res === 'string' ? res : res.wrapped;
+  const ref = typeof res === 'string' ? w.ref : res.ref;
+  dekCache = { dek, wrapped, provider: w.name, ref, configuredRef: w.ref, context, expires: now + dekTtlMs(), uses: 1 };
   return dekCache;
 }
 

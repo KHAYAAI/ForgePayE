@@ -35,6 +35,8 @@ import { startSettlement } from './lib/settlement.js';
 import { gatewayContext } from './lib/context.js';
 import { buildAssetRoutes } from './routes/assets.js';
 import { buildSweepRoutes } from './routes/sweeps.js';
+import { buildTreasuryRoutes } from './routes/treasury.js';
+import { treasuryRequested, resolveTreasuryConfig, createTreasuryManager, startTreasury } from './lib/treasury.js';
 import { startPayoutWorker } from './lib/payout-worker.js';
 import { resolveSweepConfig, sweepRequested, createSweeper, startSweeper } from './lib/sweeper.js';
 import { assertKeystoreConfigured } from './lib/keystore.js';
@@ -90,6 +92,9 @@ export async function buildApp() {
 
   // Moving paid-in funds from deposit addresses to the treasury (operator only).
   await app.register(buildSweepRoutes,           { prefix: '/sweeps' });
+
+  // The payout wallet's float, topped up from the operating wallet within caps (operator view).
+  await app.register(buildTreasuryRoutes,        { prefix: '/treasury' });
 
   // Outbound. The inverse of /x402 — the rail the credit bureau uses to pay
   // furnishers the revenue share it computes. Submission is refused rather than
@@ -247,6 +252,21 @@ async function main() {
     console.warn('[stablecoin-gateway] Deposit sweeping ACTIVE: confirmed deposits are moved to the treasury');
   } else {
     console.log('[stablecoin-gateway] Deposit sweeping off (SWEEP_ENABLED is not "true"): paid-in funds stay in the one-time deposit addresses');
+  }
+
+  // Treasury: keep the payout wallet funded from the operating wallet, within caps, and send surplus to
+  // cold storage. Needs the live signer (that wallet is what it tops up). Off unless asked for; a
+  // misconfiguration when it IS asked for stops the gateway starting.
+  if (treasuryRequested()) {
+    const payoutAddress = (signer as { address?: string }).address;
+    const tcfg = resolveTreasuryConfig(process.env, signer.installed ? payoutAddress : undefined);
+    const manager = await createTreasuryManager(tcfg, payoutAddress!);
+    const { setTreasuryManager } = await import('./routes/treasury.js');
+    setTreasuryManager(manager);
+    startTreasury(manager, Number(process.env['TREASURY_INTERVAL_MS'] ?? '60000'));
+    console.warn(`[stablecoin-gateway] Treasury manager ACTIVE: operating wallet ${manager.warm.address} tops up payout wallet ${payoutAddress}`);
+  } else {
+    console.log('[stablecoin-gateway] Treasury manager off (TREASURY_MANAGER_ENABLED is not "true"): the payout wallet is topped up by hand');
   }
 
   // Settlement: read each chain's transfers to open deposits and confirm them once

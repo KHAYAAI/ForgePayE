@@ -343,6 +343,111 @@ let db;
   await waitFor(async () => (await tokens.USDC.balanceOf(d5.address)) === 0n, 40000);
   check('with gas back under the ceiling it is swept', (await tokens.USDC.balanceOf(d5.address)) === 0n);
 
+
+  console.log('11. Dust comes back, and tokens sent to the wrong address can be recovered');
+  const dustRows = (await db.query(`SELECT * FROM deposit_sweeps WHERE status='swept' AND dust_tx IS NOT NULL`)).rows;
+  check('sweeps return their leftover gas to the gas wallet', dustRows.length >= 1 && dustRows.every((r) => /^0x/.test(r.dust_tx) && BigInt(r.dust_wei) > 0n), `${dustRows.length} of ${swept.length} returned some`);
+  check('a swept address is left with next to nothing', dustRows.length > 0 && (await provider.getBalance(dustRows[0].from_address)) < ethers.parseEther('0.0001'));
+
+  const refund = ethers.Wallet.createRandom().address;
+  const strays = (await api('GET', `/sweeps/strays/${w.body.deposit_id}`)).body.data;
+  const zs = strays.strays.find((x) => x.asset === 'ZARP'), os = strays.strays.find((x) => x.asset === 'OUSD');
+  check('the wrong tokens sent to a USDC deposit address are listed, with who sent them', zs?.units === (10n ** 24n).toString() && os?.units === '50000000' && zs.senders.includes(funder.address) && os.senders.includes(funder.address));
+  check('recovery needs a reason', (await api('POST', '/sweeps/recover', { deposit_id: w.body.deposit_id, asset: 'OUSD', destination: refund })).status === 400);
+  check('it will not send to the deposit address itself', (await api('POST', '/sweeps/recover', { deposit_id: w.body.deposit_id, asset: 'OUSD', destination: w.body.pay_to, reason: 'testing' })).status === 409);
+  check("and will not treat the deposit's own token as a stray", (await api('POST', '/sweeps/recover', { deposit_id: w.body.deposit_id, asset: 'USDC', destination: refund, reason: 'testing' })).status === 409);
+  check('or a token it has never heard of, unless the contract is named', (await api('POST', '/sweeps/recover', { deposit_id: w.body.deposit_id, asset: 'DOGE', destination: refund, reason: 'testing' })).status === 409);
+  const rec = await api('POST', '/sweeps/recover', { deposit_id: w.body.deposit_id, asset: 'OUSD', destination: refund, reason: 'payer sent OUSD to a USDC payment' });
+  check('with a reason and a destination it is planned as a recovery', rec.status === 201 && rec.body.data.kind === 'recovery' && rec.body.data.treasury_address === ethers.getAddress(refund));
+  await waitFor(async () => (await tokens.OUSD.balanceOf(refund)) === 50_000_000n, 30000);
+  check('the OUSD goes back to the address the operator named, not to the treasury', (await tokens.OUSD.balanceOf(refund)) === 50_000_000n && (await tokens.OUSD.balanceOf(w.body.pay_to)) === 0n);
+  await api('POST', '/sweeps/recover', { deposit_id: w.body.deposit_id, asset: 'ZARP', destination: refund, reason: 'payer sent ZARP to a USDC payment' });
+  await waitFor(async () => (await tokens.ZARP.balanceOf(refund)) === 10n ** 24n, 30000);
+  check('and the ZARP the same, at 18 decimals', (await tokens.ZARP.balanceOf(refund)) === 10n ** 24n);
+  check("recovering strays does not disturb the deposit's own record", (await db.query(`SELECT status, swept_at FROM stablecoin_deposits WHERE id=$1`, [w.body.deposit_id])).rows[0].swept_at !== null);
+  const junk = await deploy('JUNK', 6);
+  await (await junk.mint(funder.address, 1000n)).wait();
+  await (await junk.transfer(w.body.pay_to, 123n)).wait();
+  check('a token nobody configured is not listed...', !(await api('GET', `/sweeps/strays/${w.body.deposit_id}`)).body.data.strays.some((x) => x.asset === 'JUNK'));
+  await api('POST', '/sweeps/recover', { deposit_id: w.body.deposit_id, asset: await junk.getAddress(), destination: refund, reason: 'unrecognised token sent in error' });
+  await waitFor(async () => (await junk.balanceOf(refund)) === 123n, 30000);
+  check('...but can be recovered when an operator names its contract', (await junk.balanceOf(refund)) === 123n);
+
+  console.log('12. The treasury keeps the payout wallet funded');
+  const warm = ethers.Wallet.createRandom();
+  const cold = ethers.Wallet.createRandom().address;
+  await (await funder.sendTransaction({ to: warm.address, value: ethers.parseEther('5') })).wait();
+  await (await tokens.USDC.mint(warm.address, 50_000_000_000n)).wait();
+  await (await tokens.OUSD.mint(warm.address, 50_000_000_000n)).wait();
+  await (await tokens.ZARP.mint(warm.address, 1_000_000n * 10n ** 18n)).wait();
+  // Run the payout wallet nearly dry.
+  const sw = signer.connect(provider);
+  const leave = { USDC: 10_000_000n, OUSD: 50_000_000n, ZARP: 1n * 10n ** 18n };
+  for (const sym of Object.keys(leave)) { const b = await tokens[sym].balanceOf(signer.address); if (b > leave[sym]) await (await tokens[sym].connect(sw).transfer(funder.address, b - leave[sym])).wait(); }
+  const nat = await provider.getBalance(signer.address);
+  await (await sw.sendTransaction({ to: funder.address, value: nat - ethers.parseEther('0.0015') })).wait();
+  const rate = (await api('GET', '/assets')).body.rates['USD/ZAR'].rate;
+  const treasuryEnv = {
+    TREASURY_MANAGER_ENABLED: 'true', TREASURY_WARM_PRIVATE_KEY: warm.privateKey, TREASURY_CHAIN_ID: '1337', TREASURY_INTERVAL_MS: '1000',
+    REPLENISH_LOW_USD: '100', REPLENISH_TARGET_USD: '400', REPLENISH_DAILY_MAX_USD: '100000',
+    TREASURY_WARM_MAX_USD: '10000000', TREASURY_WARM_TARGET_USD: '5000000', PAYOUT_AUTO_SUBMIT: 'true',
+  };
+  await stopGateway();
+  await startGateway({ ...treasuryEnv });
+  const target = { USDC: 400_000_000n, OUSD: 400_000_000n, ZARP: ethers.parseUnits(String(400 * Number(rate)), 18) };
+  await waitFor(async () => (await Promise.all(Object.keys(target).map(async (k) => (await tokens[k].balanceOf(signer.address)) === target[k]))).every(Boolean), 40000);
+  for (const k of Object.keys(target)) check(`${k}: a nearly empty payout wallet is topped up to exactly the $400 target`, (await tokens[k].balanceOf(signer.address)) === target[k], `${await tokens[k].balanceOf(signer.address)}`);
+  check('its native gas is topped up to the target too', (await provider.getBalance(signer.address)) === ethers.parseEther('0.02'));
+  const st0 = (await api('GET', '/treasury/status')).body;
+  check('the operator can see both wallets and the float', st0.enabled && st0.payout_wallet === signer.address && st0.operating_wallet === warm.address && st0.assets.find((a) => a.asset === 'OUSD').payout_units === '400000000');
+  const tl = (await api('GET', '/treasury/transfers')).body.data;
+  check('every move is in the ledger with its hash', tl.length >= 4 && tl.every((t) => t.status === 'confirmed' && /^0x/.test(t.tx)));
+
+  // Demand: an approved payout bigger than the float. It must wait for funds, then be paid — not fail.
+  const payeeT = ethers.Wallet.createRandom().address;
+  const big = await api('POST', '/payouts', { external_id: 'e2e-treasury-big', payee_id: 'c', payee_address: payeeT, chain: 'base', amount_usd: 1000, asset: 'OUSD', reason: 'bigger than the float' });
+  await api('POST', `/payouts/${big.body.data.id}/approve`, { approved_by: 'ops' });
+  const paidBig = await waitFor(async () => { const p = await getPayout(big.body.data.id); return p.status === 'confirmed' ? p : (p.status === 'failed' ? p : null); }, 40000);
+  check('an approved payout larger than the wallet holds is funded for and paid, not failed', paidBig?.status === 'confirmed' && (await tokens.OUSD.balanceOf(payeeT)) === 1_000_000_000n, paidBig?.failureReason);
+  check('the wallet is left with exactly its floor', (await tokens.OUSD.balanceOf(signer.address)) === 100_000_000n);
+
+  // The daily cap: reached means a reported shortfall and a payout that waits — never a silently raised limit.
+  const used = (await api('GET', '/treasury/status')).body.used_24h_usd;
+  await stopGateway();
+  await startGateway({ ...treasuryEnv, REPLENISH_DAILY_MAX_USD: String(Math.ceil(used) + 50) });
+  const capped = await api('POST', '/payouts', { external_id: 'e2e-treasury-cap', payee_id: 'c', payee_address: payeeT, chain: 'base', amount_usd: 2000, asset: 'OUSD', reason: 'more than the cap allows today' });
+  await api('POST', `/payouts/${capped.body.data.id}/approve`, { approved_by: 'ops' });
+  const sf = await waitFor(async () => { const s = (await api('GET', '/treasury/status')).body; return s.shortfalls.find((x) => x.asset === 'OUSD') ?? null; }, 30000);
+  check('at the daily cap the gap is reported as a shortfall, with the reason', !!sf && /daily replenishment cap/.test(sf.reason), JSON.stringify(sf));
+  await sleep(2500);
+  check('and the payout waits, approved, rather than failing', (await getPayout(capped.body.data.id)).status === 'approved');
+  check('the cap held: no more than was allowed was sent', (await api('GET', '/treasury/status')).body.used_24h_usd <= Math.ceil(used) + 50 + 0.01);
+  await stopGateway();
+  await startGateway({ ...treasuryEnv });
+  const paidCap = await waitFor(async () => { const p = await getPayout(capped.body.data.id); return p.status === 'confirmed' ? p : null; }, 40000);
+  check('with the cap raised by an operator, it is funded and paid', !!paidCap && (await tokens.OUSD.balanceOf(payeeT)) === 3_000_000_000n);
+
+  // Crash recovery of the treasury's own ledger.
+  const confirmedRow = (await db.query(`SELECT id, tx FROM treasury_transfers WHERE status='confirmed' AND tx IS NOT NULL LIMIT 1`)).rows[0];
+  await db.query(`UPDATE treasury_transfers SET status='sent' WHERE id=$1`, [confirmedRow.id]);
+  await db.query(`INSERT INTO treasury_transfers (id, kind, chain, asset, from_address, to_address, units, status, updated_at) VALUES (gen_random_uuid(), 'replenish', 'base', 'USDC', $1, $2, '1', 'planned', now() - interval '1 hour')`, [warm.address, signer.address]);
+  await waitFor(async () => (await db.query(`SELECT status FROM treasury_transfers WHERE id=$1`, [confirmedRow.id])).rows[0].status === 'confirmed', 20000);
+  check('a transfer left "sent" is settled from the chain', (await db.query(`SELECT status FROM treasury_transfers WHERE id=$1`, [confirmedRow.id])).rows[0].status === 'confirmed');
+  const interrupted = await waitFor(async () => (await db.query(`SELECT * FROM treasury_transfers WHERE status='failed' AND error LIKE '%interrupted%'`)).rows[0] ?? null, 20000);
+  check('one that never got a hash is marked failed and not assumed either way', !!interrupted);
+
+  // Surplus goes to cold storage, leaving the target behind.
+  const warmBefore = { USDC: await tokens.USDC.balanceOf(warm.address), OUSD: await tokens.OUSD.balanceOf(warm.address), ZARP: await tokens.ZARP.balanceOf(warm.address) };
+  await stopGateway();
+  await startGateway({ ...treasuryEnv, TREASURY_COLD_ADDRESS: cold, TREASURY_WARM_MAX_USD: '20000', TREASURY_WARM_TARGET_USD: '5000' });
+  const warmTarget = { USDC: 5_000_000_000n, OUSD: 5_000_000_000n, ZARP: ethers.parseUnits(String(5000 * Number(rate)), 18) };
+  await waitFor(async () => (await Promise.all(Object.keys(warmTarget).map(async (k) => (await tokens[k].balanceOf(warm.address)) === warmTarget[k]))).every(Boolean), 50000);
+  for (const k of Object.keys(warmTarget)) {
+    const cb = await tokens[k].balanceOf(cold);
+    check(`${k}: the operating wallet above its ceiling is cut back to $5,000 and the rest goes to cold storage`, (await tokens[k].balanceOf(warm.address)) === warmTarget[k] && cb === warmBefore[k] - warmTarget[k], `cold holds ${cb}`);
+  }
+  check('nothing in this service can move money out of the cold address (it has no key for it)', (await api('GET', '/treasury/status')).body.cold_address === ethers.getAddress(cold));
+
   console.log('8. A wrong address is caught, not trusted');
   await stopGateway();
   await startGateway({ ASSET_ZARP_BASE: addr.OUSD }); // ZARP configured to OUSD's contract

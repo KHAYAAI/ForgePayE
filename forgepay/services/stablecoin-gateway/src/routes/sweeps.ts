@@ -6,6 +6,8 @@
  *   POST /sweeps/run         run a pass now
  *   POST /sweeps             sweep one specific deposit the automatic pass wouldn't (expired, short): needs a reason
  *   POST /sweeps/:id/retry   put a failed sweep back, after someone has looked at why
+ *   GET  /sweeps/strays/:depositId   other tokens sitting in a deposit address, and who sent them
+ *   POST /sweeps/recover     return a stray token to an address the operator names (normally its sender)
  */
 
 import type { FastifyInstance, FastifyReply } from 'fastify';
@@ -68,6 +70,27 @@ export async function buildSweepRoutes(app: FastifyInstance) {
     }
     try { reply.code(201).send({ data: await s.planManual(deposit_id, reason) }); }
     catch (e) { reply.code(409).send({ error: 'NotSweepable', message: (e as Error).message }); }
+  });
+
+  app.get<{ Params: { depositId: string } }>('/strays/:depositId', async (req, reply) => {
+    if (req.auth?.kind !== 'admin') return deny(reply);
+    const s = await sweeper();
+    if (!s) return reply.code(409).send({ error: 'SweepingOff', message: 'SWEEP_ENABLED is not "true".' });
+    const r = await s.strays(req.params.depositId);
+    if (!r) return reply.code(404).send({ error: 'NotFound', message: 'no such deposit' });
+    reply.send({ data: r, note: 'Only tokens this gateway knows are listed. For another token, pass its contract address to POST /sweeps/recover.' });
+  });
+
+  app.post<{ Body: { deposit_id?: string; asset?: string; destination?: string; reason?: string } }>('/recover', async (req, reply) => {
+    if (req.auth?.kind !== 'admin') return deny(reply);
+    const s = await sweeper();
+    if (!s) return reply.code(409).send({ error: 'SweepingOff', message: 'SWEEP_ENABLED is not "true".' });
+    const { deposit_id, asset, destination, reason } = req.body ?? {};
+    if (!deposit_id || !asset || !destination || !reason || reason.length < 5) {
+      return reply.code(400).send({ error: 'ValidationError', message: 'deposit_id, asset, destination and a reason (at least 5 characters) are required' });
+    }
+    try { reply.code(201).send({ data: await s.planRecovery(deposit_id, asset, destination, reason) }); }
+    catch (e) { reply.code(409).send({ error: 'NotRecoverable', message: (e as Error).message }); }
   });
 
   app.post<{ Params: { id: string } }>('/:id/retry', async (req, reply) => {

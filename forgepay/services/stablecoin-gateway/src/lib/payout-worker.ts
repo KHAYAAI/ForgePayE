@@ -19,15 +19,18 @@
  * sent here without anyone looking at them; anything larger waits for a human approval
  * first, and is sent here only after that. The signer's own daily ceiling still applies.
  *
+ * A payout the wallet cannot cover yet is left approved, not sent to fail: it is waiting for funds, and the
+ * treasury manager funds the wallet for approved payouts that are queued.
+ *
  * Runs only when a real signer is installed. With none, nothing is sent and nothing is
  * pretended.
  */
 
 import {
-  currentBroadcaster, listStaleSubmitted, listApprovedIds, settleInFlight, submitPayout,
+  currentBroadcaster, listStaleSubmitted, listApproved, settleInFlight, submitPayout,
 } from './payouts.js';
 
-export interface WorkerPassResult { reconciled: number; stillPending: number; submitted: number; failed: number }
+export interface WorkerPassResult { reconciled: number; stillPending: number; submitted: number; failed: number; waitingForFunds: number }
 
 export interface WorkerOptions {
   /** A 'submitted' payout older than this is checked against the chain (default 2 minutes). */
@@ -37,7 +40,7 @@ export interface WorkerOptions {
 }
 
 export async function payoutWorkerPass(opts: WorkerOptions = {}): Promise<WorkerPassResult> {
-  const out: WorkerPassResult = { reconciled: 0, stillPending: 0, submitted: 0, failed: 0 };
+  const out: WorkerPassResult = { reconciled: 0, stillPending: 0, submitted: 0, failed: 0, waitingForFunds: 0 };
   const broadcaster = currentBroadcaster();
   if (broadcaster.name === 'unconfigured') return out;
 
@@ -59,7 +62,14 @@ export async function payoutWorkerPass(opts: WorkerOptions = {}): Promise<Worker
     }
   }
 
-  for (const id of await listApprovedIds(opts.batch ?? 25)) {
+  for (const p of await listApproved(opts.batch ?? 25)) {
+    // A payout the wallet can't cover yet stays approved: sending it would only fail it, permanently.
+    // The treasury manager (lib/treasury.ts) sees approved payouts waiting and funds the wallet for them.
+    if (broadcaster.canCover) {
+      const c = await broadcaster.canCover(p).catch(() => ({ ok: true as const }));
+      if (!c.ok) { out.waitingForFunds++; continue; }
+    }
+    const id = p.id;
     const r = await submitPayout(id);
     if (r.ok) out.submitted++;
     else if (r.reason === 'broadcast_failed') {
@@ -81,7 +91,7 @@ export function startPayoutWorker(intervalMs: number, opts: WorkerOptions = {}):
     running = true;
     try {
       const r = await payoutWorkerPass(opts);
-      if (r.submitted || r.reconciled || r.failed) console.log('[payout-worker]', JSON.stringify(r));
+      if (r.submitted || r.reconciled || r.failed || r.waitingForFunds) console.log('[payout-worker]', JSON.stringify(r));
     } catch (err) {
       console.error('[payout-worker] pass failed:', err instanceof Error ? err.message : err);
     } finally {

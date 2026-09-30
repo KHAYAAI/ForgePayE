@@ -102,6 +102,17 @@ export function gasDripWei(gasLimit: bigint, maxFeePerGas: bigint, marginPct: nu
   return need > alreadyThere ? need - alreadyThere : 0n;
 }
 
+/**
+ * Native coin worth sending back from a swept address to the gas wallet: what is left
+ * after the sweep, less the cost of the return transfer itself. Zero unless that is a
+ * real amount — returning a few wei costs more than it recovers.
+ */
+export function dustReturnWei(balance: bigint, maxFeePerGas: bigint): bigint {
+  const cost = 21_000n * maxFeePerGas;
+  const net = balance - cost;
+  return net > cost / 4n ? net : 0n; // not worth a transaction unless it recovers a meaningful part of its own cost
+}
+
 /** Whether a deposit is worth the gas to sweep. */
 export function worthSweeping(amountUsd: number, minUsd: number): boolean {
   return amountUsd >= minUsd;
@@ -114,6 +125,7 @@ export interface SweepRow {
   status: 'planned' | 'gas_sent' | 'sending' | 'swept' | 'failed' | 'skipped';
   units: string | null; gas_wei: string | null; gas_tx: string | null; sweep_tx: string | null;
   reason: string | null; error: string | null; created_at: Date; updated_at: Date;
+  kind: 'sweep' | 'recovery'; dust_wei: string | null; dust_tx: string | null;
 }
 
 export interface SweepDeps {
@@ -162,7 +174,7 @@ export class Sweeper {
       const cands = await this.db.query(
         `SELECT d.id, d.address, d.token, d.amount_usd FROM stablecoin_deposits d
           WHERE d.chain = $1 AND d.status = 'confirmed' AND d.swept_at IS NULL AND d.amount_usd >= $2
-            AND NOT EXISTS (SELECT 1 FROM deposit_sweeps s WHERE s.deposit_id = d.id AND s.status IN ('planned','gas_sent','sending','failed','swept'))
+            AND NOT EXISTS (SELECT 1 FROM deposit_sweeps s WHERE s.deposit_id = d.id AND s.asset = d.token AND s.status IN ('planned','gas_sent','sending','failed','swept'))
           ORDER BY d.confirmed_at LIMIT $3`, [chain, this.cfg.minUsd, room]);
       for (const d of cands.rows) {
         const row = await this.plan(d.id, chain, d.token, d.address, treasury, null);
@@ -176,11 +188,11 @@ export class Sweeper {
     if (s === 'swept') rep.swept++; else if (s === 'skipped') rep.skipped++; else if (s === 'failed') rep.failed++; else if (s === 'deferred') rep.deferred++;
   }
 
-  private async plan(depositId: string, chain: string, asset: string, from: string, treasury: string, reason: string | null): Promise<SweepRow | null> {
+  private async plan(depositId: string, chain: string, asset: string, from: string, treasury: string, reason: string | null, kind: 'sweep' | 'recovery' = 'sweep'): Promise<SweepRow | null> {
     const r = await this.db.query(
-      `INSERT INTO deposit_sweeps (id, deposit_id, chain, asset, from_address, treasury_address, reason)
-       VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING RETURNING *`,
-      [randomUUID(), depositId, chain, asset, from, treasury, reason]);
+      `INSERT INTO deposit_sweeps (id, deposit_id, chain, asset, from_address, treasury_address, reason, kind)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING RETURNING *`,
+      [randomUUID(), depositId, chain, asset, from, treasury, reason, kind]);
     return (r.rows[0] as SweepRow) ?? null;
   }
 
@@ -217,7 +229,10 @@ export class Sweeper {
   private async advance(row: SweepRow): Promise<SweepRow['status'] | 'deferred'> {
     try {
       const provider = this.deps.provider(row.chain);
-      const asset = this.registry.get(row.asset, row.chain);
+      // A registered token, or (for recovering something unrecognised) a bare contract address an operator named.
+      const asset = /^0x[0-9a-fA-F]{40}$/.test(row.asset)
+        ? { address: ethers.getAddress(row.asset), symbol: row.asset }
+        : this.registry.get(row.asset, row.chain);
       if (!asset) return 'deferred'; // can't read this token right now: leave it, don't guess
 
       // ── A transfer already sent: settle it from the chain, never send again.
@@ -239,7 +254,7 @@ export class Sweeper {
       const balance = (await token['balanceOf']!(row.from_address)) as bigint;
       if (balance === 0n) {
         await this.set(row.id, { status: 'skipped', units: '0', error: 'the address holds none of this token' });
-        await this.db.query(`UPDATE stablecoin_deposits SET swept_at = NOW() WHERE id = $1`, [row.deposit_id]);
+        if (row.kind === 'sweep') await this.db.query(`UPDATE stablecoin_deposits SET swept_at = NOW() WHERE id = $1`, [row.deposit_id]);
         return 'skipped';
       }
 
@@ -296,6 +311,7 @@ export class Sweeper {
       const receipt = await tx.wait(this.cfg.confirmations);
       if (!receipt || receipt.status !== 1) return await this.fail({ ...row, sweep_tx: tx.hash }, `transfer ${tx.hash} reverted on-chain`);
       await this.finish(row);
+      await this.returnDust(row, wallet, maxFee, tip); // best effort: never fails the sweep
       return 'swept';
     } catch (err) {
       // Nothing irreversible is assumed on an error before a hash was recorded: the row stays
@@ -307,7 +323,77 @@ export class Sweeper {
 
   private async finish(row: SweepRow): Promise<void> {
     await this.set(row.id, { status: 'swept', error: null });
-    await this.db.query(`UPDATE stablecoin_deposits SET swept_at = NOW() WHERE id = $1`, [row.deposit_id]);
+    // Only moving the deposit's own token completes the deposit; recovering a stray one does not.
+    if (row.kind === 'sweep') await this.db.query(`UPDATE stablecoin_deposits SET swept_at = NOW() WHERE id = $1`, [row.deposit_id]);
+  }
+
+  /**
+   * Send what is left of the gas drip back to the gas wallet. The drip covers the gas
+   * *limit*, which is more than the transfer used, so a real amount is usually left;
+   * a return is only made when it recovers more than a fraction of its own cost.
+   */
+  private async returnDust(row: SweepRow, wallet: ethers.Wallet, maxFee: bigint, tip: bigint): Promise<void> {
+    try {
+      const provider = this.deps.provider(row.chain);
+      const left = await provider.getBalance(wallet.address);
+      const back = dustReturnWei(left, maxFee);
+      if (back === 0n) return;
+      const tx = await wallet.sendTransaction({ to: this.gasWalletFor(row.chain).address, value: back, gasLimit: 21_000n, maxFeePerGas: maxFee, maxPriorityFeePerGas: tip });
+      await this.set(row.id, { dust_wei: back.toString(), dust_tx: tx.hash });
+      await tx.wait(this.cfg.confirmations);
+    } catch (err) {
+      console.warn(`[sweeper] could not return dust from ${row.from_address}:`, err instanceof Error ? err.message : err);
+    }
+  }
+
+  // ── Tokens that arrived at a deposit address but aren't what it was opened for ──
+
+  /**
+   * What a deposit address holds besides its own token, among the tokens this gateway
+   * knows, and who sent it. Other tokens can't be discovered without an indexer: for one
+   * of those, an operator names the contract.
+   */
+  async strays(depositId: string): Promise<{ deposit_id: string; address: string; chain: string; token: string; strays: Array<{ asset: string; units: string; senders: string[] }> } | null> {
+    const d = (await this.db.query(`SELECT id, address, chain, token, from_block FROM stablecoin_deposits WHERE id = $1`, [depositId])).rows[0];
+    if (!d) return null;
+    const provider = this.deps.provider(d.chain);
+    const out: Array<{ asset: string; units: string; senders: string[] }> = [];
+    for (const a of this.registry.available().filter((x) => x.chain === d.chain && x.symbol !== d.token)) {
+      const c = new ethers.Contract(a.address, ERC20, provider);
+      const bal = (await c['balanceOf']!(d.address)) as bigint;
+      if (bal === 0n) continue;
+      const senders = new Set<string>();
+      try {
+        const head = await provider.getBlockNumber();
+        const start = d.from_block !== null ? Number(d.from_block) : Math.max(0, head - 50_000);
+        for (let from = start; from <= head; from += 2000) {
+          const logs = await provider.getLogs({ address: a.address, fromBlock: from, toBlock: Math.min(head, from + 1999),
+            topics: [ethers.id('Transfer(address,address,uint256)'), null, ethers.zeroPadValue(d.address, 32)] });
+          for (const l of logs) senders.add(ethers.getAddress('0x' + l.topics[1]!.slice(26)));
+        }
+      } catch { /* senders are a convenience; the balance is the fact */ }
+      out.push({ asset: a.symbol, units: bal.toString(), senders: [...senders] });
+    }
+    return { deposit_id: d.id, address: d.address, chain: d.chain, token: d.token, strays: out };
+  }
+
+  /**
+   * Plan the return of a stray token to an address the operator names — normally the
+   * sender, since it was theirs — with a reason. `asset` is a symbol or a contract address.
+   */
+  async planRecovery(depositId: string, asset: string, destination: string, reason: string): Promise<SweepRow> {
+    const d = (await this.db.query(`SELECT id, chain, token, address, status FROM stablecoin_deposits WHERE id = $1`, [depositId])).rows[0];
+    if (!d) throw new Error('no such deposit');
+    if (!ethers.isAddress(destination) || /^0x0{40}$/i.test(destination)) throw new Error('destination is not a usable address');
+    const dest = ethers.getAddress(destination.toLowerCase());
+    if (dest.toLowerCase() === String(d.address).toLowerCase()) throw new Error('the destination is the deposit address itself');
+    const sym = /^0x/i.test(asset) ? (ethers.isAddress(asset) ? ethers.getAddress(asset.toLowerCase()) : '') : asset.toUpperCase();
+    if (!sym) throw new Error('asset must be a token symbol or a contract address');
+    if (sym === d.token) throw new Error(`that is the deposit's own token: sweep it to the treasury, don't refund it`);
+    if (!/^0x/.test(sym) && !this.registry.get(sym, d.chain)) throw new Error(`${sym} is not a token this gateway knows on ${d.chain}; pass its contract address instead`);
+    const row = await this.plan(d.id, d.chain, sym, d.address, dest, reason, 'recovery');
+    if (!row) throw new Error('a recovery of that token from this address is already in progress, awaiting review, or done');
+    return row;
   }
 }
 

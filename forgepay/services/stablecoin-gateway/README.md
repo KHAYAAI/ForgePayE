@@ -74,9 +74,37 @@ integer arithmetic (`src/lib/asset-math.ts`): money in rounds up, money out roun
   data key is wrapped by Vault transit or AWS KMS (`KEY_WRAP_PROVIDER=vault|awskms`; `env` is for development and warns
   in production), and every blob is bound to its deposit's address, so a blob copied onto another row won't open.
 
+- **Treasury tiers** (`lib/treasury.ts`, off unless `TREASURY_MANAGER_ENABLED=true`; needs the live signer). Money moves
+  deposit addresses → **operating wallet** (where sweeps land) → **payout wallet** (the hot signer), with surplus going on to a
+  fixed **cold address** this service holds no key for. The payout wallet is topped up to a target whenever a token falls below a
+  floor; the floor is the larger of a configured minimum and what *approved* payouts already waiting need, so a payout is funded
+  for rather than failed. The operating wallet only ever sends to that one payout address, within a daily cap
+  (`REPLENISH_DAILY_MAX_USD`), and sends anything above `TREASURY_WARM_MAX_USD` on to cold storage. When it can't cover a need (not
+  enough, or the cap is reached) that is a **shortfall**: recorded, shown at `GET /treasury/status`, emitted as an event, and the
+  payout simply waits, approved — limits are never raised automatically. Each move is written to `treasury_transfers` before it is
+  sent and gets its hash the moment it is, so a crash is reconciled from the chain.
+- **Dust**: after a sweep, what is left of the gas drip is sent back to the gas wallet when that recovers more than a fraction of its own cost.
+- **Wrong tokens**: `GET /sweeps/strays/:depositId` lists other known tokens sitting in a deposit address and who sent them;
+  `POST /sweeps/recover {deposit_id, asset, destination, reason}` returns one — normally to its sender — through the same gas-drip
+  state machine. `asset` can be a contract address for a token this gateway doesn't know. It never sweeps a deposit's own token to a
+  refund address, and never to the treasury.
+
 `scripts/multi-asset-e2e.cjs` exercises all of it against real token contracts on a local chain
 (`E2E_KEY_WRAP=vault` runs it with the keys wrapped by a real Vault).
 
-**Not covered:** the treasury is outside this service. Topping up the payout wallet from it is a manual, custodial
-step. Native-coin dust is left at each swept address (returning it would cost about what it is worth). Wrong-token
-transfers to a deposit address are not recovered automatically.
+### Checking the key service for real
+
+Unit tests and the end-to-end run use a real Vault and a stand-in for AWS KMS. Before relying on KMS, run the check against your account:
+
+```
+KEY_WRAP_PROVIDER=awskms KEY_WRAP_KMS_KEY_ID=alias/deposit-keys AWS_REGION=... npx tsx scripts/verify-key-custody.ts
+```
+
+(and, for the signing nodes' seal keys, `MPC_SEAL_PROVIDER=awskms MPC_KMS_KEY_ID=... mpc-node seal-check -provider awskms`). They wrap and unwrap throwaway
+keys, confirm the wrapped form doesn't contain the key, that it won't open for another address/node, that an altered blob is refused, and that
+KMS enforces the encryption context. Nothing is left behind. `openfireblocks/deploy/aws/kms-policy.example.json` is a least-privilege IAM policy that
+allows only `kms:Encrypt`/`kms:Decrypt` with that encryption context.
+
+**Not covered:** KMS has not been run against a real AWS account from this repo's test environment (no access); use the check above. The
+treasury's cold address is an address only: moving money *out* of it is whatever controls it (custody, a hardware wallet). Wrong-token discovery
+only finds tokens this gateway knows; for others an operator names the contract.

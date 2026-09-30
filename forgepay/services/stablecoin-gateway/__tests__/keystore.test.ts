@@ -179,7 +179,7 @@ function startFakeKms(): Promise<{ server: Server; url: string }> {
         if (target.endsWith('.Encrypt')) {
           const blob = randomBytes(16).toString('base64');
           store.set(blob, { pt: j.Plaintext, ctx: JSON.stringify(j.EncryptionContext) });
-          return res.end(JSON.stringify({ CiphertextBlob: blob, KeyId: j.KeyId }));
+          return res.end(JSON.stringify({ CiphertextBlob: blob, KeyId: 'arn:aws:kms:us-east-1:111122223333:key/abcd-1234' }));
         }
         if (target.endsWith('.Decrypt')) {
           const e = store.get(j.CiphertextBlob);
@@ -198,7 +198,8 @@ describe('deposit key custody — AWS KMS', () => {
     try {
       Object.assign(process.env, { KEY_WRAP_PROVIDER: 'awskms', KEY_WRAP_KMS_KEY_ID: 'alias/deposit-keys', AWS_ENDPOINT_URL_KMS: k.url, AWS_REGION: 'us-east-1', AWS_ACCESS_KEY_ID: 't', AWS_SECRET_ACCESS_KEY: 't' });
       const sealed = await encryptPrivateKey(KEY, ADDR);
-      expect(JSON.parse(sealed).wrap).toMatchObject({ provider: 'awskms', ref: 'alias/deposit-keys' });
+      // KMS answers with the key's ARN; that, not the alias, is what is kept with the blob.
+      expect(JSON.parse(sealed).wrap).toMatchObject({ provider: 'awskms', ref: 'arn:aws:kms:us-east-1:111122223333:key/abcd-1234' });
       expect(await decryptPrivateKey(sealed, ADDR)).toBe(KEY);
       await expect(decryptPrivateKey(sealed, OTHER)).rejects.toThrow();
     } finally { k.server.close(); }

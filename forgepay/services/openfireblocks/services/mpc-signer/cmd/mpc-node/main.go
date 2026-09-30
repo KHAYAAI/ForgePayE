@@ -48,6 +48,8 @@ func main() {
 		err = cmdSealRewrap(args)
 	case "preflight":
 		err = cmdPreflight(args)
+	case "seal-check":
+		err = cmdSealCheck(args)
 	case "pki-init":
 		err = cmdPKIInit(args)
 	case "pki-issue":
@@ -61,7 +63,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: mpc-node <init|coordinator-key|cluster|serve|verify-audit|seal-migrate|seal-rewrap|preflight|pki-init|pki-issue> [flags]")
+	fmt.Fprintln(os.Stderr, "usage: mpc-node <init|coordinator-key|cluster|serve|verify-audit|seal-migrate|seal-rewrap|preflight|seal-check|pki-init|pki-issue> [flags]")
 	os.Exit(2)
 }
 
@@ -304,5 +306,27 @@ func cmdPreflight(args []string) error {
 		return fmt.Errorf("%d check(s) failed: this node is not ready for production", failed)
 	}
 	fmt.Println("ready")
+	return nil
+}
+
+func cmdSealCheck(args []string) error {
+	fs := flag.NewFlagSet("seal-check", flag.ExitOnError)
+	provider := fs.String("provider", os.Getenv("MPC_SEAL_PROVIDER"), "vault or awskms")
+	fs.Parse(args)
+	if *provider != "vault" && *provider != "awskms" {
+		return fmt.Errorf("-provider must be vault or awskms (or set MPC_SEAL_PROVIDER)")
+	}
+	failed := 0
+	for _, c := range mpc.CheckSealProvider(context.Background(), *provider) {
+		mark := "ok   "
+		if !c.OK {
+			mark, failed = "FAIL ", failed+1
+		}
+		fmt.Printf("%s %-50s %s\n", mark, c.Name, c.Detail)
+	}
+	if failed > 0 {
+		return fmt.Errorf("%d check(s) failed", failed)
+	}
+	fmt.Println("all checks passed (nothing was left behind)")
 	return nil
 }

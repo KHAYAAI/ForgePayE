@@ -1,0 +1,14 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "WrapAndUnwrapDepositKeysOnly",
+      "Effect": "Allow",
+      "Action": ["kms:Encrypt", "kms:Decrypt"],
+      "Resource": "arn:aws:kms:REGION:ACCOUNT:key/KEY-ID",
+      "Condition": {
+        "StringEquals": { "kms:EncryptionContext:purpose": "deposit-keys" }
+      }
+    }
+  ]
+}
