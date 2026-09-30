@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS custody.signers (
 CREATE TABLE IF NOT EXISTS custody.proposals (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   customer_id  VARCHAR(255) NOT NULL,
-  kind         VARCHAR(40)  NOT NULL CHECK (kind IN ('add_signer', 'remove_signer', 'set_threshold', 'approve_transaction')),
+  kind         VARCHAR(40)  NOT NULL CHECK (kind IN ('add_signer', 'remove_signer', 'set_threshold', 'rotate_key', 'approve_transaction')),
   payload      JSONB        NOT NULL,
   status       VARCHAR(20)  NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'executed', 'rejected', 'failed')),
   required     INTEGER      NOT NULL,
@@ -103,3 +103,14 @@ ALTER TABLE signing.transactions
   ADD COLUMN IF NOT EXISTS block_number  BIGINT,
   ADD COLUMN IF NOT EXISTS status_detail TEXT;          -- broadcast error / failure / stuck reason
 CREATE INDEX IF NOT EXISTS idx_tx_from_nonce ON signing.transactions (lower(from_address), nonce);
+
+-- Key rotation (resharing). epoch counts reshares; threshold/nodes above always
+-- describe the *current* committee. The address never changes.
+ALTER TABLE custody.keys
+  ADD COLUMN IF NOT EXISTS epoch      INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS rotated_at TIMESTAMPTZ;
+
+-- Existing databases: allow the rotate_key proposal kind (the CREATE above only applies to new ones).
+ALTER TABLE custody.proposals DROP CONSTRAINT IF EXISTS proposals_kind_check;
+ALTER TABLE custody.proposals ADD CONSTRAINT proposals_kind_check
+  CHECK (kind IN ('add_signer', 'remove_signer', 'set_threshold', 'rotate_key', 'approve_transaction'));

@@ -194,7 +194,86 @@ func (s *server) handleMPCStatus(w http.ResponseWriter, r *http.Request) {
 		"enabled": true, "threshold": c.Threshold, "signersNeeded": c.Threshold + 1, "total": len(c.Nodes),
 		"reachable": reachable, "canSign": reachable >= c.Threshold+1, "trustDomains": c.TrustDomains(), "nodes": nodes,
 		"thresholdOnly": s.mpcRequired,
+		// Domains that hold enough nodes to sign alone; empty is what a sound topology looks like.
+		"exposedDomains": c.ExposedDomains(c.AllNodeIDs(), c.Threshold),
+		"production":     mpc.Production(),
 	})
+}
+
+func (s *server) mpcErrStatus(err error) int {
+	var quorum *mpc.ErrQuorumUnavailable
+	var refused *mpc.NodeRefusal
+	switch {
+	case errors.As(err, &quorum):
+		return http.StatusServiceUnavailable
+	case errors.As(err, &refused):
+		if refused.Status == http.StatusNotFound {
+			return http.StatusNotFound
+		}
+		return http.StatusForbidden
+	}
+	return http.StatusBadGateway
+}
+
+// handleKeyMeta reports what the nodes collectively hold for a key: its epoch,
+// committee and threshold, any node still holding a retired share.
+func (s *server) handleKeyMeta(w http.ResponseWriter, r *http.Request) {
+	if s.coord == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "threshold signing is not configured on this signer"})
+		return
+	}
+	meta, err := s.coord.KeyMeta(r.Context(), mux.Vars(r)["id"])
+	if err != nil {
+		writeJSON(w, s.mpcErrStatus(err), map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, meta)
+}
+
+// handleReshare moves a key to a new committee and/or threshold, keeping its
+// address. It runs to completion (a minute or more) and returns the steps taken.
+func (s *server) handleReshare(w http.ResponseWriter, r *http.Request) {
+	if s.coord == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "threshold signing is not configured on this signer"})
+		return
+	}
+	var body struct {
+		Nodes     []string `json:"nodes"`
+		Threshold int      `json:"threshold"` // t: any t+1 nodes sign
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Nodes) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "nodes and threshold are required"})
+		return
+	}
+	keyID := mux.Vars(r)["id"]
+	var steps []string
+	res, err := s.coord.Reshare(r.Context(), keyID, body.Nodes, body.Threshold, func(m string) {
+		log.Printf("reshare %s: %s", keyID, m)
+		steps = append(steps, m)
+	})
+	if err != nil {
+		s.log(r.Context(), AuditEvent{Type: "RESHARE_FAILED", RequestID: keyID, Message: err.Error(), Status: "failed"})
+		writeJSON(w, s.mpcErrStatus(err), map[string]any{"error": err.Error(), "steps": steps})
+		return
+	}
+	s.log(r.Context(), AuditEvent{Type: "RESHARE_SUCCESS", RequestID: keyID, From: res.Address, Status: "reshared",
+		Message: fmt.Sprintf("epoch %d -> %d, now %d-of-%d across %s", res.FromEpoch, res.ToEpoch, res.Threshold+1, len(res.NewNodes), strings.Join(res.NewNodes, ","))})
+	writeJSON(w, http.StatusOK, map[string]any{"result": res, "steps": steps})
+}
+
+// handleRetireStale destroys leftover shares on nodes that were offline when a
+// reshare completed.
+func (s *server) handleRetireStale(w http.ResponseWriter, r *http.Request) {
+	if s.coord == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "threshold signing is not configured on this signer"})
+		return
+	}
+	retired, notRetired, err := s.coord.RetireStale(r.Context(), mux.Vars(r)["id"])
+	if err != nil {
+		writeJSON(w, s.mpcErrStatus(err), map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"retired": retired, "notRetired": notRetired})
 }
 
 func (s *server) handleAddress(w http.ResponseWriter, r *http.Request) {
@@ -245,20 +324,28 @@ func main() {
 
 	s := &server{signer: signer, audit: audit, mpcRequired: os.Getenv("MPC_REQUIRED") == "true"}
 	if clusterFile := os.Getenv("MPC_CLUSTER_FILE"); clusterFile != "" {
-		cluster, err := mpc.LoadCluster(clusterFile)
+		clusters, err := mpc.WatchCluster(clusterFile)
 		if err != nil {
 			log.Fatalf("MPC_CLUSTER_FILE: %v", err)
+		}
+		cluster := clusters.Get()
+		tlsFiles, err := mpc.TLSFromEnv()
+		if err != nil {
+			log.Fatalf("mutual TLS: %v", err)
 		}
 		coordKey, err := mpc.LoadCoordinatorKey(os.Getenv("MPC_COORDINATOR_KEY_FILE"))
 		if err != nil {
 			log.Fatalf("MPC_COORDINATOR_KEY_FILE: %v", err)
 		}
-		if s.coord, err = mpc.NewCoordinator(cluster, coordKey); err != nil {
+		if s.coord, err = mpc.NewCoordinatorWith(clusters, coordKey, tlsFiles); err != nil {
 			log.Fatalf("coordinator: %v", err)
 		}
+		if tlsFiles == nil {
+			log.Printf("WARNING: talking to signing nodes over plain HTTP; set MPC_TLS_CA_FILE, MPC_TLS_CERT_FILE and MPC_TLS_KEY_FILE for mutual TLS")
+		}
 		log.Printf("threshold signing enabled: %d-of-%d across %d trust domain(s)", cluster.Threshold+1, len(cluster.Nodes), cluster.TrustDomains())
-		if cluster.TrustDomains() < 2 {
-			log.Printf("WARNING: every signing node is in one trust domain; compromising that one place exposes the key")
+		if exposed := cluster.ExposedDomains(cluster.AllNodeIDs(), cluster.Threshold); len(exposed) > 0 {
+			log.Printf("WARNING: trust domain %q holds enough signing nodes to sign on its own; compromising that one place exposes every key", exposed[0])
 		}
 	} else if s.mpcRequired {
 		log.Fatal("MPC_REQUIRED=true but no MPC_CLUSTER_FILE is configured")
@@ -269,6 +356,9 @@ func main() {
 	router.HandleFunc("/address", s.handleAddress).Methods(http.MethodGet)
 	router.HandleFunc("/mpc/keys", s.handleKeygen).Methods(http.MethodPost)
 	router.HandleFunc("/mpc/status", s.handleMPCStatus).Methods(http.MethodGet)
+	router.HandleFunc("/mpc/keys/{id}", s.handleKeyMeta).Methods(http.MethodGet)
+	router.HandleFunc("/mpc/keys/{id}/reshare", s.handleReshare).Methods(http.MethodPost)
+	router.HandleFunc("/mpc/keys/{id}/retire-stale", s.handleRetireStale).Methods(http.MethodPost)
 	router.HandleFunc("/health", handleHealth).Methods(http.MethodGet)
 	router.Handle("/metrics", promhttp.Handler()).Methods(http.MethodGet)
 

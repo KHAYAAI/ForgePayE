@@ -133,12 +133,29 @@ export default function HelpPage() {
           </Entry>
           <Entry term="How the signing key works">
             Each workspace has its own key, split into shares held by separate signing nodes; any
-            two of three sign together and the whole key is never assembled. Your approvals decide
-            whether a transfer is sent for signing, and each node rebuilds the transaction and can
-            refuse on its own limits. If too few nodes are online, an approved transfer is held as
-            &ldquo;approved &middot; not signed&rdquo; and can be retried. In the development
-            cluster all nodes share one host, which the Keys page says outright. Separate hosts are
-            needed before the split protects anything.
+            set of them, two of three by default, signs together and the whole key is never
+            assembled. Your approvals decide whether a transfer is sent for signing, and each node
+            rebuilds the transaction itself and applies its own limits (amount, fees, daily total,
+            destinations), which nothing upstream can change. If too few nodes are online, an
+            approved transfer is held as &ldquo;approved &middot; not signed&rdquo; and can be
+            retried. The Keys page shows, for every node, where it keeps its encryption key, whether
+            traffic to it is encrypted and authenticated, and which limits it enforces. In a
+            development cluster all nodes share one host, and the page says so: the split only
+            protects you once the nodes run in separate places under separate control.
+          </Entry>
+          <Entry term="Re-splitting the key">
+            Your signers can move the key to a different set of nodes, or change how many are needed
+            to sign, without changing its address, so no funds move. It is approved like any other
+            governance change, checked before it is committed (the new shares must sign a test
+            message), and the old shares are then destroyed. It protects against shares stolen one
+            at a time, not against someone who already holds enough of them to rebuild the key.
+          </Entry>
+          <Entry term="After signing">
+            When the platform is connected to a network, it fills in the nonce and fees, refuses a
+            transfer your balance can&rsquo;t cover, sends the signed transaction, and follows it to
+            confirmation. A transaction that was signed but couldn&rsquo;t be sent can be resent
+            without signing again. One that isn&rsquo;t mined in time is marked stuck, never silently
+            replaced. Without a network configured, transfers are signed only, and the page says so.
           </Entry>
           <Entry term="Connected applications">
             An application connects with its own named API key. It can submit transfers through

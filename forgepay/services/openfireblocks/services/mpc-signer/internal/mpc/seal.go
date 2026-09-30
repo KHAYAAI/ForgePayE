@@ -4,12 +4,8 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"log"
-	"os"
-	"path/filepath"
 )
 
 // Seal encrypts plaintext with AES-256-GCM. `aad` binds the ciphertext to what
@@ -52,41 +48,4 @@ func newGCM(key []byte) (cipher.AEAD, error) {
 		return nil, err
 	}
 	return cipher.NewGCM(block)
-}
-
-// LoadSealKey returns the key that seals this node's share and identity at
-// rest. Production must supply MPC_NODE_SEAL_KEY (from Vault/KMS, 64 hex
-// chars). In development a key file is created beside the data — which
-// protects nothing if someone can read the directory, and says so.
-func LoadSealKey(dataDir string) ([]byte, error) {
-	if v := os.Getenv("MPC_NODE_SEAL_KEY"); v != "" {
-		key, err := hex.DecodeString(v)
-		if err != nil || len(key) != 32 {
-			return nil, errors.New("MPC_NODE_SEAL_KEY must be 64 hex characters (32 bytes)")
-		}
-		return key, nil
-	}
-	if os.Getenv("MPC_ENV") == "production" {
-		return nil, errors.New("MPC_NODE_SEAL_KEY is required when MPC_ENV=production")
-	}
-	path := filepath.Join(dataDir, "seal.key")
-	if raw, err := os.ReadFile(path); err == nil {
-		key, err := hex.DecodeString(string(raw))
-		if err != nil || len(key) != 32 {
-			return nil, fmt.Errorf("%s is not a valid seal key", path)
-		}
-		return key, nil
-	}
-	key := make([]byte, 32)
-	if _, err := rand.Read(key); err != nil {
-		return nil, err
-	}
-	if err := os.MkdirAll(dataDir, 0o700); err != nil {
-		return nil, err
-	}
-	if err := os.WriteFile(path, []byte(hex.EncodeToString(key)), 0o600); err != nil {
-		return nil, err
-	}
-	log.Printf("WARNING: no MPC_NODE_SEAL_KEY set; created %s. The share is only as safe as this directory. Set MPC_NODE_SEAL_KEY (from Vault/KMS) outside development.", path)
-	return key, nil
 }

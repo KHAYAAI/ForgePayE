@@ -21,9 +21,14 @@ import (
 // inside tss-lib, so this encryption is what stops an eavesdropper collecting
 // them.
 type PeerMessage struct {
-	Session   string `json:"session"`
-	From      string `json:"from"`
-	To        string `json:"to"`
+	Session string `json:"session"`
+	From    string `json:"from"`
+	To      string `json:"to"`
+	// FromParty/ToParty name the tss parties the message is between. They equal
+	// the node ids in keygen and signing; in a reshare a node can run two
+	// parties ("node1@old", "node1@new"), so the node id alone isn't enough.
+	FromParty string `json:"from_party"`
+	ToParty   string `json:"to_party"`
 	Seq       uint64 `json:"seq"` // per-sender, per-session; lets a receiver drop duplicates
 	Broadcast bool   `json:"broadcast"`
 	Type      string `json:"type"`
@@ -56,7 +61,7 @@ func pairAEAD(priv *ecdh.PrivateKey, peerPub *ecdh.PublicKey, session, from, to 
 }
 
 func messageAAD(m *PeerMessage) []byte {
-	return []byte(fmt.Sprintf("%s|%s|%s|%d|%t|%s", m.Session, m.From, m.To, m.Seq, m.Broadcast, m.Type))
+	return []byte(fmt.Sprintf("%s|%s|%s|%s|%s|%d|%t|%s", m.Session, m.From, m.To, m.FromParty, m.ToParty, m.Seq, m.Broadcast, m.Type))
 }
 
 // EncryptMessage fills in Nonce and Payload for m from the plaintext tss wire bytes.

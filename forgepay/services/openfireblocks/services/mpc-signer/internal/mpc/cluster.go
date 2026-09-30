@@ -6,9 +6,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"math/big"
 	"os"
 	"regexp"
+	"strings"
+	"sync"
+	"time"
 
 	"github.com/bnb-chain/tss-lib/v2/tss"
 )
@@ -96,25 +100,183 @@ func (c *Cluster) TrustDomains() int {
 
 // PartyID derives a node's tss party id deterministically from its name, so
 // every process — and every later session — agrees on it without coordination.
-func PartyID(nodeID string) *tss.PartyID {
-	sum := sha256.Sum256([]byte("mpc-party|" + nodeID))
-	return tss.NewPartyID(nodeID, nodeID, new(big.Int).SetBytes(sum[:]))
+// This is the epoch-0 identity used by key generation.
+func PartyID(nodeID string) *tss.PartyID { return PartyIDAt(nodeID, 0, "") }
+
+// PartyIDAt is a node's party id for a given key epoch and role.
+//
+// A key's shares are only valid together with the party keys they were made
+// for, and a reshare must run two parties on a node that is in both the old and
+// the new committee. tss-lib tells the two roles apart by party *key*, so each
+// epoch gets its own key: epoch 0 keeps the original derivation, later epochs
+// mix the epoch in. role ("old"/"new") only labels the moniker used to route
+// messages inside a reshare session; it does not change the key.
+func PartyIDAt(nodeID string, epoch int, role string) *tss.PartyID {
+	label := "mpc-party|" + nodeID
+	if epoch > 0 {
+		label = fmt.Sprintf("mpc-party|%s|e%d", nodeID, epoch)
+	}
+	sum := sha256.Sum256([]byte(label))
+	moniker := nodeID
+	if role != "" {
+		moniker = nodeID + "@" + role
+	}
+	return tss.NewPartyID(moniker, moniker, new(big.Int).SetBytes(sum[:]))
 }
 
-// SortedParties returns the sorted party ids for the given node ids.
-func SortedParties(nodeIDs []string) tss.SortedPartyIDs {
+// SortedParties returns the sorted party ids for the given node ids (epoch 0).
+func SortedParties(nodeIDs []string) tss.SortedPartyIDs { return SortedPartiesAt(nodeIDs, 0, "") }
+
+// SortedPartiesAt returns sorted party ids for the given nodes at an epoch.
+func SortedPartiesAt(nodeIDs []string, epoch int, role string) tss.SortedPartyIDs {
 	ids := make(tss.UnSortedPartyIDs, 0, len(nodeIDs))
 	for _, id := range nodeIDs {
-		ids = append(ids, PartyID(id))
+		ids = append(ids, PartyIDAt(id, epoch, role))
 	}
 	return tss.SortPartyIDs(ids)
 }
 
-func findParty(ids tss.SortedPartyIDs, nodeID string) *tss.PartyID {
+func findParty(ids tss.SortedPartyIDs, moniker string) *tss.PartyID {
 	for _, p := range ids {
-		if p.Moniker == nodeID {
+		if p.Moniker == moniker {
 			return p
 		}
 	}
 	return nil
+}
+
+// nodeOf returns the node a party moniker belongs to ("node1@old" -> "node1").
+func nodeOf(moniker string) string {
+	if i := strings.IndexByte(moniker, '@'); i >= 0 {
+		return moniker[:i]
+	}
+	return moniker
+}
+
+// ExposedDomains returns the trust domains that, on their own, hold enough of
+// the given nodes to sign for a key of threshold t (t+1 or more). Anyone who
+// controls such a domain controls the key, so splitting it protects nothing
+// against them. An empty result means no single domain can sign alone.
+//
+// Domain labels are declared by whoever builds the cluster file; nothing here
+// can prove a label is true. What this does is refuse a topology that is
+// visibly one place.
+func (c *Cluster) ExposedDomains(nodeIDs []string, t int) []string {
+	count := map[string]int{}
+	for _, id := range nodeIDs {
+		if n, ok := c.Node(id); ok {
+			count[n.Domain]++
+		}
+	}
+	var out []string
+	for d, n := range count {
+		if n >= t+1 {
+			out = append(out, d)
+		}
+	}
+	sortStrings(out)
+	return out
+}
+
+// AllNodeIDs lists every node in the cluster.
+func (c *Cluster) AllNodeIDs() []string {
+	ids := make([]string, len(c.Nodes))
+	for i, n := range c.Nodes {
+		ids[i] = n.ID
+	}
+	return ids
+}
+
+// CheckTransport requires every listed node to be reached over https.
+func (c *Cluster) CheckTransport(nodeIDs []string) error {
+	for _, id := range nodeIDs {
+		if n, ok := c.Node(id); ok && !strings.HasPrefix(n.URL, "https://") {
+			return fmt.Errorf("node %s is reached over %q; production requires https", id, n.URL)
+		}
+	}
+	return nil
+}
+
+// CheckDomains requires that no single trust domain hold enough of the listed
+// nodes to sign alone.
+func (c *Cluster) CheckDomains(nodeIDs []string, t int) error {
+	if exposed := c.ExposedDomains(nodeIDs, t); len(exposed) > 0 {
+		return fmt.Errorf("trust domain %q holds %d or more of these nodes, enough to sign on its own; a %d-of-%d key needs its nodes spread so that no one domain holds more than %d",
+			exposed[0], t+1, t+1, len(nodeIDs), t)
+	}
+	return nil
+}
+
+// CheckProduction enforces what production requires of a topology: every node
+// reached over https, and no single trust domain able to sign alone.
+func (c *Cluster) CheckProduction(nodeIDs []string, t int) error {
+	if err := c.CheckTransport(nodeIDs); err != nil {
+		return err
+	}
+	return c.CheckDomains(nodeIDs, t)
+}
+
+// ---- hot-reloadable cluster file --------------------------------------------
+
+// ClusterSource serves the current cluster description, reloading the file when
+// it changes so a node can be added or moved without restarting the others.
+// A reload that fails to parse, or that changes the coordinator key, is ignored
+// and the previous description stays in force.
+type ClusterSource struct {
+	path string
+	mu   sync.Mutex
+	cur  *Cluster
+	mod  time.Time
+	last time.Time
+}
+
+// StaticCluster wraps a fixed cluster (tests, and callers with no file).
+func StaticCluster(c *Cluster) *ClusterSource { return &ClusterSource{cur: c} }
+
+// WatchCluster loads path now and reloads it when it changes.
+func WatchCluster(path string) (*ClusterSource, error) {
+	c, err := LoadCluster(path)
+	if err != nil {
+		return nil, err
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	return &ClusterSource{path: path, cur: c, mod: fi.ModTime()}, nil
+}
+
+// Get returns the current cluster.
+func (s *ClusterSource) Get() *Cluster {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.path == "" || time.Since(s.last) < time.Second {
+		return s.cur
+	}
+	s.last = time.Now()
+	fi, err := os.Stat(s.path)
+	if err != nil || fi.ModTime().Equal(s.mod) {
+		return s.cur
+	}
+	next, err := LoadCluster(s.path)
+	if err != nil {
+		log.Printf("mpc: ignoring invalid cluster file, keeping the previous one: %v", err)
+		s.mod = fi.ModTime()
+		return s.cur
+	}
+	if next.CoordinatorPub != s.cur.CoordinatorPub {
+		log.Printf("mpc: ignoring cluster file that changes the coordinator key; that needs a restart")
+		s.mod = fi.ModTime()
+		return s.cur
+	}
+	for _, old := range s.cur.Nodes {
+		if n, ok := next.Node(old.ID); ok && n.X25519Pub != old.X25519Pub {
+			log.Printf("mpc: ignoring cluster file that changes node %s's identity key", old.ID)
+			s.mod = fi.ModTime()
+			return s.cur
+		}
+	}
+	log.Printf("mpc: cluster file reloaded (%d nodes)", len(next.Nodes))
+	s.cur, s.mod = next, fi.ModTime()
+	return s.cur
 }

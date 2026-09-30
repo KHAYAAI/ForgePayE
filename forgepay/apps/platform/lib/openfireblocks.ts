@@ -13,7 +13,9 @@ const OFB_URL = process.env.OPENFIREBLOCKS_URL ?? 'http://localhost:8090';
 const TIMEOUT_MS = 8000;
 // Actions that sign wait for a 2-of-3 threshold signature (a few seconds each), and transfers for one
 // address sign one after another, so a burst of transfers queues; 8s would report success as failure.
-const ACTION_TIMEOUT_MS = 90_000;
+// A vote that completes a key re-split runs the whole reshare (protocol, test signature, commit),
+// which the signer bounds at about nine minutes; cutting it short would report a working re-split as failed.
+const ACTION_TIMEOUT_MS = 10 * 60_000;
 
 function adminKey(): string {
   const key = process.env.OPENFIREBLOCKS_ADMIN_KEY;
@@ -77,9 +79,10 @@ export async function getCustodyConsole(tenantId: string): Promise<{ live: boole
 
 export type CustodyAction =
   | { action: 'bootstrap_signer'; name?: string }
-  | { action: 'propose'; kind: 'add_signer' | 'remove_signer' | 'set_threshold'; payload: Record<string, unknown> }
+  | { action: 'propose'; kind: 'add_signer' | 'remove_signer' | 'set_threshold' | 'rotate_key'; payload: Record<string, unknown> }
   | { action: 'vote'; proposalId: string; approve: boolean }
   | { action: 'retry_transfer'; proposalId: string }
+  | { action: 'retire_stale' }
   | { action: 'transfer'; to: string; amountEth: string }
   | { action: 'rebroadcast'; requestId: string }
   | { action: 'issue_api_key'; name: string }
@@ -100,6 +103,8 @@ export async function performCustodyAction(tenantId: string, actor: string, a: C
       return post('/proposals', { kind: a.kind, payload: a.payload });
     case 'vote':
       return post(`/proposals/${encodeURIComponent(a.proposalId)}/votes`, { approve: a.approve });
+    case 'retire_stale':
+      return post('/keys/retire-stale', {});
     case 'retry_transfer':
       return post(`/proposals/${encodeURIComponent(a.proposalId)}/retry`, {});
     case 'transfer':

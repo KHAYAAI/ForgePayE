@@ -1,0 +1,9 @@
+{
+  "maxValueWei": "50000000000000000000",
+  "maxFeeWei": "500000000000000000",
+  "dailyLimitWei": "200000000000000000000",
+  "maxTxPerHour": 60,
+  "allowedChainIds": [1],
+  "blockedDestinations": [],
+  "allowCalldata": false
+}

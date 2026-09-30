@@ -21,7 +21,7 @@ class BootstrapSignerDto {
 }
 
 class ProposeDto {
-  @IsIn(['add_signer', 'remove_signer', 'set_threshold']) kind: ProposalKind;
+  @IsIn(['add_signer', 'remove_signer', 'set_threshold', 'rotate_key']) kind: ProposalKind;
   @IsObject() payload: Record<string, any>;
 }
 
@@ -108,6 +108,14 @@ export class CustodyController {
     @Headers('x-actor-email') actor: string,
   ) {
     return this.custody.rebroadcastTransfer(customerId, requestId, requireActor(actor));
+  }
+
+  @Post('keys/retire-stale')
+  retireStale(
+    @Param('customerId') customerId: string,
+    @Headers('x-actor-email') actor: string,
+  ) {
+    return this.custody.retireStaleShares(customerId, requireActor(actor));
   }
 
   @Post('api-keys')

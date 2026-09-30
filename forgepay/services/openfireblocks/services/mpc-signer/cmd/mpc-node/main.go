@@ -11,6 +11,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -18,6 +19,7 @@ import (
 	"math/big"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"forge-crypto/mpc-signer/internal/mpc"
@@ -40,6 +42,16 @@ func main() {
 		err = cmdServe(args)
 	case "verify-audit":
 		err = cmdVerifyAudit(args)
+	case "seal-migrate":
+		err = cmdSealMigrate(args)
+	case "seal-rewrap":
+		err = cmdSealRewrap(args)
+	case "preflight":
+		err = cmdPreflight(args)
+	case "pki-init":
+		err = cmdPKIInit(args)
+	case "pki-issue":
+		err = cmdPKIIssue(args)
 	default:
 		usage()
 	}
@@ -49,7 +61,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: mpc-node <init|coordinator-key|cluster|serve|verify-audit> [flags]")
+	fmt.Fprintln(os.Stderr, "usage: mpc-node <init|coordinator-key|cluster|serve|verify-audit|seal-migrate|seal-rewrap|preflight|pki-init|pki-issue> [flags]")
 	os.Exit(2)
 }
 
@@ -63,10 +75,11 @@ func cmdInit(args []string) error {
 	if *id == "" || *data == "" || *url == "" {
 		return fmt.Errorf("-id, -data and -url are required")
 	}
-	key, err := mpc.LoadSealKey(*data)
+	key, provider, err := mpc.LoadSealKey(context.Background(), *data, *id, true)
 	if err != nil {
 		return err
 	}
+	log.Printf("seal key provider: %s", provider)
 	pub, err := mpc.InitIdentity(*data, *id, *url, *domain, key)
 	if err != nil {
 		return err
@@ -121,19 +134,26 @@ func cmdServe(args []string) error {
 	data := fs.String("data", "", "data directory")
 	clusterFile := fs.String("cluster", "", "cluster file")
 	listen := fs.String("listen", ":8101", "listen address")
+	policyFile := fs.String("policy", os.Getenv("MPC_NODE_POLICY_FILE"), "this node's own signing policy (JSON); reloaded when edited")
 	fs.Parse(args)
 	if *id == "" || *data == "" || *clusterFile == "" {
 		return fmt.Errorf("-id, -data and -cluster are required")
 	}
-	cluster, err := mpc.LoadCluster(*clusterFile)
+	clusters, err := mpc.WatchCluster(*clusterFile)
 	if err != nil {
 		return err
 	}
-	key, err := mpc.LoadSealKey(*data)
+	cluster := clusters.Get()
+	tlsFiles, err := mpc.TLSFromEnv()
 	if err != nil {
 		return err
 	}
-	cfg := mpc.NodeConfig{DataDir: *data, ID: *id, Cluster: cluster, SealKey: key}
+	key, provider, err := mpc.LoadSealKey(context.Background(), *data, *id, false)
+	if err != nil {
+		return err
+	}
+	log.Printf("seal key provider: %s", provider)
+	cfg := mpc.NodeConfig{DataDir: *data, ID: *id, Clusters: clusters, SealKey: key, SealProvider: provider, PolicyFile: *policyFile, TLS: tlsFiles}
 	if v := os.Getenv("MPC_NODE_MAX_VALUE_WEI"); v != "" {
 		wei, ok := new(big.Int).SetString(v, 10)
 		if !ok {
@@ -148,7 +168,21 @@ func cmdServe(args []string) error {
 	}
 	log.Printf("mpc-node %s listening on %s (%d nodes, threshold %d, %d trust domain(s))",
 		*id, *listen, len(cluster.Nodes), cluster.Threshold, cluster.TrustDomains())
+	if exposed := cluster.ExposedDomains(cluster.AllNodeIDs(), cluster.Threshold); len(exposed) > 0 {
+		log.Printf("WARNING: trust domain %q holds enough nodes to sign on its own", exposed[0])
+	}
+	if sum := node.Policy().Summary(); len(sum.Active) > 0 {
+		log.Printf("node policy %s in force: %v", sum.Digest, sum.Active)
+	} else {
+		log.Printf("no node policy: this node will co-sign anything the coordinator asks, within the key's committee")
+	}
 	srv := &http.Server{Addr: *listen, Handler: node.Handler(), ReadHeaderTimeout: 10 * time.Second}
+	if tlsFiles != nil {
+		srv.TLSConfig = tlsFiles.ServerConfig()
+		log.Printf("mutual TLS required from every caller")
+		return srv.ListenAndServeTLS("", "")
+	}
+	log.Printf("WARNING: serving plain HTTP; set MPC_TLS_CA_FILE, MPC_TLS_CERT_FILE and MPC_TLS_KEY_FILE for mutual TLS")
 	return srv.ListenAndServe()
 }
 
@@ -161,5 +195,114 @@ func cmdVerifyAudit(args []string) error {
 		return err
 	}
 	fmt.Printf("audit chain intact: %d entries\n", n)
+	return nil
+}
+
+func cmdSealMigrate(args []string) error {
+	fs := flag.NewFlagSet("seal-migrate", flag.ExitOnError)
+	id := fs.String("id", "", "node id")
+	data := fs.String("data", "", "data directory (node must be stopped)")
+	fromName := fs.String("from", "", "current provider: file, env, vault, awskms")
+	toName := fs.String("to", "", "new provider: file, vault, awskms")
+	fs.Parse(args)
+	if *id == "" || *data == "" || *fromName == "" || *toName == "" {
+		return fmt.Errorf("-id, -data, -from and -to are required")
+	}
+	from, err := mpc.NewSealKeyProvider(*fromName)
+	if err != nil {
+		return err
+	}
+	to, err := mpc.NewSealKeyProvider(*toName)
+	if err != nil {
+		return err
+	}
+	n, err := mpc.MigrateSealKey(context.Background(), *data, *id, from, to)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("re-encrypted %d file(s); the seal key is now held by %s\n", n, *toName)
+	return nil
+}
+
+func cmdSealRewrap(args []string) error {
+	fs := flag.NewFlagSet("seal-rewrap", flag.ExitOnError)
+	id := fs.String("id", "", "node id")
+	data := fs.String("data", "", "data directory")
+	fs.Parse(args)
+	if *id == "" || *data == "" {
+		return fmt.Errorf("-id and -data are required")
+	}
+	if err := mpc.RewrapVault(context.Background(), *data, *id); err != nil {
+		return err
+	}
+	fmt.Println("seal key re-wrapped under the current Vault transit key version")
+	return nil
+}
+
+func cmdPKIInit(args []string) error {
+	fs := flag.NewFlagSet("pki-init", flag.ExitOnError)
+	dir := fs.String("dir", "", "directory for ca.pem and ca.key")
+	name := fs.String("name", "FORGE MPC CA", "CA name")
+	years := fs.Int("years", 5, "validity")
+	fs.Parse(args)
+	if *dir == "" {
+		return fmt.Errorf("-dir is required")
+	}
+	if err := mpc.PKIInit(*dir, *name, time.Duration(*years)*365*24*time.Hour); err != nil {
+		return err
+	}
+	fmt.Printf("created CA in %s (keep ca.key with the cluster's operators; nodes only need ca.pem)\n", *dir)
+	return nil
+}
+
+func cmdPKIIssue(args []string) error {
+	fs := flag.NewFlagSet("pki-issue", flag.ExitOnError)
+	ca := fs.String("ca", "", "CA directory")
+	name := fs.String("name", "", "node id, or 'coordinator'")
+	hosts := fs.String("hosts", "", "comma-separated DNS names / IPs this certificate is valid for")
+	out := fs.String("out", "", "output directory (cert.pem, key.pem, ca.pem)")
+	days := fs.Int("days", 90, "validity in days")
+	fs.Parse(args)
+	if *ca == "" || *name == "" || *out == "" {
+		return fmt.Errorf("-ca, -name and -out are required")
+	}
+	var hs []string
+	for _, h := range strings.Split(*hosts, ",") {
+		if h = strings.TrimSpace(h); h != "" {
+			hs = append(hs, h)
+		}
+	}
+	if err := mpc.PKIIssue(*ca, *name, hs, *out, time.Duration(*days)*24*time.Hour); err != nil {
+		return err
+	}
+	fmt.Printf("issued certificate for %s in %s\n", *name, *out)
+	return nil
+}
+
+func cmdPreflight(args []string) error {
+	fs := flag.NewFlagSet("preflight", flag.ExitOnError)
+	id := fs.String("id", "", "node id")
+	data := fs.String("data", "", "data directory")
+	clusterFile := fs.String("cluster", "", "cluster file")
+	policyFile := fs.String("policy", os.Getenv("MPC_NODE_POLICY_FILE"), "node policy file")
+	fs.Parse(args)
+	if *id == "" || *data == "" || *clusterFile == "" {
+		return fmt.Errorf("-id, -data and -cluster are required")
+	}
+	failed := 0
+	for _, c := range mpc.Preflight(context.Background(), *data, *id, *clusterFile, *policyFile) {
+		mark := "ok   "
+		switch {
+		case !c.OK:
+			mark, failed = "FAIL ", failed+1
+		case c.Warn:
+			mark = "warn "
+		}
+		fmt.Printf("%s %-28s %s\n", mark, c.Name, c.Detail)
+	}
+	if failed > 0 {
+		return fmt.Errorf("%d check(s) failed: this node is not ready for production", failed)
+	}
+	fmt.Println("ready")
 	return nil
 }

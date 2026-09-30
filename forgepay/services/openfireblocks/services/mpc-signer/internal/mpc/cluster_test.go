@@ -186,9 +186,10 @@ type harness struct {
 	down    []atomic.Bool
 }
 
-func newHarness(t *testing.T) *harness {
+func newHarness(t *testing.T) *harness { return newHarnessN(t, 3, 1) }
+
+func newHarnessN(t *testing.T, n, threshold int) *harness {
 	t.Helper()
-	const n, threshold = 3, 1
 	h := &harness{t: t, down: make([]atomic.Bool, n)}
 	coordPub, coordPriv, _ := ed25519.GenerateKey(rand.Reader)
 	h.coordPk = coordPriv
@@ -221,7 +222,11 @@ func newHarness(t *testing.T) *harness {
 			t.Fatal(err)
 		}
 		cluster.Nodes = append(cluster.Nodes, NodeInfo{ID: id, URL: srv.URL, X25519Pub: pub.X25519Pub, Domain: pub.Domain})
-		h.cfgs = append(h.cfgs, NodeConfig{DataDir: dir, ID: id, SealKey: sealKey})
+		policyPath := filepath.Join(dir, "policy.json")
+		if err := os.WriteFile(policyPath, []byte("{}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		h.cfgs = append(h.cfgs, NodeConfig{DataDir: dir, ID: id, SealKey: sealKey, PolicyFile: policyPath})
 		h.servers = append(h.servers, srv)
 		h.handler = append(h.handler, ptr)
 	}
@@ -239,6 +244,18 @@ func newHarness(t *testing.T) *harness {
 	}
 	h.coord = coord
 	return h
+}
+
+// setPolicy replaces every node's own policy file, as each node's operator would.
+func (h *harness) setPolicy(body string) {
+	h.t.Helper()
+	for _, c := range h.cfgs {
+		if err := os.WriteFile(c.PolicyFile, []byte(body), 0o600); err != nil {
+			h.t.Fatal(err)
+		}
+		future := time.Now().Add(time.Duration(len(body)+1) * time.Second) // never equal to the last mtime
+		_ = os.Chtimes(c.PolicyFile, future, future)
+	}
 }
 
 func (h *harness) startNode(i int) {
@@ -411,6 +428,7 @@ func TestThresholdSigningAcrossRealNodes(t *testing.T) {
 	})
 
 	t.Run("signing routes to the right key", func(t *testing.T) {
+		h.waitForPreParams() // key generation consumes a pre-parameter set per node; refilling is CPU-bound
 		other, err := h.coord.Keygen(ctx, "ws-beta")
 		if err != nil {
 			t.Fatal(err)
@@ -466,7 +484,7 @@ func TestThresholdSigningAcrossRealNodes(t *testing.T) {
 	})
 
 	t.Run("nodes refuse forged peer messages", func(t *testing.T) {
-		msg := PeerMessage{Session: "s", From: "node2", To: "node1", Seq: 1, Type: "x", Nonce: make([]byte, 12), Payload: []byte("not really encrypted")}
+		msg := PeerMessage{Session: "s", From: "node2", To: "node1", FromParty: "node2", ToParty: "node1", Seq: 1, Type: "x", Nonce: make([]byte, 12), Payload: []byte("not really encrypted")}
 		body, _ := json.Marshal(msg)
 		if code, _ := h.rawPost(0, "/v1/msg", body, ""); code != http.StatusUnauthorized {
 			t.Fatalf("forged peer message: %d", code)
@@ -489,6 +507,76 @@ func TestThresholdSigningAcrossRealNodes(t *testing.T) {
 			t.Fatalf("want a refusal from a node over its cap, got %v", err)
 		}
 		verifyOnChainRules(t, h.mustSign(51, key), key.Address) // 0.001 ETH: allowed
+	})
+
+	t.Run("each node's own policy file is enforced and can't be argued with", func(t *testing.T) {
+		defer h.setPolicy("{}")
+		refusedBy := func(err error, rule string) {
+			t.Helper()
+			var refused *NodeRefusal
+			if !errors.As(err, &refused) || refused.Status != http.StatusForbidden {
+				t.Fatalf("want a 403 refusal (%s), got %v", rule, err)
+			}
+		}
+		to := "0x49ddddb2987a27e2de4ba26bd57e646caf8c548c"
+
+		h.setPolicy(`{"blockedDestinations":["` + to + `"]}`)
+		_, err := h.coord.Sign(ctx, key.KeyID, key.Address, testTx(70, "1"))
+		refusedBy(err, "blocklist")
+
+		h.setPolicy(`{"allowedDestinations":["0x000000000000000000000000000000000000dEaD"]}`)
+		_, err = h.coord.Sign(ctx, key.KeyID, key.Address, testTx(71, "1"))
+		refusedBy(err, "allowlist")
+
+		h.setPolicy(`{"allowedChainIds":[1]}`)
+		_, err = h.coord.Sign(ctx, key.KeyID, key.Address, testTx(72, "1"))
+		refusedBy(err, "chain")
+
+		h.setPolicy(`{"maxFeeWei":"1000"}`)
+		_, err = h.coord.Sign(ctx, key.KeyID, key.Address, testTx(73, "1"))
+		refusedBy(err, "fee")
+
+		callTx := testTx(74, "0")
+		callTx.Data, callTx.GasLimit = "0xa9059cbb"+strings.Repeat("00", 12)+"49ddddb2987a27e2de4ba26bd57e646caf8c548c"+strings.Repeat("00", 32), 60000
+		callTx.To = "0x000000000000000000000000000000000000dEaD"
+		h.setPolicy(`{"allowCalldata":false}`)
+		_, err = h.coord.Sign(ctx, key.KeyID, key.Address, callTx)
+		refusedBy(err, "plain transfers only")
+		h.setPolicy(`{"blockedDestinations":["` + to + `"]}`)
+		_, err = h.coord.Sign(ctx, key.KeyID, key.Address, callTx) // blocked recipient hidden inside a token transfer
+		refusedBy(err, "token recipient")
+
+		// Rolling daily limit: room for one more 0.002 ETH on top of whatever each
+		// node has already agreed to for this key today, but not two.
+		used := new(big.Int)
+		for _, n := range h.nodes {
+			if u, _ := n.Policy().Used(key.KeyID); u.Cmp(used) > 0 {
+				used = u
+			}
+		}
+		limit := new(big.Int).Add(used, big.NewInt(3_000_000_000_000_000))
+		h.setPolicy(`{"dailyLimitWei":"` + limit.String() + `"}`)
+		big2 := func(n uint64) *ethtx.SignRequest { return testTx(n, "2000000000000000") }
+		if _, err := h.coord.Sign(ctx, key.KeyID, key.Address, big2(75)); err != nil {
+			t.Fatalf("first 0.002 ETH: %v", err)
+		}
+		_, err = h.coord.Sign(ctx, key.KeyID, key.Address, big2(76))
+		refusedBy(err, "daily limit")
+
+		// A broken edit must not switch the limits off.
+		h.setPolicy(`{"dailyLimitWei": nonsense`)
+		_, err = h.coord.Sign(ctx, key.KeyID, key.Address, big2(77))
+		refusedBy(err, "invalid edit keeps previous rules")
+
+		// Once the operator lifts it, signing resumes.
+		h.setPolicy("{}")
+		verifyOnChainRules(t, h.mustSign(78, key), key.Address)
+
+		// The node says what it enforces, so the console can show it.
+		st := h.coord.Health(ctx)
+		if st[0].Policy == nil || st[0].Policy.Digest == "" {
+			t.Fatal("health should report the node's policy digest")
+		}
 	})
 
 	t.Run("shares survive a restart", func(t *testing.T) {

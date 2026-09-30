@@ -20,7 +20,7 @@ import { requiredApprovals } from './quorum';
 import { KeysService } from './keys.service';
 import { EthereumService } from '../blockchain/ethereum.service';
 
-export type ProposalKind = 'add_signer' | 'remove_signer' | 'set_threshold' | 'approve_transaction';
+export type ProposalKind = 'add_signer' | 'remove_signer' | 'set_threshold' | 'rotate_key' | 'approve_transaction';
 
 interface ProposalRow {
   id: string;
@@ -151,6 +151,11 @@ export class CustodyService {
     await this.ensureSettings(customerId);
     await this.eligibleSigner(customerId, actor);
     this.validateGovernancePayload(kind, payload);
+    if (kind === 'rotate_key') {
+      // Fail now, before anyone votes, if the committee can't be used.
+      if (!(await this.keys.activeKey(customerId))) throw new BadRequestException('this workspace has no signing key to rotate yet');
+      await this.keys.validateRotation(payload.nodes, payload.signers_needed);
+    }
 
     const required = await requiredApprovals(this.pool, customerId);
     const { rows } = await this.pool.query<{ id: string }>(
@@ -174,6 +179,9 @@ export class CustodyService {
       if (typeof payload.email !== 'string' || !payload.email.includes('@')) {
         throw new BadRequestException('payload.email must be an email address');
       }
+    }
+    if (kind === 'rotate_key' && (!Array.isArray(payload.nodes) || payload.signers_needed === undefined)) {
+      throw new BadRequestException('payload needs nodes (a list of node ids) and signers_needed');
     }
     if (kind === 'set_threshold') {
       if (!Number.isInteger(payload.threshold) || payload.threshold < 1) {
@@ -209,32 +217,47 @@ export class CustodyService {
   }
 
   /**
-   * Re-run signing for a transfer that reached quorum but failed to sign —
+   * Re-run a proposal that reached quorum but failed to carry out — a transfer
+   * that couldn't be signed, or a key rotation that couldn't reach a node —
    * typically because too few signing nodes were reachable at that moment.
    * Approvals are not asked for again: the quorum already decided. Only one
-   * caller can claim a failed proposal, so concurrent retries sign it once.
+   * caller can claim a failed proposal, so concurrent retries run it once.
    */
   async retryTransfer(customerId: string, proposalId: string, actor: string) {
     await this.eligibleSigner(customerId, actor);
     const claimed = await this.pool.query<ProposalRow>(
       `UPDATE custody.proposals SET status = 'executed', result = NULL
-        WHERE id = $1 AND customer_id = $2 AND kind = 'approve_transaction' AND status = 'failed'
+        WHERE id = $1 AND customer_id = $2 AND kind IN ('approve_transaction', 'rotate_key') AND status = 'failed'
         RETURNING *`,
       [proposalId, customerId],
     );
     if (!claimed.rows[0]) {
-      throw new ConflictException('only an approved transfer whose signing failed can be retried');
+      throw new ConflictException('only an approved proposal that failed to carry out can be retried');
     }
     await this.audit.logEvent({
       type: 'PROPOSAL_RETRIED',
       customerId,
       requestId: claimed.rows[0].request_id ?? undefined,
       actor,
-      message: `retrying signing for ${proposalId}`,
+      message: `retrying ${claimed.rows[0].kind} ${proposalId}`,
       status: 'retrying',
     });
     await this.execute(claimed.rows[0]);
     return this.proposalView(customerId, proposalId);
+  }
+
+  /** Destroy leftover old key shares on nodes that were offline when a rotation finished. */
+  async retireStaleShares(customerId: string, actor: string) {
+    await this.eligibleSigner(customerId, actor);
+    const r = await this.keys.retireStale(customerId);
+    await this.audit.logEvent({
+      type: 'KEY_SHARES_RETIRED',
+      customerId,
+      actor,
+      message: `retired old shares on ${r.retired.join(', ') || 'no nodes'}${r.notRetired.length ? `; could not reach ${r.notRetired.join(', ')}` : ''}`,
+      status: r.notRetired.length ? 'partial' : 'executed',
+    });
+    return r;
   }
 
   private async getProposal(customerId: string, proposalId: string): Promise<ProposalRow> {
@@ -349,6 +372,15 @@ export class CustodyService {
             `UPDATE custody.settings SET threshold = $2, updated_at = NOW() WHERE customer_id = $1`,
             [customerId, proposal.payload.threshold],
           );
+          break;
+        }
+        case 'rotate_key': {
+          const { nodes, threshold } = await this.keys.validateRotation(proposal.payload.nodes, proposal.payload.signers_needed);
+          const r = await this.keys.rotate(customerId, nodes, threshold);
+          result = {
+            address: r.address, epoch: r.toEpoch, nodes: r.newNodes, signers_needed: r.threshold + 1,
+            retired: r.retired ?? [], not_retired: r.notRetired ?? [],
+          };
           break;
         }
         case 'approve_transaction': {
@@ -548,21 +580,33 @@ export class CustodyService {
       };
     }
     const [key, mpc] = await Promise.all([this.keys.activeKey(customerId), this.keys.status()]);
-    const needed = mpc?.signersNeeded ?? (key ? key.threshold + 1 : 0);
-    const total = mpc?.total ?? key?.nodes.length ?? 0;
+    // The nodes are the source of truth for a key's current committee and epoch.
+    const meta = key ? await this.keys.keyMeta(key.key_id) : null;
+    const committee = meta?.participants ?? key?.nodes ?? [];
+    const t = meta?.threshold ?? key?.threshold ?? mpc?.threshold ?? 0;
+    const holders = meta?.holders ?? committee;
+    const nodes = (mpc?.nodes ?? []).map((n) => ({ ...n, holds_key: committee.includes(n.id) }));
+    const reachableHolders = nodes.filter((n) => holders.includes(n.id) && n.reachable).length;
     return {
       mode: 'threshold',
       provisioned: !!key,
       address: key?.address ?? null,
       signer_reachable: !!mpc?.enabled,
       scheme: 'threshold ECDSA',
-      threshold: total ? `${needed}-of-${total}` : '—',
+      threshold: committee.length ? `${t + 1}-of-${committee.length}` : '—',
       shared_across_workspaces: false,
       storage: 'key shares on separate signing nodes; the full key never exists',
-      nodes: mpc?.nodes ?? [],
+      nodes,
       trust_domains: mpc?.trustDomains ?? 0,
-      can_sign: !!mpc?.canSign,
+      exposed_domains: mpc?.exposedDomains ?? [],
+      production: !!mpc?.production,
+      can_sign: !!key && reachableHolders >= t + 1,
       created_at: key?.created_at ?? null,
+      epoch: meta?.epoch ?? key?.epoch ?? 0,
+      committee,
+      signers_needed: t + 1,
+      stale_nodes: meta?.stale ?? [],
+      rotated_at: key?.rotated_at ?? null,
       // Set when this workspace signed with the old shared key before it had its own.
       legacy_signer_address: key?.legacy_signer_address ?? null,
     };

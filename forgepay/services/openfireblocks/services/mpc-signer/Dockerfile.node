@@ -1,0 +1,23 @@
+# One signing node. Build from services/mpc-signer:
+#   docker build -f Dockerfile.node -t forge/mpc-node .
+#
+# Each node is deployed on its own infrastructure (see docs/threshold-signing.md,
+# "Production topology"). The image holds no secrets: certificates, the policy
+# file and Vault/KMS access are supplied at run time, and the data directory is
+# a volume that only this node can read.
+FROM golang:1.24-alpine AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/mpc-node ./cmd/mpc-node
+
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=build /out/mpc-node /mpc-node
+ENV MPC_ENV=production
+VOLUME ["/data"]
+EXPOSE 8101
+USER nonroot:nonroot
+ENTRYPOINT ["/mpc-node"]
+# Typical run (arguments after the image name):
+#   serve -id node1 -data /data -cluster /etc/mpc/cluster.json -listen :8101 -policy /etc/mpc/policy.json

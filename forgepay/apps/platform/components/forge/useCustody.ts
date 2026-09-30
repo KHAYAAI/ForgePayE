@@ -21,7 +21,7 @@ export interface Vote { email: string; approve: boolean; voted_at: string }
 
 export interface Proposal {
   id: string;
-  kind: 'add_signer' | 'remove_signer' | 'set_threshold' | 'approve_transaction';
+  kind: 'add_signer' | 'remove_signer' | 'set_threshold' | 'rotate_key' | 'approve_transaction';
   payload: Record<string, any>;
   status: 'open' | 'executed' | 'rejected' | 'failed';
   required: number;
@@ -121,10 +121,32 @@ export interface CustodyConsole {
     threshold: string;
     shared_across_workspaces: boolean;
     storage: string;
-    nodes: Array<{ id: string; domain: string; reachable: boolean }>;
+    nodes: Array<{
+      id: string;
+      domain: string;
+      reachable: boolean;
+      /** Whether this node holds a share of this workspace's key. */
+      holds_key?: boolean;
+      /** Where the node keeps its seal key: file (development only), env, vault, awskms. */
+      seal_provider?: string;
+      mtls?: boolean;
+      /** The node's own signing rules, which it enforces whatever the gateway asks. */
+      policy?: { digest: string; active: string[] } | null;
+    }>;
     trust_domains: number;
+    /** Trust domains that hold enough nodes to sign without anyone else. Empty is what a sound setup looks like. */
+    exposed_domains: string[];
+    production: boolean;
     can_sign: boolean;
     created_at: string | null;
+    /** How many times the key has been re-split; 0 = as first generated. The address never changes. */
+    epoch: number;
+    /** The nodes that currently hold a share. */
+    committee: string[];
+    signers_needed: number;
+    /** Nodes still holding a share from before the last rotation (they were offline for it). */
+    stale_nodes: string[];
+    rotated_at: string | null;
     /** Address of the old shared signer key that signed this workspace's earlier transactions, if any. */
     legacy_signer_address: string | null;
   };
@@ -141,7 +163,7 @@ export const EMPTY_CUSTODY: CustodyConsole = {
   settings: { threshold: 2, cooling_off_hours: 24, effective_required: 0 },
   stats: { signed_24h: 0, signed_wei_24h: '0', pending_approval: 0, denied_7d: 0, active_signers: 0, connected_apps: 0 },
   network: { rpc_configured: false, chain_id: null, network_name: null, address: null, balance_wei: null, balance_error: null, confirmations_required: 1 },
-  signing_key: { mode: '', provisioned: false, address: null, signer_reachable: false, scheme: '', threshold: '', shared_across_workspaces: false, storage: '', nodes: [], trust_domains: 0, can_sign: false, created_at: null, legacy_signer_address: null },
+  signing_key: { mode: '', provisioned: false, address: null, signer_reachable: false, scheme: '', threshold: '', shared_across_workspaces: false, storage: '', nodes: [], trust_domains: 0, exposed_domains: [], production: false, can_sign: false, created_at: null, epoch: 0, committee: [], signers_needed: 0, stale_nodes: [], rotated_at: null, legacy_signer_address: null },
   signers: [],
   proposals: [],
   transactions: [],

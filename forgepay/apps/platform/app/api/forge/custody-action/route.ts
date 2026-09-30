@@ -22,6 +22,7 @@ const NEEDS: Record<CustodyAction['action'], Permission> = {
   propose: 'manage:custody_policy',
   vote: 'approve:payouts',
   retry_transfer: 'approve:payouts',
+  retire_stale: 'manage:custody_policy',
   transfer: 'approve:payouts',
   rebroadcast: 'approve:payouts',
   issue_api_key: 'manage:api_keys',

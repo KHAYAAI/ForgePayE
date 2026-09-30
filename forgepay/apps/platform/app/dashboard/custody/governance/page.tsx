@@ -40,7 +40,10 @@ export default function CustodyGovernance() {
   }
 
   const describe = (kind: string, payload: Record<string, any>) =>
-    kind === 'add_signer' ? `Add ${payload.email}` : kind === 'remove_signer' ? `Remove ${payload.email}` : `Threshold → ${payload.threshold}`;
+    kind === 'add_signer' ? `Add ${payload.email}`
+      : kind === 'remove_signer' ? `Remove ${payload.email}`
+      : kind === 'rotate_key' ? `Re-split the signing key across ${(payload.nodes ?? []).join(', ')} (${payload.signers_needed} needed to sign)`
+      : `Threshold → ${payload.threshold}`;
 
   return (
     <>
@@ -107,12 +110,19 @@ export default function CustodyGovernance() {
               describe(p.kind, p.payload),
               p.created_by,
               <Mono key="a">{p.votes.filter((v) => v.approve).length} / {p.required}</Mono>,
-              <Pill key="s" tone={p.status === 'executed' ? 'ok' : p.status === 'open' ? 'warn' : 'danger'}>{p.status}</Pill>,
+              <span key="s">
+                <Pill tone={p.status === 'executed' ? 'ok' : p.status === 'open' ? 'warn' : 'danger'}>{p.status === 'failed' ? 'approved · not carried out' : p.status}</Pill>
+                {p.status === 'failed' && p.result?.error && (
+                  <span style={{ display: 'block', fontSize: 12, color: 'var(--danger)', maxWidth: 260, marginTop: 4 }}>{p.result.error}</span>
+                )}
+              </span>,
               p.status === 'open' && canPropose && !voted ? (
                 <span key="b" style={{ display: 'flex', gap: 8 }}>
                   <button className="btn-primary btn-sm" disabled={busy} onClick={() => act({ action: 'vote', proposalId: p.id, approve: true })}>Approve</button>
                   <button className="btn-ghost btn-sm" disabled={busy} onClick={() => act({ action: 'vote', proposalId: p.id, approve: false })}>Reject</button>
                 </span>
+              ) : p.status === 'failed' && canPropose ? (
+                <button key="b" className="btn-primary btn-sm" disabled={busy} onClick={() => act({ action: 'retry_transfer', proposalId: p.id })}>Retry</button>
               ) : <span key="b" />,
             ];
           })}
