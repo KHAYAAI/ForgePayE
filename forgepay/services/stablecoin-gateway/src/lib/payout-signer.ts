@@ -42,7 +42,7 @@ import { ethers } from 'ethers';
 import { readFileSync } from 'node:fs';
 import {
   setPayoutBroadcaster, PAYOUT_ABSOLUTE_MAX_USD,
-  type Payout, type PayoutBroadcaster, type BroadcastResult,
+  type Payout, type PayoutBroadcaster, type BroadcastResult, type BroadcastHooks, type ChainOutcome,
 } from './payouts.js';
 
 // db and logger are imported lazily, inside the functions that use them.
@@ -256,13 +256,21 @@ export class Erc20PayoutBroadcaster implements PayoutBroadcaster {
   /** Sends are strictly one at a time: a wallet has one nonce sequence, and two in flight would race for it. */
   private sending: Promise<unknown> = Promise.resolve();
 
-  broadcast(payout: Payout): Promise<BroadcastResult> {
-    const run = this.sending.then(() => this.send(payout), () => this.send(payout));
+  broadcast(payout: Payout, hooks?: BroadcastHooks): Promise<BroadcastResult> {
+    const run = this.sending.then(() => this.send(payout, hooks), () => this.send(payout, hooks));
     this.sending = run.catch(() => undefined);
     return run;
   }
 
-  private async send(payout: Payout): Promise<BroadcastResult> {
+  /** What the chain says about a transfer this signer sent earlier. */
+  async reconcile(payout: Payout): Promise<ChainOutcome> {
+    if (!payout.txHash) return 'pending';
+    const receipt = await this.provider.getTransactionReceipt(payout.txHash);
+    if (!receipt) return 'pending';
+    return receipt.status === 1 ? 'confirmed' : 'failed';
+  }
+
+  private async send(payout: Payout, hooks?: BroadcastHooks): Promise<BroadcastResult> {
     const cfg = this.cfg;
 
     // ── Preflight. Every check below refuses; none of them adjusts the
@@ -338,6 +346,8 @@ export class Erc20PayoutBroadcaster implements PayoutBroadcaster {
     );
 
     const tx = await token['transfer']!(payout.payeeAddress, amountUnits);
+    // Recorded before waiting: from here on, a crash leaves a hash to reconcile against.
+    await hooks?.onSent?.(tx.hash);
     const receipt = await tx.wait(cfg.confirmations);
 
     if (!receipt || receipt.status !== 1) {

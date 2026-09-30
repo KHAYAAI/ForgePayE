@@ -59,8 +59,24 @@ integer arithmetic (`src/lib/asset-math.ts`): money in rounds up, money out roun
   and survives restarts. It replaces the old event monitor, which could never confirm an x402 payment.
 - **Payouts** fix asset, units and rate at creation (so a retry of the same `external_id` returns the original),
   judge ceilings and approval in USD, and send exactly the stored units, refusing if the token no longer verifies.
-  The bureau *creates* payouts; submitting them (`POST /payouts/:id/submit`) is a separate operator step by design.
+  The bureau *creates* payouts. With a live signer installed, a **payout worker** (`lib/payout-worker.ts`) sends
+  approved ones automatically — small ones straight away, large ones after a person approves — and records each
+  transaction's hash at the moment it is sent. A payout found mid-flight after a crash is settled by looking that
+  hash up on-chain; one with no hash is marked failed for a person to check (it might have gone out, and a retry could
+  pay twice). `PAYOUT_AUTO_SUBMIT=false` leaves `POST /payouts/:id/submit` to an operator instead.
+- **Sweeping** (`lib/sweeper.ts`, off unless `SWEEP_ENABLED=true`) moves confirmed deposits from their one-time
+  addresses to a treasury address. A separate gas wallet drips each address just what its transfer needs (estimated, plus
+  a margin), then the address's own key signs the transfer. It is a resumable state machine that records every hash as
+  it is sent, never sends twice, defers when gas is above `SWEEP_MAX_GAS_GWEI`, and records failures for a person to
+  review (`POST /sweeps/:id/retry`). Late, short and unclaimed funds are never swept automatically; an operator can sweep
+  one with `POST /sweeps {deposit_id, reason}`. Tokens of the wrong kind sent to a deposit address stay where they are.
+- **Deposit keys** (`lib/keystore.ts`) are envelope-encrypted: each key is sealed with AES-GCM under a data key, the
+  data key is wrapped by Vault transit or AWS KMS (`KEY_WRAP_PROVIDER=vault|awskms`; `env` is for development and warns
+  in production), and every blob is bound to its deposit's address, so a blob copied onto another row won't open.
 
-`scripts/multi-asset-e2e.cjs` exercises all of it against real token contracts on a local chain.
-Funds sent to deposit addresses stay in those addresses (their keys are held encrypted in the database); there is no
-sweep to a treasury wallet.
+`scripts/multi-asset-e2e.cjs` exercises all of it against real token contracts on a local chain
+(`E2E_KEY_WRAP=vault` runs it with the keys wrapped by a real Vault).
+
+**Not covered:** the treasury is outside this service. Topping up the payout wallet from it is a manual, custodial
+step. Native-coin dust is left at each swept address (returning it would cost about what it is worth). Wrong-token
+transfers to a deposit address are not recovered automatically.

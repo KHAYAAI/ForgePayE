@@ -118,9 +118,22 @@ export interface BroadcastResult {
   txHash: string;
 }
 
+export interface BroadcastHooks {
+  /**
+   * Called the moment a transaction has been sent, before waiting for it to confirm.
+   * The ledger records the hash here, so if the process dies while the transaction is
+   * in flight, the payout can be reconciled against the chain instead of guessed at.
+   */
+  onSent?: (txHash: string) => Promise<void>;
+}
+
+export type ChainOutcome = 'confirmed' | 'failed' | 'pending';
+
 export interface PayoutBroadcaster {
   name: string;
-  broadcast(payout: Payout): Promise<BroadcastResult>;
+  broadcast(payout: Payout, hooks?: BroadcastHooks): Promise<BroadcastResult>;
+  /** What the chain says about a transaction this broadcaster sent earlier. */
+  reconcile?(payout: Payout): Promise<ChainOutcome>;
 }
 
 export class PayoutsNotConfiguredError extends Error {
@@ -391,6 +404,40 @@ export async function rejectPayout(id: string, rejectedBy: string, reason: strin
     : { ok: false, reason: 'not_found', status: null };
 }
 
+// ── Recovery of payouts left in flight ────────────────────────────────────────
+
+/** Payouts claimed for sending (status 'submitted') for longer than `olderThanMs`. */
+export async function listStaleSubmitted(olderThanMs: number): Promise<Payout[]> {
+  const conn = await db();
+  const r = await conn.query<PayoutRow>(
+    `SELECT * FROM payouts WHERE status = 'submitted' AND updated_at < NOW() - ($1 * INTERVAL '1 millisecond') ORDER BY updated_at LIMIT 200`,
+    [olderThanMs],
+  );
+  return r.rows.map(rowToPayout);
+}
+
+/** Approved payouts waiting to be sent, oldest first. */
+export async function listApprovedIds(limit: number): Promise<string[]> {
+  const conn = await db();
+  const r = await conn.query<{ id: string }>(`SELECT id FROM payouts WHERE status = 'approved' ORDER BY created_at LIMIT $1`, [limit]);
+  return r.rows.map((x) => x.id);
+}
+
+/**
+ * Close out a payout that was in flight, on what the chain says. Guarded on
+ * status='submitted' so it can't override anything that moved on.
+ */
+export async function settleInFlight(id: string, outcome: 'confirmed' | 'failed', detail?: string): Promise<boolean> {
+  const conn = await db();
+  const r = await conn.query(
+    outcome === 'confirmed'
+      ? `UPDATE payouts SET status = 'confirmed', updated_at = NOW() WHERE id = $1 AND status = 'submitted' RETURNING id`
+      : `UPDATE payouts SET status = 'failed', failure_reason = $2, updated_at = NOW() WHERE id = $1 AND status = 'submitted' RETURNING id`,
+    outcome === 'confirmed' ? [id] : [id, detail ?? 'failed'],
+  );
+  return r.rows.length > 0;
+}
+
 export type SubmitResult =
   | { ok: true; payout: Payout; alreadySubmitted: boolean }
   | { ok: false; reason: 'not_found' | 'not_approved' | 'broadcast_failed'; status: PayoutStatus | null; message?: string };
@@ -428,7 +475,11 @@ export async function submitPayout(id: string): Promise<SubmitResult> {
   const payout = rowToPayout(claimed.rows[0]);
 
   try {
-    const { txHash } = await broadcaster.broadcast(payout);
+    const { txHash } = await broadcaster.broadcast(payout, {
+      onSent: async (hash) => {
+        await conn.query(`UPDATE payouts SET tx_hash = $2, updated_at = NOW() WHERE id = $1 AND status = 'submitted'`, [id, hash]);
+      },
+    });
     const confirmed = await conn.query<PayoutRow>(
       `UPDATE payouts SET status = 'confirmed', tx_hash = $2, updated_at = NOW()
         WHERE id = $1 RETURNING *`,

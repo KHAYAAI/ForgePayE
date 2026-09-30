@@ -48,11 +48,13 @@ async function startGateway(extraEnv = {}) {
       ...process.env, NODE_ENV: 'development', PORT: String(PORT),
       POSTGRES_HOST: PG.host, POSTGRES_DB: DB, POSTGRES_USER: PG.user, POSTGRES_PASSWORD: PG.password, INTERNAL_WEBHOOK_SECRET: 'e2e',
       BASE_RPC_URL: RPC, BASE_CHAIN_ID: '1337', BASE_CONFIRMATIONS: '2', DEPOSIT_MONITOR_CHAINS: 'base',
-      SETTLEMENT_INTERVAL_MS: '700', SETTLEMENT_EXPIRY_GRACE_MS: '1500', SETTLEMENT_LATE_SCAN_EVERY: '3', ASSET_VERIFY_INTERVAL_MS: '600000',
+      SETTLEMENT_INTERVAL_MS: '700', SETTLEMENT_EXPIRY_GRACE_MS: '4000', SETTLEMENT_LATE_SCAN_EVERY: '3', ASSET_VERIFY_INTERVAL_MS: '600000',
       ASSET_USDC_ETHEREUM: 'off', ASSET_USDC_POLYGON: 'off', ASSET_USDC_ARBITRUM: 'off',
       ASSET_USDT_ETHEREUM: 'off', ASSET_USDT_POLYGON: 'off', ASSET_USDT_ARBITRUM: 'off',
       PAYOUT_SIGNER_ENABLED: 'true', PAYOUT_SIGNER_CHAIN: 'base', PAYOUT_SIGNER_CHAIN_ID: '1337', PAYOUT_SIGNER_RPC_URL: RPC,
       PAYOUT_SIGNER_DAILY_MAX_USD: '1000000', PAYOUT_SIGNER_PRIVATE_KEY: signer.privateKey, PAYOUT_SIGNER_CONFIRMATIONS: '1',
+      PAYOUT_AUTO_SUBMIT: 'false', PAYOUT_WORKER_INTERVAL_MS: '700', PAYOUT_STALE_AFTER_MS: '5000', SWEEP_INTERVAL_MS: '1000',
+      ...(process.env.E2E_KEY_WRAP === 'vault' ? { KEY_WRAP_PROVIDER: 'vault', VAULT_ADDR: process.env.VAULT_ADDR, VAULT_TOKEN: process.env.VAULT_TOKEN, KEY_WRAP_VAULT_KEY: 'e2e-deposit-keys' } : {}),
       PAYOUT_AUTO_APPROVE_MAX_USD: '100', PAYOUT_ABSOLUTE_MAX_USD: '25000', X402_MAX_AMOUNT_USDC: '1000',
       ...tokenEnv, ...extraEnv,
     },
@@ -221,6 +223,125 @@ let db;
   check('a payout the hot wallet cannot cover fails clearly and is not retried', sub5.status >= 400 && /short of/.test(sub5.body?.message ?? JSON.stringify(sub5.body)) && (await api('GET', `/payouts/${p5.body.data.id}`)).body.data.status === 'failed', sub5.body?.message);
   check('a payout over the USD ceiling is refused up front', (await api('POST', '/payouts', { external_id: 'e2e-huge', payee_id: 'c', payee_address: payee, chain: 'base', amount_usd: 90000, asset: 'ZARP', reason: 'x' })).status === 400);
   check('an unknown asset is refused', (await api('POST', '/payouts', { external_id: 'e2e-x', payee_id: 'c', payee_address: payee, chain: 'base', amount_usd: 1, asset: 'DOGE', reason: 'x' })).status === 400);
+
+
+  console.log('9. Approved payouts are sent automatically, and interrupted ones are settled from the chain');
+  await stopGateway();
+  await startGateway({ PAYOUT_AUTO_SUBMIT: 'true' });
+  const getPayout = async (id) => (await api('GET', `/payouts/${id}`)).body.data;
+  const payeeA = ethers.Wallet.createRandom().address;
+  const a1 = await api('POST', '/payouts', { external_id: 'e2e-auto-1', payee_id: 'c', payee_address: payeeA, chain: 'base', amount_usd: 30, asset: 'OUSD', reason: 'auto' });
+  const a1done = await waitFor(async () => { const p = await getPayout(a1.body.data.id); return p.status === 'confirmed' ? p : null; }, 20000);
+  check('a small payout is sent with no one calling submit', !!a1done && (await tokens.OUSD.balanceOf(payeeA)) === 30_000_000n);
+  check('its transaction hash is on the ledger', /^0x[0-9a-f]{64}$/.test(a1done?.txHash ?? ''));
+  const a2 = await api('POST', '/payouts', { external_id: 'e2e-auto-2', payee_id: 'c', payee_address: payeeA, chain: 'base', amount_usd: 500, asset: 'OUSD', reason: 'big' });
+  await sleep(3500);
+  check('a large payout is NOT sent until a person approves it', (await getPayout(a2.body.data.id)).status === 'pending_approval' && (await tokens.OUSD.balanceOf(payeeA)) === 30_000_000n);
+  await api('POST', `/payouts/${a2.body.data.id}/approve`, { approved_by: 'ops' });
+  const a2done = await waitFor(async () => { const p = await getPayout(a2.body.data.id); return p.status === 'confirmed' ? p : null; }, 20000);
+  check('once approved it is sent by the worker', !!a2done && (await tokens.OUSD.balanceOf(payeeA)) === 530_000_000n);
+
+  // A payout left 'submitted' by a crash. The ledger holds a hash if the transaction was sent.
+  // The crash that matters: the transfer was sent and mined, but the process died before the ledger said so.
+  // Recreated by putting a real, confirmed payout back to 'submitted' with its hash still on it.
+  await db.query(`UPDATE payouts SET status = 'submitted', updated_at = now() - interval '1 hour' WHERE id = $1`, [a2.body.data.id]);
+  const ins = (id, hash, ageSql) => db.query(
+    `INSERT INTO payouts (id, external_id, payee_id, payee_address, chain, amount_usdc, amount_usd, asset, amount_units, decimals, status, reason, requested_by, tx_hash, updated_at)
+     VALUES (gen_random_uuid(), $1, 'c', $2, 'base', 5, 5, 'OUSD', '5000000', 6, 'submitted', 'recovery test', 'e2e-bureau', $3, ${ageSql}) RETURNING id`, [id, payeeA, hash]).then((r) => r.rows[0].id);
+  const rConfirmed = a2.body.data.id;
+  const rNoHash = await ins('rec-nohash', null, "now() - interval '1 hour'");
+  const rUnknown = await ins('rec-unknown', '0x' + 'ab'.repeat(32), "now() - interval '1 hour'");
+  const rFresh = await ins('rec-fresh', null, 'now()');
+  const before = await tokens.OUSD.balanceOf(payeeA);
+  await waitFor(async () => (await getPayout(rConfirmed)).status === 'confirmed', 15000);
+  check('a payout whose transaction is on-chain is closed as confirmed, and nothing is sent again', (await getPayout(rConfirmed)).status === 'confirmed' && (await tokens.OUSD.balanceOf(payeeA)) === before);
+  const nh = await waitFor(async () => { const p = await getPayout(rNoHash); return p.status === 'failed' ? p : null; }, 15000);
+  check('one with no hash is marked failed, with the reason, and is NOT retried (it might already have been sent)', !!nh && /may or may not have been sent/.test(nh.failureReason ?? '') && (await tokens.OUSD.balanceOf(payeeA)) === before);
+  check('one whose transaction the chain has never heard of stays in flight, not guessed at', (await getPayout(rUnknown)).status === 'submitted');
+  check('one claimed a moment ago is left alone', (await getPayout(rFresh)).status === 'submitted');
+
+  console.log('10. Deposits are swept to the treasury');
+  const treasury = ethers.Wallet.createRandom().address;
+  const gasWallet = ethers.Wallet.createRandom();
+  await (await funder.sendTransaction({ to: gasWallet.address, value: ethers.parseEther('20') })).wait();
+  if (process.env.E2E_KEY_WRAP === 'vault') {
+    await fetch(`${process.env.VAULT_ADDR}/v1/sys/mounts/transit`, { method: 'POST', headers: { 'x-vault-token': process.env.VAULT_TOKEN }, body: JSON.stringify({ type: 'transit' }) }).catch(() => {});
+    await fetch(`${process.env.VAULT_ADDR}/v1/transit/keys/e2e-deposit-keys`, { method: 'POST', headers: { 'x-vault-token': process.env.VAULT_TOKEN }, body: '{}' });
+  }
+  const sweepEnv = { SWEEP_ENABLED: 'true', SWEEP_TREASURY_ADDRESS: treasury, SWEEP_GAS_PRIVATE_KEY: gasWallet.privateKey, SWEEP_CHAIN_ID_BASE: '1337', SWEEP_MIN_USD: '1' };
+  const expected = Object.fromEntries((await db.query(`SELECT token, SUM(received_amount_units::numeric)::text AS total FROM stablecoin_deposits WHERE status='confirmed' AND amount_usd >= 1 AND swept_at IS NULL GROUP BY token`)).rows.map((r) => [r.token, BigInt(r.total.split('.')[0])]));
+  const confirmedIds = (await db.query(`SELECT id FROM stablecoin_deposits WHERE status='confirmed' AND amount_usd >= 1`)).rows.map((r) => r.id);
+  const blob = (await db.query(`SELECT private_key_enc FROM stablecoin_deposits WHERE id=$1`, [confirmedIds[0]])).rows[0].private_key_enc;
+  check(`deposit keys are stored as sealed envelopes (${process.env.E2E_KEY_WRAP === 'vault' ? 'Vault-wrapped' : 'env-wrapped'}), never plain`, JSON.parse(blob).v === 2 && JSON.parse(blob).wrap.provider === (process.env.E2E_KEY_WRAP === 'vault' ? 'vault' : 'env') && !/0x[0-9a-f]{64}/i.test(blob));
+  await stopGateway();
+  await startGateway({ ...sweepEnv });
+  const allSwept = await waitFor(async () => Number((await db.query(`SELECT count(*)::int n FROM stablecoin_deposits WHERE id = ANY($1) AND swept_at IS NULL`, [confirmedIds])).rows[0].n) === 0, 60000, 800);
+  check(`every confirmed deposit (${confirmedIds.length}) is swept`, !!allSwept);
+  for (const sym of ['ZARP', 'OUSD', 'USDC']) {
+    const got = await tokens[sym].balanceOf(treasury);
+    check(`the treasury received exactly what was paid in, in ${sym}`, got === (expected[sym] ?? 0n), `${got} vs ${expected[sym] ?? 0n}`);
+  }
+  const swept = (await db.query(`SELECT * FROM deposit_sweeps WHERE status='swept'`)).rows;
+  check('each sweep records its gas transfer and its token transfer', swept.length >= confirmedIds.length && swept.every((r) => /^0x/.test(r.sweep_tx) && r.units));
+  const sample = (await db.query(`SELECT d.address, d.token FROM stablecoin_deposits d JOIN deposit_sweeps s ON s.deposit_id = d.id WHERE s.status='swept' LIMIT 1`)).rows[0];
+  check('a swept address holds none of the token any more', (await tokens[sample.token].balanceOf(sample.address)) === 0n);
+  check('and only dust of native coin, not the gas it was given', (await provider.getBalance(sample.address)) < ethers.parseEther('0.001'));
+  const cfg = (await api('GET', '/sweeps/config')).body;
+  check('the operator can see the treasury and the gas wallet', cfg.enabled === true && cfg.chains.base.treasury === ethers.getAddress(treasury) && cfg.chains.base.gas_wallet === gasWallet.address);
+
+  // Funds the automatic pass must not touch: late payments, and deposits still open.
+  const lateOusdBefore = await tokens.OUSD.balanceOf(treasury);
+  check('a late payment to an expired address is left where it is', (await tokens.OUSD.balanceOf(late2.body.pay_to)) === 5_000_000n);
+  check('an operator must say why to sweep unclaimed funds', (await api('POST', '/sweeps', { deposit_id: late2.body.deposit_id })).status === 400);
+  check('and cannot sweep a deposit that is still open', (await api('POST', '/sweeps', { deposit_id: dep.body.id, reason: 'testing an open deposit' })).status === 409);
+  const man = await api('POST', '/sweeps', { deposit_id: late2.body.deposit_id, reason: 'late payment, refunding not possible' });
+  check('with a reason, it is planned', man.status === 201 && man.body.data.reason === 'late payment, refunding not possible');
+  await waitFor(async () => (await tokens.OUSD.balanceOf(treasury)) === lateOusdBefore + 5_000_000n, 30000);
+  check('and swept', (await tokens.OUSD.balanceOf(treasury)) === lateOusdBefore + 5_000_000n);
+
+  // Crash recovery: a sweep left 'sending' is settled from the chain, never sent twice.
+  const mk = async (token, usd, sym) => { const d = await api('POST', '/deposits', { merchant_id: 'sw', amount_usd: usd, token, chain: 'base' }); return d.body; };
+  const pays = async (sym, d) => { await (await tokens[sym].transfer(d.address, BigInt(d.amount_units))).wait(); await mine(3); await waitFor(async () => (await db.query(`SELECT status FROM stablecoin_deposits WHERE id=$1`, [d.id])).rows[0].status === 'confirmed', 25000); };
+  const tBefore = await tokens.USDC.balanceOf(treasury);
+  const d1 = await mk('USDC', 5); await db.query(`UPDATE stablecoin_deposits SET status='confirmed' WHERE id=$1`, [d1.id]);
+  const goodHash = swept[0].sweep_tx;
+  await db.query(`INSERT INTO deposit_sweeps (id, deposit_id, chain, asset, from_address, treasury_address, status, sweep_tx, units) VALUES (gen_random_uuid(), $1, 'base', 'USDC', $2, $3, 'sending', $4, '5000000')`, [d1.id, d1.address, ethers.getAddress(treasury), goodHash]);
+  await waitFor(async () => (await db.query(`SELECT status FROM deposit_sweeps WHERE deposit_id=$1`, [d1.id])).rows[0].status === 'swept', 15000);
+  check('a sweep left "sending" whose transaction is mined is closed from the chain, sending nothing more', (await db.query(`SELECT swept_at FROM stablecoin_deposits WHERE id=$1`, [d1.id])).rows[0].swept_at !== null && (await tokens.USDC.balanceOf(treasury)) === tBefore);
+  const d2 = await mk('USDC', 5); await db.query(`UPDATE stablecoin_deposits SET status='confirmed' WHERE id=$1`, [d2.id]);
+  await db.query(`INSERT INTO deposit_sweeps (id, deposit_id, chain, asset, from_address, treasury_address, status, sweep_tx, updated_at) VALUES (gen_random_uuid(), $1, 'base', 'USDC', $2, $3, 'sending', $4, now() - interval '1 hour')`, [d2.id, d2.address, ethers.getAddress(treasury), '0x' + 'cd'.repeat(32)]);
+  const dropped = await waitFor(async () => { const r = (await db.query(`SELECT * FROM deposit_sweeps WHERE deposit_id=$1`, [d2.id])).rows[0]; return r.status === 'failed' ? r : null; }, 15000);
+  check('one with no receipt after a long time is failed for a person to look at, not guessed', !!dropped && /may have been dropped/.test(dropped.error));
+  const retried = await api('POST', `/sweeps/${dropped.id}/retry`, {});
+  check('after a look, retrying puts it back; the empty address is found empty and closed', retried.status === 200 && !!(await waitFor(async () => (await db.query(`SELECT status FROM deposit_sweeps WHERE id=$1`, [dropped.id])).rows[0].status === 'skipped', 15000)));
+
+  // A key blob moved onto another deposit must not release that deposit's funds.
+  const d3 = await mk('USDC', 5); await pays('USDC', d3);
+  const d3row = (await db.query(`SELECT private_key_enc FROM stablecoin_deposits WHERE id=$1`, [d3.id])).rows[0];
+  check('(the deposit above was swept normally)', !!(await waitFor(async () => (await db.query(`SELECT swept_at FROM stablecoin_deposits WHERE id=$1`, [d3.id])).rows[0].swept_at !== null, 30000)));
+  const d4 = await mk('USDC', 5);
+  const d4good = (await db.query(`SELECT private_key_enc FROM stablecoin_deposits WHERE id=$1`, [d4.id])).rows[0].private_key_enc;
+  await db.query(`UPDATE stablecoin_deposits SET private_key_enc=$2 WHERE id=$1`, [d4.id, d3row.private_key_enc]); // another deposit's blob
+  await (await tokens.USDC.transfer(d4.address, BigInt(d4.amount_units))).wait(); await mine(3);
+  const tBefore2 = await tokens.USDC.balanceOf(treasury);
+  const failedSweep = await waitFor(async () => { const r = (await db.query(`SELECT * FROM deposit_sweeps WHERE deposit_id=$1 AND status='failed'`, [d4.id])).rows[0]; return r ?? null; }, 40000);
+  check("a key blob copied from another deposit is refused, and that deposit's funds stay put", !!failedSweep && /could not open the deposit key/.test(failedSweep.error) && (await tokens.USDC.balanceOf(d4.address)) === BigInt(d4.amount_units) && (await tokens.USDC.balanceOf(treasury)) === tBefore2);
+  await db.query(`UPDATE stablecoin_deposits SET private_key_enc=$2 WHERE id=$1`, [d4.id, d4good]);
+  await api('POST', `/sweeps/${failedSweep.id}/retry`, {});
+  await waitFor(async () => (await tokens.USDC.balanceOf(treasury)) === tBefore2 + BigInt(d4.amount_units), 40000);
+  check('with the right blob restored and the sweep retried, it goes through', (await tokens.USDC.balanceOf(treasury)) === tBefore2 + BigInt(d4.amount_units));
+
+  // Gas too expensive: defer, don't pay it.
+  await stopGateway();
+  await startGateway({ ...sweepEnv, SWEEP_MAX_GAS_GWEI: '0.000001' });
+  const d5 = await mk('USDC', 5); await pays('USDC', d5);
+  await sleep(6000);
+  const s5 = (await db.query(`SELECT * FROM deposit_sweeps WHERE deposit_id=$1`, [d5.id])).rows[0];
+  check('above the gas ceiling a sweep waits: nothing sent, nothing failed', (!s5 || (s5.status === 'planned' && !s5.gas_tx)) && (await tokens.USDC.balanceOf(d5.address)) === BigInt(d5.amount_units));
+  await stopGateway();
+  await startGateway({ ...sweepEnv });
+  await waitFor(async () => (await tokens.USDC.balanceOf(d5.address)) === 0n, 40000);
+  check('with gas back under the ceiling it is swept', (await tokens.USDC.balanceOf(d5.address)) === 0n);
 
   console.log('8. A wrong address is caught, not trusted');
   await stopGateway();

@@ -78,7 +78,7 @@ export async function openDeposit(
         payment_id, metadata, status, expires_at, from_block, scan_cursor, created_at)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'pending',$12,$13,$14,now())`,
     [
-      id, input.merchantId, wallet.address, encryptPrivateKey(wallet.privateKey), input.chain,
+      id, input.merchantId, wallet.address, await encryptPrivateKey(wallet.privateKey, wallet.address), input.chain,
       quoted.asset.symbol, quoted.units.toString(), input.amountUsd, quoted.asset.decimals,
       input.paymentId ?? null, input.metadata ? JSON.stringify(input.metadata) : null,
       expiresAt, block, block === null ? null : block - 1,

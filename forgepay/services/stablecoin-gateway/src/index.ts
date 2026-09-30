@@ -34,6 +34,10 @@ import { getDb } from './lib/db.js';
 import { startSettlement } from './lib/settlement.js';
 import { gatewayContext } from './lib/context.js';
 import { buildAssetRoutes } from './routes/assets.js';
+import { buildSweepRoutes } from './routes/sweeps.js';
+import { startPayoutWorker } from './lib/payout-worker.js';
+import { resolveSweepConfig, sweepRequested, createSweeper, startSweeper } from './lib/sweeper.js';
+import { assertKeystoreConfigured } from './lib/keystore.js';
 import { buildDepositRoutes } from './routes/deposits.js';
 import { buildX402Routes } from './routes/x402.js';
 import { buildPayoutRoutes } from './routes/payouts.js';
@@ -83,6 +87,9 @@ export async function buildApp() {
 
   // Which assets (USDC, USDT, ZARP, OUSD) are usable right now, and the rand rate.
   await app.register(buildAssetRoutes,           { prefix: '/assets' });
+
+  // Moving paid-in funds from deposit addresses to the treasury (operator only).
+  await app.register(buildSweepRoutes,           { prefix: '/sweeps' });
 
   // Outbound. The inverse of /x402 — the rail the credit bureau uses to pay
   // furnishers the revenue share it computes. Submission is refused rather than
@@ -199,6 +206,8 @@ async function main() {
   // contract. An asset that fails is unavailable, not guessed. Re-checked on a
   // timer so one that came up late (an RPC that was down at boot) becomes usable
   // without a restart.
+  const ks = assertKeystoreConfigured();
+  console.log(`[stablecoin-gateway] Deposit keys are wrapped by: ${ks.provider}`);
   const ctx = await gatewayContext();
   const verifyAssets = async () => {
     try {
@@ -217,6 +226,28 @@ async function main() {
   let allVerified = await verifyAssets();
   setInterval(() => { void verifyAssets().then((ok) => { allVerified = ok; }); },
     Number(process.env['ASSET_VERIFY_INTERVAL_MS'] ?? (allVerified ? 600_000 : 60_000))).unref();
+
+  // Outbound: send approved payouts automatically and finish any left in flight. Needs a
+  // live signer; with none, nothing is sent and nothing is pretended. PAYOUT_AUTO_SUBMIT=false
+  // leaves submission to an operator.
+  if (signer.installed && process.env['PAYOUT_AUTO_SUBMIT'] !== 'false') {
+    startPayoutWorker(Number(process.env['PAYOUT_WORKER_INTERVAL_MS'] ?? '15000'), {
+      staleAfterMs: Number(process.env['PAYOUT_STALE_AFTER_MS'] ?? 120_000),
+    });
+    console.log('[stablecoin-gateway] Payout worker running: approved payouts are sent automatically');
+  } else if (signer.installed) {
+    console.log('[stablecoin-gateway] PAYOUT_AUTO_SUBMIT=false: approved payouts wait for POST /payouts/:id/submit');
+  }
+
+  // Sweeping: deposit addresses -> treasury. Off unless asked for, and a misconfiguration
+  // when it IS asked for stops the gateway starting rather than running half-configured.
+  if (sweepRequested()) {
+    const sweeper = await createSweeper(resolveSweepConfig());
+    startSweeper(sweeper, [...chains], Number(process.env['SWEEP_INTERVAL_MS'] ?? '60000'));
+    console.warn('[stablecoin-gateway] Deposit sweeping ACTIVE: confirmed deposits are moved to the treasury');
+  } else {
+    console.log('[stablecoin-gateway] Deposit sweeping off (SWEEP_ENABLED is not "true"): paid-in funds stay in the one-time deposit addresses');
+  }
 
   // Settlement: read each chain's transfers to open deposits and confirm them once
   // final. Replaces the event-subscription monitor (lib/settlement.ts explains why).
