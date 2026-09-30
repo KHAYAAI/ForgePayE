@@ -62,8 +62,12 @@ export default function CustodyOverview() {
         <Stat
           label="Signing key"
           value={data.signing_key.threshold || '—'}
-          delta={data.signing_key.signer_reachable ? 'signer online' : 'signer unreachable'}
-          deltaTone={data.signing_key.signer_reachable ? 'up' : 'down'}
+          delta={
+            data.signing_key.mode === 'threshold'
+              ? data.signing_key.can_sign ? 'enough nodes online' : 'not enough nodes online'
+              : data.signing_key.signer_reachable ? 'signer online' : 'signer unreachable'
+          }
+          deltaTone={data.signing_key.can_sign ? 'up' : 'down'}
         />
       </StatGrid>
 

@@ -76,6 +76,7 @@ export type CustodyAction =
   | { action: 'bootstrap_signer'; name?: string }
   | { action: 'propose'; kind: 'add_signer' | 'remove_signer' | 'set_threshold'; payload: Record<string, unknown> }
   | { action: 'vote'; proposalId: string; approve: boolean }
+  | { action: 'retry_transfer'; proposalId: string }
   | { action: 'transfer'; to: string; amountEth: string }
   | { action: 'issue_api_key'; name: string }
   | { action: 'revoke_api_key'; keyId: string };
@@ -95,6 +96,8 @@ export async function performCustodyAction(tenantId: string, actor: string, a: C
       return post('/proposals', { kind: a.kind, payload: a.payload });
     case 'vote':
       return post(`/proposals/${encodeURIComponent(a.proposalId)}/votes`, { approve: a.approve });
+    case 'retry_transfer':
+      return post(`/proposals/${encodeURIComponent(a.proposalId)}/retry`, {});
     case 'transfer':
       return post('/transfers', { to: a.to, amountEth: a.amountEth });
     case 'issue_api_key':

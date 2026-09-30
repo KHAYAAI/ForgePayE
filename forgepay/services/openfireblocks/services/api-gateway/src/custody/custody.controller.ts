@@ -83,6 +83,15 @@ export class CustodyController {
     return this.custody.vote(customerId, proposalId, requireActor(actor), dto.approve);
   }
 
+  @Post('proposals/:proposalId/retry')
+  retry(
+    @Param('customerId') customerId: string,
+    @Param('proposalId', ParseUUIDPipe) proposalId: string,
+    @Headers('x-actor-email') actor: string,
+  ) {
+    return this.custody.retryTransfer(customerId, proposalId, requireActor(actor));
+  }
+
   @Post('transfers')
   transfer(
     @Param('customerId') customerId: string,

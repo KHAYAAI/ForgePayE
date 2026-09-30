@@ -17,6 +17,7 @@ import { SignService, SignResult } from '../sign/sign.service';
 import { SignRequestDto } from '../sign/dto/sign-request.dto';
 import { generateApiKey, hashApiKey } from '../auth/api-key.util';
 import { requiredApprovals } from './quorum';
+import { KeysService } from './keys.service';
 
 export type ProposalKind = 'add_signer' | 'remove_signer' | 'set_threshold' | 'approve_transaction';
 
@@ -70,6 +71,7 @@ export class CustodyService {
     private readonly sign: SignService,
     private readonly audit: AuditService,
     private readonly http: HttpService,
+    private readonly keys: KeysService,
   ) {}
 
   private async ensureSettings(customerId: string): Promise<void> {
@@ -121,6 +123,13 @@ export class CustodyService {
        RETURNING id, email, name, status, added_at, active_from`,
       [customerId, email, name ?? null],
     );
+    // Start creating the workspace's key now so the first transfer isn't the
+    // one that waits for it. Best effort: it is created on demand otherwise.
+    if (this.keys.thresholdEnabled) {
+      void this.keys.ensureKey(customerId).catch((err) =>
+        this.logger.warn(`background key creation for ${customerId} failed: ${err?.message ?? err}`),
+      );
+    }
     await this.audit.logEvent({
       type: 'SIGNER_BOOTSTRAPPED',
       customerId,
@@ -195,6 +204,35 @@ export class CustodyService {
       status: 'open',
     });
     return this.evaluate(customerId, proposalId);
+  }
+
+  /**
+   * Re-run signing for a transfer that reached quorum but failed to sign —
+   * typically because too few signing nodes were reachable at that moment.
+   * Approvals are not asked for again: the quorum already decided. Only one
+   * caller can claim a failed proposal, so concurrent retries sign it once.
+   */
+  async retryTransfer(customerId: string, proposalId: string, actor: string) {
+    await this.eligibleSigner(customerId, actor);
+    const claimed = await this.pool.query<ProposalRow>(
+      `UPDATE custody.proposals SET status = 'executed', result = NULL
+        WHERE id = $1 AND customer_id = $2 AND kind = 'approve_transaction' AND status = 'failed'
+        RETURNING *`,
+      [proposalId, customerId],
+    );
+    if (!claimed.rows[0]) {
+      throw new ConflictException('only an approved transfer whose signing failed can be retried');
+    }
+    await this.audit.logEvent({
+      type: 'PROPOSAL_RETRIED',
+      customerId,
+      requestId: claimed.rows[0].request_id ?? undefined,
+      actor,
+      message: `retrying signing for ${proposalId}`,
+      status: 'retrying',
+    });
+    await this.execute(claimed.rows[0]);
+    return this.proposalView(customerId, proposalId);
   }
 
   private async getProposal(customerId: string, proposalId: string): Promise<ProposalRow> {
@@ -334,7 +372,11 @@ export class CustodyService {
         status: 'executed',
       });
     } catch (err) {
-      const message = (err as Error).message;
+      // Sign failures carry the real reason in the exception body's `detail`
+      // ("only 1 of 3 signing nodes are reachable…"); .message is generic.
+      const body = (err as { getResponse?: () => unknown }).getResponse?.();
+      const detail = typeof body === 'object' && body ? (body as { detail?: unknown }).detail : undefined;
+      const message = typeof detail === 'string' && detail ? detail : (err as Error).message;
       this.logger.error(`proposal ${proposal.id} failed to execute: ${message}`);
       await this.pool.query(
         `UPDATE custody.proposals SET status = 'failed', result = $2 WHERE id = $1`,
@@ -397,9 +439,13 @@ export class CustodyService {
   async initiateTransfer(customerId: string, actor: string, to: string, amountEth: string): Promise<SignResult> {
     await this.eligibleSigner(customerId, actor);
     const customer = await this.customers.getByCustomerId(customerId);
+    // Nonces belong to an address. With a shared key that's every workspace's
+    // transactions; with per-workspace keys it's this workspace's own.
+    const perKey = this.keys.thresholdEnabled;
     const { rows } = await this.pool.query<{ next: number }>(
       `SELECT COALESCE(MAX(nonce) + 1, 0) AS next FROM signing.transactions
-        WHERE status NOT IN ('failed', 'rejected')`,
+        WHERE status NOT IN ('failed', 'rejected') ${perKey ? 'AND customer_id = $1' : ''}`,
+      perKey ? [customerId] : [],
     );
     const request: SignRequestDto = {
       chainId: SEPOLIA_CHAIN_ID,
@@ -461,7 +507,7 @@ export class CustodyService {
 
   // ── Console summary ────────────────────────────────────────────────────
 
-  private async signingKey() {
+  private async legacySigningKey() {
     const url = process.env.MPC_SIGNER_URL ?? 'http://localhost:8080';
     try {
       const res = await lastValueFrom(this.http.get<{ address: string }>(`${url}/address`));
@@ -469,6 +515,48 @@ export class CustodyService {
     } catch {
       return { address: null, reachable: false };
     }
+  }
+
+  /**
+   * What signs this workspace's transfers, described as it actually is: either
+   * its own threshold key (with the nodes that hold shares and whether they
+   * answer right now) or the signer's one shared key.
+   */
+  private async signingKeyView(customerId: string) {
+    if (!this.keys.thresholdEnabled) {
+      const key = await this.legacySigningKey();
+      return {
+        mode: 'single',
+        provisioned: true,
+        address: key.address,
+        signer_reachable: key.reachable,
+        scheme: 'single ECDSA key',
+        threshold: '1-of-1',
+        shared_across_workspaces: true,
+        storage: process.env.VAULT_ADDR ? 'HashiCorp Vault' : 'environment variable',
+        nodes: [],
+        trust_domains: 1,
+        can_sign: key.reachable,
+        created_at: null,
+      };
+    }
+    const [key, mpc] = await Promise.all([this.keys.activeKey(customerId), this.keys.status()]);
+    const needed = mpc?.signersNeeded ?? (key ? key.threshold + 1 : 0);
+    const total = mpc?.total ?? key?.nodes.length ?? 0;
+    return {
+      mode: 'threshold',
+      provisioned: !!key,
+      address: key?.address ?? null,
+      signer_reachable: !!mpc?.enabled,
+      scheme: 'threshold ECDSA',
+      threshold: total ? `${needed}-of-${total}` : '—',
+      shared_across_workspaces: false,
+      storage: 'key shares on separate signing nodes; the full key never exists',
+      nodes: mpc?.nodes ?? [],
+      trust_domains: mpc?.trustDomains ?? 0,
+      can_sign: !!mpc?.canSign,
+      created_at: key?.created_at ?? null,
+    };
   }
 
   async consoleSummary(customerId: string) {
@@ -503,7 +591,7 @@ export class CustodyService {
              COUNT(*) FILTER (WHERE status = 'pending_approval') AS pending_approval,
              COALESCE(SUM(amount::numeric) FILTER (WHERE status IN ('signed','broadcasted') AND updated_at > NOW() - INTERVAL '24 hours'), 0)::text AS signed_wei_24h
            FROM signing.transactions WHERE customer_id = $1`),
-        this.signingKey(),
+        this.signingKeyView(customerId),
         requiredApprovals(this.pool, customerId),
       ]);
     const [denied] = await q(
@@ -523,14 +611,7 @@ export class CustodyService {
         active_signers: signers.filter((s: any) => s.status === 'active').length,
         connected_apps: apiKeys.filter((k: any) => !k.revoked_at).length,
       },
-      signing_key: {
-        address: key.address,
-        signer_reachable: key.reachable,
-        scheme: 'single ECDSA secp256k1 key',
-        threshold: '1-of-1',
-        shared_across_workspaces: true,
-        storage: process.env.VAULT_ADDR ? 'HashiCorp Vault' : 'environment variable',
-      },
+      signing_key: key,
       signers,
       proposals,
       transactions,

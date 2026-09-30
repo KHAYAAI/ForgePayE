@@ -44,3 +44,7 @@ npm install --legacy-peer-deps      # root install fails on a React peer conflic
 npm run build && npm run migration:run:prod    # migrations, once per database
 node dist/main
 ```
+
+## Related: openfireblocks
+Custody signing is documented in `services/openfireblocks/docs/threshold-signing.md`, including its
+known limits.

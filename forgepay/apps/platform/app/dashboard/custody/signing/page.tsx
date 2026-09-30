@@ -89,8 +89,17 @@ export default function SigningQueue() {
               <Addr key="t">{p.payload.request?.to}</Addr>,
               <Mono key="q">{approvals} / {p.required}</Mono>,
               p.votes.length ? p.votes.map((v) => `${v.email.split('@')[0]} ${v.approve ? '✓' : '✗'}`).join(', ') : '—',
-              <Pill key="s" tone={STATUS_TONE[p.status]}>{p.status}</Pill>,
-              p.status === 'open' && me?.eligible && !voted ? (
+              <span key="s" title={p.result?.error ?? ''}>
+                <Pill tone={STATUS_TONE[p.status]}>{p.status === 'failed' ? 'approved · not signed' : p.status}</Pill>
+                {p.status === 'failed' && p.result?.error && (
+                  <span style={{ display: 'block', fontSize: 12, color: 'var(--danger)', maxWidth: 260, marginTop: 4 }}>{p.result.error}</span>
+                )}
+              </span>,
+              p.status === 'failed' && me?.eligible ? (
+                <span key="b" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <button className="btn-primary btn-sm" disabled={busy} onClick={() => act({ action: 'retry_transfer', proposalId: p.id })}>Retry signing</button>
+                </span>
+              ) : p.status === 'open' && me?.eligible && !voted ? (
                 <span key="b" style={{ display: 'flex', gap: 8 }}>
                   <button className="btn-primary btn-sm" disabled={busy} onClick={() => act({ action: 'vote', proposalId: p.id, approve: true })}>Approve</button>
                   <button className="btn-ghost btn-sm" disabled={busy} onClick={() => act({ action: 'vote', proposalId: p.id, approve: false })}>Reject</button>

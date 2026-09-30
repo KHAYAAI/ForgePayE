@@ -13,6 +13,7 @@ import { MetricsService } from '../monitoring/metrics.service';
 import { Customer } from '../customers/customer.service';
 import { SignRequestDto } from './dto/sign-request.dto';
 import { PG_POOL } from '../database/database.tokens';
+import { KeysService } from '../custody/keys.service';
 
 // Unit tests for the Phase 1 sign orchestration. External collaborators (MPC
 // signer, PostgreSQL, Ethereum RPC, policy service) are mocked, so this runs
@@ -25,6 +26,7 @@ describe('SignService', () => {
   let billing: { recordSigned: jest.Mock; recordBroadcast: jest.Mock };
   let pool: { query: jest.Mock };
   let mpcPost: jest.Mock;
+  let keys: { thresholdEnabled: boolean; ensureKey: jest.Mock };
 
   const mpcResponse = {
     data: {
@@ -75,6 +77,7 @@ describe('SignService', () => {
       ),
     };
     mpcPost = jest.fn(() => of(mpcResponse));
+    keys = { thresholdEnabled: false, ensureKey: jest.fn() };
     audit = { logEvent: jest.fn().mockResolvedValue(1) };
     postgres = {
       saveTransaction: jest.fn().mockResolvedValue(undefined),
@@ -97,6 +100,7 @@ describe('SignService', () => {
         MetricsService,
         { provide: HttpService, useValue: { post: mpcPost } },
         { provide: PG_POOL, useValue: pool },
+        { provide: KeysService, useValue: keys },
         { provide: PostgresService, useValue: postgres },
         { provide: AuditService, useValue: audit },
         { provide: EthereumService, useValue: ethereum },
@@ -210,5 +214,38 @@ describe('SignService', () => {
     await expect(service.sign(customer, validReq)).rejects.toBeInstanceOf(ForbiddenException);
     expect(mpcPost).not.toHaveBeenCalled();
     expect(postgres.saveTransaction).not.toHaveBeenCalled();
+  });
+
+  it('signs with the workspace\'s own threshold key when threshold signing is on', async () => {
+    const service = await build({ canBroadcast: false });
+    keys.thresholdEnabled = true;
+    keys.ensureKey.mockResolvedValue({ key_id: 'key-abc', address: '0xWorkspaceKey' });
+
+    await service.sign(customer, validReq);
+
+    expect(keys.ensureKey).toHaveBeenCalledWith('demo');
+    const body = mpcPost.mock.calls[0][1];
+    expect(body.keyId).toBe('key-abc');
+    expect(body.expectedAddress).toBe('0xWorkspaceKey');
+  });
+
+  it('does not touch keys or send a keyId when threshold signing is off', async () => {
+    const service = await build({ canBroadcast: false });
+    await service.sign(customer, validReq);
+    expect(keys.ensureKey).not.toHaveBeenCalled();
+    expect(mpcPost.mock.calls[0][1].keyId).toBeUndefined();
+  });
+
+  it('reports the signer\'s own explanation when a quorum of nodes is unreachable', async () => {
+    const service = await build({ canBroadcast: false });
+    mpcPost.mockImplementationOnce(() => {
+      const err: any = new Error('Request failed with status code 503');
+      err.response = { data: { error: 'only 1 of 3 signing nodes are reachable; 2 are needed to sign' } };
+      throw err;
+    });
+    await expect(service.sign(customer, validReq)).rejects.toMatchObject({
+      response: { detail: expect.stringContaining('only 1 of 3 signing nodes are reachable') },
+    });
+    expect(postgres.updateStatus).toHaveBeenCalledWith(expect.any(String), 'failed');
   });
 });

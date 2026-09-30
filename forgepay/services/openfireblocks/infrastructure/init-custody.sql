@@ -67,3 +67,20 @@ CREATE TABLE IF NOT EXISTS custody.votes (
   voted_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   PRIMARY KEY (proposal_id, signer_id)
 );
+
+-- One signing key per workspace. With threshold signing this row is all the
+-- gateway knows about a key: its public address and which nodes hold shares.
+-- The shares themselves live only on the signing nodes.
+CREATE TABLE IF NOT EXISTS custody.keys (
+  key_id       TEXT PRIMARY KEY,
+  customer_id  VARCHAR(255) NOT NULL,
+  address      VARCHAR(64)  NOT NULL,
+  public_key   TEXT         NOT NULL,
+  scheme       VARCHAR(40)  NOT NULL,
+  threshold    INTEGER      NOT NULL,   -- t: any t+1 nodes sign
+  nodes        TEXT[]       NOT NULL,
+  status       VARCHAR(20)  NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'retired')),
+  created_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+-- At most one active key per workspace.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_custody_keys_active ON custody.keys(customer_id) WHERE status = 'active';

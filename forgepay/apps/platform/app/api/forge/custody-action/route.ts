@@ -21,6 +21,7 @@ const NEEDS: Record<CustodyAction['action'], Permission> = {
   bootstrap_signer: 'manage:custody_policy',
   propose: 'manage:custody_policy',
   vote: 'approve:payouts',
+  retry_transfer: 'approve:payouts',
   transfer: 'approve:payouts',
   issue_api_key: 'manage:api_keys',
   revoke_api_key: 'manage:api_keys',

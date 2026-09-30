@@ -131,11 +131,14 @@ export default function HelpPage() {
             default) before their vote counts. Removing a signer, or changing the threshold, is
             a proposal too.
           </Entry>
-          <Entry term="The signing key today">
-            One ECDSA key signs every transfer, and it is shared by every workspace on the
-            deployment. Your quorum controls whether a transfer is signed, not who holds the key.
-            Threshold (MPC) signing, where no single party holds a complete key, is the next
-            stage and is not live yet — the Keys page always shows exactly what is running.
+          <Entry term="How the signing key works">
+            Each workspace has its own key, split into shares held by separate signing nodes; any
+            two of three sign together and the whole key is never assembled. Your approvals decide
+            whether a transfer is sent for signing, and each node rebuilds the transaction and can
+            refuse on its own limits. If too few nodes are online, an approved transfer is held as
+            &ldquo;approved &middot; not signed&rdquo; and can be retried. In the development
+            cluster all nodes share one host, which the Keys page says outright. Separate hosts are
+            needed before the split protects anything.
           </Entry>
           <Entry term="Connected applications">
             An application connects with its own named API key. It can submit transfers through

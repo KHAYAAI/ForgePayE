@@ -78,12 +78,19 @@ export interface CustodyConsole {
     connected_apps: number;
   };
   signing_key: {
+    mode: 'threshold' | 'single' | '';
+    /** false until the workspace's key has been created (threshold mode creates it on first use). */
+    provisioned: boolean;
     address: string | null;
     signer_reachable: boolean;
     scheme: string;
     threshold: string;
     shared_across_workspaces: boolean;
     storage: string;
+    nodes: Array<{ id: string; domain: string; reachable: boolean }>;
+    trust_domains: number;
+    can_sign: boolean;
+    created_at: string | null;
   };
   signers: Signer[];
   proposals: Proposal[];
@@ -97,7 +104,7 @@ export const EMPTY_CUSTODY: CustodyConsole = {
   workspace: { customer_id: '', tier: '', status: '' },
   settings: { threshold: 2, cooling_off_hours: 24, effective_required: 0 },
   stats: { signed_24h: 0, signed_wei_24h: '0', pending_approval: 0, denied_7d: 0, active_signers: 0, connected_apps: 0 },
-  signing_key: { address: null, signer_reachable: false, scheme: '', threshold: '', shared_across_workspaces: false, storage: '' },
+  signing_key: { mode: '', provisioned: false, address: null, signer_reachable: false, scheme: '', threshold: '', shared_across_workspaces: false, storage: '', nodes: [], trust_domains: 0, can_sign: false, created_at: null },
   signers: [],
   proposals: [],
   transactions: [],

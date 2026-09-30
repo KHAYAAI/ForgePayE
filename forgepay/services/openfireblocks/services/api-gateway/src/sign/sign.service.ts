@@ -20,6 +20,7 @@ import { SignRequestDto } from './dto/sign-request.dto';
 import { Pool } from 'pg';
 import { PG_POOL } from '../database/database.tokens';
 import { requiredApprovals } from '../custody/quorum';
+import { KeysService } from '../custody/keys.service';
 
 // Shape of the MPC signer's /sign response.
 interface MpcSignResponse {
@@ -60,6 +61,7 @@ export class SignService {
     private readonly billing: BillingService,
     private readonly metrics: MetricsService,
     @Inject(PG_POOL) private readonly pool: Pool,
+    private readonly keys: KeysService,
   ) {}
 
   /** `initiatedBy` names the person when a transfer was requested in a console, not by an API key. */
@@ -232,8 +234,15 @@ export class SignService {
       // 2. Call the MPC signer service.
       const mpcSignerUrl =
         process.env.MPC_SIGNER_URL ?? 'http://localhost:8080';
+      // With threshold signing on, each workspace signs with its own key,
+      // created across the signing nodes the first time it's needed.
+      let signBody: Record<string, unknown> = { ...req };
+      if (this.keys.thresholdEnabled) {
+        const key = await this.keys.ensureKey(customerId);
+        signBody = { ...req, keyId: key.key_id, expectedAddress: key.address };
+      }
       const response = await lastValueFrom(
-        this.http.post<MpcSignResponse>(`${mpcSignerUrl}/sign`, req),
+        this.http.post<MpcSignResponse>(`${mpcSignerUrl}/sign`, signBody, { timeout: 120000 }),
       );
       const { signedTx, txHash, from } = response.data;
 
@@ -311,7 +320,10 @@ export class SignService {
         broadcasted,
       };
     } catch (error) {
-      const message = (error as Error).message;
+      // The signer explains itself (e.g. "only 1 of 3 signing nodes are
+      // reachable; 2 are needed") — pass that on instead of "status code 503".
+      const detail = (error as any)?.response?.data?.error;
+      const message = detail ?? (error as Error).message;
       this.metrics.signRequests.inc({ status: 'failed', chain: 'ethereum' });
       await this.postgres.updateStatus(requestId, 'failed').catch(() => undefined);
       await this.audit.logEvent({
