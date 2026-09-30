@@ -23,6 +23,7 @@ const NEEDS: Record<CustodyAction['action'], Permission> = {
   vote: 'approve:payouts',
   retry_transfer: 'approve:payouts',
   transfer: 'approve:payouts',
+  rebroadcast: 'approve:payouts',
   issue_api_key: 'manage:api_keys',
   revoke_api_key: 'manage:api_keys',
 };

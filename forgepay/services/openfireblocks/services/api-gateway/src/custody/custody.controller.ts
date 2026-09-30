@@ -101,6 +101,15 @@ export class CustodyController {
     return this.custody.initiateTransfer(customerId, requireActor(actor), dto.to, dto.amountEth);
   }
 
+  @Post('transfers/:requestId/rebroadcast')
+  rebroadcast(
+    @Param('customerId') customerId: string,
+    @Param('requestId', ParseUUIDPipe) requestId: string,
+    @Headers('x-actor-email') actor: string,
+  ) {
+    return this.custody.rebroadcastTransfer(customerId, requestId, requireActor(actor));
+  }
+
   @Post('api-keys')
   issueKey(
     @Param('customerId') customerId: string,

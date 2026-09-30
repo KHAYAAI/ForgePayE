@@ -1,19 +1,12 @@
 'use client';
 
 import Link from 'next/link';
-import { PageHeader, Stat, StatGrid, Panel, Pill, DataTable, LivePill, Mono, Addr } from '@/components/forge/ui';
+import { PageHeader, Stat, StatGrid, Panel, DataTable, LivePill, Mono, Addr } from '@/components/forge/ui';
 import { useCustody, formatEth, shortTime } from '@/components/forge/useCustody';
+import { TxStatusPill, TxHash } from '@/components/forge/TxStatus';
 
 /* FORGE Custody — Overview. Backed by openfireblocks
    (services/openfireblocks) via lib/openfireblocks.ts. */
-
-const TX_TONE: Record<string, 'ok' | 'warn' | 'danger' | 'accent'> = {
-  signed: 'ok',
-  broadcasted: 'ok',
-  pending_approval: 'warn',
-  rejected: 'danger',
-  failed: 'danger',
-};
 
 export default function CustodyOverview() {
   const { data, live, act, busy, error, me } = useCustody();
@@ -71,6 +64,24 @@ export default function CustodyOverview() {
         />
       </StatGrid>
 
+      <Panel
+        title="Balance"
+        label={data.network.rpc_configured ? `${data.network.network_name ?? 'network'}${data.network.chain_id ? ` · chain ${data.network.chain_id}` : ''}` : 'signing only — no network configured'}
+        style={{ marginBottom: 20 }}
+      >
+        {data.network.rpc_configured ? (
+          data.network.balance_wei !== null ? (
+            <p style={{ fontSize: 14 }}>
+              <Mono>{formatEth(data.network.balance_wei)}</Mono> at <Addr>{data.network.address ?? ''}</Addr>
+            </p>
+          ) : (
+            <p style={{ fontSize: 14, color: 'var(--danger)' }}>Balance unavailable — {data.network.balance_error ?? 'no signing key yet'}.</p>
+          )
+        ) : (
+          <p className="lede" style={{ fontSize: 14 }}>Signing only — no network configured. Transfers are signed but nothing is sent to a blockchain, so there is no on-chain balance to show.</p>
+        )}
+      </Panel>
+
       <Panel title="Waiting on You" label="open approvals you haven't voted on" style={{ marginBottom: 20 }}>
         <DataTable
           columns={['What', 'Detail', 'Approvals', 'Raised by', '']}
@@ -99,10 +110,15 @@ export default function CustodyOverview() {
             <Mono key="w">{shortTime(t.created_at)}</Mono>,
             <Addr key="to">{t.to_address}</Addr>,
             <Mono key="a">{formatEth(t.amount)}</Mono>,
-            <Pill key="s" tone={TX_TONE[t.status] ?? 'accent'}>{t.status.replace('_', ' ')}</Pill>,
-            <Mono key="h">{t.tx_hash ? `${t.tx_hash.slice(0, 12)}…` : '—'}</Mono>,
+            <TxStatusPill key="s" status={t.status} confirmations={t.confirmations} detail={t.detail} />,
+            <TxHash key="h" hash={t.tx_hash} />,
           ])}
         />
+        {live && !data.network.rpc_configured && (
+          <p style={{ marginTop: 12, fontSize: 13, color: 'var(--steel)' }}>
+            Signing only — no network configured. “Signed” means a signature exists; nothing was sent to a blockchain.
+          </p>
+        )}
         {data.transactions.length > 10 && (
           <p style={{ marginTop: 12, fontSize: 13 }}>
             <Link href="/dashboard/custody/audit">Full history in the Audit Log →</Link>

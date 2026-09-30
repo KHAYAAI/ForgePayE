@@ -84,3 +84,22 @@ CREATE TABLE IF NOT EXISTS custody.keys (
 );
 -- At most one active key per workspace.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_custody_keys_active ON custody.keys(customer_id) WHERE status = 'active';
+
+-- Backfill support: when a workspace's first threshold key is created after it
+-- had already signed with the old shared signer key, the shared key's address
+-- is recorded here. Nothing is deleted or rewritten; the history stays as it
+-- was, and this column says which address signed it. NULL = no legacy history.
+ALTER TABLE custody.keys ADD COLUMN IF NOT EXISTS legacy_signer_address VARCHAR(64);
+
+-- Broadcast lifecycle on signing.transactions. status values in use:
+--   pending_approval -> (signed | broadcasting) -> broadcasted -> confirmed
+--   broadcasting -> signed_not_broadcast (RPC refused/unreachable; Rebroadcast resends the SAME signed bytes)
+--   broadcasted  -> stuck (no receipt after TX_STUCK_AFTER_MS; never auto-replaced) | failed (reverted)
+--   signed = signed with no network RPC configured (signing only)
+ALTER TABLE signing.transactions
+  ADD COLUMN IF NOT EXISTS from_address  VARCHAR(64),   -- the key address that signed it (nonce owner)
+  ADD COLUMN IF NOT EXISTS chain_id      BIGINT,
+  ADD COLUMN IF NOT EXISTS broadcast_at  TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS block_number  BIGINT,
+  ADD COLUMN IF NOT EXISTS status_detail TEXT;          -- broadcast error / failure / stuck reason
+CREATE INDEX IF NOT EXISTS idx_tx_from_nonce ON signing.transactions (lower(from_address), nonce);

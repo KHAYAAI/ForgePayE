@@ -4,6 +4,9 @@ import { SignController } from './sign.controller';
 import { SignService } from './sign.service';
 import { EthereumService } from '../blockchain/ethereum.service';
 import { PrepareService } from '../blockchain/prepare.service';
+import { NonceService } from '../blockchain/nonce.service';
+import { TransferPlanner } from '../blockchain/transfer-planner.service';
+import { TxPollerService } from '../blockchain/tx-poller.service';
 import { CustomersModule } from '../customers/customers.module';
 import { PolicyModule } from '../policies/policy.module';
 import { RiskModule } from '../risk/risk.module';
@@ -23,7 +26,7 @@ import { KeysModule } from '../custody/keys.module';
     KeysModule,
   ],
   controllers: [SignController],
-  providers: [SignService, EthereumService, PrepareService],
-  exports: [SignService],
+  providers: [SignService, EthereumService, PrepareService, NonceService, TransferPlanner, TxPollerService],
+  exports: [SignService, EthereumService],
 })
 export class SignModule {}

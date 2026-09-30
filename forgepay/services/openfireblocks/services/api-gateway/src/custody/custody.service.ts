@@ -18,6 +18,7 @@ import { SignRequestDto } from '../sign/dto/sign-request.dto';
 import { generateApiKey, hashApiKey } from '../auth/api-key.util';
 import { requiredApprovals } from './quorum';
 import { KeysService } from './keys.service';
+import { EthereumService } from '../blockchain/ethereum.service';
 
 export type ProposalKind = 'add_signer' | 'remove_signer' | 'set_threshold' | 'approve_transaction';
 
@@ -72,6 +73,7 @@ export class CustodyService {
     private readonly audit: AuditService,
     private readonly http: HttpService,
     private readonly keys: KeysService,
+    private readonly ethereum: EthereumService,
   ) {}
 
   private async ensureSettings(customerId: string): Promise<void> {
@@ -356,7 +358,11 @@ export class CustodyService {
             proposal.payload.request as SignRequestDto,
             proposal.request_id!,
           );
-          result = { txHash: signed.txHash, status: signed.status };
+          result = {
+            txHash: signed.txHash,
+            status: signed.status,
+            ...(signed.broadcastError ? { broadcastError: signed.broadcastError } : {}),
+          };
           break;
         }
       }
@@ -432,28 +438,22 @@ export class CustodyService {
    * the same pipeline as an API-submitted one: policy, risk, then either an
    * immediate signature or the approval queue.
    *
-   * Nonce: with no RPC configured there is no chain to ask, so it is derived
-   * from the highest nonce this signer has used. The signing key is shared by
-   * every workspace until per-workspace MPC keys exist, so this is global.
+   * With a network RPC configured the console supplies only to/value: chain id,
+   * gas, EIP-1559 fees and the balance check happen in SignService, and the
+   * nonce is allocated when the transfer is actually signed (see NonceService)
+   * so a transfer that waits for approval, or is rejected, never leaves a hole.
+   * With no RPC there is nothing to ask, so the old fixed Sepolia defaults apply
+   * and the transfer is signing-only.
    */
   async initiateTransfer(customerId: string, actor: string, to: string, amountEth: string): Promise<SignResult> {
     await this.eligibleSigner(customerId, actor);
     const customer = await this.customers.getByCustomerId(customerId);
-    // Nonces belong to an address. With a shared key that's every workspace's
-    // transactions; with per-workspace keys it's this workspace's own.
-    const perKey = this.keys.thresholdEnabled;
-    const { rows } = await this.pool.query<{ next: number }>(
-      `SELECT COALESCE(MAX(nonce) + 1, 0) AS next FROM signing.transactions
-        WHERE status NOT IN ('failed', 'rejected') ${perKey ? 'AND customer_id = $1' : ''}`,
-      perKey ? [customerId] : [],
-    );
-    const request: SignRequestDto = {
-      chainId: SEPOLIA_CHAIN_ID,
+    const request = {
       to,
       value: ethToWei(amountEth),
-      gasLimit: 21000,
-      gasPrice: DEFAULT_GAS_PRICE_WEI,
-      nonce: Number(rows[0].next),
+      ...(this.ethereum.canBroadcast
+        ? {}
+        : { chainId: SEPOLIA_CHAIN_ID, gasLimit: 21000, gasPrice: DEFAULT_GAS_PRICE_WEI }),
     } as SignRequestDto;
     await this.audit.logEvent({
       type: 'TRANSFER_INITIATED',
@@ -463,6 +463,12 @@ export class CustodyService {
       status: 'pending',
     });
     return this.sign.sign(customer, request, actor);
+  }
+
+  /** Resend a signed-but-not-broadcast transfer (same signed bytes). Signers only. */
+  async rebroadcastTransfer(customerId: string, requestId: string, actor: string) {
+    await this.eligibleSigner(customerId, actor);
+    return this.sign.rebroadcast(customerId, requestId, actor);
   }
 
   // ── Connected applications (API keys) ──────────────────────────────────
@@ -538,6 +544,7 @@ export class CustodyService {
         trust_domains: 1,
         can_sign: key.reachable,
         created_at: null,
+        legacy_signer_address: null,
       };
     }
     const [key, mpc] = await Promise.all([this.keys.activeKey(customerId), this.keys.status()]);
@@ -556,7 +563,38 @@ export class CustodyService {
       trust_domains: mpc?.trustDomains ?? 0,
       can_sign: !!mpc?.canSign,
       created_at: key?.created_at ?? null,
+      // Set when this workspace signed with the old shared key before it had its own.
+      legacy_signer_address: key?.legacy_signer_address ?? null,
     };
+  }
+
+  /**
+   * Network the gateway broadcasts to, and the signing address's balance on it.
+   * Never throws and never hangs the console: an unreachable RPC is reported, not raised.
+   */
+  private async networkView(address: string | null) {
+    const confirmations = Number(process.env.TX_CONFIRMATIONS) > 0 ? Number(process.env.TX_CONFIRMATIONS) : 1;
+    const view = {
+      rpc_configured: this.ethereum.canBroadcast,
+      chain_id: null as number | null,
+      network_name: null as string | null,
+      address,
+      balance_wei: null as string | null,
+      balance_error: null as string | null,
+      confirmations_required: confirmations,
+    };
+    if (!view.rpc_configured) return view;
+    const within = <T>(p: Promise<T>, ms: number) =>
+      Promise.race([p, new Promise<never>((_, rej) => setTimeout(() => rej(new Error('timed out')), ms))]);
+    try {
+      const net = await within(this.ethereum.getNetworkInfo(), 5000);
+      view.chain_id = net.chainId;
+      view.network_name = net.name;
+      if (address) view.balance_wei = (await within(this.ethereum.getBalance(address), 5000)).toString();
+    } catch (err) {
+      view.balance_error = `network unreachable: ${(err as Error).message}`;
+    }
+    return view;
   }
 
   async consoleSummary(customerId: string) {
@@ -574,26 +612,32 @@ export class CustodyService {
         q(`SELECT p.id, p.kind, p.payload, p.status, p.required, p.request_id, p.created_by,
                   p.created_at, p.decided_at, p.result,
                   COALESCE(json_agg(json_build_object('email', s.email, 'approve', v.approve, 'voted_at', v.voted_at))
-                    FILTER (WHERE v.signer_id IS NOT NULL), '[]') AS votes
+                    FILTER (WHERE v.signer_id IS NOT NULL), '[]') AS votes,
+                  (SELECT json_build_object('status', t.status, 'tx_hash', t.tx_hash, 'nonce', t.nonce,
+                                            'block_number', t.block_number, 'confirmations', t.confirmation_count,
+                                            'detail', t.status_detail, 'chain_id', t.chain_id)
+                     FROM signing.transactions t WHERE t.request_id = p.request_id) AS tx
              FROM custody.proposals p
              LEFT JOIN custody.votes v ON v.proposal_id = p.id
              LEFT JOIN custody.signers s ON s.id = v.signer_id
             WHERE p.customer_id = $1
             GROUP BY p.id ORDER BY p.created_at DESC LIMIT 50`),
-        q(`SELECT request_id, to_address, amount, nonce, status, tx_hash, created_at, updated_at
+        q(`SELECT request_id, to_address, amount, nonce, status, tx_hash, created_at, updated_at,
+                  chain_id, block_number, confirmation_count AS confirmations, status_detail AS detail
              FROM signing.transactions WHERE customer_id = $1 ORDER BY created_at DESC LIMIT 50`),
         q(`SELECT id, event_type, actor, request_id, message, status, error_message, created_at
              FROM audit.events WHERE customer_id = $1 ORDER BY id DESC LIMIT 50`),
         q(`SELECT id, name, key_prefix, created_by, created_at, last_used_at, revoked_at
              FROM custody.api_keys WHERE customer_id = $1 ORDER BY created_at DESC`),
         q(`SELECT
-             COUNT(*) FILTER (WHERE status IN ('signed','broadcasted') AND updated_at > NOW() - INTERVAL '24 hours') AS signed_24h,
+             COUNT(*) FILTER (WHERE status IN ('signed','broadcasting','signed_not_broadcast','broadcasted','confirmed','stuck') AND updated_at > NOW() - INTERVAL '24 hours') AS signed_24h,
              COUNT(*) FILTER (WHERE status = 'pending_approval') AS pending_approval,
-             COALESCE(SUM(amount::numeric) FILTER (WHERE status IN ('signed','broadcasted') AND updated_at > NOW() - INTERVAL '24 hours'), 0)::text AS signed_wei_24h
+             COALESCE(SUM(amount::numeric) FILTER (WHERE status IN ('signed','broadcasting','signed_not_broadcast','broadcasted','confirmed','stuck') AND updated_at > NOW() - INTERVAL '24 hours'), 0)::text AS signed_wei_24h
            FROM signing.transactions WHERE customer_id = $1`),
         this.signingKeyView(customerId),
         requiredApprovals(this.pool, customerId),
       ]);
+    const network = await this.networkView(key.address);
     const [denied] = await q(
       `SELECT COUNT(*) AS n FROM audit.events
         WHERE customer_id = $1 AND event_type IN ('POLICY_DENIED','RISK_DENIED','APPROVAL_UNAVAILABLE')
@@ -612,6 +656,7 @@ export class CustodyService {
         connected_apps: apiKeys.filter((k: any) => !k.revoked_at).length,
       },
       signing_key: key,
+      network,
       signers,
       proposals,
       transactions,

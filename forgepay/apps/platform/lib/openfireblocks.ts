@@ -11,6 +11,9 @@
 
 const OFB_URL = process.env.OPENFIREBLOCKS_URL ?? 'http://localhost:8090';
 const TIMEOUT_MS = 8000;
+// Actions that sign wait for a 2-of-3 threshold signature (a few seconds each), and transfers for one
+// address sign one after another, so a burst of transfers queues; 8s would report success as failure.
+const ACTION_TIMEOUT_MS = 90_000;
 
 function adminKey(): string {
   const key = process.env.OPENFIREBLOCKS_ADMIN_KEY;
@@ -24,7 +27,7 @@ export class OpenFireblocksError extends Error {
   }
 }
 
-async function call<T>(path: string, init: RequestInit = {}, actor?: string): Promise<T> {
+async function call<T>(path: string, init: RequestInit = {}, actor?: string, timeoutMs = TIMEOUT_MS): Promise<T> {
   const res = await fetch(`${OFB_URL}${path}`, {
     ...init,
     headers: {
@@ -33,7 +36,7 @@ async function call<T>(path: string, init: RequestInit = {}, actor?: string): Pr
       ...(actor ? { 'x-actor-email': actor } : {}),
       ...(init.headers ?? {}),
     },
-    signal: AbortSignal.timeout(TIMEOUT_MS),
+    signal: AbortSignal.timeout(timeoutMs),
     cache: 'no-store',
   });
   const body = await res.json().catch(() => null);
@@ -78,6 +81,7 @@ export type CustodyAction =
   | { action: 'vote'; proposalId: string; approve: boolean }
   | { action: 'retry_transfer'; proposalId: string }
   | { action: 'transfer'; to: string; amountEth: string }
+  | { action: 'rebroadcast'; requestId: string }
   | { action: 'issue_api_key'; name: string }
   | { action: 'revoke_api_key'; keyId: string };
 
@@ -86,7 +90,7 @@ export async function performCustodyAction(tenantId: string, actor: string, a: C
   await ensureWorkspace(tenantId);
   const base = `${ws(tenantId)}/custody`;
   const post = (path: string, body: unknown) =>
-    call(`${base}${path}`, { method: 'POST', body: JSON.stringify(body) }, actor);
+    call(`${base}${path}`, { method: 'POST', body: JSON.stringify(body) }, actor, ACTION_TIMEOUT_MS);
 
   switch (a.action) {
     case 'bootstrap_signer':
@@ -100,6 +104,9 @@ export async function performCustodyAction(tenantId: string, actor: string, a: C
       return post(`/proposals/${encodeURIComponent(a.proposalId)}/retry`, {});
     case 'transfer':
       return post('/transfers', { to: a.to, amountEth: a.amountEth });
+    case 'rebroadcast':
+      // Resends the same signed bytes; never signs again.
+      return post(`/transfers/${encodeURIComponent(a.requestId)}/rebroadcast`, {});
     case 'issue_api_key':
       return post('/api-keys', { name: a.name });
     case 'revoke_api_key':

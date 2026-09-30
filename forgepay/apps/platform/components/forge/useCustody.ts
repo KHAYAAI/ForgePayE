@@ -31,17 +31,40 @@ export interface Proposal {
   decided_at: string | null;
   result: Record<string, any> | null;
   votes: Vote[];
+  /** The transfer's row in signing.transactions (approve_transaction proposals only, once one exists). */
+  tx?: ChainTx | null;
 }
+
+/** Where a transfer stands on the network. */
+export interface ChainTx {
+  status: TxStatus;
+  tx_hash: string | null;
+  nonce: number | null;
+  block_number: number | null;
+  confirmations: number | null;
+  /** Broadcast error, revert reason or stuck explanation. */
+  detail: string | null;
+  chain_id: number | null;
+}
+
+export type TxStatus =
+  | 'pending_approval' | 'rejected' | 'failed'
+  | 'signed'                // signed, no network configured
+  | 'broadcasting' | 'signed_not_broadcast' | 'broadcasted' | 'confirmed' | 'stuck';
 
 export interface CustodyTransaction {
   request_id: string;
   to_address: string;
   amount: string;
   nonce: number;
-  status: 'signed' | 'broadcasted' | 'pending_approval' | 'rejected' | 'failed' | string;
+  status: TxStatus | string;
   tx_hash: string | null;
   created_at: string;
   updated_at: string;
+  chain_id: number | null;
+  block_number: number | null;
+  confirmations: number | null;
+  detail: string | null;
 }
 
 export interface AuditEvent {
@@ -77,6 +100,17 @@ export interface CustodyConsole {
     active_signers: number;
     connected_apps: number;
   };
+  /** The network the gateway broadcasts to, and the signing address's balance on it. */
+  network: {
+    rpc_configured: boolean;
+    chain_id: number | null;
+    network_name: string | null;
+    address: string | null;
+    /** Wei, base-10 string. null when there is no network or it can't be reached (see balance_error). */
+    balance_wei: string | null;
+    balance_error: string | null;
+    confirmations_required: number;
+  };
   signing_key: {
     mode: 'threshold' | 'single' | '';
     /** false until the workspace's key has been created (threshold mode creates it on first use). */
@@ -91,6 +125,8 @@ export interface CustodyConsole {
     trust_domains: number;
     can_sign: boolean;
     created_at: string | null;
+    /** Address of the old shared signer key that signed this workspace's earlier transactions, if any. */
+    legacy_signer_address: string | null;
   };
   signers: Signer[];
   proposals: Proposal[];
@@ -104,7 +140,8 @@ export const EMPTY_CUSTODY: CustodyConsole = {
   workspace: { customer_id: '', tier: '', status: '' },
   settings: { threshold: 2, cooling_off_hours: 24, effective_required: 0 },
   stats: { signed_24h: 0, signed_wei_24h: '0', pending_approval: 0, denied_7d: 0, active_signers: 0, connected_apps: 0 },
-  signing_key: { mode: '', provisioned: false, address: null, signer_reachable: false, scheme: '', threshold: '', shared_across_workspaces: false, storage: '', nodes: [], trust_domains: 0, can_sign: false, created_at: null },
+  network: { rpc_configured: false, chain_id: null, network_name: null, address: null, balance_wei: null, balance_error: null, confirmations_required: 1 },
+  signing_key: { mode: '', provisioned: false, address: null, signer_reachable: false, scheme: '', threshold: '', shared_across_workspaces: false, storage: '', nodes: [], trust_domains: 0, can_sign: false, created_at: null, legacy_signer_address: null },
   signers: [],
   proposals: [],
   transactions: [],
@@ -121,13 +158,21 @@ export function formatEth(wei: string | null | undefined): string {
   return `${whole}${frac ? `.${frac}` : ''} ETH`;
 }
 
+/** Block-explorer link for a tx hash, or null unless NEXT_PUBLIC_EXPLORER_TX_URL is configured.
+    The value is a URL with `{hash}` in it, or a base URL the hash is appended to. */
+export function explorerUrl(hash: string | null | undefined): string | null {
+  const tpl = process.env.NEXT_PUBLIC_EXPLORER_TX_URL;
+  if (!tpl || !hash) return null;
+  return tpl.includes('{hash}') ? tpl.replace('{hash}', hash) : `${tpl}${hash}`;
+}
+
 export function shortTime(iso: string | null): string {
   if (!iso) return '—';
   return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 export function useCustody() {
-  const { data, live, reload } = useForge<CustodyConsole>('custody', EMPTY_CUSTODY);
+  const { data, live, reload } = useForge<CustodyConsole>('custody', EMPTY_CUSTODY, 5_000);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

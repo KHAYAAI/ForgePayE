@@ -20,6 +20,8 @@ export { PG_POOL };
           connectionString:
             process.env.DATABASE_URL ??
             'postgresql://app:dev-only@localhost:5432/openfireblocks',
+          // A transfer holds one connection for the per-address nonce lock while it uses others.
+          max: Number(process.env.PG_POOL_MAX ?? 20),
         }),
     },
     PostgresService,

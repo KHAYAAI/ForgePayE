@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger, ServiceUnavailableException } from '@nestjs
 import { HttpService } from '@nestjs/axios';
 import { lastValueFrom } from 'rxjs';
 import { randomUUID } from 'crypto';
+import { ethers } from 'ethers';
 import { Pool } from 'pg';
 import { PG_POOL } from '../database/database.tokens';
 
@@ -15,6 +16,8 @@ export interface KeyRow {
   nodes: string[];
   status: string;
   created_at: Date;
+  /** Set when this workspace had already signed with the old shared signer key: that key's address. */
+  legacy_signer_address: string | null;
 }
 
 export interface MpcStatus {
@@ -61,6 +64,33 @@ export class KeysService {
   }
 
   /**
+   * If this workspace signed anything before it had a key of its own, those
+   * transactions came from the old shared signer key. Recover that address from
+   * the signed bytes themselves (ground truth), falling back to asking the signer.
+   * Returns null when the workspace has no such history.
+   */
+  private async legacyAddressFor(customerId: string): Promise<string | null> {
+    const { rows } = await this.pool.query<{ signed_tx: string }>(
+      `SELECT signed_tx FROM signing.transactions
+        WHERE customer_id = $1 AND signed_tx IS NOT NULL AND signed_tx <> '' ORDER BY id LIMIT 1`,
+      [customerId],
+    );
+    if (!rows[0]) return null;
+    try {
+      const from = ethers.Transaction.from(rows[0].signed_tx).from;
+      if (from) return from;
+    } catch {
+      /* fall through */
+    }
+    try {
+      const res = await lastValueFrom(this.http.get<{ address: string }>(`${this.signerUrl}/address`, { timeout: 5000 }));
+      return res.data.address ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * The workspace's key, generating it if it has none. Concurrent callers for
    * the same workspace wait on one lock, so two simultaneous first transfers
    * produce one key, not two.
@@ -74,6 +104,10 @@ export class KeysService {
       await client.query(`SELECT pg_advisory_lock(hashtext($1))`, [`custody-key:${customerId}`]);
       const again = await this.activeKey(customerId);
       if (again) return again;
+
+      // Only a workspace that has never had any key can have shared-key history.
+      const everKeyed = await client.query(`SELECT 1 FROM custody.keys WHERE customer_id = $1 LIMIT 1`, [customerId]);
+      const legacy = everKeyed.rows.length === 0 ? await this.legacyAddressFor(customerId) : null;
 
       const keyId = `key-${randomUUID()}`;
       let info: { keyId: string; address: string; publicKey: string; threshold: number; nodes: string[] };
@@ -91,11 +125,14 @@ export class KeysService {
         });
       }
       const { rows } = await client.query<KeyRow>(
-        `INSERT INTO custody.keys (key_id, customer_id, address, public_key, scheme, threshold, nodes)
-         VALUES ($1, $2, $3, $4, 'threshold-ecdsa', $5, $6) RETURNING *`,
-        [info.keyId, customerId, info.address, info.publicKey, info.threshold, info.nodes],
+        `INSERT INTO custody.keys (key_id, customer_id, address, public_key, scheme, threshold, nodes, legacy_signer_address)
+         VALUES ($1, $2, $3, $4, 'threshold-ecdsa', $5, $6, $7) RETURNING *`,
+        [info.keyId, customerId, info.address, info.publicKey, info.threshold, info.nodes, legacy],
       );
-      this.logger.log(`created ${info.threshold + 1}-of-${info.nodes.length} key ${info.address} for ${customerId}`);
+      this.logger.log(
+        `created ${info.threshold + 1}-of-${info.nodes.length} key ${info.address} for ${customerId}` +
+          (legacy ? ` (earlier transactions were signed by the shared key ${legacy})` : ''),
+      );
       return rows[0];
     } finally {
       await client.query(`SELECT pg_advisory_unlock(hashtext($1))`, [`custody-key:${customerId}`]).catch(() => undefined);

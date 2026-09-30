@@ -3,6 +3,7 @@
 import { FormEvent, useState } from 'react';
 import { PageHeader, Panel, Pill, DataTable, LivePill, Mono, Addr } from '@/components/forge/ui';
 import { useCustody, formatEth, shortTime, Proposal } from '@/components/forge/useCustody';
+import { TxStatusPill, TxHash } from '@/components/forge/TxStatus';
 
 /* FORGE Custody — Signing Queue. New transfers, and transfers held for
    approval. Every vote is attributed to the signed-in user. */
@@ -30,6 +31,9 @@ export default function SigningQueue() {
   const [outcome, setOutcome] = useState<string | null>(null);
 
   const queue = data.proposals.filter((p) => p.kind === 'approve_transaction');
+  const net = data.network;
+  const noNetwork = live && !net.rpc_configured;
+  const rebroadcast = (requestId: string) => act({ action: 'rebroadcast', requestId });
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -39,7 +43,13 @@ export default function SigningQueue() {
     setOutcome(
       result.status === 'pending_approval'
         ? `Held for approval — needs ${result.requiredApprovals} signer approval(s).`
-        : `Signed. Tx hash ${result.txHash}`,
+        : result.status === 'broadcasted'
+          ? `Signed and broadcast to ${net.network_name ?? 'the network'}. Tx hash ${result.txHash}`
+          : result.status === 'signed_not_broadcast'
+            ? `Signed, but NOT broadcast: ${result.broadcastError ?? 'the network did not accept it'}. Use Rebroadcast once the network is reachable. Tx hash ${result.txHash}`
+            : result.status === 'failed'
+              ? `Signed, but the network refused it: ${result.broadcastError ?? 'unknown reason'}`
+              : `Signed only — no network is configured, so nothing was sent and no funds moved. Tx hash ${result.txHash}`,
     );
     setTo('');
     setAmount('');
@@ -54,7 +64,28 @@ export default function SigningQueue() {
         actions={<LivePill live={live} />}
       />
 
-      <Panel title="New Transfer" label="Sepolia · screened before signing" style={{ marginBottom: 20 }}>
+      {noNetwork && (
+        <Panel title="Signing only" label="no network configured" style={{ marginBottom: 20 }}>
+          <p className="lede" style={{ fontSize: 14 }}>
+            <strong>Signing only — no network configured.</strong> Transfers are approved and signed, but nothing is sent to a
+            blockchain, so no funds move. Status stays “signed”.
+          </p>
+        </Panel>
+      )}
+      {error && <p style={{ fontSize: 13.5, marginBottom: 16, color: 'var(--danger)' }}>{error}</p>}
+
+      <Panel
+        title="New Transfer"
+        label={net.rpc_configured ? `${net.network_name ?? 'network'} · screened before signing` : 'signing only — no network configured'}
+        style={{ marginBottom: 20 }}
+      >
+        {net.rpc_configured && (
+          <p style={{ fontSize: 13, marginBottom: 14, color: net.balance_wei === null ? 'var(--danger)' : 'var(--steel)' }}>
+            {net.balance_wei !== null
+              ? <>Balance <Mono>{formatEth(net.balance_wei)}</Mono> at <Addr>{net.address ?? ''}</Addr>. A transfer is refused up front if the balance can't cover the amount and fees.</>
+              : `Balance unavailable — ${net.balance_error ?? 'no signing key yet'}.`}
+          </p>
+        )}
         {me?.eligible ? (
           <form onSubmit={submit} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,2fr) minmax(0,1fr) auto', gap: 16, alignItems: 'end' }}>
             <div>
@@ -73,12 +104,11 @@ export default function SigningQueue() {
           </p>
         )}
         {outcome && <p style={{ fontSize: 13, marginTop: 14, color: 'var(--ok)' }}>{outcome}</p>}
-        {error && <p style={{ fontSize: 13, marginTop: 14, color: 'var(--danger)' }}>{error}</p>}
       </Panel>
 
       <Panel title="Approval Queue" label={`${data.settings.effective_required} of ${data.stats.active_signers} signers needed`}>
         <DataTable
-          columns={['Raised', 'Amount', 'To', 'Approvals', 'Voted', 'Status', '']}
+          columns={['Raised', 'Amount', 'To', 'Approvals', 'Voted', 'Status', 'Tx hash', '']}
           emptyMessage="No transfer has needed approval yet."
           rows={queue.map((p) => {
             const approvals = p.votes.filter((v) => v.approve).length;
@@ -89,28 +119,59 @@ export default function SigningQueue() {
               <Addr key="t">{p.payload.request?.to}</Addr>,
               <Mono key="q">{approvals} / {p.required}</Mono>,
               p.votes.length ? p.votes.map((v) => `${v.email.split('@')[0]} ${v.approve ? '✓' : '✗'}`).join(', ') : '—',
-              <span key="s" title={p.result?.error ?? ''}>
-                <Pill tone={STATUS_TONE[p.status]}>{p.status === 'failed' ? 'approved · not signed' : p.status}</Pill>
-                {p.status === 'failed' && p.result?.error && (
-                  <span style={{ display: 'block', fontSize: 12, color: 'var(--danger)', maxWidth: 260, marginTop: 4 }}>{p.result.error}</span>
-                )}
-              </span>,
+              p.status === 'executed' && p.tx ? (
+                <TxStatusPill key="s" status={p.tx.status} confirmations={p.tx.confirmations} detail={p.tx.detail} />
+              ) : (
+                <span key="s" title={p.result?.error ?? ''}>
+                  <Pill tone={STATUS_TONE[p.status]}>{p.status === 'failed' ? 'approved · not signed' : p.status}</Pill>
+                  {p.status === 'failed' && p.result?.error && (
+                    <span style={{ display: 'block', fontSize: 12, color: 'var(--danger)', maxWidth: 260, marginTop: 4 }}>{p.result.error}</span>
+                  )}
+                </span>
+              ),
+              <TxHash key="h" hash={p.tx?.tx_hash ?? p.result?.txHash} />,
               p.status === 'failed' && me?.eligible ? (
                 <span key="b" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                   <button className="btn-primary btn-sm" disabled={busy} onClick={() => act({ action: 'retry_transfer', proposalId: p.id })}>Retry signing</button>
+                </span>
+              ) : p.tx?.status === 'signed_not_broadcast' && me?.eligible && p.request_id ? (
+                <span key="b" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <button className="btn-primary btn-sm" disabled={busy} onClick={() => rebroadcast(p.request_id!)}>Rebroadcast</button>
                 </span>
               ) : p.status === 'open' && me?.eligible && !voted ? (
                 <span key="b" style={{ display: 'flex', gap: 8 }}>
                   <button className="btn-primary btn-sm" disabled={busy} onClick={() => act({ action: 'vote', proposalId: p.id, approve: true })}>Approve</button>
                   <button className="btn-ghost btn-sm" disabled={busy} onClick={() => act({ action: 'vote', proposalId: p.id, approve: false })}>Reject</button>
                 </span>
-              ) : p.result?.txHash ? (
-                <Mono key="h">{p.result.txHash.slice(0, 10)}…</Mono>
               ) : (
                 <span key="n">—</span>
               ),
             ];
           })}
+        />
+      </Panel>
+
+      <Panel
+        title="Transfers"
+        label={net.rpc_configured ? `every transfer · ${net.confirmations_required} confirmation(s) to settle` : 'every transfer · signing only'}
+        style={{ marginTop: 20 }}
+      >
+        <DataTable
+          columns={['When', 'To', 'Amount', 'Status', 'Tx hash', '']}
+          emptyMessage="No transfers yet."
+          rows={data.transactions.map((t) => [
+            <Mono key="w">{shortTime(t.created_at)}</Mono>,
+            <Addr key="to">{t.to_address}</Addr>,
+            <Mono key="a">{formatEth(t.amount)}</Mono>,
+            <TxStatusPill key="s" status={t.status} confirmations={t.confirmations} detail={t.detail} />,
+            <span key="h">
+              <TxHash hash={t.tx_hash} />
+              {t.block_number ? <span style={{ display: 'block', fontSize: 11.5, color: 'var(--steel)' }}>block {t.block_number}</span> : null}
+            </span>,
+            t.status === 'signed_not_broadcast' && me?.eligible ? (
+              <button key="b" className="btn-primary btn-sm" disabled={busy} onClick={() => rebroadcast(t.request_id)}>Rebroadcast</button>
+            ) : <span key="n">—</span>,
+          ])}
         />
       </Panel>
     </>
