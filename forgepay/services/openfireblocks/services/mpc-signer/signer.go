@@ -4,8 +4,8 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"fmt"
-	"math/big"
 
+	"forge-crypto/mpc-signer/internal/ethtx"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -75,62 +75,9 @@ func (m *MPCSigner) Address() string {
 // SignTransaction builds an Ethereum transaction from the request (legacy or
 // EIP-1559 depending on the fee fields) and signs it with the shared key.
 func (m *MPCSigner) SignTransaction(ctx context.Context, req *SignRequest) (*SignedTransaction, error) {
-	if !common.IsHexAddress(req.To) {
-		return nil, fmt.Errorf("invalid 'to' address: %q", req.To)
-	}
-	toAddr := common.HexToAddress(req.To)
-
-	value, err := parseBig(req.Value, true)
-	if err != nil {
-		return nil, fmt.Errorf("invalid value: %w", err)
-	}
-
-	data, err := decodeData(req.Data)
+	tx, signer, err := ethtx.Build(req)
 	if err != nil {
 		return nil, err
-	}
-
-	chainID := big.NewInt(int64(req.ChainID))
-	useDynamic := req.MaxFeePerGas != "" && req.MaxPriorityFeePerGas != ""
-
-	var (
-		tx     *types.Transaction
-		signer types.Signer
-	)
-	if useDynamic {
-		maxFee, err := parseBig(req.MaxFeePerGas, false)
-		if err != nil {
-			return nil, fmt.Errorf("invalid maxFeePerGas: %w", err)
-		}
-		tip, err := parseBig(req.MaxPriorityFeePerGas, false)
-		if err != nil {
-			return nil, fmt.Errorf("invalid maxPriorityFeePerGas: %w", err)
-		}
-		tx = types.NewTx(&types.DynamicFeeTx{
-			ChainID:   chainID,
-			Nonce:     req.Nonce,
-			GasTipCap: tip,
-			GasFeeCap: maxFee,
-			Gas:       req.GasLimit,
-			To:        &toAddr,
-			Value:     value,
-			Data:      data,
-		})
-		signer = types.NewLondonSigner(chainID)
-	} else {
-		gasPrice, err := parseBig(req.GasPrice, false)
-		if err != nil {
-			return nil, fmt.Errorf("invalid gasPrice: %w", err)
-		}
-		tx = types.NewTx(&types.LegacyTx{
-			Nonce:    req.Nonce,
-			GasPrice: gasPrice,
-			Gas:      req.GasLimit,
-			To:       &toAddr,
-			Value:    value,
-			Data:     data,
-		})
-		signer = types.NewEIP155Signer(chainID)
 	}
 
 	signedTx, err := types.SignTx(tx, signer, m.privKey)
@@ -177,31 +124,4 @@ func (m *MPCSigner) compactSignature(hash common.Hash, signedTx *types.Transacti
 		}
 	}
 	return nil, fmt.Errorf("failed to derive recovery id for signature")
-}
-
-// parseBig parses a base-10 integer string. When zeroOK, "" and "0" yield 0.
-func parseBig(s string, zeroOK bool) (*big.Int, error) {
-	if s == "" || s == "0" {
-		if zeroOK || s == "0" {
-			return new(big.Int), nil
-		}
-		return nil, fmt.Errorf("empty value")
-	}
-	n := new(big.Int)
-	if _, ok := n.SetString(s, 10); !ok {
-		return nil, fmt.Errorf("not a base-10 integer: %q", s)
-	}
-	return n, nil
-}
-
-// decodeData decodes optional 0x-prefixed call data.
-func decodeData(s string) ([]byte, error) {
-	if s == "" || s == "0x" {
-		return nil, nil
-	}
-	decoded, err := hexutil.Decode(s)
-	if err != nil {
-		return nil, fmt.Errorf("invalid data: %w", err)
-	}
-	return decoded, nil
 }

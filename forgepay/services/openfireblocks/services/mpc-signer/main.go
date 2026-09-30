@@ -3,12 +3,15 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
+	"forge-crypto/mpc-signer/internal/mpc"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus"
@@ -25,10 +28,27 @@ import (
 // The audit logger is best-effort: if immudb is unreachable at startup the
 // service still boots and serves /sign, recording a warning per request. This
 // keeps the Phase 0 happy path working even when immudb is slow to come up.
+//
+// Threshold mode (MPC_CLUSTER_FILE set): POST /mpc/keys creates a key across
+// the node cluster, GET /mpc/status reports the cluster, and POST /sign with a
+// keyId signs with that key. With MPC_REQUIRED=true nothing else is allowed.
 
 type server struct {
 	signer *MPCSigner
 	audit  *AuditLogger // may be nil if immudb was unavailable at startup
+	// coord drives threshold signing across the node cluster; nil when no
+	// cluster is configured, in which case only the legacy single key exists.
+	coord *mpc.Coordinator
+	// mpcRequired refuses any /sign that doesn't name a threshold key, so the
+	// legacy shared key can't be reached at all.
+	mpcRequired bool
+}
+
+// signBody is a sign request plus, for threshold signing, which key to use.
+type signBody struct {
+	SignRequest
+	KeyID           string `json:"keyId,omitempty"`
+	ExpectedAddress string `json:"expectedAddress,omitempty"`
 }
 
 func (s *server) log(ctx context.Context, event AuditEvent) uint64 {
@@ -53,14 +73,15 @@ func (s *server) handleSign(w http.ResponseWriter, r *http.Request) {
 	timer := prometheus.NewTimer(signDuration)
 	defer timer.ObserveDuration()
 
-	var req SignRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	var body signBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		signTotal.WithLabelValues("invalid").Inc()
 		s.log(ctx, AuditEvent{Type: "SIGN_REQUEST_INVALID", RequestID: requestID, Message: err.Error(), Status: "failed"})
 		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "invalid request body", RequestID: requestID})
 		return
 	}
 
+	req := body.SignRequest
 	s.log(ctx, AuditEvent{
 		Type:      "SIGN_REQUEST_RECEIVED",
 		RequestID: requestID,
@@ -68,11 +89,11 @@ func (s *server) handleSign(w http.ResponseWriter, r *http.Request) {
 		Status:    "pending",
 	})
 
-	signed, err := s.signer.SignTransaction(ctx, &req)
+	signed, status, err := s.sign(ctx, &body)
 	if err != nil {
 		signTotal.WithLabelValues("failed").Inc()
 		s.log(ctx, AuditEvent{Type: "SIGN_FAILED", RequestID: requestID, Message: err.Error(), Status: "failed"})
-		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: err.Error(), RequestID: requestID})
+		writeJSON(w, status, ErrorResponse{Error: err.Error(), RequestID: requestID})
 		return
 	}
 	signTotal.WithLabelValues("success").Inc()
@@ -93,6 +114,86 @@ func (s *server) handleSign(w http.ResponseWriter, r *http.Request) {
 		From:       signed.From,
 		Status:     "signed",
 		AuditLogID: auditID,
+	})
+}
+
+// sign routes to threshold signing when a key is named, else the legacy key.
+// The int is the HTTP status to use if the error is returned.
+func (s *server) sign(ctx context.Context, body *signBody) (*SignedTransaction, int, error) {
+	if body.KeyID == "" {
+		if s.mpcRequired {
+			return nil, http.StatusBadRequest, errors.New("keyId is required: this signer only signs with threshold keys")
+		}
+		signed, err := s.signer.SignTransaction(ctx, &body.SignRequest)
+		if err != nil {
+			return nil, http.StatusBadRequest, err
+		}
+		return signed, 0, nil
+	}
+	if s.coord == nil {
+		return nil, http.StatusServiceUnavailable, errors.New("threshold signing is not configured on this signer")
+	}
+	if body.ExpectedAddress == "" {
+		return nil, http.StatusBadRequest, errors.New("expectedAddress is required with keyId")
+	}
+	out, err := s.coord.Sign(ctx, body.KeyID, body.ExpectedAddress, &body.SignRequest)
+	if err != nil {
+		var quorum *mpc.ErrQuorumUnavailable
+		var refused *mpc.NodeRefusal
+		switch {
+		case errors.As(err, &quorum):
+			return nil, http.StatusServiceUnavailable, err
+		case errors.As(err, &refused):
+			return nil, http.StatusForbidden, err
+		default:
+			return nil, http.StatusBadGateway, err
+		}
+	}
+	return &SignedTransaction{RawTx: out.RawTx, Signature: out.Signature, Hash: out.Hash, From: out.From}, 0, nil
+}
+
+// handleKeygen creates a threshold key across the whole node cluster.
+func (s *server) handleKeygen(w http.ResponseWriter, r *http.Request) {
+	if s.coord == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "threshold signing is not configured on this signer"})
+		return
+	}
+	var body struct {
+		KeyID string `json:"keyId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || !mpc.ValidID(body.KeyID) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "keyId is required (letters, digits, - and _ only)"})
+		return
+	}
+	info, err := s.coord.Keygen(r.Context(), body.KeyID)
+	if err != nil {
+		s.log(r.Context(), AuditEvent{Type: "KEYGEN_FAILED", RequestID: body.KeyID, Message: err.Error(), Status: "failed"})
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		return
+	}
+	s.log(r.Context(), AuditEvent{Type: "KEYGEN_SUCCESS", RequestID: body.KeyID, From: info.Address, Status: "created",
+		Message: fmt.Sprintf("%d-of-%d across %s", info.Threshold+1, len(info.Nodes), strings.Join(info.Nodes, ","))})
+	writeJSON(w, http.StatusCreated, info)
+}
+
+// handleMPCStatus reports the cluster's shape and which nodes answer right now.
+func (s *server) handleMPCStatus(w http.ResponseWriter, r *http.Request) {
+	if s.coord == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"enabled": false})
+		return
+	}
+	nodes := s.coord.Health(r.Context())
+	reachable := 0
+	for _, n := range nodes {
+		if n.Reachable {
+			reachable++
+		}
+	}
+	c := s.coord.Cluster()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"enabled": true, "threshold": c.Threshold, "signersNeeded": c.Threshold + 1, "total": len(c.Nodes),
+		"reachable": reachable, "canSign": reachable >= c.Threshold+1, "trustDomains": c.TrustDomains(), "nodes": nodes,
+		"thresholdOnly": s.mpcRequired,
 	})
 }
 
@@ -142,11 +243,32 @@ func main() {
 		log.Printf("connected to immudb at %s", immudbURL)
 	}
 
-	s := &server{signer: signer, audit: audit}
+	s := &server{signer: signer, audit: audit, mpcRequired: os.Getenv("MPC_REQUIRED") == "true"}
+	if clusterFile := os.Getenv("MPC_CLUSTER_FILE"); clusterFile != "" {
+		cluster, err := mpc.LoadCluster(clusterFile)
+		if err != nil {
+			log.Fatalf("MPC_CLUSTER_FILE: %v", err)
+		}
+		coordKey, err := mpc.LoadCoordinatorKey(os.Getenv("MPC_COORDINATOR_KEY_FILE"))
+		if err != nil {
+			log.Fatalf("MPC_COORDINATOR_KEY_FILE: %v", err)
+		}
+		if s.coord, err = mpc.NewCoordinator(cluster, coordKey); err != nil {
+			log.Fatalf("coordinator: %v", err)
+		}
+		log.Printf("threshold signing enabled: %d-of-%d across %d trust domain(s)", cluster.Threshold+1, len(cluster.Nodes), cluster.TrustDomains())
+		if cluster.TrustDomains() < 2 {
+			log.Printf("WARNING: every signing node is in one trust domain; compromising that one place exposes the key")
+		}
+	} else if s.mpcRequired {
+		log.Fatal("MPC_REQUIRED=true but no MPC_CLUSTER_FILE is configured")
+	}
 
 	router := mux.NewRouter()
 	router.HandleFunc("/sign", s.handleSign).Methods(http.MethodPost)
 	router.HandleFunc("/address", s.handleAddress).Methods(http.MethodGet)
+	router.HandleFunc("/mpc/keys", s.handleKeygen).Methods(http.MethodPost)
+	router.HandleFunc("/mpc/status", s.handleMPCStatus).Methods(http.MethodGet)
 	router.HandleFunc("/health", handleHealth).Methods(http.MethodGet)
 	router.Handle("/metrics", promhttp.Handler()).Methods(http.MethodGet)
 
