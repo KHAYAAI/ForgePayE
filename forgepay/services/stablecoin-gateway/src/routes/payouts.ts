@@ -39,6 +39,15 @@ interface CreateBody {
 }
 
 export async function buildPayoutRoutes(app: FastifyInstance) {
+  // Money going out is an operator/service action. A merchant key identifies a payer; it must never be able
+  // to create, approve or submit a payout, nor read other parties' payouts. Only admin credentials (the
+  // keys the bureau and operators hold) get through, whatever the route.
+  app.addHook('onRequest', async (req, reply) => {
+    if (req.auth?.kind !== 'admin') {
+      return reply.code(403).send({ error: 'Forbidden', message: 'payouts are an operator action: an admin credential is required' });
+    }
+  });
+
   // ── Configuration, so a caller can see the limits before hitting them ──────
   app.get('/config', async (_req, reply) => {
     return reply.send({
@@ -85,6 +94,17 @@ export async function buildPayoutRoutes(app: FastifyInstance) {
     // at the rate of the time it was created — even if a fresh quote isn't possible now.
     const existing = await findPayoutByExternalId(requestedBy, body.external_id!);
     if (existing) {
+      // The same external id must mean the same payout. If someone re-uses it with a different payee or
+      // amount, that is a conflict to look at, never "already done": answering 200 would let the caller
+      // believe the new instruction was recorded (or let an earlier one stand in for it).
+      const sameAddress = existing.payeeAddress.toLowerCase() === (body.payee_address ?? '').toLowerCase();
+      const sameAmount = Math.abs(Number(existing.amountUsdc) - Number(amountUsd)) < 1e-9;
+      if (!sameAddress || !sameAmount || existing.payeeId !== body.payee_id) {
+        return reply.code(409).send({
+          error: 'ExternalIdConflict',
+          message: 'a payout with this external_id already exists for a different payee or amount',
+        });
+      }
       return reply.code(200).send({ data: existing, deduplicated: true, requires_approval: requiresApproval(existing.amountUsdc) });
     }
 
@@ -153,6 +173,11 @@ export async function buildPayoutRoutes(app: FastifyInstance) {
         });
       }
 
+      // Separation of duties: whoever raised the payout cannot be the one who approves it.
+      const before = await getPayout(req.params.id);
+      if (before && before.requestedBy.trim().toLowerCase() === approvedBy.trim().toLowerCase()) {
+        return reply.code(403).send({ error: 'Forbidden', message: 'a payout cannot be approved by whoever requested it' });
+      }
       const result = await approvePayout(req.params.id, approvedBy);
       if (!result.ok) {
         return reply.code(result.reason === 'not_found' ? 404 : 409).send({

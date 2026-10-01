@@ -519,12 +519,23 @@ export async function confirmTopUp(receiptId: string, requestorId: string): Prom
     };
   }
 
+  // The gateway call above yielded the event loop, so another confirm for this same receipt may have
+  // finished (and credited) while we waited. Re-read it now, with no await between this check and the
+  // write below, so exactly one concurrent caller credits.
+  const current = getTopUpReceipt(receiptId);
+  if (!current) {
+    return { ok: false, reason: 'not_found', message: `No top-up with receipt ${receiptId}.` };
+  }
+  if (current.status === 'confirmed') {
+    return { ok: true, alreadyConfirmed: true, account: getOrCreateAccount(requestorId) };
+  }
+
   // Marked confirmed before crediting: if the process crashed between these
   // two writes, restart would see status 'confirmed' with no matching ledger
   // entry rather than risk a second credit on retry. That gap is a manual
   // reconciliation case (compare billing_topups against billing_transactions
   // for `topup:x402:<receiptId>`), not a silent double-credit.
-  setTopUpReceipt({ ...receipt, status: 'confirmed', confirmedAt: new Date().toISOString() });
+  setTopUpReceipt({ ...current, status: 'confirmed', confirmedAt: new Date().toISOString() });
   const { account } = creditAccount(requestorId, receipt.amountUsd, `topup:x402:${receiptId}`);
 
   return { ok: true, alreadyConfirmed: false, account };

@@ -1,3 +1,4 @@
+import { isProductionLike } from './lib/env.js';
 function opt(name: string, fallback: string): string {
   return process.env[name] ?? fallback;
 }
@@ -19,7 +20,7 @@ function req(name: string): string {
  */
 export function resolveCorsOrigins(): string[] {
   const raw = process.env['CORS_ALLOWED_ORIGINS'];
-  const isProduction = process.env['NODE_ENV'] === 'production';
+  const isProduction = isProductionLike();
 
   if (isProduction && (!raw || !raw.trim() || raw.trim() === '*')) {
     throw new Error(
@@ -40,7 +41,7 @@ export function resolveCorsOrigins(): string[] {
 
 export const config = {
   port: parseInt(opt('PORT', '8020'), 10),
-  env:  opt('NODE_ENV', 'development') as 'development' | 'production',
+  env:  (isProductionLike() ? 'production' : 'development') as 'development' | 'production',
 
   // PostgreSQL (shared with rest of ForgePay)
   postgres: {

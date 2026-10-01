@@ -54,6 +54,7 @@
  * to a real principal.
  */
 
+import { isProductionLike } from '../lib/env.js';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import fp from 'fastify-plugin';
 import { createHash, timingSafeEqual } from 'node:crypto';
@@ -100,7 +101,7 @@ const MIN_PRODUCTION_KEY_LENGTH = 32;
  *         payment flows is worse than one that refuses to boot.
  */
 export function resolveAdminKeyHashes(): Set<string> {
-  const isProduction = process.env['NODE_ENV'] === 'production';
+  const isProduction = isProductionLike();
   const rawKeys = (process.env['VALID_API_KEYS'] ?? '')
     .split(',')
     .map((k) => k.trim())
@@ -180,7 +181,7 @@ function extractKey(request: FastifyRequest): string | null {
 async function apiKeyAuthPlugin(app: FastifyInstance) {
   const adminKeyHashes = resolveAdminKeyHashes();
   const merchantKeyMap = resolveMerchantKeyMap();
-  const isProduction = process.env['NODE_ENV'] === 'production';
+  const isProduction = isProductionLike();
   // Only when nothing has been configured at all do we fall back to "any
   // non-empty key is admin" — the moment either variable is set, callers
   // must resolve to a real principal. This never fires in production

@@ -6,12 +6,15 @@
  * this is how a new one gets there in the first place).
  */
 
+import { guardRoute } from '@/lib/route-guard';
 import { NextResponse } from 'next/server';
 import { registerBureauAgent, type RegisterAgentInput } from '@/lib/forge-services';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request) {
+  const g = await guardRoute({ product: 'credit-bureau', permission: 'manage:billing' });
+  if ('response' in g) return g.response;
   const body = (await req.json().catch(() => null)) as Partial<RegisterAgentInput> | null;
   if (!body?.agentId || !body.did || !body.operatorEntityId || !body.operatorEntityType) {
     return NextResponse.json(

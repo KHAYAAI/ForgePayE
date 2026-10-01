@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { gasDripWei, worthSweeping, resolveSweepConfig, SweepConfigError, sweepRequested } from '../src/lib/sweeper.js';
+import { gasDripWei, worthSweeping, resolveSweepConfig, SweepConfigError, sweepRequested, Sweeper } from '../src/lib/sweeper.js';
 import { ethers } from 'ethers';
 
 const KEY = ethers.Wallet.createRandom().privateKey;
@@ -54,6 +54,41 @@ describe('sweeper configuration fails closed', () => {
 
   it('refuses a development chain-id override in production', () => {
     expect(() => resolveSweepConfig({ ...ok, NODE_ENV: 'production', SWEEP_CHAIN_ID_BASE: '1337' })).toThrow(/production/);
-    expect(resolveSweepConfig({ ...ok, SWEEP_CHAIN_ID_BASE: '1337' }).chainId('base')).toBe(1337);
+    expect(resolveSweepConfig({ ...ok, NODE_ENV: 'development', SWEEP_CHAIN_ID_BASE: '1337' }).chainId('base')).toBe(1337);
+  });
+});
+
+describe('sweeper refuses to be redirected or to refund the deposit\'s own token', () => {
+  const treasury = ethers.getAddress(TREASURY);
+  const attacker = ethers.Wallet.createRandom().address;
+  const usdc = ethers.getAddress('0x' + '11'.repeat(20));
+  const registry: any = { get: (s: string) => (s === 'USDC' ? { symbol: 'USDC', address: usdc, decimals: 6 } : undefined) };
+
+  function make(rows: { sweep?: any; deposit?: any }) {
+    const updates: string[] = [];
+    const db: any = {
+      async query(sql: string, params?: unknown[]) {
+        if (/UPDATE deposit_sweeps/.test(sql)) { updates.push(JSON.stringify(params)); return { rows: [] }; }
+        if (/FROM stablecoin_deposits WHERE id/.test(sql)) return { rows: rows.deposit ? [rows.deposit] : [] };
+        return { rows: [] };
+      },
+    };
+    const cfg = resolveSweepConfig(ok);
+    const deps: any = { provider: () => ({}) };
+    return { sweeper: new Sweeper(db, registry, cfg, deps), updates };
+  }
+
+  it('a recovery naming the own token by contract address is refused (was: only the symbol was compared)', async () => {
+    const { sweeper } = make({ deposit: { id: 'd1', chain: 'base', token: 'USDC', address: ethers.Wallet.createRandom().address, status: 'confirmed' } });
+    await expect(sweeper.planRecovery('d1', usdc.toLowerCase(), attacker, 'refund')).rejects.toThrow(/own token/);
+    await expect(sweeper.planRecovery('d1', 'USDC', attacker, 'refund')).rejects.toThrow(/own token/);
+  });
+
+  it('a sweep row whose destination was changed in the database is failed, not sent', async () => {
+    const { sweeper, updates } = make({});
+    const row: any = { id: 's1', deposit_id: 'd1', chain: 'base', asset: 'USDC', from_address: ethers.Wallet.createRandom().address, treasury_address: attacker, status: 'planned', kind: 'sweep', updated_at: new Date().toISOString() };
+    const out = await (sweeper as any).advance(row);
+    expect(out).toBe('failed');
+    expect(updates.join(' ')).toMatch(/not the configured treasury/);
   });
 });

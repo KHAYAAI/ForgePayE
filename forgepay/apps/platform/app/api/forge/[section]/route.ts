@@ -8,6 +8,7 @@
  * state the console renders (fallback to demo fixtures), not an error.
  */
 
+import { guardRoute } from '@/lib/route-guard';
 import { NextResponse } from 'next/server';
 import {
   getBureauAgentDetail,
@@ -42,26 +43,43 @@ export async function GET(
       if (!user) return NextResponse.json({ live: false, data: null, error: 'unauthenticated' }, { status: 401 });
       return NextResponse.json(await getWalletSummary(user.tenantId));
     }
-    case 'treasury':
+    case 'treasury': {
+      const g = await guardRoute();
+      if ('response' in g) return g.response;
       return NextResponse.json(await getTreasurySummary());
+    }
     case 'payments': {
       const user = await getCurrentUser();
       if (!user) return NextResponse.json({ live: false, data: null, error: 'unauthenticated' }, { status: 401 });
       return NextResponse.json(await getMerchantSummary(user.email));
     }
-    case 'bureau':
+    case 'bureau': {
+      const g = await guardRoute({ product: 'credit-bureau' });
+      if ('response' in g) return g.response;
       return NextResponse.json(await getBureauStats());
+    }
     case 'bureau-agent-detail': {
+      const g = await guardRoute({ product: 'credit-bureau' });
+      if ('response' in g) return g.response;
       const agentId = new URL(req.url).searchParams.get('agentId');
       if (!agentId) return NextResponse.json({ live: false, data: null, error: 'missing agentId' }, { status: 400 });
       return NextResponse.json(await getBureauAgentDetail(agentId));
     }
-    case 'bureau-scores':
+    case 'bureau-scores': {
+      const g = await guardRoute({ product: 'credit-bureau' });
+      if ('response' in g) return g.response;
       return NextResponse.json(await getBureauDualScores());
-    case 'bureau-disputes':
+    }
+    case 'bureau-disputes': {
+      const g = await guardRoute({ product: 'credit-bureau' });
+      if ('response' in g) return g.response;
       return NextResponse.json(await getBureauDisputes());
-    case 'ontology':
+    }
+    case 'ontology': {
+      const g = await guardRoute();
+      if ('response' in g) return g.response;
       return NextResponse.json(await getOntologyEvents());
+    }
     case 'overview': {
       // Cross-platform aggregate for the unified dashboard.
       const overviewUser = await getCurrentUser();
@@ -72,9 +90,9 @@ export async function GET(
         overviewUser
           ? getWalletSummary(overviewUser.tenantId)
           : Promise.resolve({ live: false, data: null, error: 'unauthenticated' }),
-        getTreasurySummary<Record<string, unknown>>(),
-        getBureauStats<Record<string, unknown>>(),
-        getOntologyEvents<Record<string, unknown>>(),
+        overviewUser ? getTreasurySummary<Record<string, unknown>>() : Promise.resolve({ live: false, data: null, error: 'unauthenticated' }),
+        overviewUser ? getBureauStats<Record<string, unknown>>() : Promise.resolve({ live: false, data: null, error: 'unauthenticated' }),
+        overviewUser ? getOntologyEvents<Record<string, unknown>>() : Promise.resolve({ live: false, data: null, error: 'unauthenticated' }),
       ]);
       const anyLive = [custody, wallet, treasury, bureau, ontology].some((r) => r.live);
       return NextResponse.json({

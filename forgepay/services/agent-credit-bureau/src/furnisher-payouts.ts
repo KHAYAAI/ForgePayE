@@ -170,7 +170,7 @@ export function payoutAssetFor(c: DataContributor | undefined): PaymentAsset {
 }
 
 interface GatewayPayoutResponse {
-  data: { id: string; status: string; amountUsdc?: number; asset?: string; amountUnits?: string; decimals?: number; fxRate?: string };
+  data: { id: string; status: string; payeeAddress?: string; amountUsdc?: number; asset?: string; amountUnits?: string; decimals?: number; fxRate?: string };
   deduplicated: boolean;
   requires_approval: boolean;
 }
@@ -306,6 +306,18 @@ export async function settleFurnisherPeriod(period: string, now: Date = new Date
       if (recorded !== asset) {
         failed++;
         lines.push({ ...line, error: `gateway recorded the payout in ${recorded}, not ${asset}; entries left unsettled (check payout ${body.data.id} at the gateway)` });
+        continue;
+      }
+
+      // Whatever the gateway says it recorded must be what we asked for. A payout that already existed
+      // under this key but names another address or amount is not ours: never mark entries settled
+      // against it. (The gateway refuses such a re-use with 409; this is the second lock.)
+      if (
+        (body.data.payeeAddress && body.data.payeeAddress.toLowerCase() !== (line.payoutAddress ?? "").toLowerCase()) ||
+        (typeof body.data.amountUsdc === 'number' && Math.abs(body.data.amountUsdc - cents / 100) > 1e-6)
+      ) {
+        failed++;
+        lines.push({ ...line, error: `gateway returned payout ${body.data.id} for a different address or amount than requested; entries left unsettled` });
         continue;
       }
 

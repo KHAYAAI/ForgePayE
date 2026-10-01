@@ -38,11 +38,13 @@
  * still have landed. Nothing in this file may retry.
  */
 
+import { isProductionLike } from './env.js';
 import { ethers } from 'ethers';
 import { readFileSync } from 'node:fs';
 import {
   setPayoutBroadcaster, PAYOUT_ABSOLUTE_MAX_USD,
   type Payout, type PayoutBroadcaster, type BroadcastResult, type BroadcastHooks, type ChainOutcome,
+  PayoutPendingError,
 } from './payouts.js';
 
 // db and logger are imported lazily, inside the functions that use them.
@@ -182,7 +184,7 @@ export function resolveSignerConfig(): SignerConfig {
   let chainId = token.chainId;
   const override = process.env['PAYOUT_SIGNER_CHAIN_ID'];
   if (override) {
-    if (process.env['NODE_ENV'] === 'production') {
+    if (isProductionLike()) {
       throw new PayoutSignerConfigError('PAYOUT_SIGNER_CHAIN_ID may not be set in production.');
     }
     chainId = Number(override);
@@ -360,7 +362,18 @@ export class Erc20PayoutBroadcaster implements PayoutBroadcaster {
     const tx = await token['transfer']!(payout.payeeAddress, amountUnits);
     // Recorded before waiting: from here on, a crash leaves a hash to reconcile against.
     await hooks?.onSent?.(tx.hash);
-    const receipt = await tx.wait(cfg.confirmations);
+    const waitMs = Number(process.env['PAYOUT_SIGNER_WAIT_MS'] ?? 180_000);
+    let receipt;
+    try {
+      // Bounded: without a timeout one stuck transaction would hold the worker (and every payout behind it) forever.
+      receipt = await tx.wait(cfg.confirmations, waitMs);
+    } catch (err) {
+      const code = (err as { code?: string }).code;
+      if (code === 'TIMEOUT' || /timeout/i.test(String((err as Error).message))) {
+        throw new PayoutPendingError(tx.hash, `${payout.asset} transfer for payout ${payout.id} was sent (tx ${tx.hash}) but not confirmed within ${waitMs}ms`);
+      }
+      throw err;
+    }
 
     if (!receipt || receipt.status !== 1) {
       throw new Error(

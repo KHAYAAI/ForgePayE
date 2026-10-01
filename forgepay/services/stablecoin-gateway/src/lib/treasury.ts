@@ -30,6 +30,7 @@
  * start a second transfer of the same asset while one is unresolved.
  */
 
+import { isProductionLike } from './env.js';
 import { ethers } from 'ethers';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -72,7 +73,7 @@ export function treasuryRequested(env: NodeJS.ProcessEnv = process.env): boolean
 }
 
 export function resolveTreasuryConfig(env: NodeJS.ProcessEnv = process.env, payoutAddress?: string): TreasuryConfig {
-  const prod = env['NODE_ENV'] === 'production';
+  const prod = isProductionLike(env);
   if (!payoutAddress) throw new TreasuryConfigError('TREASURY_MANAGER_ENABLED needs a live payout signer (PAYOUT_SIGNER_ENABLED=true): the payout wallet is what it tops up.');
 
   let key = env['TREASURY_WARM_PRIVATE_KEY']?.trim();

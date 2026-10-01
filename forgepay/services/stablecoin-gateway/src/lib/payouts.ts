@@ -43,6 +43,7 @@
  * parts the bureau needs in order to owe money accurately.
  */
 
+import { isProductionLike } from './env.js';
 import { randomUUID } from 'node:crypto';
 
 // db and logger are loaded lazily, inside the functions that need them.
@@ -164,7 +165,7 @@ export class UnconfiguredBroadcaster implements PayoutBroadcaster {
   name = 'unconfigured';
 
   async broadcast(payout: Payout): Promise<BroadcastResult> {
-    if (process.env['NODE_ENV'] === 'production') {
+    if (isProductionLike()) {
       throw new PayoutsNotConfiguredError();
     }
     (await log()).warn(
@@ -458,6 +459,15 @@ export type SubmitResult =
  * errored may still have landed on-chain, and silently re-arming it for another
  * attempt is how a double-send happens.
  */
+/**
+ * Thrown by a broadcaster when a transfer WAS sent (it has a hash) but its outcome is not known yet,
+ * e.g. the confirmation wait timed out. The payout stays `submitted` with its hash and the worker
+ * settles it from the chain; marking it failed would invite a second payment of money that may land.
+ */
+export class PayoutPendingError extends Error {
+  constructor(readonly txHash: string, message: string) { super(message); this.name = 'PayoutPendingError'; }
+}
+
 export async function submitPayout(id: string): Promise<SubmitResult> {
   const conn = await db();
 
@@ -493,6 +503,11 @@ export async function submitPayout(id: string): Promise<SubmitResult> {
     (await log()).info({ payoutId: id, txHash, amountUsdc: payout.amountUsdc, asset: payout.asset }, '[payouts] payout confirmed');
     return { ok: true, payout: rowToPayout(confirmed.rows[0]), alreadySubmitted: false };
   } catch (err) {
+    if (err instanceof PayoutPendingError) {
+      (await log()).warn({ payoutId: id, txHash: err.txHash }, '[payouts] sent but not yet confirmed; left submitted for the worker to settle from the chain');
+      const cur = await getPayout(id);
+      return { ok: true, payout: cur ?? payout, alreadySubmitted: false };
+    }
     const message = err instanceof Error ? err.message : String(err);
     await conn.query(
       `UPDATE payouts SET status = 'failed', failure_reason = $2, updated_at = NOW() WHERE id = $1`,

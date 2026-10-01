@@ -197,6 +197,27 @@ describe('billing.ts — x402 top-up', () => {
     expect(fetchFn).not.toHaveBeenCalled(); // short-circuits before calling the gateway again
   });
 
+  it('concurrent confirms of one top-up credit exactly once (was: three confirms credited $30 for $10)', async () => {
+    process.env['STABLECOIN_GATEWAY_URL'] = 'http://stablecoin-gateway:8020';
+    mockFetch({
+      receipt_id: 'rcpt_race', deposit_id: 'dep_race', amount_usdc: 10, amount_units: '10000000',
+      chain: 'base', token: 'USDC', expires_at: '2099-01-01T00:00:00.000Z', status: 'pending',
+    });
+    const requestorId = `req_${randomUUID()}`;
+    const opened = await requestTopUp(requestorId, 10);
+    if (!opened.ok) throw new Error('unreachable');
+
+    // The gateway answers slowly, so all three calls are in flight before any returns.
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+      return { ok: true, status: 200, json: async () => ({ status: 'confirmed', valid: true }) } as Response;
+    }));
+    const results = await Promise.all([1, 2, 3].map(() => confirmTopUp(opened.receipt.receiptId, requestorId)));
+    expect(results.every((r) => r.ok)).toBe(true);
+    expect(results.filter((r) => r.ok && !r.alreadyConfirmed)).toHaveLength(1);
+    expect(getAccountSummary(requestorId).balanceUsdCents).toBe(1000);
+  });
+
   it('refuses to confirm a top-up for a different requestor', async () => {
     process.env['STABLECOIN_GATEWAY_URL'] = 'http://stablecoin-gateway:8020';
     mockFetch({

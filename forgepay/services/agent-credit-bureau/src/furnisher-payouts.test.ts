@@ -250,6 +250,23 @@ describe('settleFurnisherPeriod — paying a closed period', () => {
     const result = await settleFurnisherPeriod(PERIOD, NOW);
     if (result.ok) expect(result.lines[0]!.deduplicated).toBe(true);
   });
+
+  it('does not mark entries settled against a payout that names another address (squatted idempotency key)', async () => {
+    setContributor(contributor('c1'));
+    recordAttribution(entry('c1', 70));
+    mockGateway(() => ({
+      ok: true,
+      json: async () => ({
+        data: { id: 'payout_squat', status: 'approved', payeeAddress: '0x' + 'ee'.repeat(20), amountUsdc: 0.7 },
+        deduplicated: true, requires_approval: false,
+      }),
+    }));
+
+    const result = await settleFurnisherPeriod(PERIOD, NOW);
+    if (!result.ok) throw new Error('unreachable');
+    expect(result.lines[0]!.error).toMatch(/different address or amount/);
+    expect(unsettledEntriesFor('c1', PERIOD)).toHaveLength(1); // still owed
+  });
 });
 
 // ── Furnishers that cannot be paid ────────────────────────────────────────────

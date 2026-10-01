@@ -62,14 +62,24 @@ import apiKeyAuth from './plugins/api-key-auth.js';
  * misconfiguration (missing VALID_API_KEYS, unset/"*" CORS_ALLOWED_ORIGINS)
  * throws here, synchronously during boot, rather than on the first request.
  */
+/**
+ * How many reverse proxies sit in front of the gateway (TRUST_PROXY_HOPS, default 0). Only that many
+ * X-Forwarded-For entries are believed. Trusting the header blindly lets any client pick its own rate-limit
+ * key (and so evade the limit) by sending a different one on each request.
+ */
+export function trustedProxyHops(env: NodeJS.ProcessEnv = process.env): number | false {
+  const n = Number(env['TRUST_PROXY_HOPS'] ?? 0);
+  return Number.isInteger(n) && n > 0 ? n : false;
+}
+
 export async function buildApp() {
-  const app = Fastify({ logger: true, trustProxy: true });
+  const app = Fastify({ logger: true, trustProxy: trustedProxyHops() });
   await app.register(helmet, { contentSecurityPolicy: false });
 
   await app.register(rateLimit, {
     max: 300,
     timeWindow: '1 minute',
-    keyGenerator: (req) => req.headers['x-forwarded-for'] as string ?? req.ip,
+    keyGenerator: (req) => req.ip, // derived by Fastify from the trusted hops only; never the raw header
     errorResponseBuilder: (_req, context) => ({
       statusCode: 429,
       error: 'Too Many Requests',

@@ -27,6 +27,7 @@
  * open, and are left as they are.
  */
 
+import { isProductionLike } from './env.js';
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
@@ -52,7 +53,7 @@ export interface KeyWrapper {
 function envKeyOrThrow(): Buffer {
   const raw = process.env['PRIVATE_KEY_ENCRYPTION_KEY'] ?? '';
   if (raw.length === 64) return Buffer.from(raw, 'hex');
-  if (process.env['NODE_ENV'] === 'production') {
+  if (isProductionLike()) {
     throw new Error('PRIVATE_KEY_ENCRYPTION_KEY must be set to a 64-char hex string (32 bytes) in production.');
   }
   // Dev-only fallback — never use for real funds
@@ -165,7 +166,7 @@ export function configuredWrapper(): KeyWrapper {
   if (name === 'vault') {
     const addr = (process.env['VAULT_ADDR'] ?? '').replace(/\/$/, '');
     if (!addr) throw new Error('KEY_WRAP_PROVIDER=vault needs VAULT_ADDR');
-    if (process.env['NODE_ENV'] === 'production' && !addr.startsWith('https://')) throw new Error('VAULT_ADDR must be https:// in production');
+    if (isProductionLike() && !addr.startsWith('https://')) throw new Error('VAULT_ADDR must be https:// in production');
     return new VaultWrapper(addr, process.env['KEY_WRAP_VAULT_KEY'] ?? 'stablecoin-deposit-keys', process.env['KEY_WRAP_VAULT_MOUNT'] ?? 'transit', vaultToken(), process.env['VAULT_NAMESPACE']);
   }
   if (name === 'awskms') {
@@ -181,7 +182,7 @@ export function configuredWrapper(): KeyWrapper {
 export function assertKeystoreConfigured(): { provider: string } {
   const w = configuredWrapper();
   if (w.name === 'env') {
-    if (process.env['NODE_ENV'] === 'production') {
+    if (isProductionLike()) {
       envKeyOrThrow();
       console.warn('[keystore] PRODUCTION is wrapping deposit keys with an environment variable (KEY_WRAP_PROVIDER=env). Use vault or awskms so the wrapping key never sits in this process environment.');
     }

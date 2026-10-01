@@ -345,7 +345,7 @@ const SimulateSchema = z.object({
 async function buildApp() {
   const app = Fastify({
     logger:     { level: process.env['LOG_LEVEL'] ?? 'info' },
-    trustProxy: true,
+    trustProxy: (() => { const n = Number(process.env['TRUST_PROXY_HOPS'] ?? 0); return Number.isInteger(n) && n > 0 ? n : false; })(),
   });
 
   await app.register(helmet, { contentSecurityPolicy: false });
@@ -359,8 +359,7 @@ async function buildApp() {
     max:        RATE_LIMIT_PER_MIN,
     timeWindow: '1 minute',
     redis:      isRedisEnabled() ? getRedisClient() : undefined,
-    keyGenerator: (req) =>
-      (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim() ?? req.ip,
+    keyGenerator: (req) => req.ip, // from the trusted proxy hops only (TRUST_PROXY_HOPS); never the raw header
     errorResponseBuilder: (_req, ctx) => ({
       statusCode: 429,
       error:      'Too Many Requests',

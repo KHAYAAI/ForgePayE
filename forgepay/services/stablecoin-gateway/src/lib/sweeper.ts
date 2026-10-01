@@ -26,6 +26,7 @@
  *   - Deposit keys are opened only here, in memory, for the one transaction.
  */
 
+import { isProductionLike } from './env.js';
 import { ethers } from 'ethers';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -61,7 +62,7 @@ export function sweepRequested(env: NodeJS.ProcessEnv = process.env): boolean {
 
 /** Read the sweeper's configuration, refusing (never defaulting) anything that decides where money goes. */
 export function resolveSweepConfig(env: NodeJS.ProcessEnv = process.env): SweepConfig {
-  const prod = env['NODE_ENV'] === 'production';
+  const prod = isProductionLike(env);
   const treasury = (chain: string) => {
     const v = env[`SWEEP_TREASURY_ADDRESS_${chain.toUpperCase()}`] ?? env['SWEEP_TREASURY_ADDRESS'];
     if (!v) return undefined;
@@ -235,6 +236,17 @@ export class Sweeper {
         : this.registry.get(row.asset, row.chain);
       if (!asset) return 'deferred'; // can't read this token right now: leave it, don't guess
 
+      // A sweep may only ever pay the treasury this gateway is CONFIGURED with. The destination was copied
+      // into the row when it was planned; anyone who can write to the database could have changed it since,
+      // so it is checked against configuration at the moment of sending, not trusted from the row.
+      if (row.kind === 'sweep') {
+        const configured = this.cfg.treasury(row.chain);
+        if (!configured) return 'deferred';
+        if (configured.toLowerCase() !== String(row.treasury_address).toLowerCase()) {
+          return await this.fail(row, `the sweep's destination ${row.treasury_address} is not the configured treasury ${configured}; not sent`);
+        }
+      }
+
       // ── A transfer already sent: settle it from the chain, never send again.
       if (row.status === 'sending') {
         if (!row.sweep_tx) return await this.fail(row, 'in state "sending" with no recorded transaction');
@@ -390,6 +402,11 @@ export class Sweeper {
     const sym = /^0x/i.test(asset) ? (ethers.isAddress(asset) ? ethers.getAddress(asset.toLowerCase()) : '') : asset.toUpperCase();
     if (!sym) throw new Error('asset must be a token symbol or a contract address');
     if (sym === d.token) throw new Error(`that is the deposit's own token: sweep it to the treasury, don't refund it`);
+    // The same rule when the token is named by contract address: that must not be a way round it.
+    const own = this.registry.get(d.token, d.chain);
+    if (own && /^0x/.test(sym) && own.address.toLowerCase() === sym.toLowerCase()) {
+      throw new Error(`that is the deposit's own token: sweep it to the treasury, don't refund it`);
+    }
     if (!/^0x/.test(sym) && !this.registry.get(sym, d.chain)) throw new Error(`${sym} is not a token this gateway knows on ${d.chain}; pass its contract address instead`);
     const row = await this.plan(d.id, d.chain, sym, d.address, dest, reason, 'recovery');
     if (!row) throw new Error('a recovery of that token from this address is already in progress, awaiting review, or done');
