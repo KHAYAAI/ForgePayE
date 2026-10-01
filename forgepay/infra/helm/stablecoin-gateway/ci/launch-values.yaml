@@ -1,0 +1,57 @@
+# The conservative FIRST-LAUNCH configuration for the bureau (see docs/launch/04-conservative-launch.md).
+# Every value that touches money is deliberately small or off. No secrets: only references to Secrets that must
+# exist beforehand. Replace the example.com / placeholder values; the numbers are starting points to agree with
+# whoever owns the risk, not recommendations carved in stone.
+replicaCount: 1               # one replica until the leader-lock image is the one deployed and has been exercised
+leaderLock:
+  enabled: true
+image:
+  repository: ghcr.io/example/forgepay/stablecoin-gateway
+  tag: "REPLACE-WITH-A-FROZEN-COMMIT-TAG"
+env:
+  NODE_ENV: production
+config:
+  CORS_ALLOWED_ORIGINS: "https://dashboard.example.com"
+  TRUST_PROXY_HOPS: "1"                 # one load balancer in front; 0 if none. Wrong values weaken the rate limit.
+  DEPOSIT_MONITOR_CHAINS: "base"
+  ASSETS_ENABLED: "USDC"                # one asset first; add ZARP then OUSD only after each one's first-contact run
+  # Outbound: a human approves and submits every payout.
+  PAYOUT_AUTO_APPROVE_MAX_USD: "0"      # nothing is approved automatically
+  PAYOUT_ABSOLUTE_MAX_USD: "250"        # hard ceiling per payout
+  PAYOUT_SIGNER_CHAIN: base
+  PAYOUT_SIGNER_CHAIN_ID: "8453"
+  PAYOUT_SIGNER_DAILY_MAX_USD: "500"    # rolling 24h cap on the wallet, whatever the ledger says
+  # Treasury: keep the hot wallets small.
+  REPLENISH_LOW_USD: "100"
+  REPLENISH_TARGET_USD: "300"
+  REPLENISH_DAILY_MAX_USD: "500"
+  TREASURY_WARM_MAX_USD: "1000"
+  TREASURY_WARM_TARGET_USD: "500"
+  SWEEP_MIN_USD: "5"
+  SWEEP_MAX_GAS_GWEI: "5"
+  # Rand rate: set by an operator. The feed is OFF (observe it with GET /assets/rates/feed/check first).
+  FX_FEED_ENABLED: "false"
+  FX_MAX_AGE_HOURS: "24"
+  ALERT_ENV: production
+keyWrap:
+  provider: awskms
+  awskms:
+    keyId: "REPLACE-WITH-DEPOSIT-KEY-ARN"
+    region: "REPLACE-WITH-REGION"
+payout:
+  signerEnabled: true
+  autoSubmit: false                     # PAYOUT_AUTO_SUBMIT=false: an operator calls POST /payouts/:id/submit
+  keySecret: { name: sgw-payout-signer-key, key: key }
+sweep:
+  enabled: true
+  treasuryAddress: "REPLACE-WITH-OPERATING-WALLET-ADDRESS"
+  gasKeySecret: { name: sgw-sweep-gas-key, key: key }
+treasury:
+  enabled: true
+  operatingKeySecret: { name: sgw-treasury-operating-key, key: key }
+  coldAddress: "REPLACE-WITH-COLD-ADDRESS"
+alerts:
+  webhookSecret: { name: sgw-alerts, key: webhook-url }
+  pagerdutySecret: { name: sgw-alerts, key: pagerduty-routing-key }
+autoscaling:
+  enabled: false

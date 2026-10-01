@@ -14,6 +14,9 @@ It is **not** an independent assessment and it is not a clean bill of health. Se
 writing it; they are listed in `04-known-limitations.md` and should be fixed or consciously accepted before reviewers
 are paid to rediscover them.
 
+> **Status update:** nine of the bureau-path defects were changed after this package was written. See `10-remediation-status.md`
+> before reading `04-known-limitations.md`.
+
 ## 2. Evidence base and its limits
 
 - **Commit reviewed: `da11f54`** (branch `claude/forgepay-platform-design-gEkgE`, 2026-09-30). Every `path:line`

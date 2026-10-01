@@ -61,10 +61,14 @@ Engineering (status as of this commit):
 | Counsel's written view (list above) | Not started. Hard gate |
 | Operational: on-call, runbooks exercised, incident contact, key-holder procedures | Not started |
 
-## Defects the review-package author found (not yet fixed) that block a bureau launch
+## Defects the review-package author found that blocked a bureau launch
+
+**Update:** the eight below were changed in commit `4ffecc0` and are re-tested; see `docs/security-review/10-remediation-status.md` for what each fix covers and what it does not (the console route guards are typechecked only, and sweep *recovery* destinations are still trusted from the database). They are fixed by their author, not independently verified: that is what the review is for.
+
+Original findings:
 
 The package in `docs/security-review/` (see `04-known-limitations.md`) was written by reading the code at commit `da11f54`, and
-reproduced four defects with throw-away tests. These are **open** and sit directly on the bureau's money path; none should ship:
+reproduced four defects with throw-away tests. These sat directly on the bureau's money path:
 
 | Id | Problem | Where |
 |---|---|---|
@@ -79,9 +83,11 @@ reproduced four defects with throw-away tests. These are **open** and sit direct
 
 Others (F-01..F-08, F-20..F-24: unauthenticated signer API, share destruction, policy bypasses, quorum not cryptographic) are
 custody-side and gate the **custody** launch, not the bureau. Some of these overlap items built in this change; the package was written
-before it and says so. I have not triaged or fixed any of them here.
+before it and says so. The custody-side ones remain open.
 
 ## A conservative first-launch configuration
+
+Concrete values: `infra/helm/stablecoin-gateway/ci/launch-values.yaml`, explained in `docs/launch/04-conservative-launch.md`. Engagement, counsel and infrastructure/dust-test drafts are in `docs/launch/`.
 
 - `PAYOUT_AUTO_SUBMIT=false`: a person submits each payout until the dust tests and the review are done.
 - Low payout ceiling and daily cap; treasury caps that keep the hot wallet small; cold-storage sweep on.
