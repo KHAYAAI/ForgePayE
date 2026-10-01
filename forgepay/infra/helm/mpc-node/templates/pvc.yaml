@@ -1,0 +1,40 @@
+{{- if not .Values.persistence.existingClaim }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "mpc-node.dataClaim" . }}
+  labels:
+    {{- include "mpc-node.labels" . | nindent 4 }}
+  annotations:
+    # This volume holds the node's sealed key shares. `helm uninstall` must never delete it.
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+    {{- toYaml .Values.persistence.accessModes | nindent 4 }}
+  {{- with .Values.persistence.storageClass }}
+  storageClassName: {{ if eq . "-" }}""{{ else }}{{ . }}{{ end }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.size }}
+{{- end }}
+{{- if and .Values.backup.enabled .Values.backup.dir.enabled (not .Values.backup.s3.bucket) (not .Values.backup.dir.existingClaim) }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "mpc-node.fullname" . }}-backup
+  labels:
+    {{- include "mpc-node.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- with .Values.backup.dir.storageClass }}
+  storageClassName: {{ if eq . "-" }}""{{ else }}{{ . }}{{ end }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.backup.dir.size }}
+{{- end }}

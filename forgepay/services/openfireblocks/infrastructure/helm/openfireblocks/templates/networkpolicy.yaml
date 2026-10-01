@@ -1,0 +1,80 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- if .Values.mpcSigner.enabled }}
+# mpc-signer (the coordinator): reachable only by the api-gateway and the temporal-worker; may dial only DNS, the signing
+# nodes, Vault (legacy key) and immudb.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "ofb.fullname" . }}-mpc-signer
+  labels:
+    {{- include "ofb.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: mpc-signer
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: api-gateway
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: temporal-worker
+      ports:
+        - protocol: TCP
+          port: {{ .Values.mpcSigner.port }}
+  egress:
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    {{- with .Values.networkPolicy.nodePeers }}
+    - to:
+        {{- toYaml . | nindent 8 }}
+      ports:
+        - protocol: TCP
+          port: {{ $.Values.networkPolicy.nodePort }}
+    {{- end }}
+    {{- with .Values.networkPolicy.vaultPeers }}
+    - to:
+        {{- toYaml . | nindent 8 }}
+      ports:
+        - protocol: TCP
+          port: {{ $.Values.networkPolicy.vaultPort }}
+    {{- end }}
+    {{- with .Values.networkPolicy.immudbPeers }}
+    - to:
+        {{- toYaml . | nindent 8 }}
+      ports:
+        - protocol: TCP
+          port: {{ $.Values.networkPolicy.immudbPort }}
+    {{- end }}
+---
+{{- end }}
+{{- if .Values.policyService.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "ofb.fullname" . }}-policy-service
+  labels:
+    {{- include "ofb.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: policy-service
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: api-gateway
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: temporal-worker
+      ports:
+        - protocol: TCP
+          port: {{ .Values.policyService.port }}
+{{- end }}
+{{- end }}

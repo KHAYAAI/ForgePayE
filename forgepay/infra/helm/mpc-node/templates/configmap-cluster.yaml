@@ -1,0 +1,14 @@
+{{- if and .Values.cluster.json (not .Values.cluster.existingConfigMap) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "mpc-node.clusterConfigMap" . }}
+  labels:
+    {{- include "mpc-node.labels" . | nindent 4 }}
+# cluster.json is PUBLIC (node ids, URLs, public keys, trust-domain labels). The running node re-reads it when it
+# changes, so this ConfigMap is mounted without subPath and deliberately has no checksum annotation: editing it must
+# NOT restart the node.
+data:
+  {{ .Values.cluster.key }}: |
+    {{- .Values.cluster.json | nindent 4 }}
+{{- end }}

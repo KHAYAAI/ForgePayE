@@ -108,3 +108,30 @@ allows only `kms:Encrypt`/`kms:Decrypt` with that encryption context.
 **Not covered:** KMS has not been run against a real AWS account from this repo's test environment (no access); use the check above. The
 treasury's cold address is an address only: moving money *out* of it is whatever controls it (custody, a hardware wallet). Wrong-token discovery
 only finds tokens this gateway knows; for others an operator names the contract.
+
+## Running more than one replica, alerting, the live rand rate, and first contact with real tokens
+
+**Leader election.** The background workers (settlement poller, payout worker, sweeper, treasury, watchdog, rate feed) run on one
+replica at a time: a Postgres advisory lock held on a dedicated connection, released automatically if that connection dies, so another
+replica takes over within `LEADER_RETRY_MS` (5s). Other replicas still serve HTTP. `LEADER_LOCK_ENABLED=false` disables it (single
+instance only). A leader that loses its connection may finish the pass it was in; passes are safe to overlap because payouts are claimed
+in the database and reconciled by hash, and sweeps/treasury moves are state machines. (The openfireblocks gateway's poller and key
+backfill already use advisory locks.)
+
+**Alerts.** `ALERT_WEBHOOK_URL` (+ `ALERT_WEBHOOK_FORMAT=slack|json`), `ALERT_PAGERDUTY_ROUTING_KEY`, `ALERT_ENV`, `ALERT_REMINDER_MINUTES`.
+A watchdog reads state every `WATCHDOG_INTERVAL_MS` (60s) and raises: treasury shortfall (critical), approved payouts unsent for 15 min
+(critical), failed payouts (critical), failed sweeps (warning), USD/ZAR rate near/past expiry (warning/critical), an asset failing
+verification (critical). Settlement raises a critical alert if a deposit's balance is short of what its events show. Critical goes to
+PagerDuty + webhook, warning to the webhook; repeats are suppressed until the reminder interval; each condition sends one "resolved". An
+alert that could not be delivered anywhere is retried, not assumed sent. `GET /alerts` shows state and delivery failures;
+`POST /alerts/test` sends a test through the real destinations — do it after configuring them.
+
+**Live USD/ZAR.** `FX_FEED_ENABLED=true` polls `FX_FEED_SOURCES` (default `frankfurter,open-er-api,coinbase`) every
+`FX_FEED_INTERVAL_MS` (15 min). It stores a rate only if at least `FX_FEED_MIN_SOURCES` (2) answer, they agree within
+`FX_FEED_TOLERANCE_PCT` (1%), the median is within `FX_FEED_MIN`–`FX_FEED_MAX` (5–60), and it is within `FX_FEED_MAX_JUMP_PCT` (5%) of the
+last rate. Otherwise nothing is stored, the old rate ages, and the existing max-age rule stops ZARP quoting (fails closed) with an alert.
+`GET /assets/rates/feed/check` runs the sources once from the deployed gateway without storing. **The provider URLs are their documented
+public APIs and have not been called from this repo's build environment.**
+
+**First contact with Base.** See `docs/ASSET_FIRST_CONTACT.md`: what the gateway probes (proxy, paused, rebasing signs, freezing, fee-like
+settings), the per-deposit balance check, and the manual dust-test procedure to run before real money.

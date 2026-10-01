@@ -1,0 +1,208 @@
+# mpc-node — ONE FORGE threshold-signing node.
+#
+# Install this chart once PER NODE. The security of the cluster rests on each node living in a different trust
+# domain (different cloud account / cluster / operator, with its own seal key and its own policy), so the three
+# releases of a 2-of-3 cluster are normally installed into three different Kubernetes clusters by three different
+# administrators. See values-node1.yaml, values-node2.yaml, values-node3.yaml and README.md.
+
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  repository: forge/mpc-node # built from services/openfireblocks/services/mpc-signer/Dockerfile.node
+  tag: "" # defaults to the chart appVersion; pin a digest-backed tag in production
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+# Only used by the one-time init Job, to print the node's PUBLIC identity.json (the node image has no shell).
+toolsImage:
+  repository: busybox
+  tag: "1.36"
+
+node:
+  id: "" # REQUIRED. The node id: its cluster.json entry AND its certificate common name.
+  domain: "" # Trust-domain label recorded at init (a declaration; make it true). Needed for init only.
+  url: "" # https URL peers and the coordinator reach this node at. Needed for init only.
+  port: 8101
+  dataDir: /data/node # a sub-directory of the volume: `mpc-node` insists it is mode 0700, which a volume root with fsGroup is not
+  env: production # MPC_ENV. "production" refuses file/env seal keys, plain HTTP, one-domain topologies and no backups.
+  maxValueWei: "" # MPC_NODE_MAX_VALUE_WEI, the older single cap; prefer policy.json
+
+# ── Phases ───────────────────────────────────────────────────────────────────
+# 1. init.enabled=true, serve.enabled=false   -> creates the identity, prints identity.json
+# 2. preflight.job.enabled=true               -> checks it (needs cluster.json, TLS, policy, backups)
+# 3. serve.enabled=true                       -> runs the node
+init:
+  enabled: false
+  ttlSecondsAfterFinished: 86400
+  resources:
+    requests: { cpu: 100m, memory: 64Mi }
+    limits: { memory: 256Mi }
+serve:
+  enabled: true
+preflight:
+  initContainer: true # run `mpc-node preflight` before every start of the node
+  job:
+    enabled: false
+    ttlSecondsAfterFinished: 86400
+  resources:
+    requests: { cpu: 100m, memory: 64Mi }
+    limits: { memory: 256Mi }
+
+# ── Seal key (wraps everything at rest) ──────────────────────────────────────
+seal:
+  provider: vault # vault | awskms
+  vault:
+    addr: "" # https://vault.<this node's domain>:8200 - this node's OWN Vault
+    namespace: ""
+    transitMount: transit
+    key: "" # transit key; default mpc-node-<node.id>
+    caCertSecret: # Secret holding the Vault CA, mounted at /etc/mpc/vault-ca (VAULT_CACERT)
+      name: ""
+      key: ca.crt
+    auth: approle # approle | agent
+    approle: # Secret with role-id / secret-id for an AppRole whose policy allows ONE transit key
+      existingSecret: ""
+      roleIdKey: role-id
+      secretIdKey: secret-id
+      mount: approle
+    agent: # Vault Agent Injector (kubernetes auth): the node reads VAULT_TOKEN_FILE
+      role: ""
+      tokenFile: /vault/secrets/token
+      annotations: {}
+  awskms:
+    keyId: "" # the key ARN (not an alias: an alias can be repointed and strand the wrapped key)
+    region: ""
+
+# ── Mutual TLS ───────────────────────────────────────────────────────────────
+# The certificate's common name must be node.id; it needs server AND client auth. Either bring a Secret or let
+# cert-manager issue it from the cluster's shared private CA.
+tls:
+  existingSecret: "" # Secret with the three keys below
+  keys:
+    cert: tls.crt
+    key: tls.key
+    ca: ca.crt
+  certManager:
+    enabled: false
+    issuerRef:
+      name: ""
+      kind: ClusterIssuer
+      group: cert-manager.io
+    duration: 2160h # 90 days (the `mpc-node pki-issue` default)
+    renewBefore: 360h # the node reloads renewed files without a restart
+    dnsNames: [] # the host names in this node's cluster.json URL
+    ipAddresses: []
+
+# ── cluster.json (PUBLIC) ────────────────────────────────────────────────────
+# Assembled with `mpc-node cluster -threshold N -coordinator-pub HEX -out cluster.json id1.json id2.json id3.json`
+# from the three nodes' identity.json. The running node reloads it when the ConfigMap changes.
+cluster:
+  json: "" # paste the file's content (helm --set-file cluster.json=cluster.json), or...
+  existingConfigMap: "" # ...reference one that already exists
+  key: cluster.json
+
+# ── This node's OWN signing policy (owned by whoever operates THIS node) ─────
+# Rendered to JSON. Rules: maxValueWei, maxFeeWei, dailyLimitWei, maxTxPerHour, allowedChainIds, allowedDestinations,
+# blockedDestinations, allowCalldata, allowedSelectors (docs/threshold-signing.md). Keep wei values as QUOTED strings.
+policy:
+  json: {}
+  existingConfigMap: ""
+  key: policy.json
+  allowEmpty: false # true accepts a node that co-signs whatever the coordinator asks
+
+# ── Backups of this node's key shares ────────────────────────────────────────
+# Production nodes refuse to start without them. Each backup is encrypted to the recovery PUBLIC keys below before it
+# leaves the node (the private recovery key never goes near a node). Choose ONE sink.
+# Variable names follow services/openfireblocks/services/mpc-signer/internal/mpc/backup_env.go (work in progress).
+backup:
+  enabled: true
+  recipients: [] # MPC_BACKUP_RECIPIENTS: fprec1:... public recovery keys (comma-joined by the chart)
+  interval: "" # MPC_BACKUP_INTERVAL, e.g. 6h (empty: the node's default)
+  s3:
+    bucket: "" # MPC_BACKUP_S3_BUCKET - see terraform module mpc-backup-bucket (one bucket per node, in the node's own account)
+    prefix: "" # MPC_BACKUP_S3_PREFIX
+    kmsKey: "" # MPC_BACKUP_S3_KMS_KEY (SSE-KMS key ARN; empty uses the bucket default)
+    region: "" # AWS_REGION when the seal provider is not awskms
+  dir: # MPC_BACKUP_DIR: a SEPARATE volume (backups on the same disk as the shares protect against nothing)
+    enabled: false
+    path: /backup
+    size: 2Gi
+    storageClass: ""
+    existingClaim: ""
+
+# ── Storage ──────────────────────────────────────────────────────────────────
+# The data volume holds the sealed shares and the audit log. It is created by this chart (not a volumeClaimTemplate) so
+# the init Job can use it before the node exists, and it is annotated helm.sh/resource-policy: keep.
+persistence:
+  size: 5Gi
+  storageClass: "" # "-" for the empty class
+  accessModes: [ReadWriteOnce]
+  existingClaim: ""
+
+serviceAccount:
+  create: true
+  name: ""
+  # AWS (IRSA): eks.amazonaws.com/role-arn: arn:aws:iam::<node account>:role/mpc-node1
+  annotations: {}
+  automountToken: false # forced on with seal.vault.auth=agent
+
+service:
+  type: ClusterIP # LoadBalancer for cross-cluster peers (layer 4 only: mTLS must terminate at the node)
+  port: 8101
+  annotations: {}
+  loadBalancerSourceRanges: []
+
+# ── Network ──────────────────────────────────────────────────────────────────
+networkPolicy:
+  enabled: true
+  ingress:
+    # NetworkPolicyPeer list allowed to connect on node.port: the coordinator and the other nodes. Empty = nothing can.
+    from: []
+  egress:
+    peers: [] # NetworkPolicyPeer list: the other nodes (ipBlock for peers in other clusters)
+    peerPort: 8101
+    keyService: [] # NetworkPolicyPeer list for Vault (seal.provider=vault)
+    keyServicePort: 8200
+    allowPublicHttps: false # AWS APIs are allowed automatically for awskms / an S3 backup sink
+    extra: [] # raw egress rules (VPC endpoints, a proxy...)
+
+pdb:
+  enabled: true
+  minAvailable: 1 # blocks voluntary eviction of the only pod; see README before enabling automatic node upgrades
+  maxUnavailable: null # set to 1 to allow evictions
+
+# ── Pod ──────────────────────────────────────────────────────────────────────
+# Key generation is CPU heavy: Paillier safe primes and pre-parameters. The full integration test of 3 real nodes
+# takes about ten minutes on 4 cores, and a node that has just been used may need a minute before its next ceremony.
+# So: request real CPU, and set NO CPU limit (throttling stretches keygen/reshare until the coordinator times out).
+resources:
+  requests:
+    cpu: "2"
+    memory: 1Gi
+  limits:
+    memory: 2Gi
+terminationGracePeriodSeconds: 120 # let an in-flight ceremony finish
+podAnnotations: {}
+podLabels: {}
+priorityClassName: ""
+nodeSelector: {}
+tolerations: []
+affinity: {}
+extraEnv: [] # e.g. - { name: AWS_ENDPOINT_URL_S3, value: https://s3.internal } (kubernetes EnvVar list)
+
+# 65532 is the `nonroot` user of the distroless image.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  fsGroupChangePolicy: OnRootMismatch
+  seccompProfile:
+    type: RuntimeDefault
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  capabilities:
+    drop: ["ALL"]

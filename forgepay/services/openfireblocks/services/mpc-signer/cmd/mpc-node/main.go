@@ -50,6 +50,12 @@ func main() {
 		err = cmdPreflight(args)
 	case "seal-check":
 		err = cmdSealCheck(args)
+	case "backup-keygen":
+		err = cmdBackupKeygen(args)
+	case "backup-inspect", "backup-drill":
+		err = cmdBackupInspect(args)
+	case "backup-restore":
+		err = cmdBackupRestore(args)
 	case "pki-init":
 		err = cmdPKIInit(args)
 	case "pki-issue":
@@ -63,7 +69,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: mpc-node <init|coordinator-key|cluster|serve|verify-audit|seal-migrate|seal-rewrap|preflight|seal-check|pki-init|pki-issue> [flags]")
+	fmt.Fprintln(os.Stderr, "usage: mpc-node <init|coordinator-key|cluster|serve|verify-audit|seal-migrate|seal-rewrap|preflight|seal-check|backup-keygen|backup-inspect|backup-restore|pki-init|pki-issue> [flags]")
 	os.Exit(2)
 }
 
@@ -167,6 +173,21 @@ func cmdServe(args []string) error {
 	node, err := mpc.NewNode(cfg)
 	if err != nil {
 		return err
+	}
+	bcfg, err := mpc.BackupFromEnv(context.Background(), *clusterFile)
+	if err != nil {
+		return err
+	}
+	switch {
+	case bcfg != nil:
+		if err := node.EnableBackups(*bcfg); err != nil {
+			return err
+		}
+		log.Printf("key-share backups on: %s (encrypted to %d recovery key(s))", bcfg.Sink.Name(), len(bcfg.Recipients))
+	case mpc.Production():
+		return fmt.Errorf("MPC_ENV=production requires key-share backups (MPC_BACKUP_RECIPIENTS plus MPC_BACKUP_DIR or MPC_BACKUP_S3_BUCKET): losing 2 of 3 nodes would otherwise lose the funds")
+	default:
+		log.Printf("WARNING: no key-share backups configured; losing enough nodes loses the keys permanently")
 	}
 	log.Printf("mpc-node %s listening on %s (%d nodes, threshold %d, %d trust domain(s))",
 		*id, *listen, len(cluster.Nodes), cluster.Threshold, cluster.TrustDomains())

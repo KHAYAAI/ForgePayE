@@ -1,0 +1,54 @@
+# Example production-shaped values (also used by CI to lint/render the full feature set). No secrets: only references
+# to Secrets that must exist beforehand.
+replicaCount: 2
+leaderLock:
+  enabled: true
+image:
+  repository: ghcr.io/example/forgepay/stablecoin-gateway
+  tag: "2026.10.1"
+config:
+  CORS_ALLOWED_ORIGINS: "https://dashboard.example.com"
+  DEPOSIT_MONITOR_CHAINS: "base,polygon"
+  ASSETS_ENABLED: "USDC,USDT,ZARP,OUSD"
+  PAYOUT_SIGNER_CHAIN: base
+  PAYOUT_SIGNER_CHAIN_ID: "8453"
+  PAYOUT_SIGNER_DAILY_MAX_USD: "50000"
+  SWEEP_MIN_USD: "5"
+  REPLENISH_LOW_USD: "500"
+  REPLENISH_TARGET_USD: "2000"
+  REPLENISH_DAILY_MAX_USD: "10000"
+  ALERT_ENV: production
+keyWrap:
+  provider: awskms
+  awskms:
+    keyId: arn:aws:kms:us-east-1:111111111111:key/00000000-0000-0000-0000-0000000000d1
+    region: us-east-1
+payout:
+  signerEnabled: true
+  keySecret: { name: sgw-payout-signer-key, key: key }
+sweep:
+  enabled: true
+  treasuryAddress: "0x0000000000000000000000000000000000000001"
+  gasKeySecret: { name: sgw-sweep-gas-key, key: key }
+treasury:
+  enabled: true
+  operatingKeySecret: { name: sgw-treasury-operating-key, key: key }
+  coldAddress: "0x0000000000000000000000000000000000000002"
+alerts:
+  webhookSecret: { name: sgw-alerts, key: webhook-url }
+  pagerdutySecret: { name: sgw-alerts, key: pagerduty-routing-key }
+serviceAccount:
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::111111111111:role/forgepay-production-stablecoin-gateway
+autoscaling:
+  enabled: true
+  minReplicas: 2
+networkPolicy:
+  extraEgress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: forge-custody
+      ports:
+        - protocol: TCP
+          port: 8080

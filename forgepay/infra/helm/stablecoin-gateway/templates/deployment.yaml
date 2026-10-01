@@ -5,7 +5,21 @@ metadata:
   labels:
     {{- include "stablecoin-gateway.labels" . | nindent 4 }}
 spec:
+  {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  strategy:
+    {{- if .Values.strategy }}
+    {{- toYaml .Values.strategy | nindent 4 }}
+    {{- else if .Values.leaderLock.enabled }}
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    {{- else }}
+    # No leader lock: the new pod must not run the workers while the old one still does.
+    type: Recreate
+    {{- end }}
   selector:
     matchLabels:
       {{- include "stablecoin-gateway.selectorLabels" . | nindent 6 }}
@@ -13,26 +27,34 @@ spec:
     metadata:
       labels:
         {{- include "stablecoin-gateway.selectorLabels" . | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
     spec:
+      serviceAccountName: {{ include "stablecoin-gateway.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       securityContext:
         runAsNonRoot: true
         runAsUser: 1001
         fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: stablecoin-gateway
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http
-              containerPort: 8020
+              containerPort: {{ include "stablecoin-gateway.port" . }}
               protocol: TCP
           env:
-            - name: NODE_ENV
-              value: {{ .Values.env.NODE_ENV | quote }}
-            - name: LOG_LEVEL
-              value: {{ .Values.env.LOG_LEVEL | quote }}
-            - name: PORT
-              value: {{ .Values.env.PORT | quote }}
+            {{- include "stablecoin-gateway.plainEnv" . | nindent 12 }}
             - name: POSTGRES_HOST
               value: {{ .Values.global.postgresql.host | default "forgepay-postgresql" | quote }}
             - name: POSTGRES_PORT
@@ -40,14 +62,112 @@ spec:
             - name: POSTGRES_DB
               value: {{ .Values.global.postgresql.database | default "forgepay" | quote }}
             - name: POSTGRES_USER
-              value: "forgepay"
+              value: {{ .Values.global.postgresql.user | default "forgepay" | quote }}
             - name: REDIS_URL
               value: {{ .Values.global.redis.url | default "redis://forgepay-redis-master:6379" | quote }}
             - name: UNIFIED_ROUTER_URL
               value: {{ .Values.global.unifiedRouterUrl | default "http://forgepay-unified-router:8000" | quote }}
+            - name: LEADER_LOCK_ENABLED
+              value: {{ .Values.leaderLock.enabled | quote }}
+            {{- with .Values.leaderLock.retryMs }}
+            - name: LEADER_RETRY_MS
+              value: {{ . | quote }}
+            {{- end }}
+            {{- range $k, $v := .Values.config }}
+            {{- if ne (toString $v) "" }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+            {{- end }}
+            {{- /* Deposit-key custody */}}
+            {{- with .Values.keyWrap.provider }}
+            - name: KEY_WRAP_PROVIDER
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.keyWrap.dekTtlSeconds }}
+            - name: KEY_WRAP_DEK_TTL_SECONDS
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if eq .Values.keyWrap.provider "vault" }}
+            - name: VAULT_ADDR
+              value: {{ .Values.keyWrap.vault.addr | quote }}
+            - name: KEY_WRAP_VAULT_KEY
+              value: {{ .Values.keyWrap.vault.key | quote }}
+            {{- with .Values.keyWrap.vault.mount }}
+            - name: KEY_WRAP_VAULT_MOUNT
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.keyWrap.vault.namespace }}
+            - name: VAULT_NAMESPACE
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.keyWrap.vault.approleMount }}
+            - name: VAULT_APPROLE_MOUNT
+              value: {{ . | quote }}
+            {{- end }}
+            - name: VAULT_ROLE_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.keyWrap.vault.approleSecret.name }}
+                  key: {{ .Values.keyWrap.vault.approleSecret.roleIdKey }}
+            - name: VAULT_SECRET_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.keyWrap.vault.approleSecret.name }}
+                  key: {{ .Values.keyWrap.vault.approleSecret.secretIdKey }}
+            {{- else if eq .Values.keyWrap.provider "awskms" }}
+            - name: KEY_WRAP_KMS_KEY_ID
+              value: {{ .Values.keyWrap.awskms.keyId | quote }}
+            - name: AWS_REGION
+              value: {{ .Values.keyWrap.awskms.region | quote }}
+            {{- end }}
+            {{- /* Workers */}}
+            {{- if .Values.payout.signerEnabled }}
+            - name: PAYOUT_SIGNER_ENABLED
+              value: "true"
+            - name: PAYOUT_SIGNER_KEY_FILE
+              value: /run/secrets/payout-signer/{{ .Values.payout.keySecret.key }}
+            - name: PAYOUT_AUTO_SUBMIT
+              value: {{ .Values.payout.autoSubmit | quote }}
+            {{- end }}
+            {{- if .Values.sweep.enabled }}
+            - name: SWEEP_ENABLED
+              value: "true"
+            - name: SWEEP_TREASURY_ADDRESS
+              value: {{ .Values.sweep.treasuryAddress | quote }}
+            - name: SWEEP_GAS_KEY_FILE
+              value: /run/secrets/sweep-gas/{{ .Values.sweep.gasKeySecret.key }}
+            {{- end }}
+            {{- if .Values.treasury.enabled }}
+            - name: TREASURY_MANAGER_ENABLED
+              value: "true"
+            - name: TREASURY_WARM_KEY_FILE
+              value: /run/secrets/treasury-operating/{{ .Values.treasury.operatingKeySecret.key }}
+            {{- with .Values.treasury.coldAddress }}
+            - name: TREASURY_COLD_ADDRESS
+              value: {{ . | quote }}
+            {{- end }}
+            {{- end }}
+            {{- /* Alerting */}}
+            {{- with .Values.alerts.webhookSecret.name }}
+            - name: ALERT_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . }}
+                  key: {{ $.Values.alerts.webhookSecret.key }}
+            {{- end }}
+            {{- with .Values.alerts.pagerdutySecret.name }}
+            - name: ALERT_PAGERDUTY_ROUTING_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . }}
+                  key: {{ $.Values.alerts.pagerdutySecret.key }}
+            {{- end }}
           envFrom:
             - secretRef:
                 name: {{ .Values.secretRef }}
+          startupProbe:
+            {{- toYaml .Values.startupProbe | nindent 12 }}
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:
@@ -59,3 +179,65 @@ spec:
             readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            {{- if .Values.payout.signerEnabled }}
+            - name: payout-signer-key
+              mountPath: /run/secrets/payout-signer
+              readOnly: true
+            {{- end }}
+            {{- if .Values.sweep.enabled }}
+            - name: sweep-gas-key
+              mountPath: /run/secrets/sweep-gas
+              readOnly: true
+            {{- end }}
+            {{- if .Values.treasury.enabled }}
+            - name: treasury-operating-key
+              mountPath: /run/secrets/treasury-operating
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        {{- if .Values.payout.signerEnabled }}
+        - name: payout-signer-key
+          secret:
+            secretName: {{ .Values.payout.keySecret.name }}
+            defaultMode: 288 # 0440
+        {{- end }}
+        {{- if .Values.sweep.enabled }}
+        - name: sweep-gas-key
+          secret:
+            secretName: {{ .Values.sweep.gasKeySecret.name }}
+            defaultMode: 288 # 0440
+        {{- end }}
+        {{- if .Values.treasury.enabled }}
+        - name: treasury-operating-key
+          secret:
+            secretName: {{ .Values.treasury.operatingKeySecret.name }}
+            defaultMode: 288 # 0440
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.affinity }}
+      affinity:
+        {{- toYaml .Values.affinity | nindent 8 }}
+      {{- else if eq (include "stablecoin-gateway.multiReplica" .) "true" }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    {{- include "stablecoin-gateway.selectorLabels" . | nindent 20 }}
+                topologyKey: kubernetes.io/hostname
+      {{- end }}

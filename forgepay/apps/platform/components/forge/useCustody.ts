@@ -130,6 +130,8 @@ export interface CustodyConsole {
       /** Where the node keeps its seal key: file (development only), env, vault, awskms. */
       seal_provider?: string;
       mtls?: boolean;
+      /** The node's own report of its encrypted key-share backups. */
+  backup?: { enabled: boolean; stale?: boolean; coversCurrentShares?: boolean; lastError?: string; lastOk?: string } | null;
       /** The node's own signing rules, which it enforces whatever the gateway asks. */
       policy?: { digest: string; active: string[] } | null;
     }>;

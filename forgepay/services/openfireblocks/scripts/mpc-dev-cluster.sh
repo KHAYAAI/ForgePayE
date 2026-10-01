@@ -14,6 +14,9 @@
 #   MPC_DEV_TLS=1            mutual TLS between coordinator and nodes, from a private CA in DIR/pki
 #   MPC_DEV_SEAL=vault       seal keys wrapped by Vault transit (needs VAULT_ADDR and VAULT_TOKEN)
 #   MPC_DEV_POLICY=0         don't write a per-node policy file (default: a modest dev policy)
+#   MPC_DEV_BACKUP=1         encrypted key-share backups to DIR/backups, with a recovery key whose
+#                            3 officer shares are written to DIR/recovery (DEV ONLY: in production
+#                            those go to three different people and are deleted from the machine)
 #   MPC_DEV_BASE_PORT=8101
 #
 # Idempotent: the first run creates identities, the coordinator key and
@@ -67,12 +70,21 @@ fi
 node_env() { # node-specific environment for `mpc-node`
   local i=$1
   echo "MPC_SEAL_PROVIDER=$SEAL"
+  if [ "${MPC_DEV_BACKUP:-0}" = "1" ] || [ -f "$DIR/recovery/recipient.txt" ]; then
+    echo "MPC_BACKUP_RECIPIENTS=$(cat "$DIR/recovery/recipient.txt")"
+    echo "MPC_BACKUP_DIR=$DIR/backups"
+  fi
   if [ "$TLS" = "1" ]; then
     echo "MPC_TLS_CA_FILE=$DIR/pki/node$i/ca.pem"
     echo "MPC_TLS_CERT_FILE=$DIR/pki/node$i/cert.pem"
     echo "MPC_TLS_KEY_FILE=$DIR/pki/node$i/key.pem"
   fi
 }
+
+if [ "${MPC_DEV_BACKUP:-0}" = "1" ] && [ ! -f "$DIR/recovery/recipient.txt" ]; then
+  "$BIN" backup-keygen -k 2 -n 3 -out "$DIR/recovery" > /dev/null
+  echo "created a recovery key in $DIR/recovery (dev only: officer shares sit next to the cluster)"
+fi
 
 if [ ! -f "$DIR/cluster.json" ]; then
   "$BIN" coordinator-key -out "$DIR/coordinator.key" > "$DIR/coordinator.pub"

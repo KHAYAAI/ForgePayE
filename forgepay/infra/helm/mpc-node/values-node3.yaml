@@ -1,0 +1,71 @@
+# EXAMPLE - node3: a third operator on a non-AWS cluster, with its OWN HashiCorp Vault holding the seal key (transit key
+# mpc-node-node3, AppRole limited to that key: services/openfireblocks/deploy/mpc/vault-policy.example.hcl) and a
+# directory backup sink on a separate volume. Nothing about node3 depends on accounts or secrets of node1 or node2.
+#
+# Before installing, node3's operators create (out of band, never in git):
+#   kubectl -n mpc create secret generic mpc-node3-approle --from-literal=role-id=... --from-literal=secret-id=...
+node:
+  id: node3
+  domain: operator-c-vault
+  url: https://node3.mpc.operator-c.example:8101
+  env: production
+
+seal:
+  provider: vault
+  vault:
+    addr: https://vault.operator-c.example:8200
+    key: mpc-node-node3
+    auth: approle
+    approle:
+      existingSecret: mpc-node3-approle
+    caCertSecret:
+      name: operator-c-vault-ca
+      key: ca.crt
+  # Alternative: Vault Agent Injector with Kubernetes auth
+  #   auth: agent
+  #   agent: { role: mpc-node3 }
+
+tls:
+  certManager:
+    enabled: true
+    issuerRef:
+      name: forge-mpc-ca
+      kind: ClusterIssuer
+    dnsNames:
+      - node3.mpc.operator-c.example
+
+policy:
+  json:
+    maxValueWei: "50000000000000000000"
+    maxFeeWei: "500000000000000000"
+    dailyLimitWei: "200000000000000000000"
+    maxTxPerHour: 60
+    allowedChainIds: [1]
+    allowCalldata: false
+
+backup:
+  recipients:
+    - fprec1:REPLACE-WITH-RECOVERY-PUBLIC-KEY-1
+    - fprec1:REPLACE-WITH-RECOVERY-PUBLIC-KEY-2
+  dir:
+    enabled: true
+    path: /backup
+    size: 2Gi
+    storageClass: other-array # a different backing store from the data volume
+
+service:
+  type: LoadBalancer
+  loadBalancerSourceRanges: [203.0.113.0/24, 198.51.100.0/24]
+
+networkPolicy:
+  ingress:
+    from:
+      - ipBlock: { cidr: 203.0.113.0/24 }
+      - ipBlock: { cidr: 198.51.100.0/24 }
+  egress:
+    peers:
+      - ipBlock: { cidr: 203.0.113.0/24 }
+      - ipBlock: { cidr: 198.51.100.0/24 }
+    keyService:
+      - ipBlock: { cidr: 10.50.0.0/16 } # operator C's Vault
+    keyServicePort: 8200

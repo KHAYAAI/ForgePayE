@@ -1,0 +1,46 @@
+{{- if .Values.serve.enabled }}
+# Headless Service: the StatefulSet's stable network identity.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "mpc-node.fullname" . }}-headless
+  labels:
+    {{- include "mpc-node.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    {{- include "mpc-node.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: mtls
+      port: {{ .Values.node.port }}
+      targetPort: mtls
+---
+# The address peers use. mTLS terminates AT THE NODE, so any load balancer in front must be layer 4 (TCP/TLS
+# passthrough), never one that terminates TLS: the node must see the caller's client certificate.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "mpc-node.fullname" . }}
+  labels:
+    {{- include "mpc-node.labels" . | nindent 4 }}
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  {{- if eq .Values.service.type "LoadBalancer" }}
+  {{- with .Values.service.loadBalancerSourceRanges }}
+  loadBalancerSourceRanges:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- end }}
+  selector:
+    {{- include "mpc-node.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: mtls
+      port: {{ .Values.service.port }}
+      targetPort: mtls
+      protocol: TCP
+{{- end }}

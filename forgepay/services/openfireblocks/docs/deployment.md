@@ -55,6 +55,13 @@ Key values (see `infrastructure/helm/openfireblocks/values.yaml`):
 - `serviceMonitor.enabled` — set true with the Prometheus Operator installed
 - `ingress.enabled` — front the gateway with an ingress
 
+### Threshold custody (nodes, coordinator, backups)
+
+The chart above also deploys the threshold-signing **coordinator** (`mpcSigner.threshold.*`, mutual TLS, `cluster.json`, coordinator key) and
+adds `NetworkPolicy` / `PodDisruptionBudget` templates. The signing **nodes** are a separate chart, `infra/helm/mpc-node`, installed once per
+node in separate trust domains. The ordered runbook, with every variable and secret, is `forgepay/docs/DEPLOYING_THRESHOLD_CUSTODY.md`.
+`infrastructure/helm/openfireblocks/ci/threshold-values.yaml` is an example with the custody path switched on.
+
 ### Raw manifests
 
 A standalone, non-Helm set lives in `infrastructure/kubernetes/`:

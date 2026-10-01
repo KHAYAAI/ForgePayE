@@ -1,24 +1,115 @@
-replicaCount: 3
+# Stablecoin gateway chart.
+#
+# ── Replicas and the background workers ─────────────────────────────────────────────────────────────────
+# Besides serving HTTP, every gateway process runs background workers: the settlement poller, the payout worker, the
+# sweeper and the treasury manager (the last three only when enabled below). They move money. Left uncoordinated they
+# must run in EXACTLY ONE replica. With leaderLock.enabled (env LEADER_LOCK_ENABLED, default true) the replicas compete
+# for a Postgres session-level advisory lock and only the holder runs the workers; the others serve HTTP and wait, and
+# one takes over within LEADER_RETRY_MS if the leader's database connection dies. That is what makes replicaCount > 1
+# safe. The lock needs the gateway to reach Postgres DIRECTLY (a transaction-pooling proxy such as PgBouncer in
+# transaction mode would release it, or share it between replicas).
+#
+# This chart refuses to render more than one replica (or an HPA) when leaderLock.enabled is false. It cannot know
+# whether the IMAGE you deploy contains the leader election: only raise replicaCount above 1 once it does.
+replicaCount: 1
+
+leaderLock:
+  enabled: true # LEADER_LOCK_ENABLED
+  retryMs: "" # LEADER_RETRY_MS (app default 5000)
+
 image:
   repository: forgepay/stablecoin-gateway
   tag: latest
   pullPolicy: IfNotPresent
+imagePullSecrets: []
+
 service:
   type: ClusterIP
   port: 8020
+
+# Plain environment. A map (name: value). The first three are the long-standing keys; anything else non-secret can go in
+# `config` below. (A list of {name, value} entries, as some staging value files use, is also accepted.)
 env:
   NODE_ENV: production
   LOG_LEVEL: info
   PORT: '8020'
+
+# Non-secret settings, rendered as environment variables; empty values are skipped. Documented in
+# services/stablecoin-gateway/.env.example and docs/DEPLOYING_THRESHOLD_CUSTODY.md. Examples:
+#   CORS_ALLOWED_ORIGINS: "https://dashboard.example.com"   # REQUIRED in production: the gateway refuses to boot without it
+#   DEPOSIT_MONITOR_CHAINS: "base,polygon"
+#   ETH_RPC_URL / BASE_RPC_URL / POLYGON_RPC_URL / ARBITRUM_RPC_URL     (use a provider URL WITHOUT an embedded key, or put it in the secret)
+#   ASSETS_ENABLED: "USDC,USDT,ZARP,OUSD"
+#   PAYOUT_SIGNER_CHAIN: base, PAYOUT_SIGNER_CHAIN_ID: "8453", PAYOUT_SIGNER_RPC_URL, PAYOUT_SIGNER_DAILY_MAX_USD, PAYOUT_AUTO_APPROVE_MAX_USD, PAYOUT_ABSOLUTE_MAX_USD
+#   SWEEP_MIN_USD, SWEEP_MAX_GAS_GWEI, SWEEP_GAS_MARGIN_PCT, SWEEP_INTERVAL_MS, SWEEP_CHAIN_ID_BASE
+#   REPLENISH_LOW_USD, REPLENISH_TARGET_USD, REPLENISH_DAILY_MAX_USD, TREASURY_WARM_MAX_USD, TREASURY_WARM_TARGET_USD, TREASURY_CHAIN, TREASURY_CHAIN_ID
+#   FX_MAX_AGE_HOURS, FX_FEED_ENABLED, FX_FEED_SOURCES
+#   WATCHDOG_INTERVAL_MS, ALERT_ENV, ALERT_WEBHOOK_FORMAT, ALERT_REMINDER_MINUTES
+config:
+  CORS_ALLOWED_ORIGINS: ""
+
+# Secret read as environment variables (envFrom): one KEY per variable. Typical keys:
+#   POSTGRES_PASSWORD, INTERNAL_WEBHOOK_SECRET   (required: the gateway will not start without them)
+#   VALID_API_KEYS                               (admin keys, >= 32 chars each; REQUIRED in production)
+#   MERCHANT_API_KEYS                            (merchantId:key,...)
+# Create it out of band (External Secrets / sealed-secrets); this chart never renders a Secret.
 secretRef: forgepay-stablecoin-gateway-secrets
-shielded:
-  enabled: false
-  monitorIntervalMs: '30000'
-  nullifierRegistry:
-    ethereum: '0x0000000000000000000000000000000000000000'
-    polygon: '0x0000000000000000000000000000000000000000'
-    base: '0x0000000000000000000000000000000000000000'
-    arbitrum: '0x0000000000000000000000000000000000000000'
+
+# ── Deposit-key custody (KEY_WRAP_PROVIDER) ─────────────────────────────────────────────────────────────
+# How each one-time deposit key's data key is wrapped. Production must use vault or awskms ("env" keeps the wrapping key
+# in the environment and the gateway warns about it). Leave provider empty only for development.
+keyWrap:
+  provider: "" # vault | awskms | env
+  dekTtlSeconds: "" # KEY_WRAP_DEK_TTL_SECONDS (app default 3600)
+  vault:
+    addr: "" # VAULT_ADDR
+    key: stablecoin-deposit-keys # KEY_WRAP_VAULT_KEY (transit key)
+    mount: "" # KEY_WRAP_VAULT_MOUNT (app default transit)
+    namespace: "" # VAULT_NAMESPACE
+    approleMount: "" # VAULT_APPROLE_MOUNT
+    approleSecret: # Secret with the AppRole credentials -> VAULT_ROLE_ID / VAULT_SECRET_ID
+      name: ""
+      roleIdKey: role-id
+      secretIdKey: secret-id
+  awskms:
+    keyId: "" # KEY_WRAP_KMS_KEY_ID - the key ARN (see terraform module kms-keys: deposit_key_arn)
+    region: "" # AWS_REGION
+
+# ── Money-moving workers; each OFF until enabled ────────────────────────────────────────────────────────
+# Key material is read from FILES mounted from Secrets (…_KEY_FILE), never from the environment.
+payout:
+  signerEnabled: false # PAYOUT_SIGNER_ENABLED
+  autoSubmit: true # PAYOUT_AUTO_SUBMIT (false: an operator calls POST /payouts/:id/submit)
+  keySecret: { name: "", key: key } # -> PAYOUT_SIGNER_KEY_FILE
+sweep:
+  enabled: false # SWEEP_ENABLED
+  treasuryAddress: "" # SWEEP_TREASURY_ADDRESS: the OPERATING wallet (not a secret)
+  gasKeySecret: { name: "", key: key } # -> SWEEP_GAS_KEY_FILE, a SEPARATE wallet that pays sweep gas
+treasury:
+  enabled: false # TREASURY_MANAGER_ENABLED (needs payout.signerEnabled)
+  operatingKeySecret: { name: "", key: key } # -> TREASURY_WARM_KEY_FILE
+  coldAddress: "" # TREASURY_COLD_ADDRESS: public; this service holds no key for it
+
+# ── Alerting ────────────────────────────────────────────────────────────────────────────────────────────
+# Webhook / PagerDuty sinks (src/lib/alerts.ts). The URL and routing key are credentials: they come from Secrets.
+alerts:
+  webhookSecret: { name: "", key: url } # -> ALERT_WEBHOOK_URL
+  pagerdutySecret: { name: "", key: routing-key } # -> ALERT_PAGERDUTY_ROUTING_KEY
+
+serviceAccount:
+  create: true
+  name: ""
+  # AWS (IRSA) for KEY_WRAP_PROVIDER=awskms: eks.amazonaws.com/role-arn: arn:aws:iam::<account>:role/<gateway role>
+  annotations: {}
+
+# Rolling updates need leaderLock; without it the new pod must not overlap the old one (Recreate).
+strategy: {}
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
 resources:
   requests:
     cpu: 600m
@@ -26,23 +117,37 @@ resources:
   limits:
     cpu: 1000m
     memory: 2Gi
+
+# Off by default: an HPA would scale the worker-running pods. Turn on only with leaderLock.enabled (it is still the
+# leader, not the extra replicas, that does the money-moving work, so scaling out adds HTTP capacity only).
 autoscaling:
-  enabled: true
-  minReplicas: 3
+  enabled: false
+  minReplicas: 2
   maxReplicas: 8
   targetCPUUtilizationPercentage: 70
+
+# /healthz is liveness; /readyz checks Postgres. Migrations run in the app BEFORE the port opens, so the startup probe
+# allows for them (and for the start-up asset verification against the chain RPCs).
+startupProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  periodSeconds: 5
+  failureThreshold: 60
 livenessProbe:
   httpGet:
     path: /healthz
-    port: 8020
+    port: http
   initialDelaySeconds: 10
   periodSeconds: 15
 readinessProbe:
   httpGet:
     path: /readyz
-    port: 8020
+    port: http
   initialDelaySeconds: 5
   periodSeconds: 10
+terminationGracePeriodSeconds: 30
+
 metrics:
   enabled: true
   port: 9093
@@ -56,13 +161,16 @@ serviceMonitor:
 
 podDisruptionBudget:
   enabled: true
-  minAvailable: 1
+  minAvailable: 1 # with a single replica the chart uses maxUnavailable: 1 instead, so drains are not blocked
 
 networkPolicy:
   enabled: true
   allowIngressFromIngressController: false
   ingressControllerNamespace: ingress-nginx
   monitoringNamespace: monitoring
+  # Extra egress rules (raw NetworkPolicy egress entries): Vault in another namespace, an RDS/Redis range, the
+  # mpc-signer, a PagerDuty/webhook proxy ...
+  extraEgress: []
 
 # Standalone-install fallback for the global.* values the umbrella chart
 # (forgepay-stack) normally injects. `helm lint`/`helm template` on this

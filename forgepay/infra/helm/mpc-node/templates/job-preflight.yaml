@@ -1,0 +1,53 @@
+{{- if .Values.preflight.job.enabled }}
+# Pre-install check as a Job: run it AFTER init and BEFORE enabling the node (serve.enabled=false), because the data volume
+# is ReadWriteOnce and the node pod would hold it. The StatefulSet also runs the same check as an init container on every
+# start (preflight.initContainer). `mpc-node preflight` exits non-zero if production start-up would refuse; read its output:
+#   kubectl logs job/<release>-preflight
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "mpc-node.fullname" . }}-preflight
+  labels:
+    {{- include "mpc-node.labels" . | nindent 4 }}
+spec:
+  backoffLimit: 0
+  {{- with .Values.preflight.job.ttlSecondsAfterFinished }}
+  ttlSecondsAfterFinished: {{ . }}
+  {{- end }}
+  template:
+    metadata:
+      labels:
+        {{- include "mpc-node.labels" . | nindent 8 }}
+      {{- $ann := include "mpc-node.podAnnotations" . | trim }}
+      {{- if $ann }}
+      annotations:
+        {{- $ann | nindent 8 }}
+      {{- end }}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "mpc-node.serviceAccountName" . }}
+      automountServiceAccountToken: {{ or .Values.serviceAccount.automountToken (eq (include "mpc-node.vaultAgent" .) "true") }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: preflight
+          image: {{ include "mpc-node.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - preflight
+            {{- include "mpc-node.nodeArgs" . | nindent 12 }}
+          env:
+            {{- include "mpc-node.runEnv" . | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.preflight.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "mpc-node.runVolumeMounts" . | nindent 12 }}
+      volumes:
+        {{- include "mpc-node.runVolumes" . | nindent 8 }}
+{{- end }}

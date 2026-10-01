@@ -14,6 +14,9 @@ external module registry dependency).
 | `s3` | Backups / logs / artifacts buckets with versioning, SSE, public-access block | `backup_bucket_name`, `logs_bucket_name`, `artifacts_bucket_name` |
 | `cloudfront` | CloudFront distribution fronting the ALB origin, ACM viewer cert | `domain_name`, `distribution_id` |
 | `monitoring` | CloudWatch log group, SNS alert topic (+ email sub), RDS/Redis CPU alarms | `alerts_topic_arn`, `log_group_name` |
+| `kms-keys` | Threshold custody: KMS key that wraps the stablecoin-gateway's deposit keys (`purpose = deposit-keys`) and one seal key per MPC node (`mpc-node = <id>`), rotation on, 30-day deletion window, key policy + least-privilege IAM policies | `deposit_key_arn`, `mpc_seal_key_arns`, `*_iam_policy_json` |
+| `mpc-backup-bucket` | One node's share-backup bucket: versioned, SSE-KMS, private, deletes denied to everyone except one named pruner role, noncurrent-version lifecycle, optional Object Lock | `bucket_name`, `kms_key_arn`, `writer_iam_policy_json`, `pruner_iam_policy_json` |
+| `alerts` | Custody alert SNS topic (+ subscriptions), gateway `sns:Publish` policy, log-pattern and custom-metric CloudWatch alarms | `topic_arn`, `publish_policy_arn` |
 
 ## Apply
 
@@ -35,3 +38,11 @@ controller has reconciled.
 > environment that blocks the provider registry, so `terraform validate`
 > (which requires provider download) must be run in your own environment
 > before first apply.
+
+## Threshold custody modules
+
+`kms-keys`, `mpc-backup-bucket` and `alerts` are not wired into the root `main.tf` on purpose: the whole point of
+the MPC cluster is that each node lives in a different trust domain, usually a different AWS account, so they are
+composed per account with provider aliases. See `examples/threshold-custody/` and
+`docs/DEPLOYING_THRESHOLD_CUSTODY.md`. The `secrets` module does gain the custody secret containers (names only; set
+`custody_secrets_enabled = false` to skip them).

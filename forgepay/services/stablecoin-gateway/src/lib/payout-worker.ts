@@ -37,6 +37,8 @@ export interface WorkerOptions {
   staleAfterMs?: number;
   /** At most this many payouts sent per pass (default 25). */
   batch?: number;
+  /** Return false to skip a tick (this replica is not the leader). */
+  shouldRun?: () => boolean;
 }
 
 export async function payoutWorkerPass(opts: WorkerOptions = {}): Promise<WorkerPassResult> {
@@ -87,7 +89,7 @@ export interface WorkerHandle { stop(): void }
 export function startPayoutWorker(intervalMs: number, opts: WorkerOptions = {}): WorkerHandle {
   let running = false;
   const tick = async () => {
-    if (running) return;
+    if (running || opts.shouldRun?.() === false) return;
     running = true;
     try {
       const r = await payoutWorkerPass(opts);

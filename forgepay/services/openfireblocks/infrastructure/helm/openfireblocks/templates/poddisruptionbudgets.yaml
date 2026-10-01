@@ -1,0 +1,41 @@
+{{- if and .Values.apiGateway.enabled .Values.apiGateway.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "ofb.fullname" . }}-api-gateway
+  labels:
+    {{- include "ofb.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.apiGateway.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: api-gateway
+---
+{{- end }}
+{{- if and .Values.mpcSigner.enabled .Values.mpcSigner.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "ofb.fullname" . }}-mpc-signer
+  labels:
+    {{- include "ofb.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.mpcSigner.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: mpc-signer
+---
+{{- end }}
+{{- if and .Values.policyService.enabled .Values.policyService.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "ofb.fullname" . }}-policy-service
+  labels:
+    {{- include "ofb.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.policyService.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: policy-service
+{{- end }}

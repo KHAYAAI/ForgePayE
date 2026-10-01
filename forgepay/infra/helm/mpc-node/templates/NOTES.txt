@@ -1,0 +1,31 @@
+mpc-node "{{ .Values.node.id }}" ({{ .Release.Name }}), trust domain "{{ .Values.node.domain }}".
+{{- if .Values.init.enabled }}
+
+STEP 1 of 3 - identity created by Job {{ include "mpc-node.fullname" . }}-init.
+  kubectl -n {{ .Release.Namespace }} wait --for=condition=complete job/{{ include "mpc-node.fullname" . }}-init --timeout=10m
+  kubectl -n {{ .Release.Namespace }} logs job/{{ include "mpc-node.fullname" . }}-init -c init
+  kubectl -n {{ .Release.Namespace }} logs job/{{ include "mpc-node.fullname" . }}-init -c export-identity > {{ .Values.node.id }}.identity.json
+Send {{ .Values.node.id }}.identity.json (public) to whoever assembles cluster.json (`mpc-node cluster ...`).
+Then: helm upgrade {{ .Release.Name }} <chart> -f <your values> --set init.enabled=false --set serve.enabled=false --set preflight.job.enabled=true
+{{- else if not .Values.serve.enabled }}
+
+The node is not running (serve.enabled=false).
+{{- if .Values.preflight.job.enabled }}
+  kubectl -n {{ .Release.Namespace }} logs job/{{ include "mpc-node.fullname" . }}-preflight
+When it prints "ready": helm upgrade {{ .Release.Name }} <chart> -f <your values> --set preflight.job.enabled=false --set serve.enabled=true
+{{- end }}
+{{- else }}
+
+Node {{ .Values.node.id }} is serving on :{{ .Values.node.port }} (mutual TLS only).
+  kubectl -n {{ .Release.Namespace }} logs statefulset/{{ include "mpc-node.fullname" . }} -c preflight
+  kubectl -n {{ .Release.Namespace }} logs statefulset/{{ include "mpc-node.fullname" . }} -c mpc-node
+Peers and the coordinator reach it at the URL in cluster.json: {{ .Values.node.url | default "(node.url is only needed for init)" }}
+{{- end }}
+{{- if and .Values.networkPolicy.enabled (not .Values.networkPolicy.ingress.from) }}
+
+WARNING: networkPolicy.ingress.from is empty, so NO pod can connect to this node yet (including the coordinator).
+{{- end }}
+{{- if .Values.policy.allowEmpty }}
+
+WARNING: no node policy is configured; this node will co-sign anything the coordinator asks.
+{{- end }}

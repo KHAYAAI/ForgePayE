@@ -1,0 +1,20 @@
+{{- if and .Values.serve.enabled .Values.pdb.enabled }}
+# One pod per node, so this PDB decides whether a voluntary eviction (node drain, cluster upgrade) may take this
+# signing node down. minAvailable: 1 blocks it until an operator deliberately removes the PDB or sets pdb.maxUnavailable;
+# that is intentional for a node that may be in the middle of a ceremony, but see the README before auto-upgrading nodes.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "mpc-node.fullname" . }}
+  labels:
+    {{- include "mpc-node.labels" . | nindent 4 }}
+spec:
+  {{- if kindIs "invalid" .Values.pdb.maxUnavailable }}
+  minAvailable: {{ .Values.pdb.minAvailable }}
+  {{- else }}
+  maxUnavailable: {{ .Values.pdb.maxUnavailable }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "mpc-node.selectorLabels" . | nindent 6 }}
+{{- end }}

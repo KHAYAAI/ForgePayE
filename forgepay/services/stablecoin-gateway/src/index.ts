@@ -32,6 +32,11 @@ import cors from '@fastify/cors';
 import { config } from './config.js';
 import { getDb } from './lib/db.js';
 import { startSettlement } from './lib/settlement.js';
+import { buildAlertRoutes } from './routes/alerts.js';
+import { alerts } from './lib/alerts.js';
+import { createFeedRunner, feedConfig, feedSourcesFromEnv, startFeed } from './lib/fx-feed.js';
+import { startWatchdog } from './lib/watchdog.js';
+import { createPgLeaderLock, leaderEnabled, type LeaderLock } from './lib/leader.js';
 import { gatewayContext } from './lib/context.js';
 import { buildAssetRoutes } from './routes/assets.js';
 import { buildSweepRoutes } from './routes/sweeps.js';
@@ -95,6 +100,7 @@ export async function buildApp() {
 
   // The payout wallet's float, topped up from the operating wallet within caps (operator view).
   await app.register(buildTreasuryRoutes,        { prefix: '/treasury' });
+  await app.register(buildAlertRoutes,           { prefix: '/alerts' });
 
   // Outbound. The inverse of /x402 — the rail the credit bureau uses to pay
   // furnishers the revenue share it computes. Submission is refused rather than
@@ -232,12 +238,47 @@ async function main() {
   setInterval(() => { void verifyAssets().then((ok) => { allVerified = ok; }); },
     Number(process.env['ASSET_VERIFY_INTERVAL_MS'] ?? (allVerified ? 600_000 : 60_000))).unref();
 
+  // Leader election: with more than one replica, only one runs the background workers at a time
+  // (see lib/leader.ts). LEADER_LOCK_ENABLED=false turns it off for a single instance.
+  let leader: LeaderLock | null = null;
+  let shouldRun: (() => boolean) | undefined;
+  if (leaderEnabled()) {
+    leader = createPgLeaderLock({
+      host: config.postgres.host, port: config.postgres.port, user: config.postgres.user,
+      password: config.postgres.password, database: config.postgres.database,
+    }, { retryMs: Number(process.env['LEADER_RETRY_MS'] ?? '5000') });
+    leader.start();
+    shouldRun = () => leader!.isLeader();
+  } else {
+    console.warn('[stablecoin-gateway] LEADER_LOCK_ENABLED=false: do not run more than one replica, or both will run the sweeper, treasury and payout workers');
+  }
+
+  // Alerting: turn treasury shortfalls, failed/stuck payouts, failed sweeps and a stale rand rate into
+  // pages. Only the leader runs it, so a second replica doesn't double-page.
+  startWatchdog(db, alerts(), Number(process.env['WATCHDOG_INTERVAL_MS'] ?? '60000'), { assetsVerified: () => allVerified, shouldRun });
+  if (!process.env['ALERT_WEBHOOK_URL'] && !process.env['ALERT_PAGERDUTY_ROUTING_KEY']) {
+    console.warn('[stablecoin-gateway] No ALERT_WEBHOOK_URL or ALERT_PAGERDUTY_ROUTING_KEY: treasury shortfalls and failed payouts/sweeps will only appear in this log');
+  }
+
+  // Live USD/ZAR rate. Off unless asked for; the operator-set rate keeps working either way. Needs at
+  // least two agreeing sources (lib/fx-feed.ts), and fails closed: a refused or missing rate just ages.
+  if (process.env['FX_FEED_ENABLED'] === 'true') {
+    const runner = createFeedRunner(ctx.rates, feedSourcesFromEnv(), feedConfig(),
+      (o) => { void alerts().raise('fx:feed', 'warning', 'USD/ZAR feed did not update the rate', o.reason ?? 'unknown'); },
+      () => { void alerts().resolve('fx:feed'); });
+    startFeed(runner, Number(process.env['FX_FEED_INTERVAL_MS'] ?? 15 * 60_000), shouldRun);
+    console.log('[stablecoin-gateway] Live USD/ZAR feed ON');
+  } else {
+    console.log('[stablecoin-gateway] Live USD/ZAR feed off (FX_FEED_ENABLED is not "true"): the rand rate is set by an operator');
+  }
+
   // Outbound: send approved payouts automatically and finish any left in flight. Needs a
   // live signer; with none, nothing is sent and nothing is pretended. PAYOUT_AUTO_SUBMIT=false
   // leaves submission to an operator.
   if (signer.installed && process.env['PAYOUT_AUTO_SUBMIT'] !== 'false') {
     startPayoutWorker(Number(process.env['PAYOUT_WORKER_INTERVAL_MS'] ?? '15000'), {
       staleAfterMs: Number(process.env['PAYOUT_STALE_AFTER_MS'] ?? 120_000),
+      shouldRun,
     });
     console.log('[stablecoin-gateway] Payout worker running: approved payouts are sent automatically');
   } else if (signer.installed) {
@@ -248,7 +289,7 @@ async function main() {
   // when it IS asked for stops the gateway starting rather than running half-configured.
   if (sweepRequested()) {
     const sweeper = await createSweeper(resolveSweepConfig());
-    startSweeper(sweeper, [...chains], Number(process.env['SWEEP_INTERVAL_MS'] ?? '60000'));
+    startSweeper(sweeper, [...chains], Number(process.env['SWEEP_INTERVAL_MS'] ?? '60000'), shouldRun);
     console.warn('[stablecoin-gateway] Deposit sweeping ACTIVE: confirmed deposits are moved to the treasury');
   } else {
     console.log('[stablecoin-gateway] Deposit sweeping off (SWEEP_ENABLED is not "true"): paid-in funds stay in the one-time deposit addresses');
@@ -263,7 +304,7 @@ async function main() {
     const manager = await createTreasuryManager(tcfg, payoutAddress!);
     const { setTreasuryManager } = await import('./routes/treasury.js');
     setTreasuryManager(manager);
-    startTreasury(manager, Number(process.env['TREASURY_INTERVAL_MS'] ?? '60000'));
+    startTreasury(manager, Number(process.env['TREASURY_INTERVAL_MS'] ?? '60000'), shouldRun);
     console.warn(`[stablecoin-gateway] Treasury manager ACTIVE: operating wallet ${manager.warm.address} tops up payout wallet ${payoutAddress}`);
   } else {
     console.log('[stablecoin-gateway] Treasury manager off (TREASURY_MANAGER_ENABLED is not "true"): the payout wallet is topped up by hand');
@@ -295,6 +336,7 @@ async function main() {
   }
 
   const shutdown = async () => {
+    await leader?.stop(); // release leadership at once so another replica takes over without waiting
     await app.close();
     await db.end();
     process.exit(0);

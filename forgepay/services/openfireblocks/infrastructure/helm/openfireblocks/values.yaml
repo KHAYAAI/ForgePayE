@@ -24,6 +24,8 @@ external:
   ethereumRpcSepolia: "" # set to enable broadcasting
   requiredConfirmations: "6"
   redisUrl: "" # e.g. redis://redis-master:6379 — empty disables velocity limiting
+  ethereumRpcUrl: "" # ETHEREUM_RPC_URL (takes precedence over ethereumRpcSepolia); empty and no Sepolia URL = sign only, no broadcast
+  ethereumNetworkName: "" # ETHEREUM_NETWORK_NAME, display only
 
 # Static admin token for customer provisioning (replace with Keycloak in prod).
 adminApiKeySecret: openfireblocks-secrets # secret holding key "admin-api-key"
@@ -42,6 +44,20 @@ apiGateway:
     minReplicas: 3
     maxReplicas: 10
     targetCPUUtilizationPercentage: 70
+  pdb:
+    enabled: true
+    minAvailable: 1
+  # Threshold signing (per-workspace keys held by the mpc-node cluster; see docs/threshold-signing.md).
+  thresholdSigning: false # MPC_THRESHOLD_SIGNING: sign with a per-workspace key via the coordinator
+  keyBackfillOnStart: true # KEY_BACKFILL_ON_START (false disables the start-up backfill of existing workspaces)
+  keyBackfillMaxAttempts: "" # KEY_BACKFILL_MAX_ATTEMPTS
+  keyBackfillFirstDelayMs: "" # KEY_BACKFILL_FIRST_DELAY_MS
+  fleetRefreshSame: "" # FLEET_REFRESH_SAME: whether a fleet rotation also refreshes workspaces already on the target committee
+  txConfirmations: "" # TX_CONFIRMATIONS
+  txStuckAfterMs: "" # TX_STUCK_AFTER_MS
+  riskFailClosed: "" # RISK_FAIL_CLOSED ("true" refuses when the velocity store is unavailable)
+  pgPoolMax: "" # PG_POOL_MAX
+  extraEnv: [] # additional Kubernetes EnvVar entries
 
 mpcSigner:
   enabled: true
@@ -52,9 +68,37 @@ mpcSigner:
   resources:
     requests: { cpu: 250m, memory: 256Mi }
     limits: { cpu: "1", memory: 512Mi }
-  vault:
+  pdb:
+    enabled: true
+    minAvailable: 1
+  vault: # legacy single shared signing key (Phase 0), kept in Vault KV. Unused once MPC_REQUIRED is on.
     addr: "" # e.g. http://vault.vault:8200 — empty disables Vault sourcing
     tokenSecret: openfireblocks-secrets # secret holding key "vault-token"
+  immudb:
+    url: "" # IMMUDB_URL host:port of the immutable audit ledger; empty = the signer's default (localhost:3322), i.e. none
+    credentialsSecret: "" # optional Secret with keys "user" and "password" (IMMUDB_USER / IMMUDB_PASSWORD)
+  # The COORDINATOR of the threshold cluster. It talks mutual TLS to the mpc-node signing nodes (installed separately
+  # with infra/helm/mpc-node, one release per node and trust domain). It holds only an ed25519 key that signs session
+  # requests; it never holds a share.
+  threshold:
+    enabled: false # renders the cluster/coordinator wiring below and sets MPC_CLUSTER_FILE etc.
+    env: production # MPC_ENV
+    required: true # MPC_REQUIRED: refuse the legacy shared key; the signer will not start without a cluster
+    cluster:
+      json: "" # cluster.json content (public); or reference an existing ConfigMap
+      existingConfigMap: ""
+      key: cluster.json
+    coordinatorKeySecret: # Secret holding the coordinator's private key file (mpc-node coordinator-key)
+      name: ""
+      key: coordinator.key
+    tls: # coordinator client certificate: common name "coordinator", plus the cluster CA
+      existingSecret: "" # keys tls.crt / tls.key / ca.crt
+      keys: { cert: tls.crt, key: tls.key, ca: ca.crt }
+      certManager:
+        enabled: false
+        issuerRef: { name: "", kind: ClusterIssuer, group: cert-manager.io }
+        duration: 2160h
+        renewBefore: 360h
 
 policyService:
   enabled: true
@@ -65,6 +109,9 @@ policyService:
   resources:
     requests: { cpu: 100m, memory: 128Mi }
     limits: { cpu: 500m, memory: 256Mi }
+  pdb:
+    enabled: true
+    minAvailable: 1
 
 temporalWorker:
   enabled: true
@@ -74,6 +121,18 @@ temporalWorker:
   resources:
     requests: { cpu: 100m, memory: 128Mi }
     limits: { cpu: 500m, memory: 256Mi }
+
+# NetworkPolicies for the custody path. Off by default because turning them on without telling the signer where the
+# nodes are would cut it off. With it on: policy-service and mpc-signer accept only api-gateway/temporal-worker pods;
+# mpc-signer may reach DNS, the nodes (networkPolicy.nodePeers), Vault and immudb only.
+networkPolicy:
+  enabled: false
+  nodePeers: [] # NetworkPolicyPeer list for the mpc-node endpoints in cluster.json (ipBlock for other clusters)
+  nodePort: 8101
+  vaultPeers: [] # NetworkPolicyPeer list for Vault (legacy key)
+  vaultPort: 8200
+  immudbPeers: []
+  immudbPort: 3322
 
 ingress:
   enabled: false

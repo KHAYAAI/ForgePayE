@@ -1,0 +1,35 @@
+{{- if .Values.tls.certManager.enabled }}
+# Node mTLS certificate from cert-manager. The certificate's common name MUST equal the node id: that is how every
+# peer identifies this node. Both server and client auth are needed (nodes call each other).
+# The issuer must be a CA all three nodes' operators trust (the cluster's shared private CA); see README.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "mpc-node.fullname" . }}-tls
+  labels:
+    {{- include "mpc-node.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "mpc-node.fullname" . }}-tls
+  commonName: {{ .Values.node.id | quote }}
+  {{- with .Values.tls.certManager.dnsNames }}
+  dnsNames:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.tls.certManager.ipAddresses }}
+  ipAddresses:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  duration: {{ .Values.tls.certManager.duration }}
+  renewBefore: {{ .Values.tls.certManager.renewBefore }}
+  usages:
+    - digital signature
+    - key encipherment
+    - server auth
+    - client auth
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  issuerRef:
+    {{- toYaml .Values.tls.certManager.issuerRef | nindent 4 }}
+{{- end }}

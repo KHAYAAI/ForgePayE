@@ -1,4 +1,5 @@
 {{- if .Values.mpcSigner.enabled }}
+{{- $t := .Values.mpcSigner.threshold }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -41,6 +42,38 @@ spec:
                   name: {{ .Values.mpcSigner.vault.tokenSecret }}
                   key: vault-token
             {{- end }}
+            {{- with .Values.mpcSigner.immudb.url }}
+            - name: IMMUDB_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.mpcSigner.immudb.credentialsSecret }}
+            - name: IMMUDB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . }}
+                  key: user
+            - name: IMMUDB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . }}
+                  key: password
+            {{- end }}
+            {{- if $t.enabled }}
+            - name: MPC_ENV
+              value: {{ $t.env | quote }}
+            - name: MPC_REQUIRED
+              value: {{ $t.required | quote }}
+            - name: MPC_CLUSTER_FILE
+              value: /etc/mpc/cluster/{{ $t.cluster.key }}
+            - name: MPC_COORDINATOR_KEY_FILE
+              value: /etc/mpc/coordinator/{{ $t.coordinatorKeySecret.key }}
+            - name: MPC_TLS_CA_FILE
+              value: /etc/mpc/tls/{{ $t.tls.keys.ca }}
+            - name: MPC_TLS_CERT_FILE
+              value: /etc/mpc/tls/{{ $t.tls.keys.cert }}
+            - name: MPC_TLS_KEY_FILE
+              value: /etc/mpc/tls/{{ $t.tls.keys.key }}
+            {{- end }}
           livenessProbe:
             httpGet: { path: /health, port: http }
             initialDelaySeconds: 5
@@ -51,6 +84,37 @@ spec:
             periodSeconds: 5
           resources:
             {{- toYaml .Values.mpcSigner.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            {{- if $t.enabled }}
+            - name: cluster
+              mountPath: /etc/mpc/cluster
+              readOnly: true
+            - name: coordinator-key
+              mountPath: /etc/mpc/coordinator
+              readOnly: true
+            - name: tls
+              mountPath: /etc/mpc/tls
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        {{- if $t.enabled }}
+        - name: cluster
+          configMap:
+            name: {{ default (printf "%s-mpc-cluster" (include "ofb.fullname" .)) $t.cluster.existingConfigMap }}
+        - name: coordinator-key
+          secret:
+            secretName: {{ required "mpcSigner.threshold.coordinatorKeySecret.name is required when mpcSigner.threshold.enabled" $t.coordinatorKeySecret.name }}
+            defaultMode: 288 # 0440
+        - name: tls
+          secret:
+            secretName: {{ if $t.tls.certManager.enabled }}{{ include "ofb.fullname" . }}-coordinator-tls{{ else }}{{ required "mpcSigner.threshold.tls.existingSecret (or certManager.enabled) is required when mpcSigner.threshold.enabled" $t.tls.existingSecret }}{{ end }}
+            defaultMode: 288 # 0440
+        {{- end }}
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
@@ -75,4 +139,45 @@ spec:
     - name: http
       port: {{ .Values.mpcSigner.port }}
       targetPort: http
+{{- if and $t.enabled (not $t.cluster.existingConfigMap) }}
+---
+# cluster.json is public (node ids, URLs, public keys, trust-domain labels). The signer re-reads it when it changes.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ofb.fullname" . }}-mpc-cluster
+  labels:
+    {{- include "ofb.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mpc-signer
+data:
+  {{ $t.cluster.key }}: |
+    {{- required "mpcSigner.threshold.cluster.json (or existingConfigMap) is required when mpcSigner.threshold.enabled" $t.cluster.json | nindent 4 }}
+{{- end }}
+{{- if and $t.enabled $t.tls.certManager.enabled }}
+---
+# Coordinator mTLS client certificate. The common name MUST be "coordinator": only that certificate may start ceremonies.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "ofb.fullname" . }}-coordinator-tls
+  labels:
+    {{- include "ofb.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mpc-signer
+spec:
+  secretName: {{ include "ofb.fullname" . }}-coordinator-tls
+  commonName: coordinator
+  duration: {{ $t.tls.certManager.duration }}
+  renewBefore: {{ $t.tls.certManager.renewBefore }}
+  usages:
+    - digital signature
+    - key encipherment
+    - client auth
+    - server auth
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  issuerRef:
+    {{- toYaml $t.tls.certManager.issuerRef | nindent 4 }}
+{{- end }}
 {{- end }}

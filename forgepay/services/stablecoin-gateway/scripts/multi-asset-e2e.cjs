@@ -113,7 +113,7 @@ let db;
 
   console.log('2. The rand rate is an operator decision, and safeguarded');
   const noRate = await api('POST', '/x402/pay', { resource_url: 'bureau:topup:r1', merchant_id: 'forgepay-credit-bureau', amount_usd: 10, asset: 'ZARP' });
-  check('paying in ZARP without a rate is refused, not guessed', noRate.status === 503 && noRate.body?.error === 'RateUnavailable', noRate.body?.message);
+  check('paying in ZARP without a rate is refused, not guessed', noRate.status === 503 && noRate.body?.error === 'RateUnavailable', noRate.status + ' ' + JSON.stringify(noRate.body).slice(0,300));
   check('a rate with no source is refused', (await api('PUT', '/assets/rates/USD-ZAR', { rate: 18.5 })).status === 400);
   check('an implausible rate is refused', (await api('PUT', '/assets/rates/USD-ZAR', { rate: 1850, source: 'typo' })).status === 400);
   check('a proper rate is accepted', (await api('PUT', '/assets/rates/USD-ZAR', { rate: 18.5, source: 'ops desk' })).status === 201);
@@ -125,7 +125,7 @@ let db;
   const z = await api('POST', '/x402/pay', { resource_url: 'bureau:topup:req1', merchant_id: 'forgepay-credit-bureau', agent_id: 'req1', amount_usd: 10, asset: 'ZARP' });
   check('the bureau\'s string merchant id is accepted (it used to be rejected as a UUID)', z.status === 201, JSON.stringify(z.body).slice(0, 200));
   check('$10 at R18.5 is 185 ZARP, exactly, in 18-decimal units', z.body.amount_asset === '185' && z.body.amount_units === (185n * 10n ** 18n).toString());
-  check('it names a one-time address to pay, the token contract and the locked rate', /^0x[0-9a-fA-F]{40}$/.test(z.body.pay_to) && z.body.asset.contract === addr.ZARP && z.body.fx.rate === '18.5');
+  check('it names a one-time address to pay, the token contract and the locked rate', /^0x[0-9a-fA-F]{40}$/.test(z.body.pay_to) && z.body.asset.contract === addr.ZARP && z.body.fx.rate === '18.5', JSON.stringify(z.body).slice(0,500));
   check('the deposit behind it exists (the foreign key that used to fail)', !!(await depositRow(z.body.deposit_id)));
   check('it is not valid before it is paid', (await verify(z.body.receipt_id)).valid === false);
   await pay('ZARP', z.body.pay_to, BigInt(z.body.amount_units));

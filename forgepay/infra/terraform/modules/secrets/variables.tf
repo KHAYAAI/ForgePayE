@@ -20,3 +20,9 @@ variable "tags" {
   type    = map(string)
   default = {}
 }
+
+variable "custody_secrets_enabled" {
+  type        = bool
+  default     = true
+  description = "Create the threshold-custody / stablecoin-gateway secret containers and the treasury cold-address parameter."
+}

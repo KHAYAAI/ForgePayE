@@ -1,0 +1,360 @@
+# ARCH: ForgePay Custody CI — GitHub Actions
+#
+# Gates for the threshold-custody stack: the stablecoin-gateway, the OpenFireblocks api-gateway and MPC signer/node,
+# and the Helm charts + Terraform modules that deploy them. Runs on every PR / push touching those paths. The two
+# expensive suites (real cryptographic nodes, and the gateway end-to-end on a local chain) are NOT here: they run
+# nightly and on demand in forgepay-custody-nightly.yml.
+#
+# Job graph (all parallel, no cross-job dependencies):
+#   gateway-test        → tsc --noEmit + vitest
+#   gateway-migrations  → the gateway's migrations on an EMPTY Postgres, then again (idempotent)
+#   api-gateway         → npm ci + nest build + jest
+#   mpc-signer          → go vet + go test -short
+#   helm                → helm lint + helm template for every chart
+#   terraform           → terraform fmt -check + validate (modules, examples)
+#   security-go         → govulncheck                 (NON-BLOCKING for now, see below)
+#   security-npm        → npm audit --omit=dev        (NON-BLOCKING for now, see below)
+#   secret-scan         → gitleaks
+#
+# NOTE: stablecoin-gateway also appears in forgepay-ci.yml's `typescript-services` matrix (type-check + test). This
+#   workflow's gateway-test job is a superset: it runs with the dummy POSTGRES_PASSWORD / INTERNAL_WEBHOOK_SECRET the
+#   service insists on, so the matrix entry can be dropped once this workflow is trusted.
+#
+# NOTE: security-go and security-npm are advisory (continue-on-error) until the first run has shown how many existing
+#   findings there are. Make them blocking by deleting `continue-on-error`. gitleaks IS blocking.
+
+name: "ForgePay Custody CI"
+
+on:
+  push:
+    branches: ["claude/forgepay-platform-design-gEkgE", "main"]
+    paths:
+      - "forgepay/services/stablecoin-gateway/**"
+      - "forgepay/services/openfireblocks/**"
+      - "forgepay/infra/helm/**"
+      - "forgepay/infra/terraform/**"
+      - "forgepay/docs/DEPLOYING_THRESHOLD_CUSTODY.md"
+      - ".github/workflows/forgepay-custody-ci.yml"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "forgepay/services/stablecoin-gateway/**"
+      - "forgepay/services/openfireblocks/**"
+      - "forgepay/infra/helm/**"
+      - "forgepay/infra/terraform/**"
+      - "forgepay/docs/DEPLOYING_THRESHOLD_CUSTODY.md"
+      - ".github/workflows/forgepay-custody-ci.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: forgepay-custody-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ── Stablecoin gateway: type-check + unit tests ──────────────────────────────
+  gateway-test:
+    name: "stablecoin-gateway — tsc + vitest"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: forgepay/services/stablecoin-gateway
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: forgepay/services/stablecoin-gateway/package-lock.json
+
+      - run: npm ci
+      - run: npx tsc --noEmit
+      # config.ts throws at import time without these two. They are throwaway values: nothing here talks to a database.
+      - run: npx vitest run
+        env:
+          POSTGRES_PASSWORD: ci-dummy-not-a-real-password
+          INTERNAL_WEBHOOK_SECRET: ci-dummy-webhook-secret-not-real-0000
+
+  # ── Stablecoin gateway: migrations stand alone ───────────────────────────────
+  # The app runs its migrations at boot (src/index.ts → runMigrations). This proves they build the schema from nothing
+  # and that running them again is a no-op, without needing the whole service (or a chain) up. Deliberately a fresh
+  # database every run: a migration that only works on top of a hand-made table would pass anywhere else.
+  gateway-migrations:
+    name: "stablecoin-gateway — migrations on an empty Postgres"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: forgepay/services/stablecoin-gateway
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: forgepay
+          POSTGRES_PASSWORD: forgepay
+          POSTGRES_DB: sgw_migrate_check
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: forgepay/services/stablecoin-gateway/package-lock.json
+
+      - run: npm ci
+
+      - name: Apply every migration to the empty database, then again
+        run: npx tsx -e "$MIGRATE_CHECK"
+        env:
+          PGHOST: localhost
+          PGPORT: "5432"
+          PGUSER: forgepay
+          PGPASSWORD: forgepay
+          PGDATABASE: sgw_migrate_check
+          MIGRATE_CHECK: |
+            (async () => {
+              const pg = (await import('pg')).default;
+              const { runMigrations } = await import('./src/db/migrate.ts');
+              const pool = new pg.Pool({
+                host: process.env.PGHOST, port: Number(process.env.PGPORT), user: process.env.PGUSER,
+                password: process.env.PGPASSWORD, database: process.env.PGDATABASE,
+              });
+              const tables = async () =>
+                (await pool.query("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY 1"))
+                  .rows.map((r) => r.table_name);
+              const before = await tables();
+              if (before.length) throw new Error('database was not empty: ' + before.join(', '));
+              await runMigrations(pool);
+              const applied = (await pool.query('SELECT filename FROM stablecoin_gateway_migrations ORDER BY id')).rows.map((r) => r.filename);
+              const after = await tables();
+              console.log('applied ' + applied.length + ' migration(s): ' + applied.join(', '));
+              console.log('tables: ' + after.join(', '));
+              for (const t of ['stablecoin_deposits', 'payouts', 'deposit_sweeps', 'treasury_transfers']) {
+                if (!after.includes(t)) throw new Error('expected table missing after migrating: ' + t);
+              }
+              await runMigrations(pool);
+              const n = (await pool.query('SELECT count(*)::int AS n FROM stablecoin_gateway_migrations')).rows[0].n;
+              if (n !== applied.length) throw new Error('a second run changed the migration ledger');
+              await pool.end();
+              console.log('migrations apply to an empty database and are idempotent');
+            })().catch((e) => { console.error(e); process.exit(1); });
+
+  # ── OpenFireblocks api-gateway (NestJS) ──────────────────────────────────────
+  api-gateway:
+    name: "openfireblocks api-gateway — build + jest"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: forgepay/services/openfireblocks/services/api-gateway
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22" # the image is node:22-alpine (Dockerfile)
+          cache: "npm"
+          cache-dependency-path: forgepay/services/openfireblocks/services/api-gateway/package-lock.json
+
+      - run: npm ci
+      - run: npm run build
+      - run: npx jest
+
+  # ── OpenFireblocks MPC signer + node (Go) ────────────────────────────────────
+  # `-short` skips the tests that run real distributed key generation (minutes of CPU); those run in the nightly
+  # workflow. What is left is fast: cluster/topology/policy/seal-provider logic and the coordinator's HTTP handlers.
+  mpc-signer:
+    name: "mpc-signer — go vet + go test -short"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: forgepay/services/openfireblocks/services/mpc-signer
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: forgepay/services/openfireblocks/services/mpc-signer/go.mod
+          cache-dependency-path: forgepay/services/openfireblocks/services/mpc-signer/go.sum
+
+      - run: go vet ./...
+      - run: go test ./... -short
+
+  # ── Helm: lint + render every chart ──────────────────────────────────────────
+  # `helm lint` catches schema/syntax problems; `helm template` catches what only fails when values are substituted.
+  # Charts that need values to render at all (mpc-node needs a node id; the gateway and OpenFireblocks charts have
+  # richer example values under ci/) are rendered with them as well as with their defaults where defaults are valid.
+  helm:
+    name: "helm — lint + template all charts"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: "3.15.0"
+
+      - name: Lint and render
+        shell: bash
+        run: |
+          set -uo pipefail
+          cd forgepay
+          fail=0
+          cluster="$RUNNER_TEMP/cluster.json"
+          printf '{"threshold":1,"coordinator_pub":"00","nodes":[]}\n' > "$cluster"
+
+          # check <label> <chart> [helm args...]: lint, then template, both must succeed.
+          check() {
+            local label=$1 chart=$2; shift 2
+            if helm lint "$chart" "$@" > "$RUNNER_TEMP/lint.log" 2>&1 \
+               && helm template ci-release "$chart" "$@" > /dev/null 2> "$RUNNER_TEMP/template.log"; then
+              echo "ok      $label"
+            else
+              echo "::error title=helm::$label failed"
+              cat "$RUNNER_TEMP/lint.log" "$RUNNER_TEMP/template.log"
+              fail=1
+            fi
+          }
+
+          # Known-broken charts, reported but not failing the job (pre-existing; fix and remove from this list):
+          #   forgepay-monitoring: configmaps.yaml embeds Prometheus {{ $labels }} templating that Helm tries to parse.
+          known_broken=" forgepay-monitoring "
+
+          helm repo add bitnami https://charts.bitnami.com/bitnami > /dev/null
+
+          while IFS= read -r chartfile; do
+            chart=$(dirname "$chartfile")
+            name=$(basename "$chart")
+            case "$known_broken" in
+              *" $name "*) echo "::warning title=helm::$name is known broken (skipped, see comment in workflow)"; continue ;;
+            esac
+            if grep -q "^dependencies:" "$chart/Chart.yaml"; then
+              helm dependency build "$chart" > /dev/null 2>&1 || { echo "::error title=helm::$name: helm dependency build failed"; fail=1; continue; }
+            fi
+            case "$name" in
+              mpc-node)
+                for n in 1 2 3; do
+                  check "$name (values-node$n)" "$chart" -f "$chart/values-node$n.yaml" --set-file cluster.json="$cluster"
+                done
+                # the one-time init phase (no cluster.json yet) and the preflight Job phase
+                check "$name (init phase)" "$chart" -f "$chart/values-node3.yaml" --set init.enabled=true --set serve.enabled=false
+                check "$name (preflight job phase)" "$chart" -f "$chart/values-node2.yaml" --set-file cluster.json="$cluster" \
+                  --set serve.enabled=false --set preflight.job.enabled=true
+                ;;
+              stablecoin-gateway)
+                check "$name (defaults)" "$chart"
+                check "$name (ci/production-values)" "$chart" -f "$chart/ci/production-values.yaml"
+                ;;
+              openfireblocks)
+                check "$name (defaults)" "$chart"
+                check "$name (ci/threshold-values)" "$chart" -f "$chart/ci/threshold-values.yaml"
+                ;;
+              *)
+                check "$name" "$chart"
+                ;;
+            esac
+          done < <(find infra services -name Chart.yaml -not -path '*/charts/*' -not -path '*/node_modules/*' | sort)
+
+          exit "$fail"
+
+  # ── Terraform: fmt + validate ────────────────────────────────────────────────
+  # Modules and the examples are validated standalone (init -backend=false: no state, no cloud credentials). The root
+  # module is not: it configures an S3 backend and the Kubernetes provider from live EKS outputs.
+  terraform:
+    name: "terraform — fmt + validate"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+
+      - name: Format check
+        run: terraform fmt -check -recursive -diff forgepay/infra/terraform
+
+      - name: Validate modules and examples
+        shell: bash
+        run: |
+          set -uo pipefail
+          fail=0
+          for d in forgepay/infra/terraform/modules/*/ forgepay/infra/terraform/examples/*/ forgepay/infra/terraform/bootstrap/; do
+            [ -d "$d" ] || continue
+            ls "$d"*.tf > /dev/null 2>&1 || continue
+            echo "::group::validate $d"
+            if ! ( cd "$d" && terraform init -backend=false -input=false > /dev/null && terraform validate ); then
+              echo "::error title=terraform::validate failed in $d"
+              fail=1
+            fi
+            echo "::endgroup::"
+          done
+          exit "$fail"
+
+  # ── Security hygiene ─────────────────────────────────────────────────────────
+  # NON-BLOCKING for now: continue-on-error until the first findings have been triaged.
+  security-go:
+    name: "govulncheck — mpc-signer (non-blocking)"
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: forgepay/services/openfireblocks/services/mpc-signer
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: forgepay/services/openfireblocks/services/mpc-signer/go.mod
+          cache-dependency-path: forgepay/services/openfireblocks/services/mpc-signer/go.sum
+
+      - run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      - run: govulncheck ./...
+
+  # NON-BLOCKING for now (continue-on-error): production dependencies only, high severity and above.
+  security-npm:
+    name: "npm audit — ${{ matrix.dir }} (non-blocking)"
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        dir:
+          - forgepay/services/stablecoin-gateway
+          - forgepay/services/openfireblocks/services/api-gateway
+    defaults:
+      run:
+        working-directory: ${{ matrix.dir }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - run: npm audit --omit=dev --audit-level=high
+
+  # BLOCKING. Scans the full history of the PR/push. For repositories owned by an organisation, gitleaks-action
+  # needs a GITLEAKS_LICENSE secret (free key from gitleaks.io); add it under repository secrets.
+  secret-scan:
+    name: "gitleaks — secret scan"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}

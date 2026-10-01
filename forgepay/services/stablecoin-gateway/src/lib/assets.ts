@@ -20,6 +20,7 @@
  */
 
 import { ethers } from 'ethers';
+import { probeToken, RpcProbeChain, type ProbeResult, type Finding } from './asset-probe.js';
 
 export type AssetSymbol = 'USDC' | 'USDT' | 'ZARP' | 'OUSD';
 /** What one whole token is pegged to. */
@@ -97,6 +98,8 @@ export interface TokenReader {
   symbol(chain: string, address: string): Promise<string>;
   decimals(chain: string, address: string): Promise<number>;
   blockNumber?(chain: string): Promise<number>;
+  /** Optional: look for behaviour that makes a token unsafe to credit (see asset-probe.ts). */
+  probe?(chain: string, address: string): Promise<ProbeResult>;
 }
 
 const ERC20_READ_ABI = [
@@ -129,6 +132,7 @@ export class RpcTokenReader implements TokenReader {
     return Number(await new ethers.Contract(address, ERC20_READ_ABI, this.provider(chain))['decimals']!());
   }
   async blockNumber(chain: string) { return this.provider(chain).getBlockNumber(); }
+  async probe(chain: string, address: string) { return probeToken(new RpcProbeChain(this.provider(chain)), address); }
 }
 
 // ── The registry ──────────────────────────────────────────────────────────────
@@ -152,12 +156,19 @@ export interface AssetStatus {
   decimals: number | null;
   status: 'available' | 'unverified' | 'unavailable';
   problem?: string;
+  /** What the first-contact probe found (upgradeable, can freeze, fee-like...). Empty if clean or not probed. */
+  findings?: Finding[];
+  /** The proxy implementation seen at the last check, if the token is a proxy. */
+  implementation?: string;
 }
 
 export class AssetRegistry {
   private usable = new Map<string, ChainAsset>();
   private statuses = new Map<string, AssetStatus>();
   private verifiedOnce = false;
+  private implementations = new Map<string, string>();
+  /** Called when a proxy token's implementation differs from the last time it was checked. */
+  onImplementationChange?: (symbol: string, chain: string, from: string, to: string) => void;
 
   constructor(
     private readonly defs: AssetDef[] = loadAssetDefs(),
@@ -187,6 +198,8 @@ export class AssetRegistry {
 
         let problem: string | null = null;
         let decimals: number | null = null;
+        let findings: Finding[] = [];
+        let implementation: string | undefined;
         try {
           if (!chainOk.has(chain)) {
             const want = this.expectedChainId(chain);
@@ -203,6 +216,21 @@ export class AssetRegistry {
               decimals = await this.reader.decimals(chain, address);
               if (!Number.isInteger(decimals) || decimals < 0 || decimals > 36) problem = `implausible decimals (${decimals})`;
               else if (pinned !== undefined && decimals !== pinned) problem = `the contract reports ${decimals} decimals, configured ${pinned}`;
+              else if (this.reader.probe) {
+                const pr = await this.reader.probe(chain, address).catch(() => null);
+                if (pr) {
+                  findings = pr.findings; implementation = pr.implementation;
+                  const allowRebase = this.env[`ASSET_ALLOW_REBASING_${def.symbol}`] === 'true';
+                  const blocker = findings.find((x) => x.level === 'block' && !(x.code === 'rebasing' && allowRebase));
+                  if (blocker) problem = `${def.symbol} on ${chain}: ${blocker.message}${blocker.code === 'rebasing' ? ` (set ASSET_ALLOW_REBASING_${def.symbol}=true only after reading docs/ASSET_FIRST_CONTACT.md)` : ''}`;
+                  const prev = this.implementations.get(k);
+                  if (prev && implementation && prev !== implementation) {
+                    findings = [...findings, { level: 'review', code: 'implementation-changed', message: `the proxy implementation changed from ${prev} to ${implementation} since this gateway last checked` }];
+                    this.onImplementationChange?.(def.symbol, chain, prev, implementation);
+                  }
+                  if (implementation) this.implementations.set(k, implementation);
+                }
+              }
             }
           }
         } catch (err) {
@@ -217,11 +245,11 @@ export class AssetRegistry {
         }
 
         if (problem || decimals === null) {
-          statuses.set(k, { ...base, decimals: null, status: 'unavailable', problem: problem ?? 'unverified' });
+          statuses.set(k, { ...base, decimals: null, status: 'unavailable', problem: problem ?? 'unverified', findings });
           continue;
         }
         next.set(k, { symbol: def.symbol, name: def.name, chain, address, unit: def.unit, decimals, verified: true });
-        statuses.set(k, { ...base, decimals, status: 'available' });
+        statuses.set(k, { ...base, decimals, status: 'available', findings, implementation });
       }
     }
     this.usable = next;
@@ -259,6 +287,10 @@ export async function assetRegistry(): Promise<AssetRegistry> {
   if (!shared) {
     const { config } = await import('../config.js');
     shared = new AssetRegistry(loadAssetDefs(), new RpcTokenReader(config.rpc as Record<string, string>));
+    shared.onImplementationChange = (symbol, chain, from, to) => {
+      void import('./alerts.js').then(({ alerts }) => alerts().raise(`asset:upgraded:${symbol}:${chain}`, 'critical',
+        `${symbol} on ${chain} was upgraded`, `The token's proxy implementation changed from ${from} to ${to}. Read what changed before relying on it.`));
+    };
   }
   return shared;
 }

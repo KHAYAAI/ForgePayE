@@ -64,6 +64,7 @@ type Node struct {
 	pool     *preParamsPool
 	audit    *auditLog
 	policy   *Policy
+	backups  *backupService
 
 	mu       sync.Mutex
 	sessions map[string]*session
@@ -229,6 +230,7 @@ func (n *Node) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok": true, "id": n.cfg.ID, "domain": me.Domain, "preparams": n.pool.Available(),
 		"sealProvider": n.cfg.SealProvider, "policy": n.policy.Summary(), "mtls": n.cfg.TLS != nil,
+		"backup": n.BackupStatus(),
 	})
 }
 
@@ -628,6 +630,7 @@ func (n *Node) handleLifecycle(op string) http.HandlerFunc {
 				return
 			}
 			n.audit.Record("reshare_committed", req.Session, req.KeyID, map[string]any{"epoch": req.Epoch})
+			n.backupSoon()
 			writeJSON(w, http.StatusOK, map[string]any{"epoch": req.Epoch})
 		case "retire":
 			if !req.Leaving && !exists(n.keyFilePath(req.KeyID, req.Epoch, false)) {
@@ -642,6 +645,7 @@ func (n *Node) handleLifecycle(op string) http.HandlerFunc {
 				}
 			}
 			n.audit.Record("shares_retired", req.Session, req.KeyID, map[string]any{"below": req.Epoch, "removed": removed, "leaving": req.Leaving})
+			n.backupSoon() // so superseded shares drop out of the backups too
 			writeJSON(w, http.StatusOK, map[string]any{"removed": removed})
 		case "abort":
 			p := n.keyFilePath(req.KeyID, req.Epoch, true)
@@ -725,13 +729,24 @@ func (n *Node) handleSession(w http.ResponseWriter, r *http.Request) {
 			for _, w := range p.WaitingFor() {
 				waiting = append(waiting, w.Moniker)
 			}
-			rounds = append(rounds, p.String())
+			rounds = append(rounds, partyRound(p))
 		}
 		sort.Strings(waiting)
 		out["waitingFor"] = waiting
 		out["round"] = strings.Join(rounds, " / ")
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// partyRound describes where a party is. tss-lib's String() dereferences the current round, which
+// does not exist until the party has started, so a status poll in that window would panic.
+func partyRound(p tss.Party) (round string) {
+	defer func() {
+		if recover() != nil {
+			round = "starting"
+		}
+	}()
+	return p.String()
 }
 
 func (n *Node) handleKeyInfo(w http.ResponseWriter, r *http.Request) {
@@ -1177,6 +1192,7 @@ func (n *Node) runKeygen(s *session, self *tss.PartyID, ids tss.SortedPartyIDs, 
 			return
 		}
 		n.audit.Record("keygen_completed", s.id, s.keyID, map[string]any{"address": k.Address})
+		n.backupSoon()
 		s.markDone(map[string]any{"address": k.Address, "publicKey": k.PublicKey})
 	case <-ctx.Done():
 		s.markFailed("key generation timed out" + n.stalledDetail(s))

@@ -1,0 +1,73 @@
+# EXAMPLE - node1: its own AWS account (A) and its own EKS cluster. Seal key in AWS KMS (IRSA), backups in an S3 bucket
+# in the same account. Every value here is illustrative; nothing is a secret.
+#
+#   helm upgrade --install mpc-node1 infra/helm/mpc-node -n mpc --create-namespace \
+#     --kube-context eks-account-a -f infra/helm/mpc-node/values-node1.yaml \
+#     --set-file cluster.json=cluster.json
+#
+# Terraform for the AWS side: infra/terraform/examples/threshold-custody (module kms_node1, backup_node1).
+node:
+  id: node1
+  domain: aws-account-a # trust-domain label: must be unique per node and TRUE
+  url: https://node1.mpc.account-a.example:8101
+  env: production
+
+seal:
+  provider: awskms
+  awskms:
+    keyId: arn:aws:kms:eu-west-1:222222222222:key/00000000-0000-0000-0000-000000000001
+    region: eu-west-1
+
+serviceAccount:
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::222222222222:role/mpc-node1
+
+tls:
+  certManager:
+    enabled: true
+    issuerRef:
+      name: forge-mpc-ca # a ClusterIssuer of type CA built from the cluster's shared private CA
+      kind: ClusterIssuer
+    dnsNames:
+      - node1.mpc.account-a.example
+
+policy:
+  json: # node1's operators decide these, nobody else
+    maxValueWei: "50000000000000000000"
+    maxFeeWei: "500000000000000000"
+    dailyLimitWei: "200000000000000000000"
+    maxTxPerHour: 60
+    allowedChainIds: [1]
+    blockedDestinations: []
+    allowCalldata: false
+
+backup:
+  recipients:
+    - fprec1:REPLACE-WITH-RECOVERY-PUBLIC-KEY-1
+    - fprec1:REPLACE-WITH-RECOVERY-PUBLIC-KEY-2
+  s3:
+    bucket: example-node1-mpc-share-backups
+    prefix: node1/
+    kmsKey: arn:aws:kms:eu-west-1:222222222222:key/00000000-0000-0000-0000-0000000000b1
+
+service:
+  type: LoadBalancer # peers and the coordinator are outside this cluster
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: external
+    service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+    service.beta.kubernetes.io/aws-load-balancer-scheme: internal # layer 4 only: mTLS terminates at the node
+  loadBalancerSourceRanges:
+    - 203.0.113.0/24 # coordinator egress
+    - 198.51.100.0/24 # node2 egress
+    - 192.0.2.0/24 # node3 egress
+
+networkPolicy:
+  ingress:
+    from: # the NLB preserves client IPs with target-type ip; admit exactly the coordinator and the peers
+      - ipBlock: { cidr: 203.0.113.0/24 }
+      - ipBlock: { cidr: 198.51.100.0/24 }
+      - ipBlock: { cidr: 192.0.2.0/24 }
+  egress:
+    peers:
+      - ipBlock: { cidr: 198.51.100.0/24 }
+      - ipBlock: { cidr: 192.0.2.0/24 }

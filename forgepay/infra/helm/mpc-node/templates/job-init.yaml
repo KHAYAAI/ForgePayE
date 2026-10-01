@@ -1,0 +1,98 @@
+{{- if .Values.init.enabled }}
+# ONE-TIME ceremony step: `mpc-node init` creates this node's identity key (sealed under the seal key, which the key
+# service wraps) and writes the PUBLIC identity.json that goes into cluster.json. The second container only prints that
+# public file to the Job's log, because the distroless node image has no shell and no `cat`.
+#
+#   kubectl logs job/<release>-init -c export-identity
+#
+# `init` refuses to run twice on the same data ("this node already has an identity"); that is the safety property.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "mpc-node.fullname" . }}-init
+  labels:
+    {{- include "mpc-node.labels" . | nindent 4 }}
+spec:
+  backoffLimit: 0
+  {{- with .Values.init.ttlSecondsAfterFinished }}
+  ttlSecondsAfterFinished: {{ . }}
+  {{- end }}
+  template:
+    metadata:
+      labels:
+        {{- include "mpc-node.labels" . | nindent 8 }}
+      {{- $ann := include "mpc-node.podAnnotations" . | trim }}
+      {{- if $ann }}
+      annotations:
+        {{- $ann | nindent 8 }}
+      {{- end }}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "mpc-node.serviceAccountName" . }}
+      automountServiceAccountToken: {{ or .Values.serviceAccount.automountToken (eq (include "mpc-node.vaultAgent" .) "true") }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      initContainers:
+        - name: init
+          image: {{ include "mpc-node.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - init
+            - -id
+            - {{ .Values.node.id | quote }}
+            - -data
+            - {{ .Values.node.dataDir | quote }}
+            - -url
+            - {{ .Values.node.url | quote }}
+            - -domain
+            - {{ .Values.node.domain | quote }}
+          env:
+            {{- include "mpc-node.sealEnv" . | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.init.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+            {{- if .Values.seal.vault.caCertSecret.name }}
+            - name: vault-ca
+              mountPath: /etc/mpc/vault-ca
+              readOnly: true
+            {{- end }}
+      containers:
+        - name: export-identity
+          image: "{{ .Values.toolsImage.repository }}:{{ .Values.toolsImage.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["cat", "{{ .Values.node.dataDir }}/identity.json"]
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 64Mi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+              readOnly: true
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "mpc-node.dataClaim" . }}
+        - name: tmp
+          emptyDir:
+            sizeLimit: 16Mi
+        {{- if .Values.seal.vault.caCertSecret.name }}
+        - name: vault-ca
+          secret:
+            secretName: {{ .Values.seal.vault.caCertSecret.name }}
+        {{- end }}
+{{- end }}

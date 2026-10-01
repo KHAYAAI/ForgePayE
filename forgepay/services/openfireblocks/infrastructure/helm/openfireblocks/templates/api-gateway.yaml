@@ -63,6 +63,53 @@ spec:
               value: {{ .Values.external.ethereumRpcSepolia | quote }}
             - name: REDIS_URL
               value: {{ .Values.external.redisUrl | quote }}
+            - name: TEMPORAL_HOSTPORT
+              value: {{ .Values.external.temporalHostPort | quote }}
+            - name: TEMPORAL_NAMESPACE
+              value: {{ .Values.external.temporalNamespace | quote }}
+            {{- with .Values.external.ethereumRpcUrl }}
+            - name: ETHEREUM_RPC_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.external.ethereumNetworkName }}
+            - name: ETHEREUM_NETWORK_NAME
+              value: {{ . | quote }}
+            {{- end }}
+            - name: MPC_THRESHOLD_SIGNING
+              value: {{ .Values.apiGateway.thresholdSigning | quote }}
+            - name: KEY_BACKFILL_ON_START
+              value: {{ .Values.apiGateway.keyBackfillOnStart | quote }}
+            {{- with .Values.apiGateway.keyBackfillMaxAttempts }}
+            - name: KEY_BACKFILL_MAX_ATTEMPTS
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.apiGateway.keyBackfillFirstDelayMs }}
+            - name: KEY_BACKFILL_FIRST_DELAY_MS
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.apiGateway.fleetRefreshSame }}
+            - name: FLEET_REFRESH_SAME
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.apiGateway.txConfirmations }}
+            - name: TX_CONFIRMATIONS
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.apiGateway.txStuckAfterMs }}
+            - name: TX_STUCK_AFTER_MS
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.apiGateway.riskFailClosed }}
+            - name: RISK_FAIL_CLOSED
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.apiGateway.pgPoolMax }}
+            - name: PG_POOL_MAX
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.apiGateway.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           livenessProbe:
             httpGet: { path: /health, port: http }
             initialDelaySeconds: 10
@@ -73,6 +120,13 @@ spec:
             periodSeconds: 5
           resources:
             {{- toYaml .Values.apiGateway.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:

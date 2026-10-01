@@ -1,0 +1,68 @@
+{{- if .Values.networkPolicy.enabled }}
+# A signing node accepts connections only from the coordinator and its peer nodes, and talks only to its peers, its
+# key service (Vault / AWS KMS), its backup sink and DNS. With networkPolicy.ingress.from empty NOTHING can reach the node.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "mpc-node.fullname" . }}
+  labels:
+    {{- include "mpc-node.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "mpc-node.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  {{- if .Values.networkPolicy.ingress.from }}
+  ingress:
+    - from:
+        {{- toYaml .Values.networkPolicy.ingress.from | nindent 8 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.node.port }}
+  {{- else }}
+  ingress: []
+  {{- end }}
+  egress:
+    # DNS
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    {{- if .Values.networkPolicy.egress.peers }}
+    # Peer nodes (their cluster.json URLs). Peers in other clusters are usually reached by CIDR (ipBlock).
+    - to:
+        {{- toYaml .Values.networkPolicy.egress.peers | nindent 8 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.networkPolicy.egress.peerPort | default .Values.node.port }}
+    {{- end }}
+    {{- if and (eq .Values.seal.provider "vault") .Values.networkPolicy.egress.keyService }}
+    # Vault (seal key). The Vault Agent Injector's own sidecar runs in this pod and uses the same rule.
+    - to:
+        {{- toYaml .Values.networkPolicy.egress.keyService | nindent 8 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.networkPolicy.egress.keyServicePort }}
+    {{- end }}
+    {{- if or (eq .Values.seal.provider "awskms") .Values.backup.s3.bucket .Values.networkPolicy.egress.allowPublicHttps }}
+    # AWS APIs (STS for IRSA, KMS, S3): public HTTPS only, never into private ranges.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+    {{- end }}
+    {{- with .Values.networkPolicy.egress.extra }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}

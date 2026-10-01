@@ -1,0 +1,14 @@
+{{- if and .Values.policy.json (not .Values.policy.existingConfigMap) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "mpc-node.policyConfigMap" . }}
+  labels:
+    {{- include "mpc-node.labels" . | nindent 4 }}
+# This node's OWN signing policy. The node reloads it when it changes (a file that stops parsing keeps the previous
+# rules in force); the coordinator cannot change it. Mounted without subPath so edits propagate; no checksum
+# annotation, so editing it does not restart the node. Keep wei amounts as quoted strings.
+data:
+  {{ .Values.policy.key }}: |
+    {{- .Values.policy.json | toPrettyJson | nindent 4 }}
+{{- end }}

@@ -15,3 +15,8 @@ output "secrets_reader_role_arn" {
   value       = aws_iam_role.secrets_reader.arn
   description = "Annotate the Kubernetes service account with this for IRSA."
 }
+
+output "treasury_cold_address_parameter" {
+  value       = one(aws_ssm_parameter.treasury_cold_address[*].name)
+  description = "SSM parameter holding TREASURY_COLD_ADDRESS (public address; set out-of-band)."
+}

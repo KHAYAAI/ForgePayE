@@ -401,10 +401,10 @@ export class Sweeper {
 
 export interface SweepHandle { stop(): void }
 
-export function startSweeper(sweeper: Sweeper, chains: string[], intervalMs: number): SweepHandle {
+export function startSweeper(sweeper: Sweeper, chains: string[], intervalMs: number, shouldRun?: () => boolean): SweepHandle {
   let running = false;
   const tick = async () => {
-    if (running) return;
+    if (running || shouldRun?.() === false) return;
     running = true;
     try {
       for (const chain of chains) {

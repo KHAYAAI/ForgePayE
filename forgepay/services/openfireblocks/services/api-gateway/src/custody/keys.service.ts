@@ -39,6 +39,7 @@ export interface MpcStatus {
     seal_provider?: string;
     mtls?: boolean;
     policy?: { digest: string; active: string[] } | null;
+    backup?: { enabled: boolean; stale?: boolean; coversCurrentShares?: boolean; lastError?: string; lastOk?: string } | null;
   }>;
   /** Trust domains that hold enough nodes to sign alone. Empty is sound. */
   exposedDomains?: string[];

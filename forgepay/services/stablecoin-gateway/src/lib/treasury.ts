@@ -375,10 +375,10 @@ export class TreasuryManager {
 
 export interface TreasuryHandle { stop(): void }
 
-export function startTreasury(m: TreasuryManager, intervalMs: number): TreasuryHandle {
+export function startTreasury(m: TreasuryManager, intervalMs: number, shouldRun?: () => boolean): TreasuryHandle {
   let running = false;
   const tick = async () => {
-    if (running) return;
+    if (running || shouldRun?.() === false) return;
     running = true;
     try {
       const r = await m.runOnce();

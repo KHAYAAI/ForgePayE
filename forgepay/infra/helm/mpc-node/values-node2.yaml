@@ -1,0 +1,63 @@
+# EXAMPLE - node2: a DIFFERENT AWS account (B), different region, different cluster and different operators from node1.
+# Same chart, its own KMS key (a key in account B that account A cannot use), its own bucket and policy.
+node:
+  id: node2
+  domain: aws-account-b
+  url: https://node2.mpc.account-b.example:8101
+  env: production
+
+seal:
+  provider: awskms
+  awskms:
+    keyId: arn:aws:kms:af-south-1:333333333333:key/00000000-0000-0000-0000-000000000002
+    region: af-south-1
+
+serviceAccount:
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::333333333333:role/mpc-node2
+
+# Operators of node2 bring their own certificate (issued by the shared CA with
+#   mpc-node pki-issue -ca ca -name node2 -hosts node2.mpc.account-b.example -out node2-tls
+# and loaded with: kubectl create secret generic mpc-node2-tls --from-file=tls.crt=node2-tls/cert.pem \
+#   --from-file=tls.key=node2-tls/key.pem --from-file=ca.crt=node2-tls/ca.pem
+tls:
+  existingSecret: mpc-node2-tls
+
+policy:
+  json: # stricter than node1: node2's operators want a lower daily limit and an allowlist
+    maxValueWei: "20000000000000000000"
+    maxFeeWei: "300000000000000000"
+    dailyLimitWei: "100000000000000000000"
+    maxTxPerHour: 30
+    allowedChainIds: [1]
+    allowedDestinations: ["0x0000000000000000000000000000000000000001"]
+    allowCalldata: false
+
+backup:
+  interval: 6h
+  recipients:
+    - fprec1:REPLACE-WITH-RECOVERY-PUBLIC-KEY-1
+    - fprec1:REPLACE-WITH-RECOVERY-PUBLIC-KEY-2
+  s3:
+    bucket: example-node2-mpc-share-backups
+    prefix: node2/
+    kmsKey: arn:aws:kms:af-south-1:333333333333:key/00000000-0000-0000-0000-0000000000b2
+
+service:
+  type: LoadBalancer
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: external
+    service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+    service.beta.kubernetes.io/aws-load-balancer-scheme: internal
+  loadBalancerSourceRanges: [203.0.113.0/24, 192.0.2.0/24, 100.64.0.0/10]
+
+networkPolicy:
+  ingress:
+    from:
+      - ipBlock: { cidr: 203.0.113.0/24 }
+      - ipBlock: { cidr: 192.0.2.0/24 }
+      - ipBlock: { cidr: 100.64.0.0/10 }
+  egress:
+    peers:
+      - ipBlock: { cidr: 203.0.113.0/24 }
+      - ipBlock: { cidr: 192.0.2.0/24 }

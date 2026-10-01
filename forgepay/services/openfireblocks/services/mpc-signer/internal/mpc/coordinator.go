@@ -107,6 +107,9 @@ type NodeStatus struct {
 	SealProvider string         `json:"seal_provider,omitempty"`
 	Policy       *PolicySummary `json:"policy,omitempty"`
 	MTLS         bool           `json:"mtls"`
+	// Backup is the node's own report of its key-share backups: whether they are on, how fresh, and
+	// whether the newest one covers the shares now on disk.
+	Backup *BackupStatus `json:"backup,omitempty"`
 }
 
 func (c *Coordinator) Health(ctx context.Context) []NodeStatus {
@@ -125,10 +128,12 @@ func (c *Coordinator) Health(ctx context.Context) []NodeStatus {
 				SealProvider string         `json:"sealProvider"`
 				Policy       *PolicySummary `json:"policy"`
 				MTLS         bool           `json:"mtls"`
+				Backup       *BackupStatus  `json:"backup"`
 			}
 			if err := c.get(cctx, n, "/v1/health", &h); err == nil && h.OK {
 				out[i].Reachable, out[i].PreParams = true, h.PreParams
 				out[i].SealProvider, out[i].Policy, out[i].MTLS = h.SealProvider, h.Policy, h.MTLS
+				out[i].Backup = h.Backup
 			}
 		}(i, n)
 	}

@@ -104,6 +104,10 @@ promptly so honest nodes never hold a usable old share.
 Nodes can be added or moved by editing `cluster.json`; running processes re-read it when it changes.
 The coordinator key and existing nodes' identity keys cannot change that way.
 
+## Backup and disaster recovery
+
+Shares are backed up, encrypted to an offline recovery key split among officers, after every key change; a restore drill proves it. See [disaster-recovery.md](disaster-recovery.md). `MPC_ENV=production` refuses to start a node without backups.
+
 ## Provisioning existing workspaces
 Keys are created on first signing. The gateway also backfills on start (serialised, resumable, retried with
 backoff if the signer or nodes are down; `KEY_BACKFILL_ON_START=false` disables it) and on demand via

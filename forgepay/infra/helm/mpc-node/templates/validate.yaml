@@ -1,0 +1,1 @@
+{{- include "mpc-node.validate" . -}}

@@ -1,0 +1,114 @@
+{{- if .Values.serve.enabled }}
+# ONE signing node. replicas is fixed at 1 on purpose: a node is one identity (one sealed identity key, one set of
+# shares, one hash-chained audit log). Never scale this; add nodes by installing another release.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "mpc-node.fullname" . }}
+  labels:
+    {{- include "mpc-node.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "mpc-node.fullname" . }}-headless
+  replicas: 1
+  podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      {{- include "mpc-node.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "mpc-node.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- $ann := include "mpc-node.podAnnotations" . | trim }}
+      {{- if $ann }}
+      annotations:
+        {{- $ann | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "mpc-node.serviceAccountName" . }}
+      automountServiceAccountToken: {{ or .Values.serviceAccount.automountToken (eq (include "mpc-node.vaultAgent" .) "true") }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- if .Values.preflight.initContainer }}
+      initContainers:
+        # Refuses to start the node when production start-up would refuse (or the topology / certificate / seal key /
+        # data-directory permissions are wrong), with the reason in this container's log. Read-only: changes nothing.
+        - name: preflight
+          image: {{ include "mpc-node.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - preflight
+            {{- include "mpc-node.nodeArgs" . | nindent 12 }}
+          env:
+            {{- include "mpc-node.runEnv" . | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.preflight.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "mpc-node.runVolumeMounts" . | nindent 12 }}
+      {{- end }}
+      containers:
+        - name: mpc-node
+          image: {{ include "mpc-node.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - serve
+            {{- include "mpc-node.nodeArgs" . | nindent 12 }}
+            - -listen
+            - {{ printf ":%v" .Values.node.port | quote }}
+          env:
+            {{- include "mpc-node.runEnv" . | nindent 12 }}
+          ports:
+            - name: mtls
+              containerPort: {{ .Values.node.port }}
+              protocol: TCP
+          # The node requires a client certificate on every connection, which the kubelet cannot present, so HTTP
+          # probes against /v1/health would always fail. TCP probes only prove the listener is up.
+          startupProbe:
+            tcpSocket:
+              port: mtls
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            tcpSocket:
+              port: mtls
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: mtls
+            periodSeconds: 20
+            failureThreshold: 6
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "mpc-node.runVolumeMounts" . | nindent 12 }}
+      volumes:
+        {{- include "mpc-node.runVolumes" . | nindent 8 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

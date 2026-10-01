@@ -1,0 +1,9 @@
+apiVersion: v2
+name: mpc-node
+description: "ONE FORGE threshold-signing node (mpc-node). Install once per node, each into its own trust domain."
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+maintainers:
+  - name: ForgePay Engineering
+    email: eng@forgepay.io

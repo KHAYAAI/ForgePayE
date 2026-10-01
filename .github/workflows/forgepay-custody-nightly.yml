@@ -1,0 +1,138 @@
+# ARCH: ForgePay Custody — nightly heavy suites
+#
+# Two suites that are too slow or too heavy for every PR, so they run on a schedule and on demand:
+#
+#   mpc-integration  real distributed key generation, signing and resharing across real nodes in one process
+#                    (go test ./internal/mpc/ — minutes of CPU: ~10 min on 4 cores, hence the 60 min timeout)
+#   gateway-e2e      the real stablecoin-gateway against a real Postgres and real ERC-20 contracts on a local
+#                    ganache chain: quoting, x402 top-ups, settlement (partial/late/wrong-token/restart),
+#                    payouts, sweeping, treasury (scripts/multi-asset-e2e.cjs)
+#
+# Not triggered by pull requests. Run one by hand from the Actions tab (workflow_dispatch). A failure shows up as a
+# red scheduled run; add a notification rule on this workflow if someone should be told.
+#
+# NOTE: the default runner is `ubuntu-latest` (4 vCPU on public repositories, 2 on private ones, which makes
+#   mpc-integration slower but still inside its timeout). Point the repository variable CUSTODY_NIGHTLY_RUNNER at a
+#   larger runner label to speed it up.
+
+name: "ForgePay Custody — nightly"
+
+on:
+  schedule:
+    - cron: "17 2 * * *" # 02:17 UTC
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: "Which suite to run"
+        required: false
+        default: "all"
+        type: choice
+        options:
+          - all
+          - mpc-integration
+          - gateway-e2e
+
+concurrency:
+  group: forgepay-custody-nightly
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  mpc-integration:
+    name: "mpc-signer — full integration (real nodes)"
+    if: github.event_name == 'schedule' || inputs.suite == 'all' || inputs.suite == 'mpc-integration'
+    runs-on: ${{ vars.CUSTODY_NIGHTLY_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 75
+    defaults:
+      run:
+        working-directory: forgepay/services/openfireblocks/services/mpc-signer
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: forgepay/services/openfireblocks/services/mpc-signer/go.mod
+          cache-dependency-path: forgepay/services/openfireblocks/services/mpc-signer/go.sum
+
+      # No -short: this is the suite the per-PR job skips. -count=1 defeats the test cache so it really runs.
+      - name: go test ./internal/mpc/
+        run: |
+          set -o pipefail
+          go test ./internal/mpc/ -timeout 60m -count=1 -v 2>&1 | tee "$RUNNER_TEMP/mpc-integration.log"
+
+      - name: Upload log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mpc-integration-log
+          path: ${{ runner.temp }}/mpc-integration.log
+          if-no-files-found: ignore
+
+  gateway-e2e:
+    name: "stablecoin-gateway — multi-asset end-to-end (Postgres + ganache)"
+    if: github.event_name == 'schedule' || inputs.suite == 'all' || inputs.suite == 'gateway-e2e'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: forgepay/services/stablecoin-gateway
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: forgepay/services/stablecoin-gateway/package-lock.json
+
+      - run: npm ci
+
+      # ganache stays out of the gateway's package.json on purpose: it is a test chain, not a dependency. Chain id 1337
+      # and this mnemonic are what the script's funder wallet expects.
+      - name: Install and start ganache
+        run: |
+          npm install --no-save --no-audit --no-fund --prefix "$RUNNER_TEMP/ganache" ganache@7.9.2
+          nohup "$RUNNER_TEMP/ganache/node_modules/.bin/ganache" \
+            --server.host 127.0.0.1 --server.port 8545 --chain.chainId 1337 \
+            --wallet.mnemonic "test test test test test test test test test test test junk" \
+            --wallet.totalAccounts 10 --wallet.defaultBalance 100000 \
+            --miner.blockTime 0 --logging.quiet > "$RUNNER_TEMP/ganache.log" 2>&1 &
+          for _ in $(seq 1 30); do
+            if curl -sf -X POST -H 'content-type: application/json' \
+                 --data '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}' http://127.0.0.1:8545 > /dev/null; then
+              echo "ganache is up"; exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::ganache did not start"; cat "$RUNNER_TEMP/ganache.log"; exit 1
+
+      # The script creates and drops its own database (forgepay_sgw_e2e), so it needs a role that may CREATE DATABASE.
+      - name: Run multi-asset-e2e.cjs
+        run: node scripts/multi-asset-e2e.cjs
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+          RPC_URL: http://127.0.0.1:8545
+
+      - name: Upload gateway log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gateway-e2e-log
+          path: forgepay/services/stablecoin-gateway/.e2e-gateway.log
+          if-no-files-found: ignore

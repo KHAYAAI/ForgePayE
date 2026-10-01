@@ -1,0 +1,27 @@
+# Example: the custody path switched on (also rendered by CI). References only; no secrets.
+apiGateway:
+  thresholdSigning: true
+external:
+  ethereumRpcUrl: https://eth-mainnet.example/rpc
+  ethereumNetworkName: Ethereum
+  temporalHostPort: temporal-frontend.temporal:7233
+mpcSigner:
+  immudb:
+    url: immudb.audit:3322
+    credentialsSecret: ofb-immudb
+  threshold:
+    enabled: true
+    cluster:
+      json: |
+        {"threshold":1,"coordinator_pub":"aa","nodes":[]}
+    coordinatorKeySecret: { name: ofb-coordinator-key, key: coordinator.key }
+    tls:
+      certManager:
+        enabled: true
+        issuerRef: { name: forge-mpc-ca, kind: ClusterIssuer }
+networkPolicy:
+  enabled: true
+  nodePeers:
+    - ipBlock: { cidr: 198.51.100.10/32 }
+    - ipBlock: { cidr: 198.51.100.11/32 }
+    - ipBlock: { cidr: 198.51.100.12/32 }

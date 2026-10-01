@@ -31,6 +31,7 @@ import { randomUUID } from 'node:crypto';
 import type { AssetRegistry, ChainAsset } from './assets.js';
 import type { Queryable } from './deposit-open.js';
 import { forwardToUnifiedRouter } from './events.js';
+import { alerts } from './alerts.js';
 
 const TRANSFER_TOPIC = ethers.id('Transfer(address,address,uint256)');
 
@@ -41,6 +42,8 @@ export interface SettlementChain {
   blockNumber(): Promise<number>;
   transfersTo(token: string, to: string, fromBlock: number, toBlock: number): Promise<ChainTransfer[]>;
   blockTime(blockNumber: number): Promise<number>;
+  /** Current token balance of an address. When present, a deposit is only credited if the address really holds what is being credited. */
+  balanceOf?(token: string, owner: string): Promise<bigint>;
 }
 
 export class RpcSettlementChain implements SettlementChain {
@@ -53,6 +56,9 @@ export class RpcSettlementChain implements SettlementChain {
       topics: [TRANSFER_TOPIC, null, ethers.zeroPadValue(to, 32)],
     });
     return logs.map((l) => ({ txHash: l.transactionHash, blockNumber: l.blockNumber, value: BigInt(l.data) }));
+  }
+  async balanceOf(token: string, owner: string) {
+    return BigInt(await new ethers.Contract(token, ['function balanceOf(address) view returns (uint256)'], this.provider)['balanceOf']!(owner));
   }
   async blockTime(n: number) {
     const hit = this.times.get(n);
@@ -76,6 +82,8 @@ export interface SettlementOptions {
   defaultLookbackBlocks?: number;
   /** How long after expiry a deposit is still checked for late payments (default 48h). */
   lateWindowMs?: number;
+  /** Return false to skip a tick (this replica is not the leader). */
+  shouldRun?: () => boolean;
   /** Run the late scan once every this many passes (default 30). */
   lateEveryPasses?: number;
   now?: () => Date;
@@ -168,6 +176,21 @@ async function settleOne(
 
   // 3. Decide.
   if (finalUnits >= required) {
+    // Before crediting, make sure the address really holds what the events say was paid. A token that
+    // takes a fee on transfer, rebases, or lies in its Transfer event would otherwise be credited in
+    // full while the funds are not there. A shortfall holds the deposit (it stays 'confirming' and is
+    // looked at again next pass) and raises an alert; a balance that has caught up confirms it.
+    if (chainApi.balanceOf) {
+      const held = await chainApi.balanceOf(asset.address, d.address);
+      if (held < required) {
+        result.errors++;
+        console.error(`[settlement] deposit ${d.id}: events show ${finalUnits} ${asset.symbol} paid but ${d.address} holds ${held}; not crediting`);
+        void alerts().raise(`deposit:balance:${d.id}`, 'critical', `Deposit ${d.id} not credited: balance is short`,
+          `Transfer events show ${finalUnits} units of ${asset.symbol} on ${chain} but ${d.address} holds ${held}. Possible fee-on-transfer or rebasing token, or an RPC lagging behind. It will be re-checked every pass.`);
+        return;
+      }
+      void alerts().resolve(`deposit:balance:${d.id}`);
+    }
     // Guarded on status so two overlapping passes credit once.
     const upd = await db.query(
       `UPDATE stablecoin_deposits
@@ -336,6 +359,7 @@ export function startSettlement(
   let passes = 0;
   const every = Math.max(1, opts.lateEveryPasses ?? 30);
   const tick = async () => {
+    if (opts.shouldRun?.() === false) return;
     passes++;
     for (const chain of chains) {
       if (running.has(chain)) continue;

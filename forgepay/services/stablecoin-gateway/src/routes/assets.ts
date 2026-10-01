@@ -10,6 +10,7 @@
 import type { FastifyInstance } from 'fastify';
 import { gatewayContext } from '../lib/context.js';
 import { rateToScaled, scaledToRate } from '../lib/asset-math.js';
+import { pollRate, feedConfig, feedSourcesFromEnv } from '../lib/fx-feed.js';
 import { quoteFor, USD_ZAR, maxRateAgeMs, RateUnavailableError } from '../lib/fx.js';
 
 /** A new rate more than this far from the last one needs an explicit `confirm_large_change`. */
@@ -31,6 +32,15 @@ export async function buildAssetRoutes(app: FastifyInstance) {
       })),
       rates: { 'USD/ZAR': rand, max_age_hours: maxRateAgeMs() / 3600_000 },
     });
+  });
+
+  // Run the live sources once, from where the gateway runs, without storing anything. Use it to confirm
+  // the feed is reachable and agrees before turning FX_FEED_ENABLED on.
+  app.get('/rates/feed/check', async (req, reply) => {
+    if (req.auth?.kind !== 'admin') return reply.code(403).send({ error: 'Forbidden', message: 'admin only' });
+    const ctx = await gatewayContext();
+    const last = await ctx.rates.latest(USD_ZAR);
+    return reply.send(await pollRate(feedSourcesFromEnv(), feedConfig(), last ? Number(scaledToRate(last.scaled)) : null));
   });
 
   app.put<{ Body: { rate?: number | string; source?: string; as_of?: string; confirm_large_change?: boolean } }>(

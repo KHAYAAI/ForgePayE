@@ -94,7 +94,7 @@ export default function CustodyKeys() {
       {threshold && (
         <Panel title="Signing Nodes" label={`${online} of ${k.nodes.length} reachable · any ${k.signers_needed} of the ${k.committee.length} holding a share sign together`} style={{ marginBottom: 20 }}>
           <DataTable
-            columns={['Node', 'Trust domain', 'Holds a share', 'Seal key kept in', 'Transport', 'Its own limits', 'Status']}
+            columns={['Node', 'Trust domain', 'Holds a share', 'Seal key kept in', 'Backup', 'Transport', 'Its own limits', 'Status']}
             emptyMessage="The signer service is unreachable."
             rows={k.nodes.map((n) => {
               const seal = SEAL_LABEL[n.seal_provider ?? ''] ?? { text: n.seal_provider || 'unknown', ok: false };
@@ -104,6 +104,11 @@ export default function CustodyKeys() {
                 n.domain,
                 stale ? <Pill key="h" tone="warn">old share</Pill> : n.holds_key ? 'yes' : '—',
                 <Pill key="s" tone={seal.ok ? 'ok' : 'warn'}>{seal.text}</Pill>,
+                !n.reachable ? '—'
+                  : !n.backup?.enabled ? <Pill key="b" tone="warn">none</Pill>
+                  : n.backup.lastError ? <Pill key="b" tone="danger">failing</Pill>
+                  : n.backup.stale || !n.backup.coversCurrentShares ? <Pill key="b" tone="warn">behind</Pill>
+                  : <Pill key="b" tone="ok">current</Pill>,
                 <Pill key="m" tone={n.mtls ? 'ok' : 'warn'}>{n.mtls ? 'mutual TLS' : 'plain HTTP'}</Pill>,
                 n.policy && n.policy.active.length ? (
                   <span key="p" title={`policy ${n.policy.digest}`}>{n.policy.active.map((r) => r.replace(/_/g, ' ')).join(', ')}</span>
