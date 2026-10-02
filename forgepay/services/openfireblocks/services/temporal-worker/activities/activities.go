@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -53,6 +55,10 @@ func (a *Activities) postJSON(ctx context.Context, url string, body, out interfa
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	// The signer requires its bearer token; send it only to the signer, never to the policy service or an RPC.
+	if tok := os.Getenv("MPC_SIGNER_AUTH_TOKEN"); tok != "" && strings.HasPrefix(url, strings.TrimRight(a.MpcSignerURL, "/")+"/") {
+		req.Header.Set("Authorization", "Bearer "+tok)
+	}
 	resp, err := a.httpClient.Do(req)
 	if err != nil {
 		return err

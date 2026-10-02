@@ -168,6 +168,26 @@ jobs:
       - run: npm run build
       - run: npx jest
 
+  # ── Console (Next.js): typecheck + the auth/guard tests ─────────────────────
+  console:
+    name: "console — tsc + vitest (auth, route guards)"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: forgepay/apps/platform
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: forgepay/apps/platform/package-lock.json
+
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm test
+
   # ── OpenFireblocks MPC signer + node (Go) ────────────────────────────────────
   # `-short` skips the tests that run real distributed key generation (minutes of CPU); those run in the nightly
   # workflow. What is left is fast: cluster/topology/policy/seal-provider logic and the coordinator's HTTP handlers.

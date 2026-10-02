@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { openSecret } from '@/lib/secret-box';
 import { z } from 'zod';
 import { getCurrentUser, getUserById, confirmTotpEnrollment } from '@/lib/auth';
 import { verifyTotpCode, generateBackupCodes } from '@/lib/mfa';
@@ -23,7 +24,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Enter the 6-digit code from your authenticator app.' }, { status: 400 });
   }
 
-  const ok = await verifyTotpCode(user.totp_secret, code);
+  const ok = await verifyTotpCode(openSecret(user.totp_secret), code);
   if (!ok) {
     return NextResponse.json({ error: 'Incorrect code. Check the time on your device and try again.' }, { status: 400 });
   }

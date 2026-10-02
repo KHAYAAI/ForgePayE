@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { exchangeSsoCode, getTenantByWorkosOrganizationId } from '@/lib/sso';
-import { findOrCreateSsoUser, createSession, setAuthCookie } from '@/lib/auth';
+import { findOrCreateSsoUser, SsoTenantMismatchError, createSession, setAuthCookie } from '@/lib/auth';
 import { logAuditEvent, clientIp } from '@/lib/audit';
 
 /** WorkOS redirects here after the user authenticates with their IdP. Exchanges the code for a profile and mints a real session. */
@@ -44,7 +44,20 @@ export async function GET(req: NextRequest) {
   }
 
   const name = [profile.firstName, profile.lastName].filter(Boolean).join(' ') || profile.email;
-  const user = await findOrCreateSsoUser(profile.email, name, tenant.id);
+  let user;
+  try {
+    user = await findOrCreateSsoUser(profile.email, name, tenant.id);
+  } catch (err) {
+    if (err instanceof SsoTenantMismatchError) {
+      await logAuditEvent({
+        tenantId: tenant.id, actorEmail: profile.email, action: 'auth.sso_login_refused',
+        detail: { reason: 'email belongs to another tenant' }, ipAddress: clientIp(req), userAgent: req.headers.get('user-agent'),
+      });
+      loginUrl.searchParams.set('error', 'This email address is already registered with another organization.');
+      return NextResponse.redirect(loginUrl);
+    }
+    throw err;
+  }
 
   const { token } = await createSession(
     { userId: user.id, email: user.email, tenantId: user.tenant_id, role: user.role ?? 'analyst' },

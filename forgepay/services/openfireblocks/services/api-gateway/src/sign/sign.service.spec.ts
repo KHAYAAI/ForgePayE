@@ -22,7 +22,7 @@ import { TransferPlanner } from '../blockchain/transfer-planner.service';
 // without infra and asserts policy/audit/persist/broadcast wiring.
 describe('SignService', () => {
   let audit: { logEvent: jest.Mock };
-  let postgres: { saveTransaction: jest.Mock; updateStatus: jest.Mock };
+  let postgres: { saveTransaction: jest.Mock; updateStatus: jest.Mock; getTransaction: jest.Mock };
   let policy: { evaluate: jest.Mock };
   let risk: { checkAndRecord: jest.Mock };
   let billing: { recordSigned: jest.Mock; recordBroadcast: jest.Mock };
@@ -98,6 +98,7 @@ describe('SignService', () => {
     postgres = {
       saveTransaction: jest.fn().mockResolvedValue(undefined),
       updateStatus: jest.fn().mockResolvedValue(undefined),
+      getTransaction: jest.fn().mockResolvedValue(null),
     };
     policy = { evaluate: jest.fn().mockResolvedValue(approve()) };
     risk = {
@@ -145,6 +146,16 @@ describe('SignService', () => {
     const auditedTypes = audit.logEvent.mock.calls.map((c) => c[0].type);
     expect(auditedTypes).toContain('SIGN_REQUEST_RECEIVED');
     expect(auditedTypes).toContain('SIGN_SUCCESS');
+  });
+
+  it('a request that was already signed is returned as it was, never signed a second time', async () => {
+    const service = await build({ canBroadcast: false });
+    postgres.getTransaction.mockResolvedValue({ signed_tx: '0xalreadysigned', tx_hash: '0xalreadyhash', from_address: '0xfrom', status: 'signed' });
+    const result = await service.executeSigning(customer, validReq, 'req-1');
+    expect(mpcPost).not.toHaveBeenCalled();
+    expect(postgres.saveTransaction).not.toHaveBeenCalled();
+    expect(result.signedTx).toBe('0xalreadysigned');
+    expect(result.txHash).toBe('0xalreadyhash');
   });
 
   describe('with a network RPC', () => {
@@ -318,6 +329,66 @@ describe('SignService', () => {
   // Regression: the policy engine returns approved=true AND
   // requiresApproval=true for high-value transfers. The service used to check
   // only `approved` and sign immediately.
+  describe('API-key transfers need a quorum above the workspace ceiling', () => {
+    const approved = () => ({ approved: true, denials: [], requiresApproval: false, reason: 'ok' });
+    it('in production, with no ceiling set, an API key cannot make a transfer without approval', async () => {
+      const prev = process.env.NODE_ENV; process.env.NODE_ENV = 'production';
+      try {
+        const service = await build({ canBroadcast: false });
+        policy.evaluate.mockResolvedValue(approved());
+        const result = await service.sign(customer, { ...validReq, value: '1' });
+        expect(result.status).toBe('pending_approval');
+        expect(mpcPost).not.toHaveBeenCalled();
+      } finally { process.env.NODE_ENV = prev; }
+    });
+    it('a workspace ceiling lets small API-key transfers through and queues larger ones', async () => {
+      const service = await build({ canBroadcast: false });
+      policy.evaluate.mockResolvedValue(approved());
+      const c = { ...customer, policies: { apiKeyAutoSignMaxWei: '1000' } };
+      expect((await service.sign(c, { ...validReq, value: '1000' })).status).toBe('signed');
+      expect((await service.sign(c, { ...validReq, value: '1001' })).status).toBe('pending_approval');
+    });
+    it('a person in the console is not subject to the API-key ceiling', async () => {
+      const prev = process.env.NODE_ENV; process.env.NODE_ENV = 'production';
+      try {
+        const service = await build({ canBroadcast: false });
+        policy.evaluate.mockResolvedValue(approved());
+        expect((await service.sign(customer, { ...validReq, value: '1' }, 'alice@example.com')).status).toBe('signed');
+      } finally { process.env.NODE_ENV = prev; }
+    });
+  });
+
+  describe('contract calls (the policy engine only sees `to` and `value`)', () => {
+    const recipient = '0x000000000000000000000000000000000000bEEF';
+    const transferData = '0xa9059cbb' + '000000000000000000000000' + recipient.slice(2).toLowerCase() + '00'.repeat(31) + '01';
+    const approved = { approved: true, denials: [], requiresApproval: false, reason: 'ok' };
+
+    it('a zero-value token transfer is not signed on the strength of its zero value: it waits for a quorum', async () => {
+      const service = await build({ canBroadcast: false });
+      policy.evaluate.mockResolvedValue(approved);
+      const result = await service.sign(customer, { ...validReq, value: '0', data: transferData });
+      expect(result.status).toBe('pending_approval');
+      expect(mpcPost).not.toHaveBeenCalled();
+    });
+
+    it('the recipient inside a token transfer is put through the policy too, and a denial stops it', async () => {
+      const service = await build({ canBroadcast: false });
+      policy.evaluate
+        .mockResolvedValueOnce(approved)
+        .mockResolvedValueOnce({ approved: false, denials: ['destination sanctioned'], requiresApproval: false, reason: 'no' });
+      await expect(service.sign(customer, { ...validReq, value: '0', data: transferData })).rejects.toBeInstanceOf(ForbiddenException);
+      expect(policy.evaluate.mock.calls[1][0].to.toLowerCase()).toBe(recipient.toLowerCase());
+      expect(mpcPost).not.toHaveBeenCalled();
+    });
+
+    it('a plain transfer is unaffected', async () => {
+      const service = await build({ canBroadcast: false });
+      policy.evaluate.mockResolvedValue(approved);
+      const result = await service.sign(customer, validReq);
+      expect(result.status).toBe('signed');
+    });
+  });
+
   it('queues instead of signing when the policy requires approval', async () => {
     const service = await build({ canBroadcast: false });
     policy.evaluate.mockResolvedValueOnce({

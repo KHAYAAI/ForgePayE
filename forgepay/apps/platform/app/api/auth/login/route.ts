@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { hit } from '@/lib/rate-limit';
 import { z } from 'zod';
 import {
   getUserByEmail,
@@ -23,6 +24,18 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const { email, password } = loginSchema.parse(body);
+
+    // Throttle guessing: per address and per account, so one source cannot try many passwords and many
+    // sources cannot hammer one account indefinitely.
+    const byIp = hit(`login:ip:${ipAddress}`, 20, 15 * 60_000);
+    const byAcct = hit(`login:acct:${email.toLowerCase()}`, 8, 15 * 60_000);
+    if (!byIp.allowed || !byAcct.allowed) {
+      await logAuditEvent({ action: 'auth.login_throttled', actorEmail: email, ipAddress, userAgent });
+      return NextResponse.json(
+        { error: 'Too many attempts. Try again later.' },
+        { status: 429, headers: { 'retry-after': String(Math.max(byIp.retryAfterSec, byAcct.retryAfterSec)) } },
+      );
+    }
 
     const user = await getUserByEmail(email);
     if (!user) {
@@ -88,7 +101,6 @@ export async function POST(req: NextRequest) {
         email: user.email,
         name: user.name,
         tenantId: user.tenant_id,
-        apiKey: user.api_key,
       },
     });
   } catch (error) {

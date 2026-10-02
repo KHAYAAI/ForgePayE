@@ -10,6 +10,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+
+	"forge-crypto/mpc-signer/internal/ethtx"
 )
 
 func plainTx(to string, wei int64) *types.Transaction {
@@ -185,5 +187,73 @@ func TestSelectorAllowlist(t *testing.T) {
 	}
 	if p.Reserve("b", "k", 1, call("0x095ea7b3")) == nil {
 		t.Fatal("unlisted selector allowed")
+	}
+}
+
+func tokenCall(token string, sel string, to string, amount int64) *types.Transaction {
+	a := common.HexToAddress(token)
+	data := common.FromHex(sel)
+	data = append(data, common.LeftPadBytes(common.HexToAddress(to).Bytes(), 32)...)
+	data = append(data, common.LeftPadBytes(big.NewInt(amount).Bytes(), 32)...)
+	return types.NewTx(&types.LegacyTx{Nonce: 1, GasPrice: big.NewInt(10), Gas: 60000, To: &a, Value: big.NewInt(0), Data: data})
+}
+
+func TestReusedSessionIdCannotRefundSpentBudget(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "policy.json")
+	writePolicy(t, path, `{"dailyLimitWei":"100"}`, 0)
+	p, _ := OpenPolicy(path, filepath.Join(dir, "ledger.jsonl"))
+	dest := "0x000000000000000000000000000000000000dEaD"
+	if err := p.Reserve("s1", "k", 1, plainTx(dest, 90)); err != nil {
+		t.Fatal(err)
+	}
+	// Replaying the session id must be refused outright, and must not hand back the 90.
+	if err := p.Reserve("s1", "k", 1, plainTx(dest, 1)); err == nil || !strings.Contains(err.Error(), "already been used") {
+		t.Fatalf("session id reuse accepted: %v", err)
+	}
+	if used, _ := p.Used("k"); used.Int64() != 90 {
+		t.Fatalf("budget changed by a replay: used %s, want 90", used)
+	}
+	if err := p.Reserve("s2", "k", 1, plainTx(dest, 20)); err == nil {
+		t.Fatal("daily limit bypassed")
+	}
+}
+
+func TestNegativeValueIsRefused(t *testing.T) {
+	a := common.HexToAddress("0x000000000000000000000000000000000000dEaD")
+	if _, err := ethtx.ParseBig("-5", true); err == nil {
+		t.Fatal("ParseBig accepted a negative amount")
+	}
+	_ = a
+}
+
+func TestTokenAmountsAreCappedPerCallAndPerDay(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "policy.json")
+	tok := "0x1111111111111111111111111111111111111111"
+	writePolicy(t, path, `{"maxTokenUnits":{"`+tok+`":"1000"},"dailyTokenUnits":{"`+tok+`":"1500"},"requireTokenCaps":true}`, 0)
+	p, err := OpenPolicy(path, filepath.Join(dir, "ledger.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	to := "0x000000000000000000000000000000000000dEaD"
+	if err := p.Reserve("a", "k", 1, tokenCall(tok, "a9059cbb", to, 1001)); err == nil {
+		t.Fatal("per-call token cap not enforced for transfer")
+	}
+	if err := p.Reserve("b", "k", 1, tokenCall(tok, "095ea7b3", to, 1<<40)); err == nil {
+		t.Fatal("an enormous approve was allowed")
+	}
+	if err := p.Reserve("c", "k", 1, tokenCall(tok, "a9059cbb", to, 900)); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Reserve("d", "k", 1, tokenCall(tok, "a9059cbb", to, 700)); err == nil {
+		t.Fatal("daily token limit not enforced (900+700 > 1500)")
+	}
+	other := "0x2222222222222222222222222222222222222222"
+	if err := p.Reserve("e", "k", 1, tokenCall(other, "a9059cbb", to, 1)); err == nil {
+		t.Fatal("a token with no cap was allowed although caps are required")
+	}
+	if err := p.Reserve("f", "k", 1, plainTx(to, 1)); err != nil {
+		t.Fatalf("plain transfers are unaffected: %v", err)
 	}
 }

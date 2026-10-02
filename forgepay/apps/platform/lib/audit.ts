@@ -14,6 +14,8 @@ import { query } from './db';
 export type AuditAction =
   | 'auth.login_success'
   | 'auth.login_failed'
+  | 'auth.login_throttled'
+  | 'auth.sso_login_refused'
   | 'auth.logout'
   | 'auth.sso_login_success'
   | 'auth.signup'

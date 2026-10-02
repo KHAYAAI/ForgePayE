@@ -50,6 +50,14 @@ type NodePolicy struct {
 	// AllowedSelectors, when set and calldata is allowed, limits contract calls
 	// to these 4-byte function selectors (0x-prefixed hex).
 	AllowedSelectors []string `json:"allowedSelectors,omitempty"`
+	// MaxTokenUnits caps, per token contract, the amount in one standard token call
+	// (transfer, approve, transferFrom), in that token's smallest unit. Value limits
+	// above only see native coin, so without this an ERC-20 transfer is invisible to them.
+	MaxTokenUnits map[string]string `json:"maxTokenUnits,omitempty"`
+	// DailyTokenUnits caps the same per token contract over a rolling 24 hours, per key.
+	DailyTokenUnits map[string]string `json:"dailyTokenUnits,omitempty"`
+	// RequireTokenCaps refuses any standard token call to a contract with no MaxTokenUnits entry.
+	RequireTokenCaps bool `json:"requireTokenCaps,omitempty"`
 }
 
 // PolicySummary is the public description of a node's policy: enough for the
@@ -79,6 +87,7 @@ type compiledPolicy struct {
 	maxValue, maxFee, daily *big.Int
 	allow, block            map[common.Address]bool
 	selectors               map[string]bool
+	tokenMax, tokenDaily    map[common.Address]*big.Int
 	chains                  map[int]bool
 	summary                 PolicySummary
 }
@@ -129,6 +138,26 @@ func compilePolicy(p NodePolicy) (*compiledPolicy, error) {
 		}
 		c.selectors[strings.TrimPrefix(s, "0x")] = true
 	}
+	tokens := func(name string, in map[string]string) (map[common.Address]*big.Int, error) {
+		m := map[common.Address]*big.Int{}
+		for a, v := range in {
+			if !common.IsHexAddress(a) {
+				return nil, fmt.Errorf("policy %s: %q is not an address", name, a)
+			}
+			n, err := parse(name, v)
+			if err != nil || n == nil {
+				return nil, fmt.Errorf("policy %s for %s must be a non-negative base-10 integer", name, a)
+			}
+			m[common.HexToAddress(a)] = n
+		}
+		return m, nil
+	}
+	if c.tokenMax, err = tokens("maxTokenUnits", p.MaxTokenUnits); err != nil {
+		return nil, err
+	}
+	if c.tokenDaily, err = tokens("dailyTokenUnits", p.DailyTokenUnits); err != nil {
+		return nil, err
+	}
 	c.chains = map[int]bool{}
 	for _, id := range p.AllowedChainIDs {
 		c.chains[id] = true
@@ -146,6 +175,7 @@ func compilePolicy(p NodePolicy) (*compiledPolicy, error) {
 		"max_value": c.maxValue != nil, "max_fee": c.maxFee != nil, "daily_limit": c.daily != nil,
 		"rate_limit": p.MaxTxPerHour > 0, "destination_allowlist": len(c.allow) > 0, "destination_blocklist": len(c.block) > 0,
 		"plain_transfers_only": sum.PlainTransfers, "selector_allowlist": len(c.selectors) > 0, "chain_allowlist": len(c.chains) > 0,
+		"token_caps": len(c.tokenMax) > 0 || len(c.tokenDaily) > 0 || p.RequireTokenCaps,
 	} {
 		if on {
 			sum.Active = append(sum.Active, name)
@@ -174,6 +204,25 @@ var tokenRecipientSelectors = map[string]int{
 	"23b872dd": 1, // transferFrom(address,address,uint256): the destination is argument 2
 }
 
+// tokenAmount extracts the amount of a standard token call: transfer/approve (arg 2) and
+// transferFrom (arg 3), as a non-negative integer.
+func tokenAmount(token common.Address, data []byte) (common.Address, *big.Int, bool) {
+	if len(data) < 4 {
+		return token, nil, false
+	}
+	idx := -1
+	switch hex.EncodeToString(data[:4]) {
+	case "a9059cbb", "095ea7b3":
+		idx = 1
+	case "23b872dd":
+		idx = 2
+	}
+	if idx < 0 || len(data) < 4+32*(idx+1) {
+		return token, nil, false
+	}
+	return token, new(big.Int).SetBytes(data[4+32*idx : 4+32*(idx+1)]), true
+}
+
 func embeddedRecipient(data []byte) (common.Address, bool) {
 	if len(data) < 4+32 {
 		return common.Address{}, false
@@ -190,6 +239,9 @@ func embeddedRecipient(data []byte) (common.Address, bool) {
 func (c *compiledPolicy) check(chainID int, tx *types.Transaction) error {
 	if len(c.chains) > 0 && !c.chains[chainID] {
 		return &PolicyRefusal{"chain_allowlist", fmt.Sprintf("this node does not sign for chain %d", chainID)}
+	}
+	if tx.Value().Sign() < 0 {
+		return &PolicyRefusal{"negative_value", "a transaction cannot have a negative value"}
 	}
 	if c.maxValue != nil && tx.Value().Cmp(c.maxValue) > 0 {
 		return &PolicyRefusal{"max_value", "value exceeds this node's own per-transaction cap"}
@@ -218,6 +270,15 @@ func (c *compiledPolicy) check(chainID int, tx *types.Transaction) error {
 		if len(c.selectors) > 0 && !c.selectors[hex.EncodeToString(data[:4])] {
 			return &PolicyRefusal{"selector_allowlist", "this contract function is not on this node's allowlist"}
 		}
+		if _, amt, ok := tokenAmount(to, data); ok {
+			cap, capped := c.tokenMax[to]
+			if !capped && c.raw.RequireTokenCaps {
+				return &PolicyRefusal{"token_cap_required", "this node refuses token calls to a contract it has no cap for"}
+			}
+			if capped && amt.Cmp(cap) > 0 {
+				return &PolicyRefusal{"max_token_units", "the token amount exceeds this node's own per-call cap for that token"}
+			}
+		}
 		if rcpt, ok := embeddedRecipient(data); ok {
 			if c.block[rcpt] {
 				return &PolicyRefusal{"destination_blocklist", "the token recipient is on this node's blocklist"}
@@ -235,6 +296,8 @@ type ledgerEntry struct {
 	Session string    `json:"session"`
 	Key     string    `json:"key"`
 	Wei     string    `json:"wei,omitempty"`
+	Token   string    `json:"token,omitempty"`
+	Units   string    `json:"units,omitempty"`
 }
 
 // Policy enforces a node's policy, reloading its file when it changes and
@@ -359,6 +422,16 @@ func (p *Policy) Reserve(session, keyID string, chainID int, tx *types.Transacti
 	defer p.mu.Unlock()
 	p.refresh()
 	c := p.cur
+	// A session id is used once. Re-using one (even after release) must not be able to release,
+	// or be confused with, the original reservation: that would hand back budget already spent.
+	for _, e := range p.entries {
+		if e.Session == session {
+			return &PolicyRefusal{"duplicate_session", "this session id has already been used"}
+		}
+	}
+	if tx.Value().Sign() < 0 {
+		return &PolicyRefusal{"negative_value", "a transaction cannot have a negative value"}
+	}
 	if p.legacyMax != nil && tx.Value().Cmp(p.legacyMax) > 0 {
 		return &PolicyRefusal{"max_value", "value exceeds this node's own per-transaction cap"}
 	}
@@ -387,7 +460,22 @@ func (p *Policy) Reserve(session, keyID string, chainID int, tx *types.Transacti
 			return &PolicyRefusal{"rate_limit", fmt.Sprintf("this node signs at most %d transactions per hour for one key", c.raw.MaxTxPerHour)}
 		}
 	}
-	return p.append(ledgerEntry{At: now, Op: "reserve", Session: session, Key: keyID, Wei: tx.Value().String()})
+	entry := ledgerEntry{At: now, Op: "reserve", Session: session, Key: keyID, Wei: tx.Value().String()}
+	if tok, amt, ok := tokenAmount(*tx.To(), tx.Data()); ok {
+		entry.Token, entry.Units = strings.ToLower(tok.Hex()), amt.String()
+		if dcap, has := c.tokenDaily[tok]; has {
+			used := new(big.Int)
+			for _, e := range p.live() {
+				if e.Key == keyID && e.Token == entry.Token && now.Sub(e.At) < 24*time.Hour {
+					used.Add(used, mustBig(e.Units))
+				}
+			}
+			if new(big.Int).Add(used, amt).Cmp(dcap) > 0 {
+				return &PolicyRefusal{"daily_token_limit", fmt.Sprintf("this node's 24-hour limit for that token would be exceeded (already agreed to %s units)", used)}
+			}
+		}
+	}
+	return p.append(entry)
 }
 
 // Release gives back a reservation whose ceremony failed.

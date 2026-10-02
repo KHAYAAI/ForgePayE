@@ -29,6 +29,23 @@ export class OpenFireblocksError extends Error {
   }
 }
 
+import { createHash, createHmac, randomBytes } from 'node:crypto';
+
+/**
+ * Sign a custody request so the service can tell the console (not just anyone with the admin key) is
+ * asserting this actor for this exact request. Must match src/auth/actor-assertion.ts in the service.
+ */
+export function actorAssertion(secret: string, actor: string, method: string, path: string, rawBody: string | undefined, now = Date.now()): string {
+  let parsed: unknown = undefined;
+  try { parsed = rawBody ? JSON.parse(rawBody) : undefined; } catch { parsed = rawBody; }
+  const empty = parsed === undefined || parsed === null || parsed === '' || (typeof parsed === 'object' && Object.keys(parsed as object).length === 0);
+  const body = createHash('sha256').update(empty ? '' : typeof parsed === 'string' ? parsed : JSON.stringify(parsed)).digest('hex');
+  const ts = String(now);
+  const nonce = randomBytes(12).toString('hex');
+  const sig = createHmac('sha256', secret).update(['v1', ts, nonce, actor.toLowerCase(), method.toUpperCase(), path, body].join('\n')).digest('hex');
+  return `v1.${ts}.${nonce}.${sig}`;
+}
+
 async function call<T>(path: string, init: RequestInit = {}, actor?: string, timeoutMs = TIMEOUT_MS): Promise<T> {
   const res = await fetch(`${OFB_URL}${path}`, {
     ...init,
@@ -36,6 +53,9 @@ async function call<T>(path: string, init: RequestInit = {}, actor?: string, tim
       authorization: `Bearer ${adminKey()}`,
       'content-type': 'application/json',
       ...(actor ? { 'x-actor-email': actor } : {}),
+      ...(process.env.CUSTODY_ACTOR_SECRET && (actor || (init.method ?? 'GET').toUpperCase() !== 'GET')
+        ? { 'x-actor-assertion': actorAssertion(process.env.CUSTODY_ACTOR_SECRET, actor ?? '', init.method ?? 'GET', path.split('?')[0]!, typeof init.body === 'string' ? init.body : undefined) }
+        : {}),
       ...(init.headers ?? {}),
     },
     signal: AbortSignal.timeout(timeoutMs),

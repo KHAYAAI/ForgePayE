@@ -33,6 +33,11 @@ spec:
               value: {{ .Values.external.temporalNamespace | quote }}
             - name: POLICY_SERVICE_URL
               value: http://{{ include "ofb.fullname" . }}-policy-service:{{ .Values.policyService.port }}
+            - name: MPC_SIGNER_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.custodySecretsRef }}
+                  key: signer-auth-token
             - name: MPC_SIGNER_URL
               value: http://{{ include "ofb.fullname" . }}-mpc-signer:{{ .Values.mpcSigner.port }}
             - name: ETHEREUM_RPC_SEPOLIA

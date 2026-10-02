@@ -104,6 +104,22 @@ promptly so honest nodes never hold a usable old share.
 Nodes can be added or moved by editing `cluster.json`; running processes re-read it when it changes.
 The coordinator key and existing nodes' identity keys cannot change that way.
 
+## Trust secrets between the console, gateway and signer
+
+Three secrets, kept in one Secret (`custodySecretsRef` in the Helm chart), none in the repository:
+
+| Variable | Held by | What it does |
+|---|---|---|
+| `MPC_SIGNER_AUTH_TOKEN` (>= 32 chars) | signer, api-gateway, temporal-worker | Bearer token every signer route except `/health` requires. Production refuses to start without it. |
+| `CUSTODY_ACTOR_SECRET` | console, api-gateway | The console signs each custody request (actor, method, path, body hash, timestamp, nonce); the gateway verifies, so the shared admin key alone cannot cast a signer's vote. |
+| `CUSTODY_PROPOSAL_SECRET` | api-gateway | Seals each proposal's payload so an edit in the database after the votes is refused at execution. |
+
+Also: `MPC_REQUIRED=true` (production requires it; the legacy shared key is never loaded), a node policy with at least one rule
+(production requires it), `API_KEY_AUTO_SIGN_MAX_WEI` or `policies.apiKeyAutoSignMaxWei` (API-key transfers above it wait for a
+quorum; the default in production is 0 = all of them), and optionally per-token caps in the node policy (`maxTokenUnits`,
+`dailyTokenUnits`, `requireTokenCaps`). Limits of this design are listed in `docs/security-review/10-remediation-status.md`:
+the actor is asserted by the console, not proven by the person; the signer token is not mutual TLS.
+
 ## Backup and disaster recovery
 
 Shares are backed up, encrypted to an offline recovery key split among officers, after every key change; a restore drill proves it. See [disaster-recovery.md](disaster-recovery.md). `MPC_ENV=production` refuses to start a node without backups.

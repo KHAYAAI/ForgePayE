@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { hit } from '@/lib/rate-limit';
+import { openSecret } from '@/lib/secret-box';
 import { z } from 'zod';
 import {
   getMfaPendingToken,
@@ -42,11 +44,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'MFA is not enabled on this account.' }, { status: 400 });
   }
 
+  // A 6-digit code has a million possibilities: without a limit it can simply be guessed.
+  const attempts = hit(`mfa:${user.id}`, 6, 10 * 60_000);
+  if (!attempts.allowed) {
+    await clearMfaPendingCookie();
+    return NextResponse.json({ error: 'Too many attempts. Sign in again later.' }, { status: 429, headers: { 'retry-after': String(attempts.retryAfterSec) } });
+  }
+
   const isTotpCode = /^\d{6}$/.test(code);
   let ok = false;
 
   if (isTotpCode) {
-    ok = await verifyTotpCode(user.totp_secret, code);
+    ok = await verifyTotpCode(openSecret(user.totp_secret), code);
   } else {
     const remaining = consumeBackupCode(code, user.totp_backup_codes);
     if (remaining) {
@@ -79,6 +88,6 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({
     success: true,
-    user: { id: user.id, email: user.email, name: user.name, tenantId: user.tenant_id, apiKey: user.api_key },
+    user: { id: user.id, email: user.email, name: user.name, tenantId: user.tenant_id },
   });
 }

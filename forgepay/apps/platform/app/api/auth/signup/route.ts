@@ -6,7 +6,7 @@ import {
   setAuthCookie,
   createSession,
 } from '@/lib/auth';
-import { sendVerificationEmail, sendOnboardingEmail } from '@/lib/email';
+import { sendOnboardingEmail } from '@/lib/email';
 import { query } from '@/lib/db';
 import { logAuditEvent, clientIp } from '@/lib/audit';
 
@@ -60,8 +60,9 @@ export async function POST(req: NextRequest) {
       action: 'auth.signup', ipAddress: clientIp(req), userAgent: req.headers.get('user-agent'),
     });
 
-    // Send verification email
-    await sendVerificationEmail(email, token);
+    // No verification email: the link used to carry the 7-day session token itself (a bearer credential
+    // sent through email) and led to a page that does not exist. Email verification needs its own
+    // single-purpose token and endpoint; until then nothing is sent rather than something unsafe.
 
     // Send onboarding email
     await sendOnboardingEmail(email, name);

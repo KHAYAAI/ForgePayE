@@ -277,6 +277,10 @@ func (s *server) handleRetireStale(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleAddress(w http.ResponseWriter, r *http.Request) {
+	if s.signer == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "this signer has no shared key; addresses belong to threshold keys (GET /mpc/keys/{id})"})
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"address": s.signer.Address()})
 }
 
@@ -298,17 +302,33 @@ func getenv(key, fallback string) string {
 }
 
 func main() {
-	// Resolve the signing key from Vault (preferred), env, or generate ephemeral.
-	keyHex, err := ResolveSigningKey(context.Background(), os.Getenv)
-	if err != nil {
-		log.Fatalf("failed to resolve signing key: %v", err)
+	authToken := os.Getenv("MPC_SIGNER_AUTH_TOKEN")
+	if err := checkAuthToken(authToken, mpc.Production()); err != nil {
+		log.Fatal(err)
+	}
+	if authToken == "" {
+		log.Printf("WARNING: MPC_SIGNER_AUTH_TOKEN is not set: anyone who can reach this port can request signatures")
+	}
+	mpcRequired := os.Getenv("MPC_REQUIRED") == "true"
+	if mpc.Production() && !mpcRequired {
+		log.Fatal("MPC_ENV=production requires MPC_REQUIRED=true: the legacy single shared signing key must not exist in production")
 	}
 
-	signer, err := NewMPCSigner(keyHex)
-	if err != nil {
-		log.Fatalf("failed to init MPC signer: %v", err)
+	// The legacy shared key is only created or loaded when threshold signing is NOT required. With
+	// MPC_REQUIRED=true it is never read from Vault or the environment and never generated, so there is
+	// no shared key to steal or to sign with.
+	var signer *MPCSigner
+	if !mpcRequired {
+		keyHex, err := ResolveSigningKey(context.Background(), os.Getenv)
+		if err != nil {
+			log.Fatalf("failed to resolve signing key: %v", err)
+		}
+		if signer, err = NewMPCSigner(keyHex); err != nil {
+			log.Fatalf("failed to init MPC signer: %v", err)
+		}
+		log.Printf("MPC signer address: %s", signer.Address())
 	}
-	log.Printf("MPC signer address: %s", signer.Address())
+	var err error
 
 	// immudb is best-effort at startup so a slow ledger doesn't block signing.
 	var audit *AuditLogger
@@ -322,7 +342,7 @@ func main() {
 		log.Printf("connected to immudb at %s", immudbURL)
 	}
 
-	s := &server{signer: signer, audit: audit, mpcRequired: os.Getenv("MPC_REQUIRED") == "true"}
+	s := &server{signer: signer, audit: audit, mpcRequired: mpcRequired}
 	if clusterFile := os.Getenv("MPC_CLUSTER_FILE"); clusterFile != "" {
 		clusters, err := mpc.WatchCluster(clusterFile)
 		if err != nil {
@@ -362,10 +382,14 @@ func main() {
 	router.HandleFunc("/health", handleHealth).Methods(http.MethodGet)
 	router.Handle("/metrics", promhttp.Handler()).Methods(http.MethodGet)
 
+	var handler http.Handler = router
+	if authToken != "" {
+		handler = authMiddleware(authToken, router)
+	}
 	addr := ":" + getenv("PORT", "8080")
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           router,
+		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

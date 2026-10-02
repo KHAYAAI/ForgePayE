@@ -25,3 +25,4 @@ networkPolicy:
     - ipBlock: { cidr: 198.51.100.10/32 }
     - ipBlock: { cidr: 198.51.100.11/32 }
     - ipBlock: { cidr: 198.51.100.12/32 }
+custodySecretsRef: openfireblocks-custody-secrets

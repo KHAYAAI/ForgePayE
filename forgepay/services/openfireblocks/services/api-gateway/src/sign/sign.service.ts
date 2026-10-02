@@ -9,6 +9,8 @@ import {
   InternalServerErrorException,
   Logger,
 } from '@nestjs/common';
+import { sealPayload } from '../common/proposal-seal';
+import { installSignerAuth } from '../common/signer-auth';
 import { HttpService } from '@nestjs/axios';
 import { lastValueFrom } from 'rxjs';
 import { v4 as uuid } from 'uuid';
@@ -63,6 +65,30 @@ export function describeRpcError(err: unknown): string {
 //   audit(received) -> policy check -> MPC sign -> persist -> optional broadcast -> audit
 // Every branch (including policy denials and failures) is recorded in the
 // per-tenant PostgreSQL audit trail and counted in Prometheus metrics.
+/** null = no ceiling (development only); otherwise the largest value an API key may auto-sign, in wei. */
+export function apiKeyAutoSignCap(workspaceSetting: unknown, env: NodeJS.ProcessEnv = process.env): bigint | null {
+  const raw = workspaceSetting ?? env.API_KEY_AUTO_SIGN_MAX_WEI;
+  if (raw !== undefined && raw !== null && String(raw) !== '') {
+    try { const n = BigInt(String(raw)); return n < 0n ? 0n : n; } catch { return 0n; }
+  }
+  return env.NODE_ENV === 'production' ? 0n : null;
+}
+
+export function hasCalldata(data?: string): boolean {
+  return !!data && data !== '0x' && data.length > 2;
+}
+
+/** The recipient/spender of a standard ERC-20 transfer, approve or transferFrom, if that is what the data is. */
+export function embeddedTokenRecipient(data?: string): string | null {
+  if (!hasCalldata(data)) return null;
+  const hex = data!.replace(/^0x/, '').toLowerCase();
+  const argIndex: Record<string, number> = { a9059cbb: 0, '095ea7b3': 0, '23b872dd': 1 };
+  const idx = argIndex[hex.slice(0, 8)];
+  if (idx === undefined || hex.length < 8 + 64 * (idx + 1)) return null;
+  const word = hex.slice(8 + 64 * idx, 8 + 64 * (idx + 1));
+  return '0x' + word.slice(24);
+}
+
 @Injectable()
 export class SignService {
   private readonly logger = new Logger(SignService.name);
@@ -80,7 +106,9 @@ export class SignService {
     private readonly keys: KeysService,
     private readonly nonces: NonceService,
     private readonly planner: TransferPlanner,
-  ) {}
+  ) {
+    installSignerAuth(this.http);
+  }
 
   private legacyAddressCache: string | null = null;
 
@@ -141,7 +169,7 @@ export class SignService {
     try {
       // 1. Policy evaluation (fail-closed).
       const overrides = (customer.policies ?? {}) as Record<string, unknown>;
-      const decision = await this.policy.evaluate({
+      const decision = { ...(await this.policy.evaluate({
         customerId,
         customerTier: customer.tier,
         to: req.to,
@@ -151,7 +179,38 @@ export class SignService {
         whitelist: overrides.whitelist as string[] | undefined,
         blockedCountries: overrides.blockedCountries as string[] | undefined,
         country: req.country,
-      });
+      })) };
+
+      // The policy engine sees only `to` and `value`. A contract call can move tokens to someone else
+      // while looking like a zero-value call to the token. So (a) the recipient inside a standard token call
+      // is put through the same policy, and (b) any call carrying data waits for a human quorum rather
+      // than being signed because its native value is zero.
+      const embedded = embeddedTokenRecipient(req.data);
+      if (decision.approved && embedded) {
+        const second = await this.policy.evaluate({
+          customerId, customerTier: customer.tier, to: embedded, value: '0',
+          chainId: req.chainId ?? 0, whitelist: overrides.whitelist as string[] | undefined,
+          blockedCountries: overrides.blockedCountries as string[] | undefined, country: req.country,
+        });
+        if (!second.approved) {
+          decision.approved = false;
+          decision.denials = [...decision.denials, ...second.denials.map((d) => `token recipient: ${d}`)];
+        }
+      }
+      // Transfers started by an API key (not by a person in the console) auto-sign only up to a ceiling the
+      // workspace sets (policies.apiKeyAutoSignMaxWei, else API_KEY_AUTO_SIGN_MAX_WEI). In production the
+      // default ceiling is zero: a leaked key can ask for transfers but not make them without a quorum.
+      if (decision.approved && !decision.requiresApproval && !initiatedBy) {
+        const cap = apiKeyAutoSignCap(overrides.apiKeyAutoSignMaxWei);
+        if (cap !== null && (cap === 0n || BigInt(req.value ?? '0') > cap)) {
+          decision.requiresApproval = true;
+          decision.reason = [decision.reason, 'API-key transfer above the auto-sign ceiling: needs human approval'].filter(Boolean).join('; ');
+        }
+      }
+      if (decision.approved && hasCalldata(req.data) && !decision.requiresApproval) {
+        decision.requiresApproval = true;
+        decision.reason = [decision.reason, 'contract call: needs human approval'].filter(Boolean).join('; ');
+      }
 
       if (!decision.approved) {
         for (const d of decision.denials) {
@@ -280,7 +339,7 @@ export class SignService {
     const proposal = await this.pool.query<{ id: string }>(
       `INSERT INTO custody.proposals (customer_id, kind, payload, required, request_id, created_by)
        VALUES ($1, 'approve_transaction', $2, $3, $4, $5) RETURNING id`,
-      [customerId, JSON.stringify({ request: req, reason }), required, requestId, initiatedBy ?? 'api key'],
+      [customerId, JSON.stringify(sealPayload(customerId, 'approve_transaction', requestId, { request: req, reason })), required, requestId, initiatedBy ?? 'api key'],
     );
     await this.audit.logEvent({
       type: 'APPROVAL_REQUIRED',
@@ -329,6 +388,25 @@ export class SignService {
       const from = key?.address ?? (needFrom ? await this.signingAddress(customerId) : null);
 
       const signAndPersist = async () => {
+        // Idempotent on requestId. If this request was already signed (a retry after a failure that came
+        // after the signature was stored, a double click, a replayed proposal), hand back what exists
+        // instead of asking the signers for a second signature on a new nonce: that would be two
+        // transfers for one approval.
+        const prior = await this.postgres.getTransaction(requestId, customerId);
+        if (prior?.signed_tx && prior?.tx_hash) {
+          persisted = true;
+          const status = String(prior.status);
+          const known = status === 'broadcasted' || status === 'signed_not_broadcast' || status === 'failed';
+          return {
+            signedTx: prior.signed_tx as string,
+            txHash: prior.tx_hash as string,
+            from: (prior.from_address as string | null) ?? from,
+            outcome: canBroadcast
+              ? { status: (known ? status : 'signed_not_broadcast') as 'broadcasted' | 'signed_not_broadcast' | 'failed', txHash: prior.tx_hash as string, error: undefined as string | undefined }
+              : null,
+            reused: true,
+          };
+        }
         const fields = canBroadcast ? await this.planner.plan(from!, req, 'signing') : this.offlineFields(req);
         let nonce = req.nonce;
         if (nonce == null) {
@@ -389,7 +467,7 @@ export class SignService {
         // before nonce 2 has to park it). A failure is recorded as 'signed_not_broadcast'
         // with the RPC's error, never reported as success.
         const outcome = canBroadcast ? await this.broadcastStored(requestId, customerId, signedTx, txHash) : null;
-        return { signedTx, txHash, from: signedBy ?? from, outcome };
+        return { signedTx, txHash, from: signedBy ?? from, outcome, reused: false };
       };
       // A transfer with a chosen nonce still queues behind others for the same address, so the
       // balance check below sees the funds the earlier ones already claimed.

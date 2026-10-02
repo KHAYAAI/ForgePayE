@@ -42,6 +42,11 @@ spec:
                   name: {{ .Values.mpcSigner.vault.tokenSecret }}
                   key: vault-token
             {{- end }}
+            - name: MPC_SIGNER_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.custodySecretsRef }}
+                  key: signer-auth-token
             {{- with .Values.mpcSigner.immudb.url }}
             - name: IMMUDB_URL
               value: {{ . | quote }}

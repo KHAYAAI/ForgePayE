@@ -7,6 +7,8 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { sealPayload, checkPayloadSeal, stripSeal } from '../common/proposal-seal';
+import { installSignerAuth } from '../common/signer-auth';
 import { HttpService } from '@nestjs/axios';
 import { lastValueFrom } from 'rxjs';
 import { Pool, PoolClient } from 'pg';
@@ -74,7 +76,9 @@ export class CustodyService {
     private readonly http: HttpService,
     private readonly keys: KeysService,
     private readonly ethereum: EthereumService,
-  ) {}
+  ) {
+    installSignerAuth(this.http);
+  }
 
   private async ensureSettings(customerId: string): Promise<void> {
     await this.pool.query(
@@ -161,7 +165,7 @@ export class CustodyService {
     const { rows } = await this.pool.query<{ id: string }>(
       `INSERT INTO custody.proposals (customer_id, kind, payload, required, created_by)
        VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-      [customerId, kind, JSON.stringify(payload), required, actor],
+      [customerId, kind, JSON.stringify(sealPayload(customerId, kind, null, payload)), required, actor],
     );
     await this.audit.logEvent({
       type: 'PROPOSAL_CREATED',
@@ -336,6 +340,9 @@ export class CustodyService {
     const customerId = proposal.customer_id;
     let result: Record<string, any> = {};
     try {
+      const sealError = checkPayloadSeal(customerId, proposal.kind, proposal.request_id, proposal.payload);
+      if (sealError) throw new Error(sealError);
+      proposal = { ...proposal, payload: stripSeal(proposal.payload) };
       switch (proposal.kind) {
         case 'add_signer': {
           const { rows } = await this.pool.query<{ cooling_off_hours: number }>(
@@ -506,6 +513,8 @@ export class CustodyService {
   // ── Connected applications (API keys) ──────────────────────────────────
 
   async issueApiKey(customerId: string, actor: string, name: string) {
+    // An API key can start transfers, so minting one is a custody action: only an active signer may.
+    await this.eligibleSigner(customerId, actor);
     await this.customers.getByCustomerId(customerId);
     if (!name?.trim()) throw new BadRequestException('name is required');
     const key = generateApiKey();
@@ -526,6 +535,7 @@ export class CustodyService {
   }
 
   async revokeApiKey(customerId: string, actor: string, keyId: string) {
+    await this.eligibleSigner(customerId, actor);
     const { rows } = await this.pool.query(
       `UPDATE custody.api_keys SET revoked_at = NOW()
         WHERE id = $1 AND customer_id = $2 AND revoked_at IS NULL

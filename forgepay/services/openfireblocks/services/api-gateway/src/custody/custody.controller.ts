@@ -13,6 +13,7 @@ import {
 import { SkipThrottle } from '@nestjs/throttler';
 import { IsBoolean, IsEmail, IsIn, IsObject, IsOptional, IsString, Matches } from 'class-validator';
 import { AdminGuard } from '../auth/admin.guard';
+import { ActorAssertionGuard } from '../auth/actor-assertion';
 import { CustodyService, ProposalKind } from './custody.service';
 
 class BootstrapSignerDto {
@@ -49,7 +50,7 @@ function requireActor(actor: string | undefined): string {
 // (admin key) on behalf of a named person. Exempt from the per-IP throttle:
 // one console serves every workspace from a single address.
 @Controller('admin/customers/:customerId/custody')
-@UseGuards(AdminGuard)
+@UseGuards(AdminGuard, ActorAssertionGuard)
 @SkipThrottle()
 export class CustodyController {
   constructor(private readonly custody: CustodyService) {}

@@ -17,6 +17,7 @@ export interface TokenPayload {
   exp?: number;
 }
 
+import { sealSecret } from './secret-box';
 import { getJwtSecret } from './jwt-secret';
 
 const JWT_SECRET = getJwtSecret();
@@ -290,13 +291,22 @@ export async function createUser(
  * is unreachable through the password login path once used for that
  * purpose (nothing generates a matching plaintext to check it against).
  */
+export class SsoTenantMismatchError extends Error {
+  constructor() { super('this email address already belongs to an account in another organization'); this.name = 'SsoTenantMismatchError'; }
+}
+
 export async function findOrCreateSsoUser(
   email: string,
   name: string,
   tenantId: string,
 ): Promise<User> {
   const existing = await getUserByEmail(email);
-  if (existing) return existing;
+  if (existing) {
+    // An email belongs to one account. If it already belongs to a different organization, an identity
+    // provider linked to THIS tenant must not be able to sign in as that user (account takeover across tenants).
+    if (existing.tenant_id !== tenantId) throw new SsoTenantMismatchError();
+    return existing;
+  }
 
   const passwordHash = await hashPassword(randomUUID());
   return createUser(email, name, passwordHash, tenantId, 'analyst');
@@ -322,7 +332,7 @@ export async function verifyApiKey(apiKey: string): Promise<User | null> {
 
 /** Persist a freshly-generated TOTP secret. Enrollment isn't complete — totp_enabled stays false until confirmTotpEnrollment(). */
 export async function setPendingTotpSecret(userId: string, secret: string): Promise<void> {
-  await execute(`UPDATE users SET totp_secret = $1, updated_at = NOW() WHERE id = $2`, [secret, userId]);
+  await execute(`UPDATE users SET totp_secret = $1, updated_at = NOW() WHERE id = $2`, [sealSecret(secret), userId]);
 }
 
 /** Flip totp_enabled on and store the (hashed) backup codes, once the user has proven they can generate a real code. */

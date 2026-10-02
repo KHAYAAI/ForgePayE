@@ -59,6 +59,14 @@ apiGateway:
   pgPoolMax: "" # PG_POOL_MAX
   extraEnv: [] # additional Kubernetes EnvVar entries
 
+# Secret holding the custody trust secrets (one Secret, three keys). Create it out of band; this chart never renders one.
+#   signer-auth-token  bearer token the gateway and temporal-worker present to the signer (>= 32 chars)
+#   actor-secret       HMAC secret the console shares with the gateway to sign custody actions (CUSTODY_ACTOR_SECRET)
+#   proposal-secret    HMAC secret sealing proposal payloads (CUSTODY_PROPOSAL_SECRET)
+# Required: the signer refuses to start in production without the token, and the gateway refuses custody
+# actions in production without the other two.
+custodySecretsRef: openfireblocks-custody-secrets
+
 mpcSigner:
   enabled: true
   image: mpc-signer

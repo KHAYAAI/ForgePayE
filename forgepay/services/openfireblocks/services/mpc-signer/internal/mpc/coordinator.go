@@ -67,6 +67,8 @@ type Coordinator struct {
 	clusters *ClusterSource
 	priv     ed25519.PrivateKey
 	http     *http.Client
+	// beforeCommit is a test seam: an error here stands in for a commit that did not reach a node.
+	beforeCommit func(NodeInfo) error
 }
 
 // NewCoordinator builds a coordinator over a fixed cluster, over plain HTTP.
@@ -609,6 +611,14 @@ func (c *Coordinator) Reshare(ctx context.Context, keyID string, newNodes []stri
 		}
 	}
 
+	// An earlier reshare may have died half way through committing. Finish it first (after proving the
+	// shares sign), otherwise the nodes that did commit and the ones that did not disagree forever.
+	if resumed, err := c.ResumeCommit(ctx, keyID, progress); err != nil {
+		return nil, fmt.Errorf("an earlier reshare was left half committed and could not be finished: %w", err)
+	} else if resumed {
+		progress("finished the commit an earlier reshare left half done")
+	}
+
 	meta, err := c.KeyMeta(ctx, keyID)
 	if err != nil {
 		return nil, err
@@ -733,7 +743,14 @@ func (c *Coordinator) Reshare(ctx context.Context, keyID string, newNodes []stri
 	cctx, ccancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer ccancel()
 	for _, n := range infos(newNodes) {
-		if err := retry(3, func() error { return c.lifecycle(cctx, n, "commit", keyID, next, false) }); err != nil {
+		if err := retry(3, func() error {
+			if c.beforeCommit != nil {
+				if err := c.beforeCommit(n); err != nil {
+					return err
+				}
+			}
+			return c.lifecycle(cctx, n, "commit", keyID, next, false)
+		}); err != nil {
 			return nil, fmt.Errorf("committing on %s failed (%v); the old shares are untouched. Run the reshare again to finish", n.ID, err)
 		}
 	}
@@ -743,6 +760,112 @@ func (c *Coordinator) Reshare(ctx context.Context, keyID string, newNodes []stri
 	retired, notRetired := c.retireStale(cctx, keyID, next, newNodes)
 	res.Retired, res.NotRetired = retired, notRetired
 	return res, nil
+}
+
+func (c *Coordinator) collectReports(ctx context.Context, keyID string) []*keyReport {
+	nodes := c.cl().Nodes
+	reports := make([]*keyReport, len(nodes))
+	var wg sync.WaitGroup
+	for i, n := range nodes {
+		wg.Add(1)
+		go func(i int, n NodeInfo) {
+			defer wg.Done()
+			cctx, cancel := context.WithTimeout(ctx, 4*time.Second)
+			defer cancel()
+			var r keyReport
+			if err := c.get(cctx, n, "/v1/keys/"+keyID, &r); err == nil {
+				r.Node = n.ID
+				reports[i] = &r
+			}
+		}(i, n)
+	}
+	wg.Wait()
+	var out []*keyReport
+	for _, r := range reports {
+		if r != nil {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// ResumeCommit finishes a reshare whose commit step was interrupted: some members of the new committee
+// hold the new epoch as their active share while others still hold it as a pending share. It only acts
+// when (a) at least one node already committed that epoch, which proves the probe passed before the
+// commit started, and (b) a fresh probe signed by a threshold of the combined holders verifies against the
+// key. Then it commits the remaining pending shares. It returns whether it changed anything.
+func (c *Coordinator) ResumeCommit(ctx context.Context, keyID string, progress func(string)) (bool, error) {
+	reports := c.collectReports(ctx, keyID)
+	var top *keyReport
+	for _, r := range reports {
+		if top == nil || r.Epoch > top.Epoch {
+			top = r
+		}
+	}
+	if top == nil {
+		return false, nil
+	}
+	var committed, pending []*keyReport
+	for _, r := range reports {
+		switch {
+		case r.Epoch == top.Epoch && r.sameAs(*top):
+			committed = append(committed, r)
+		case r.PendingEpoch == top.Epoch && r.Epoch < top.Epoch && contains(top.Participants, r.Node):
+			pending = append(pending, r)
+		}
+	}
+	if len(pending) == 0 || len(committed) == 0 {
+		return false, nil
+	}
+	need := top.Threshold + 1
+	if len(committed)+len(pending) < need {
+		return false, nil // not enough shares at that epoch to sign with; leave it for the operator
+	}
+	if len(pending) > need {
+		return false, fmt.Errorf("%d pending shares is more than one probe can verify; resolve by hand", len(pending))
+	}
+	var committee []string
+	for _, r := range pending {
+		committee = append(committee, r.Node)
+	}
+	for _, r := range committed {
+		if len(committee) < need {
+			committee = append(committee, r.Node)
+		}
+	}
+	progress(fmt.Sprintf("epoch %d is committed on %d node(s) and pending on %d; probing before finishing the commit", top.Epoch, len(committed), len(pending)))
+	nonce := strings.ReplaceAll(uuid.NewString(), "-", "")
+	pctx, cancel := context.WithTimeout(ctx, 120*time.Second)
+	defer cancel()
+	session := uuid.NewString()
+	preq := probeReq{Session: session, KeyID: keyID, Epoch: top.Epoch, Committee: committee, Nonce: nonce, TS: time.Now().Unix()}
+	var set []NodeInfo
+	for _, id := range committee {
+		n, ok := c.cl().Node(id)
+		if !ok {
+			return false, fmt.Errorf("node %s is not in the cluster file", id)
+		}
+		set = append(set, n)
+		if err := c.post(pctx, n, "/v1/probe", preq); err != nil {
+			return false, fmt.Errorf("probe: %w", err)
+		}
+	}
+	results, err := c.await(pctx, set, session)
+	if err != nil {
+		return false, fmt.Errorf("probe: %w", err)
+	}
+	if err := verifyProbe(results, keyID, top.Epoch, nonce, top.PublicKey); err != nil {
+		return false, err
+	}
+	cctx, ccancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer ccancel()
+	for _, r := range pending {
+		n, _ := c.cl().Node(r.Node)
+		if err := retry(3, func() error { return c.lifecycle(cctx, n, "commit", keyID, top.Epoch, false) }); err != nil {
+			return false, fmt.Errorf("committing on %s: %w", r.Node, err)
+		}
+	}
+	return true, nil
 }
 
 func verifyProbe(results map[string]json.RawMessage, keyID string, epoch int, nonce, pubHex string) error {
@@ -781,7 +904,11 @@ func retry(n int, f func() error) error {
 }
 
 func (c *Coordinator) lifecycle(ctx context.Context, n NodeInfo, op, keyID string, epoch int, leaving bool) error {
-	return c.post(ctx, n, "/v1/reshare/"+op, lifecycleReq{Session: uuid.NewString(), KeyID: keyID, Epoch: epoch, Leaving: leaving, TS: time.Now().Unix()})
+	return c.lifecycleWith(ctx, n, op, keyID, epoch, leaving, nil)
+}
+
+func (c *Coordinator) lifecycleWith(ctx context.Context, n NodeInfo, op, keyID string, epoch int, leaving bool, staying []string) error {
+	return c.post(ctx, n, "/v1/reshare/"+op, lifecycleReq{Session: uuid.NewString(), KeyID: keyID, Epoch: epoch, Leaving: leaving, Staying: staying, TS: time.Now().Unix()})
 }
 
 // retireStale destroys every share older than `epoch`, on every node that
@@ -801,7 +928,9 @@ func (c *Coordinator) retireStale(ctx context.Context, keyID string, epoch int, 
 		if !r.holdsBelow(epoch) {
 			continue // nothing older than the current epoch to destroy
 		}
-		if err := retry(3, func() error { return c.lifecycle(ctx, n, "retire", keyID, epoch, !contains(staying, n.ID)) }); err != nil {
+		if err := retry(3, func() error {
+			return c.lifecycleWith(ctx, n, "retire", keyID, epoch, !contains(staying, n.ID), staying)
+		}); err != nil {
 			notRetired = append(notRetired, n.ID)
 			continue
 		}

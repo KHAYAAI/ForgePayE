@@ -159,6 +159,11 @@ func NewNode(cfg NodeConfig) (*Node, error) {
 		return nil, err
 	}
 	policy.SetLegacyMaxValue(cfg.MaxValueWei)
+	// A node with no rules of its own co-signs anything the coordinator asks, so production refuses it:
+	// the whole point of a node policy is that a compromised gateway still cannot drain a workspace.
+	if Production() && len(policy.Summary().Active) == 0 {
+		return nil, errors.New("MPC_ENV=production requires a node policy (MPC_NODE_POLICY_FILE) with at least one rule, e.g. maxValueWei and dailyLimitWei")
+	}
 	n := &Node{
 		cfg: cfg, clusters: clusters, priv: priv, coordPub: ed25519.PublicKey(coord), pool: pool, audit: audit, policy: policy,
 		sessions: map[string]*session{}, mailbox: map[string][]bufferedMsg{},
@@ -397,6 +402,10 @@ func (n *Node) handleSign(w http.ResponseWriter, r *http.Request) {
 		var refusal *PolicyRefusal
 		if errors.As(err, &refusal) {
 			n.audit.Record("rejected", req.Session, req.KeyID, map[string]any{"reason": "policy", "rule": refusal.Rule, "detail": refusal.Msg, "to": tx.To().Hex(), "valueWei": tx.Value().String()})
+			if refusal.Rule == "duplicate_session" {
+				fail(w, http.StatusConflict, refusal.Msg) // a replay, not a policy decision about the transaction
+				return
+			}
 			fail(w, http.StatusForbidden, refusal.Msg)
 			return
 		}
@@ -591,8 +600,11 @@ type lifecycleReq struct {
 	Epoch   int    `json:"epoch"`
 	// Leaving (retire only): this node is not in the key's new committee, so
 	// every share it holds below Epoch is to be destroyed, with nothing to keep.
-	Leaving bool  `json:"leaving"`
-	TS      int64 `json:"ts"`
+	Leaving bool `json:"leaving"`
+	// Staying (retire, leaving): the new committee. A node that did not take part in the reshare (it was
+	// offline) checks with these peers, itself, that they hold the new epoch before it destroys anything.
+	Staying []string `json:"staying,omitempty"`
+	TS      int64    `json:"ts"`
 }
 
 // handleLifecycle finishes or cancels a reshare on this node. All three
@@ -635,6 +647,15 @@ func (n *Node) handleLifecycle(op string) http.HandlerFunc {
 		case "retire":
 			if !req.Leaving && !exists(n.keyFilePath(req.KeyID, req.Epoch, false)) {
 				fail(w, http.StatusConflict, "this node holds no active share at or above that epoch, so it won't destroy its only one")
+				return
+			}
+			// A node that is leaving holds no newer share, so the check above cannot protect it. It destroys
+			// its share only if it actually took part, as an old member, in the reshare that produced this
+			// epoch. A signed request alone (a compromised coordinator, a replay) is not enough.
+			if req.Leaving && !n.contributedTo(req.KeyID, req.Epoch) && !exists(n.keyFilePath(req.KeyID, req.Epoch, false)) &&
+				!n.peersHoldNewEpoch(r.Context(), req.KeyID, req.Epoch, req.Staying) {
+				n.audit.Record("rejected", req.Session, req.KeyID, map[string]any{"reason": "retire as leaving without having contributed to that reshare", "epoch": req.Epoch})
+				fail(w, http.StatusConflict, "this node did not take part in a reshare to that epoch, so it will not destroy its share")
 				return
 			}
 			var removed []int
@@ -1315,8 +1336,67 @@ func (n *Node) runReshare(s *session, req reshareReq, oldKey *storedKey, oldIDs,
 	}
 	if oldKey != nil {
 		n.audit.Record("reshare_contributed", s.id, s.keyID, map[string]any{"epoch": oldKey.Epoch})
+		n.markContributed(s.keyID, oldKey.Epoch+1)
 	}
 	s.markDone(result)
+}
+
+// peersHoldNewEpoch is how a node that was offline for a reshare gets proof it may let go of its old share:
+// it asks the named new-committee nodes (which must be in the cluster file) whether they hold the new epoch
+// of the same key as an ACTIVE share, and requires enough of them for the key to sign. The coordinator's
+// word alone is not taken: it can name nodes, but cannot make them report a share they do not have.
+func (n *Node) peersHoldNewEpoch(ctx context.Context, keyID string, epoch int, staying []string) bool {
+	mine, err := n.loadKey(keyID)
+	if err != nil || len(staying) == 0 {
+		return false
+	}
+	cluster := n.cluster()
+	holders, need := 0, 0
+	seen := map[string]bool{}
+	for _, id := range staying {
+		if id == n.cfg.ID || seen[id] {
+			continue
+		}
+		seen[id] = true
+		peer, ok := cluster.Node(id)
+		if !ok {
+			continue
+		}
+		cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		req, _ := http.NewRequestWithContext(cctx, http.MethodGet, strings.TrimRight(peer.URL, "/")+"/v1/keys/"+keyID, nil)
+		resp, err := n.cfg.HTTP.Do(req)
+		if err != nil {
+			cancel()
+			continue
+		}
+		var r struct {
+			PublicKey    string   `json:"publicKey"`
+			Threshold    int      `json:"threshold"`
+			Epoch        int      `json:"epoch"`
+			Participants []string `json:"participants"`
+		}
+		ok = resp.StatusCode == http.StatusOK && json.NewDecoder(resp.Body).Decode(&r) == nil
+		resp.Body.Close()
+		cancel()
+		if ok && r.Epoch >= epoch && strings.EqualFold(r.PublicKey, mine.PublicKey) && contains(r.Participants, id) && !contains(r.Participants, n.cfg.ID) {
+			holders++
+			if r.Threshold+1 > need {
+				need = r.Threshold + 1
+			}
+		}
+	}
+	return need > 0 && holders >= need
+}
+
+// markContributed records that this node finished its old-member part of the reshare to `epoch`.
+func (n *Node) markContributed(keyID string, epoch int) {
+	dir := filepath.Join(n.cfg.DataDir, "reshared")
+	_ = os.MkdirAll(dir, 0o700)
+	_ = os.WriteFile(filepath.Join(dir, fmt.Sprintf("%s.e%d", keyID, epoch)), []byte(time.Now().UTC().Format(time.RFC3339)), 0o600)
+}
+
+func (n *Node) contributedTo(keyID string, epoch int) bool {
+	return exists(filepath.Join(n.cfg.DataDir, "reshared", fmt.Sprintf("%s.e%d", keyID, epoch)))
 }
 
 // recvSave is a plain receive of a save-data value.

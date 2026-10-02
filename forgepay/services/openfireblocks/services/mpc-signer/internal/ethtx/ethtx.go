@@ -96,6 +96,9 @@ func ParseBig(s string, zeroOK bool) (*big.Int, error) {
 	if _, ok := n.SetString(s, 10); !ok {
 		return nil, fmt.Errorf("not a base-10 integer: %q", s)
 	}
+	if n.Sign() < 0 {
+		return nil, fmt.Errorf("negative amounts are not allowed: %q", s)
+	}
 	return n, nil
 }
 

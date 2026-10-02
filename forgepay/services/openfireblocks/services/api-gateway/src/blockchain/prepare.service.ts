@@ -3,6 +3,7 @@ import {
   Logger,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { installSignerAuth } from '../common/signer-auth';
 import { HttpService } from '@nestjs/axios';
 import { lastValueFrom } from 'rxjs';
 import { EthereumService } from './ethereum.service';
@@ -27,7 +28,9 @@ export class PrepareService {
   constructor(
     private readonly http: HttpService,
     private readonly ethereum: EthereumService,
-  ) {}
+  ) {
+    installSignerAuth(this.http);
+  }
 
   async prepare(input: {
     to: string;

@@ -9,6 +9,7 @@ import { BillingModule } from './billing/billing.module';
 import { SettlementsModule } from './settlements/settlements.module';
 import { CustodyModule } from './custody/custody.module';
 import { MetricsModule } from './monitoring/metrics.module';
+import { DemoCredentialGuard } from './database/demo-credential.guard';
 import { MetricsInterceptor } from './monitoring/metrics.interceptor';
 
 // Root module. Phase 1 wires multi-tenancy (CustomersModule), Prometheus
@@ -33,6 +34,7 @@ import { MetricsInterceptor } from './monitoring/metrics.interceptor';
   ],
   controllers: [AppController],
   providers: [
+    DemoCredentialGuard,
     { provide: APP_INTERCEPTOR, useClass: MetricsInterceptor },
     { provide: APP_GUARD, useClass: ThrottlerGuard },
   ],

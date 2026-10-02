@@ -1,0 +1,15 @@
+{
+  "_comment": "One policy PER NODE, attached to that node's role only, on that node's own key. The node calls GenerateDataKey once (first start) and Decrypt on every start, always with the encryption context mpc-node=<its node id>. Replace NODE-ID. (kms-policy.example.json is the gateway's deposit-key policy and does NOT allow these calls.)",
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "SealKeyForThisNodeOnly",
+      "Effect": "Allow",
+      "Action": ["kms:GenerateDataKey", "kms:Decrypt"],
+      "Resource": "arn:aws:kms:REGION:ACCOUNT:key/KEY-ID",
+      "Condition": {
+        "StringEquals": { "kms:EncryptionContext:mpc-node": "NODE-ID" }
+      }
+    }
+  ]
+}

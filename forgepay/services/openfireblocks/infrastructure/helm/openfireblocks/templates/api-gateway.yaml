@@ -55,6 +55,21 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.adminApiKeySecret }}
                   key: admin-api-key
+            - name: MPC_SIGNER_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.custodySecretsRef }}
+                  key: signer-auth-token
+            - name: CUSTODY_ACTOR_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.custodySecretsRef }}
+                  key: actor-secret
+            - name: CUSTODY_PROPOSAL_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.custodySecretsRef }}
+                  key: proposal-secret
             - name: MPC_SIGNER_URL
               value: http://{{ include "ofb.fullname" . }}-mpc-signer:{{ .Values.mpcSigner.port }}
             - name: POLICY_SERVICE_URL

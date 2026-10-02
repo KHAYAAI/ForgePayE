@@ -1,4 +1,5 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { installSignerAuth } from '../common/signer-auth';
 import { HttpService } from '@nestjs/axios';
 import { lastValueFrom } from 'rxjs';
 import { randomUUID } from 'crypto';
@@ -96,7 +97,9 @@ export class KeysService {
   constructor(
     @Inject(PG_POOL) private readonly pool: Pool,
     private readonly http: HttpService,
-  ) {}
+  ) {
+    installSignerAuth(this.http);
+  }
 
   get thresholdEnabled(): boolean {
     return process.env.MPC_THRESHOLD_SIGNING === 'true';
