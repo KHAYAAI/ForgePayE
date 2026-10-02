@@ -65,3 +65,23 @@ describe('route guard', () => {
     expect(await (await guardWith(owner, ['credit-bureau'])) ({ product: 'credit-bureau', permission: 'manage:billing' })).toHaveProperty('user');
   });
 });
+
+describe('per-user API keys are stored hashed', () => {
+  it('generateApiKey returns the key once and stores only its hash; verifyApiKey finds it by hash', async () => {
+    vi.resetModules();
+    vi.doUnmock('./auth');
+    vi.doMock('next/headers', () => ({ cookies: () => ({ get: () => undefined, set: () => undefined, delete: () => undefined }) }));
+    const stored: string[] = [];
+    vi.doMock('./db', () => ({
+      query: async (_sql: string, params: string[]) => { stored.push(params[0]!); return []; },
+      queryOne: async (_sql: string, params: string[]) => (stored.includes(params[0]!) ? { id: 'u1' } : null),
+      execute: async () => undefined,
+    }));
+    const { generateApiKey, verifyApiKey, hashApiKey } = await import('./auth');
+    const key = await generateApiKey('u1');
+    expect(stored[0]).toBe(hashApiKey(key));
+    expect(stored[0]).not.toContain(key);
+    expect(await verifyApiKey(key)).toMatchObject({ id: 'u1' });
+    expect(await verifyApiKey('wrong')).toBeNull();
+  });
+});

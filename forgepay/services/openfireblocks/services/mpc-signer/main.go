@@ -386,6 +386,13 @@ func main() {
 	if authToken != "" {
 		handler = authMiddleware(authToken, router)
 	}
+	signerTLS, err := signerTLSFromEnv(os.Getenv)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if signerTLS != nil {
+		handler = requireClientName(signerClientCertName, handler)
+	}
 	addr := ":" + getenv("PORT", "8080")
 	srv := &http.Server{
 		Addr:              addr,
@@ -393,6 +400,11 @@ func main() {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
-	log.Printf("MPC signer listening on %s", addr)
+	if signerTLS != nil {
+		srv.TLSConfig = signerTLS.ServerConfig()
+		log.Printf("MPC signer listening on %s with mutual TLS (client certificate %q required)", addr, signerClientCertName)
+		log.Fatal(srv.ListenAndServeTLS("", ""))
+	}
+	log.Printf("MPC signer listening on %s (plain HTTP: set MPC_SIGNER_TLS_* for mutual TLS)", addr)
 	log.Fatal(srv.ListenAndServe())
 }

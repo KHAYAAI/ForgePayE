@@ -84,6 +84,23 @@ describe('sweeper refuses to be redirected or to refund the deposit\'s own token
     await expect(sweeper.planRecovery('d1', 'USDC', attacker, 'refund')).rejects.toThrow(/own token/);
   });
 
+  it('a recovery row whose destination was edited after planning is failed, not sent (and an untouched one is not)', async () => {
+    const { sweeper, updates } = make({});
+    const s: any = sweeper;
+    const from = ethers.Wallet.createRandom().address;
+    const id = 'r1';
+    const seal = s.destSeal(id, 'd1', 'USDT', from, treasury);
+    const row = (dest: string, sealed: string) => ({ id, deposit_id: 'd1', chain: 'base', asset: '0x' + '22'.repeat(20), from_address: from, treasury_address: dest, status: 'planned', kind: 'recovery', dest_seal: sealed, updated_at: new Date().toISOString() });
+    // asset used for the seal must match the row's asset
+    const sealFor = (dest: string) => s.destSeal(id, 'd1', '0x' + '22'.repeat(20), from, dest);
+    expect(await s.advance(row(attacker, sealFor(treasury)))).toBe('failed');
+    expect(updates.join(' ')).toMatch(/does not match its seal/);
+    expect(seal).toHaveLength(64);
+    updates.length = 0;
+    await s.advance(row(treasury, sealFor(treasury))).catch(() => undefined); // passes the seal; later steps need a chain
+    expect(updates.join(' ')).not.toMatch(/does not match its seal/);
+  });
+
   it('a sweep row whose destination was changed in the database is failed, not sent', async () => {
     const { sweeper, updates } = make({});
     const row: any = { id: 's1', deposit_id: 'd1', chain: 'base', asset: 'USDC', from_address: ethers.Wallet.createRandom().address, treasury_address: attacker, status: 'planned', kind: 'sweep', updated_at: new Date().toISOString() };

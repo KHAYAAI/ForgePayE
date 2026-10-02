@@ -33,6 +33,8 @@ import { config } from './config.js';
 import { getDb } from './lib/db.js';
 import { startSettlement } from './lib/settlement.js';
 import { buildAlertRoutes } from './routes/alerts.js';
+import { buildReconcileRoutes } from './routes/reconcile.js';
+import { startReconcile } from './lib/reconcile-runner.js';
 import { alerts } from './lib/alerts.js';
 import { createFeedRunner, feedConfig, feedSourcesFromEnv, startFeed } from './lib/fx-feed.js';
 import { startWatchdog } from './lib/watchdog.js';
@@ -77,7 +79,8 @@ export async function buildApp() {
   await app.register(helmet, { contentSecurityPolicy: false });
 
   await app.register(rateLimit, {
-    max: 300,
+    // Per client address. The bureau calls this service from one address, so size it for that caller.
+    max: Math.max(1, Number(process.env['RATE_LIMIT_PER_MIN'] ?? '300')),
     timeWindow: '1 minute',
     keyGenerator: (req) => req.ip, // derived by Fastify from the trusted hops only; never the raw header
     errorResponseBuilder: (_req, context) => ({
@@ -111,6 +114,7 @@ export async function buildApp() {
   // The payout wallet's float, topped up from the operating wallet within caps (operator view).
   await app.register(buildTreasuryRoutes,        { prefix: '/treasury' });
   await app.register(buildAlertRoutes,           { prefix: '/alerts' });
+  await app.register(buildReconcileRoutes,       { prefix: '/reconcile' });
 
   // Outbound. The inverse of /x402 — the rail the credit bureau uses to pay
   // furnishers the revenue share it computes. Submission is refused rather than
@@ -269,6 +273,9 @@ async function main() {
   if (!process.env['ALERT_WEBHOOK_URL'] && !process.env['ALERT_PAGERDUTY_ROUTING_KEY']) {
     console.warn('[stablecoin-gateway] No ALERT_WEBHOOK_URL or ALERT_PAGERDUTY_ROUTING_KEY: treasury shortfalls and failed payouts/sweeps will only appear in this log');
   }
+
+  // Daily reconciliation of the ledger against the chain (reports and alerts; never repairs).
+  startReconcile(shouldRun);
 
   // Live USD/ZAR rate. Off unless asked for; the operator-set rate keeps working either way. Needs at
   // least two agreeing sources (lib/fx-feed.ts), and fails closed: a refused or missing rate just ages.

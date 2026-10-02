@@ -1,0 +1,109 @@
+name: "ForgePay — Bureau and custody images (build, scan, publish by digest)"
+
+# Builds every image the bureau-first launch and the custody stack deploy, and publishes them tagged by
+# commit SHA. Deploy by DIGEST (printed in the job summary), never by a branch tag: a branch tag moves.
+# Pushing happens only from the release branch or main, never from a pull request.
+#
+# NOT VERIFIED: this workflow has not run. The Docker daemon was not available where it was written, so no
+# image has been built from these Dockerfiles. The first run is the first test; expect to fix something.
+
+on:
+  push:
+    branches: ["claude/forgepay-platform-design-gEkgE", "main"]
+    paths:
+      - "forgepay/services/stablecoin-gateway/**"
+      - "forgepay/services/agent-credit-bureau/**"
+      - "forgepay/apps/platform/**"
+      - "forgepay/services/openfireblocks/services/**"
+      - ".github/workflows/forgepay-bureau-images.yml"
+  pull_request:
+    paths:
+      - "forgepay/services/stablecoin-gateway/**"
+      - "forgepay/services/agent-credit-bureau/**"
+      - "forgepay/apps/platform/**"
+      - "forgepay/services/openfireblocks/services/**"
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/forgepay
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: stablecoin-gateway, context: forgepay/services/stablecoin-gateway }
+          - { name: agent-credit-bureau, context: forgepay/services/agent-credit-bureau }
+          - { name: console, context: forgepay/apps/platform }
+          - { name: ofb-api-gateway, context: forgepay/services/openfireblocks/services/api-gateway }
+          - { name: ofb-mpc-signer, context: forgepay/services/openfireblocks/services/mpc-signer }
+          - { name: ofb-mpc-node, context: forgepay/services/openfireblocks/services/mpc-signer, file: forgepay/services/openfireblocks/services/mpc-signer/Dockerfile.node }
+          - { name: ofb-policy-service, context: forgepay/services/openfireblocks/services/policy-service }
+          - { name: ofb-temporal-worker, context: forgepay/services/openfireblocks/services/temporal-worker }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in (publishing builds only)
+        if: ${{ github.event_name != 'pull_request' }}
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}-${{ matrix.name }}
+          tags: |
+            type=sha,prefix=sha-,format=long
+
+      - name: Build (and push, except on pull requests)
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file || format('{0}/Dockerfile', matrix.context) }}
+          push: ${{ github.event_name != 'pull_request' }}
+          load: ${{ github.event_name == 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: true
+          sbom: true
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+      # Fails the build on a CRITICAL vulnerability that has a fix available. HIGH is reported, not blocking,
+      # until the baseline has been triaged.
+      - name: Scan (Trivy)
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: ${{ steps.meta.outputs.tags }}
+          format: sarif
+          output: trivy-${{ matrix.name }}.sarif
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Upload scan results
+        if: ${{ always() && hashFiles(format('trivy-{0}.sarif', matrix.name)) != '' }}
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-${{ matrix.name }}.sarif
+          category: trivy-${{ matrix.name }}
+
+      - name: Record the digest to deploy
+        if: ${{ github.event_name != 'pull_request' }}
+        run: |
+          echo "### ${{ matrix.name }}" >> "$GITHUB_STEP_SUMMARY"
+          echo '`${{ env.IMAGE_PREFIX }}-${{ matrix.name }}@${{ steps.build.outputs.digest }}`' >> "$GITHUB_STEP_SUMMARY"

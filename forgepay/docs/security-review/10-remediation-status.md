@@ -43,13 +43,24 @@ Same caveat: fixed and tested by their author, not independently verified.
 | F-42 | Session token emailed | Fixed by removal | The verification email is no longer sent (it carried the session JWT and linked to a page that does not exist). **There is no email verification now** | read |
 | F-43 | Weak login controls | Partly fixed | Login and MFA attempts are throttled (per process); TOTP seeds are encrypted at rest; the API key is no longer returned at login. **Per-user API keys are still stored in plaintext; throttling is not shared across replicas** | vitest |
 
+## Third round (hardening of the partial fixes, and one finding from reconciliation)
+
+| Item | Status | What changed | How it was checked |
+|---|---|---|---|
+| Signer API had a token only | Improved | Optional mutual TLS on the signer's own API (`MPC_SIGNER_TLS_*`): only a certificate named `gateway` from the operators' CA may connect; the gateway presents it (`MPC_SIGNER_CLIENT_*`). **Optional, not enforced in production, and not wired into the Helm chart** | Go test with a real CA: gateway cert accepted, a signing node's cert (valid CA, wrong name) refused, no cert fails the handshake. The gateway side is typechecked only |
+| Sweep recovery destination editable in the database | Fixed | Recovery rows carry an HMAC over id, deposit, asset, source and destination, keyed from the gateway wallet key (not in the database); a mismatch fails the row | unit test. Rows planned before this change have no seal and fail closed |
+| Per-user API keys in plaintext | Fixed | Stored as `sha256:<hex>`; shown once; legacy plaintext keys upgraded on first use and by a schema statement | vitest |
+| Sweep crash recovery trusted any mined transaction | **New finding, fixed** | Found by the new reconciliation run against real data: a `sending` sweep was closed as done on any successful receipt. It now requires a transfer of its own units to its own destination | real-chain e2e: a foreign transaction no longer closes a sweep |
+| Throttling per process | Not fixed | | |
+| Per-signer cryptographic approval | Not fixed | | |
+
 ## Not fixed (and not claimed fixed)
 
-- F-52 for sweep **recovery** rows: an operator-named destination is still trusted from the database.
+- Per-signer proof of identity (WebAuthn / per-signer keys); throttling shared across replicas; F-08 (accepted).
+- Signer mutual TLS is optional and not in the chart.
 - Console data is platform-wide, not partitioned per tenant (fine for one operator; not for multi-tenant).
-- F-08 (accepted), the items above marked partial.
-- Items in `04` section 3 (documentation that contradicts the code), the logged RPC URL, Swagger without auth, Node 18/20 images.
-- No mutual TLS gateway-to-signer; no per-signer proof of identity; no rate limit shared across replicas.
+- Items in `04` section 3 (documentation that contradicts the code), the logged RPC URL, Swagger without auth.
+- Base images for the bureau, gateway and console were moved from Node 18/20 to 22 (both older lines are past end of life); **the images themselves have not been built** (no Docker daemon was available), so this is untested beyond the code building under Node 22 locally.
 
 ## Added since the review's commit (also unreviewed)
 

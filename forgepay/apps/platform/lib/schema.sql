@@ -122,3 +122,6 @@ CREATE INDEX IF NOT EXISTS idx_invitations_tenant ON invitations(tenant_id);
 -- At most one live invitation per address per tenant.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_invitations_live
   ON invitations(tenant_id, lower(email)) WHERE accepted_at IS NULL AND revoked_at IS NULL;
+
+-- Per-user API keys are stored as 'sha256:<hex>' of the key. Upgrade any still held in the clear (idempotent).
+UPDATE users SET api_key = 'sha256:' || encode(sha256(convert_to(api_key, 'UTF8')), 'hex') WHERE api_key NOT LIKE 'sha256:%';

@@ -1,6 +1,6 @@
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { cookies } from 'next/headers';
 import { query, queryOne, execute } from './db';
 
@@ -268,7 +268,8 @@ export async function createUser(
   role: Role = 'analyst'
 ): Promise<User> {
   const userId = crypto.randomUUID();
-  const apiKey = crypto.randomUUID();
+  // Never shown to anyone, so only its hash is kept (a key is minted for use via generateApiKey).
+  const apiKey = hashApiKey(crypto.randomUUID());
 
   const result = await queryOne<User>(
     `INSERT INTO users (id, email, name, password_hash, tenant_id, api_key, role, status, created_at, updated_at)
@@ -312,20 +313,34 @@ export async function findOrCreateSsoUser(
   return createUser(email, name, passwordHash, tenantId, 'analyst');
 }
 
+/** SHA-256 of a key, tagged so a hashed value is never mistaken for a legacy plaintext one. */
+export function hashApiKey(key: string): string {
+  return 'sha256:' + createHash('sha256').update(key).digest('hex');
+}
+
 export async function generateApiKey(userId: string): Promise<string> {
   const newApiKey = crypto.randomUUID();
+  // Returned once, stored only as a hash: a database copy does not contain a usable key.
   await query(
     `UPDATE users SET api_key = $1, updated_at = NOW() WHERE id = $2`,
-    [newApiKey, userId]
+    [hashApiKey(newApiKey), userId]
   );
   return newApiKey;
 }
 
 export async function verifyApiKey(apiKey: string): Promise<User | null> {
-  return queryOne<User>(
+  const hit = await queryOne<User>(
+    `SELECT * FROM users WHERE api_key = $1 AND status = 'active'`,
+    [hashApiKey(apiKey)]
+  );
+  if (hit) return hit;
+  // A key issued before hashing was introduced is still stored in the clear: accept it once and upgrade it.
+  const legacy = await queryOne<User>(
     `SELECT * FROM users WHERE api_key = $1 AND status = 'active'`,
     [apiKey]
   );
+  if (legacy) await execute(`UPDATE users SET api_key = $1 WHERE id = $2`, [hashApiKey(apiKey), legacy.id]);
+  return legacy;
 }
 
 // ── MFA enrollment state ────────────────────────────────────────────────────

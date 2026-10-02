@@ -26,9 +26,10 @@
  *   - Deposit keys are opened only here, in memory, for the one transaction.
  */
 
+import { transferred } from './reconcile.js';
 import { isProductionLike } from './env.js';
 import { ethers } from 'ethers';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import type { AssetRegistry } from './assets.js';
 import type { Queryable } from './deposit-open.js';
@@ -148,6 +149,12 @@ export class Sweeper {
     private readonly cfg: SweepConfig, private readonly deps: SweepDeps,
   ) {}
 
+  /** HMAC over what a recovery sweep must not change after it was planned; the key never touches the database. */
+  private destSeal(id: string, depositId: string, asset: string, from: string, dest: string): string {
+    const key = createHash('sha256').update('recovery-seal|' + this.cfg.gasKey).digest();
+    return createHmac('sha256', key).update([id, depositId, asset.toLowerCase(), from.toLowerCase(), dest.toLowerCase()].join('|')).digest('hex');
+  }
+
   gasWalletFor(chain: string): ethers.Wallet {
     let w = this.gasWallets.get(chain);
     if (!w) { w = new ethers.Wallet(this.cfg.gasKey, this.deps.provider(chain)); this.gasWallets.set(chain, w); }
@@ -190,10 +197,11 @@ export class Sweeper {
   }
 
   private async plan(depositId: string, chain: string, asset: string, from: string, treasury: string, reason: string | null, kind: 'sweep' | 'recovery' = 'sweep'): Promise<SweepRow | null> {
+    const id = randomUUID();
     const r = await this.db.query(
-      `INSERT INTO deposit_sweeps (id, deposit_id, chain, asset, from_address, treasury_address, reason, kind)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING RETURNING *`,
-      [randomUUID(), depositId, chain, asset, from, treasury, reason, kind]);
+      `INSERT INTO deposit_sweeps (id, deposit_id, chain, asset, from_address, treasury_address, reason, kind, dest_seal)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT DO NOTHING RETURNING *`,
+      [id, depositId, chain, asset, from, treasury, reason, kind, kind === 'recovery' ? this.destSeal(id, depositId, asset, from, treasury) : null]);
     return (r.rows[0] as SweepRow) ?? null;
   }
 
@@ -239,6 +247,13 @@ export class Sweeper {
       // A sweep may only ever pay the treasury this gateway is CONFIGURED with. The destination was copied
       // into the row when it was planned; anyone who can write to the database could have changed it since,
       // so it is checked against configuration at the moment of sending, not trusted from the row.
+      if (row.kind === 'recovery') {
+        const want = this.destSeal(row.id, row.deposit_id, row.asset, row.from_address, row.treasury_address);
+        const got = String((row as { dest_seal?: string | null }).dest_seal ?? '');
+        if (got.length !== want.length || !timingSafeEqual(Buffer.from(got), Buffer.from(want))) {
+          return await this.fail(row, 'the recovery destination does not match its seal: the row was altered after it was planned; not sent');
+        }
+      }
       if (row.kind === 'sweep') {
         const configured = this.cfg.treasury(row.chain);
         if (!configured) return 'deferred';
@@ -253,6 +268,11 @@ export class Sweeper {
         const receipt = await provider.getTransactionReceipt(row.sweep_tx);
         if (receipt) {
           if (receipt.status !== 1) return await this.fail(row, `transfer ${row.sweep_tx} reverted on-chain`);
+          // A mined transaction is not necessarily THIS sweep's: check it moved this row's units of this token
+          // to this row's destination before calling the sweep done.
+          if (row.units && !transferred({ status: receipt.status, logs: receipt.logs.map((l) => ({ address: l.address, topics: l.topics, data: l.data })) }, asset.address, row.treasury_address, BigInt(row.units))) {
+            return await this.fail(row, `transaction ${row.sweep_tx} succeeded but does not show ${row.units} units reaching ${row.treasury_address}; not marking this sweep done`);
+          }
           await this.finish(row);
           return 'swept';
         }

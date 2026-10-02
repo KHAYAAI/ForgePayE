@@ -15,6 +15,7 @@ Evidence levels used below: **Tested** (automated tests and, where noted, a run 
 | Custody governance (OpenFireblocks gateway) | Tested | 111 jest tests | The "signer approves" vote is asserted by the console, not proven by the person (no WebAuthn/per-signer keys) |
 | Console auth and the routes touched | Tested (new) | 6 vitest tests (the console had none) | Rest of the console untested; API keys stored in plaintext; throttling per process; no email verification |
 | Helm, Terraform, CI | Built | `helm lint/template`, `terraform validate`, `actionlint` | Nothing applied to a cluster or an AWS account; no images built or published |
+| Daily reconciliation, restore drill, load test, operations runbook | Tested (locally) / Built | Reconciliation ran against real Postgres + chain in the e2e and caught a real sweeper weakness (fixed). Load test: 107 deposits/s opened, 400 paid deposits confirmed in 44s on an instant local chain. DB restore drill passes on a dev database | Nothing run on staging or a real RPC; settlement scales with open deposits per pass; the runbook has never been rehearsed |
 | Review package, RFP, counsel brief, dust-test runbook, launch values | Built | Documents | Nobody has been engaged; nothing sent |
 
 ## 2. What is not assessed
@@ -30,16 +31,16 @@ About twenty other services (unified-router, mor-layer, billing-engine, complian
 4. **Issuer confirmation** of the ZARP and OUSD contracts and whether OUSD rebases.
 
 **B. Infrastructure that has never existed**
-5. A staging then production environment: AWS account(s), KMS/Vault, Postgres with backups and a tested database restore, RPC provider, secrets, container images and a publish pipeline, DNS/TLS, observability. `launch/03` gives the order.
+5. A staging then production environment: AWS account(s), KMS/Vault, Postgres with managed backups (the restore drill script exists and passes on a dev database; it needs running against a real backup), RPC provider, secrets, DNS/TLS, observability. An image build/publish workflow exists (`forgepay-bureau-images.yml`, scan + digest) but has never run. `launch/03` gives the order.
 6. The real-token dust tests (USDC, then ZARP, then OUSD), one at a time.
 7. Separate hosts and separate accounts for the custody nodes and a restore drill with real officers (needed before any custody launch; not needed for the bureau).
 
 **C. Operations**
-8. On-call rota, alert destinations tested, runbooks exercised, incident and key-holder procedures, daily reconciliation, a customer-support path. None exists beyond drafts.
-9. Load/soak/chaos testing. None done.
+8. On-call rota, alert destinations tested, runbooks **rehearsed** (`launch/05-operations-runbook.md` is written and has a game-day checklist, but nobody has run it), incident and key-holder procedures, a customer-support path. Daily reconciliation now exists as code and a procedure; it needs a person to do it daily.
+9. Load testing exists for the gateway on a local chain (`scripts/load-test.cjs`, nightly). Soak, chaos, real-RPC and multi-replica testing: not done.
 
 **D. Engineering still open**
-10. Gateway-to-signer mutual TLS; per-signer cryptographic approval; sweep-recovery destination integrity; shared (Redis) rate limiting; email verification; per-user API-key hashing; console tenant partitioning of bureau/treasury data; migration serialisation across replicas.
+10. Gateway-to-signer mutual TLS is built but optional and not in the chart; per-signer cryptographic approval; shared (Redis) rate limiting; email verification; console tenant partitioning of bureau/treasury data; migration serialisation across replicas. (Sweep-recovery integrity and per-user API-key hashing are now done.)
 11. Everything in section 2.
 
 ## 4. Launch paths

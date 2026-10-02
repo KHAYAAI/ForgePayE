@@ -303,11 +303,19 @@ let db;
   const mk = async (token, usd, sym) => { const d = await api('POST', '/deposits', { merchant_id: 'sw', amount_usd: usd, token, chain: 'base' }); return d.body; };
   const pays = async (sym, d) => { await (await tokens[sym].transfer(d.address, BigInt(d.amount_units))).wait(); await mine(3); await waitFor(async () => (await db.query(`SELECT status FROM stablecoin_deposits WHERE id=$1`, [d.id])).rows[0].status === 'confirmed', 25000); };
   const tBefore = await tokens.USDC.balanceOf(treasury);
-  const d1 = await mk('USDC', 5); await db.query(`UPDATE stablecoin_deposits SET status='confirmed' WHERE id=$1`, [d1.id]);
-  const goodHash = swept[0].sweep_tx;
-  await db.query(`INSERT INTO deposit_sweeps (id, deposit_id, chain, asset, from_address, treasury_address, status, sweep_tx, units) VALUES (gen_random_uuid(), $1, 'base', 'USDC', $2, $3, 'sending', $4, '5000000')`, [d1.id, d1.address, ethers.getAddress(treasury), goodHash]);
+  // A real sweep that was fully carried out, put back into the state a crash would have left it in.
+  const crashed = (await db.query(`SELECT s.id, s.deposit_id FROM deposit_sweeps s WHERE s.status='swept' AND s.kind='sweep' AND s.asset='USDC' AND s.sweep_tx IS NOT NULL LIMIT 1`)).rows[0];
+  await db.query(`UPDATE stablecoin_deposits SET swept_at=NULL WHERE id=$1`, [crashed.deposit_id]);
+  await db.query(`UPDATE deposit_sweeps SET status='sending', updated_at=now() WHERE id=$1`, [crashed.id]);
+  const d1 = { id: crashed.deposit_id };
   await waitFor(async () => (await db.query(`SELECT status FROM deposit_sweeps WHERE deposit_id=$1`, [d1.id])).rows[0].status === 'swept', 15000);
   check('a sweep left "sending" whose transaction is mined is closed from the chain, sending nothing more', (await db.query(`SELECT swept_at FROM stablecoin_deposits WHERE id=$1`, [d1.id])).rows[0].swept_at !== null && (await tokens.USDC.balanceOf(treasury)) === tBefore);
+  // ...but a mined transaction that is NOT this deposit's sweep must not close it.
+  const foreignTx = (await db.query(`SELECT sweep_tx FROM deposit_sweeps WHERE id=$1`, [crashed.id])).rows[0].sweep_tx;
+  const dForeign = await mk('USDC', 5); await db.query(`UPDATE stablecoin_deposits SET status='confirmed' WHERE id=$1`, [dForeign.id]);
+  await db.query(`INSERT INTO deposit_sweeps (id, deposit_id, chain, asset, from_address, treasury_address, status, sweep_tx, units) VALUES (gen_random_uuid(), $1, 'base', 'USDC', $2, $3, 'sending', $4, '5000000000')`, [dForeign.id, dForeign.address, ethers.getAddress(treasury), foreignTx]);
+  const foreign = await waitFor(async () => (await db.query(`SELECT status, error FROM deposit_sweeps WHERE deposit_id=$1`, [dForeign.id])).rows.find((r) => r.status !== 'sending') ?? null, 15000);
+  check('a transaction that did not move this deposit\'s funds does not close its sweep', foreign?.status === 'failed' && /does not show/.test(foreign.error ?? ''), JSON.stringify(foreign));
   const d2 = await mk('USDC', 5); await db.query(`UPDATE stablecoin_deposits SET status='confirmed' WHERE id=$1`, [d2.id]);
   await db.query(`INSERT INTO deposit_sweeps (id, deposit_id, chain, asset, from_address, treasury_address, status, sweep_tx, updated_at) VALUES (gen_random_uuid(), $1, 'base', 'USDC', $2, $3, 'sending', $4, now() - interval '1 hour')`, [d2.id, d2.address, ethers.getAddress(treasury), '0x' + 'cd'.repeat(32)]);
   const dropped = await waitFor(async () => { const r = (await db.query(`SELECT * FROM deposit_sweeps WHERE deposit_id=$1`, [d2.id])).rows[0]; return r.status === 'failed' ? r : null; }, 15000);
@@ -435,6 +443,17 @@ let db;
   check('a transfer left "sent" is settled from the chain', (await db.query(`SELECT status FROM treasury_transfers WHERE id=$1`, [confirmedRow.id])).rows[0].status === 'confirmed');
   const interrupted = await waitFor(async () => (await db.query(`SELECT * FROM treasury_transfers WHERE status='failed' AND error LIKE '%interrupted%'`)).rows[0] ?? null, 20000);
   check('one that never got a hash is marked failed and not assumed either way', !!interrupted);
+
+  console.log('13. Reconciliation: the ledger is checked against the chain');
+  const recon1 = (await api('POST', '/reconcile/run', {})).body.report;
+  const recBad = recon1.findings.filter((f) => /unverified|deposit_short/.test(f.code));
+  check('every payout and sweep marked done is shown by the chain', recon1.examined.payouts > 0 && recon1.examined.sweeps > 0 && recBad.length === 0 && recon1.errors.length === 0, JSON.stringify({ examined: recon1.examined, bad: recBad, errors: recon1.errors }).slice(0, 400));
+  const victim = (await db.query(`SELECT id, amount_units FROM payouts WHERE status='confirmed' AND tx_hash IS NOT NULL LIMIT 1`)).rows[0];
+  await db.query(`UPDATE payouts SET amount_units = (amount_units::numeric * 10)::text WHERE id=$1`, [victim.id]);
+  const recon2 = (await api('POST', '/reconcile/run', {})).body.report;
+  check('a payout record altered after the fact is reported', recon2.findings.some((f) => f.code === 'payout_unverified' && f.ref === victim.id) && recon2.clean === false);
+  await db.query(`UPDATE payouts SET amount_units = $2 WHERE id=$1`, [victim.id, victim.amount_units]);
+  check('the report is available to operators and refused to a merchant key', (await api('GET', '/reconcile')).status === 200);
 
   // Surplus goes to cold storage, leaving the target behind.
   const warmBefore = { USDC: await tokens.USDC.balanceOf(warm.address), OUSD: await tokens.OUSD.balanceOf(warm.address), ZARP: await tokens.ZARP.balanceOf(warm.address) };
