@@ -17,6 +17,9 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
+        # Fields carry env aliases (PORT, ENVIRONMENT...). Without this, Settings(environment="production") silently
+        # ignores the argument (extra="ignore"), so a test or caller building Settings in code gets defaults, not what it passed.
+        populate_by_name=True,
     )
 
     # ── Server ────────────────────────────────────────────────────────────────

@@ -193,6 +193,23 @@ jobs:
         env:
           CUSTODY_TEST_PG: postgresql://forgepay:forgepay@localhost:5432/postgres
 
+  # ── Compliance monitor (Python): the bureau's sanctions screening depends on it ─────
+  compliance-monitor:
+    name: "compliance-monitor — pytest"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: forgepay/services/compliance-monitor
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: forgepay/services/compliance-monitor/requirements.txt
+      - run: pip install -r requirements.txt pytest pytest-asyncio aiosqlite
+      - run: python -m pytest -q
+
   # ── Console (Next.js): typecheck + the auth/guard tests ─────────────────────
   console:
     name: "console — tsc + vitest (auth, route guards)"
