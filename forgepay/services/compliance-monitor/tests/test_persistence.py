@@ -318,6 +318,7 @@ async def test_screening_result_cached_with_24h_ttl() -> None:
         eu=EuSanctionsManager(list_url="https://fake.eu/list.xml"),
         redis_client=fake_redis,
     )
+    engine._lists_not_ready = lambda: None  # these tests are about the cache, not list readiness (see test_screening_lists_ready.py)
 
     result = await engine.screen_entity(
         entity_id="entity-cache-1", entity_type="person", name="Nobody Notable"
@@ -348,6 +349,7 @@ async def test_screening_cache_outage_does_not_fail_the_request() -> None:
         eu=EuSanctionsManager(list_url="https://fake.eu/list.xml"),
         redis_client=fake_redis,
     )
+    engine._lists_not_ready = lambda: None  # these tests are about the cache, not list readiness (see test_screening_lists_ready.py)
 
     # Must not raise even though every redis call fails.
     result = await engine.screen_entity(

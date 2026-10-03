@@ -121,6 +121,30 @@ class ScreeningEngine:
     # Public API
     # ------------------------------------------------------------------
 
+    def _lists_not_ready(self) -> str | None:
+        """Why this engine must not clear anyone right now, or None. An OFAC list that never loaded (entry count 0, age
+        infinite) matches nothing, so every search "succeeds" with no matches: without this check an unreachable source at
+        startup would turn the sanctions screen into a rubber stamp. Stale counts the same as absent."""
+        from src.config import get_settings
+
+        settings = get_settings()
+        try:
+            if self._ofac.entry_count() <= 0:
+                return "the OFAC sanctions list has not loaded"
+            age = self._ofac.get_list_age_hours()
+            if age > settings.sanctions_max_age_hours:
+                return f"the OFAC sanctions list is {age:.0f}h old (limit {settings.sanctions_max_age_hours:.0f}h)"
+        except Exception as exc:  # a manager that cannot say how fresh it is cannot be relied on to clear anyone
+            return f"the sanctions list state could not be read: {exc}"
+        return None
+
+    def _refusal(self, entity_id: str, entity_type: str, name: str, why: str) -> ScreeningResult:
+        logger.error("screening.refused_lists_not_ready", entity_id=entity_id[:12], reason=why)
+        return ScreeningResult(
+            entity_id=entity_id, entity_type=entity_type, name=name,
+            screened_at=datetime.now(UTC).isoformat(), result=_RESULT_ERROR, matches=[], risk_score=0, recommended_action="review",
+        )
+
     async def screen_entity(
         self,
         entity_id: str,
@@ -136,6 +160,9 @@ class ScreeningEngine:
         digital-currency-address entries.
         """
         logger.info("screening.entity", entity_id=entity_id, entity_type=entity_type)
+        not_ready = self._lists_not_ready()
+        if not_ready:
+            return self._refusal(entity_id, entity_type, name, not_ready)  # not stored: it says nothing about the entity
 
         try:
             # Parallel name search across lists
@@ -184,6 +211,9 @@ class ScreeningEngine:
     async def screen_crypto_address(self, address: str) -> ScreeningResult:
         """Screen a blockchain address against OFAC's crypto address entries."""
         logger.info("screening.crypto_address", address=address[:12] + "...")
+        not_ready = self._lists_not_ready()
+        if not_ready:
+            return self._refusal(address, "crypto_address", address, not_ready)
 
         try:
             matches = self._ofac.check_crypto_address(address)

@@ -55,6 +55,11 @@ def register_api_key(raw_key: str, merchant_id: str, scopes: list[str] | None = 
     _API_KEY_STORE[key_hash] = {"merchant_id": merchant_id, "scopes": scopes or ["*"]}
 
 
+def register_api_key_hash(key_hash: str, merchant_id: str, scopes: list[str] | None = None) -> None:
+    """Register a key by its SHA-256 only (production service credentials: the raw key never reaches this service)."""
+    _API_KEY_STORE[key_hash.lower()] = {"merchant_id": merchant_id, "scopes": scopes or ["*"]}
+
+
 def generate_api_key(merchant_id: str, scopes: list[str] | None = None) -> str:
     """Generate a random API key, register it, and return the raw value."""
     raw = secrets.token_urlsafe(32)

@@ -40,6 +40,16 @@ class Settings(BaseSettings):
     # production (see model_post_init below): a real deployment provisions
     # keys through the database, not an environment variable.
     dev_api_keys: str = Field(default="", alias="DEV_API_KEYS")
+    # Production service credentials, as HASHES: comma-separated "sha256hex:merchant_id" pairs. The caller (for example the
+    # credit bureau) keeps the raw key in its secret store and sends it in X-Compliance-API-Key; this service only ever sees
+    # and stores the SHA-256, so the deploy manifest holds nothing that can be used to authenticate. Generate a pair with
+    #   KEY=$(openssl rand -hex 32); printf '%s' "$KEY" | sha256sum      (raw key -> caller; hash:merchant_id -> here)
+    # Unlike DEV_API_KEYS this is allowed in production.
+    service_api_key_hashes: str = Field(default="", alias="SERVICE_API_KEY_HASHES")
+
+    # The sanctions list must have loaded, and recently, before screening may say "clear". A list that never loaded (the
+    # source was unreachable at startup) or has gone stale cannot clear anyone: screening answers "error" instead.
+    sanctions_max_age_hours: float = Field(default=72.0, alias="SANCTIONS_MAX_AGE_HOURS")
 
     # ── Upstream services ─────────────────────────────────────────────────────
     payment_engine_url: str = Field(
@@ -135,7 +145,24 @@ class Settings(BaseSettings):
                 pairs.append((key.strip(), merchant_id.strip()))
         return pairs
 
+    @property
+    def service_api_key_hashes_list(self) -> list[tuple[str, str]]:
+        """Parsed (sha256_hex, merchant_id) pairs from SERVICE_API_KEY_HASHES. Malformed entries raise: a typo here must
+        stop the service starting, not leave the caller silently unable to authenticate."""
+        pairs: list[tuple[str, str]] = []
+        for entry in self.service_api_key_hashes.split(","):
+            entry = entry.strip()
+            if not entry:
+                continue
+            digest, sep, merchant_id = entry.partition(":")
+            digest, merchant_id = digest.strip().lower(), merchant_id.strip()
+            if not sep or not merchant_id or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
+                raise ValueError("SERVICE_API_KEY_HASHES entries must be '<64 hex sha256>:<merchant_id>'")
+            pairs.append((digest, merchant_id))
+        return pairs
+
     def model_post_init(self, __context: object) -> None:
+        self.service_api_key_hashes_list  # validate at construction: raises on a malformed entry
         # SECURITY: never boot production with the well-known dev JWT secret.
         if self.environment == "production":
             errors: list[str] = []

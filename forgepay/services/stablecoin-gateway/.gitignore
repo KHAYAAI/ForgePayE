@@ -1,1 +1,4 @@
 dist/
+
+# real-chain smoke-test runs: hold a generated deposit-key encryption key
+.smoke/

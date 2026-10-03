@@ -44,7 +44,7 @@ from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from src.auth import register_api_key
+from src.auth import register_api_key, register_api_key_hash
 from src.config import get_settings
 from src.db.session import dispose_engine, get_session_factory
 from src.kyc.manager import KycManager
@@ -132,6 +132,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             merchant_id=merchant_id,
             note="DEV_API_KEYS seeding -- never used in production",
         )
+
+    # ── Production service credentials (hashes only; allowed in production) ──────────────
+    for key_hash, merchant_id in settings.service_api_key_hashes_list:
+        register_api_key_hash(key_hash, merchant_id)
+        logger.info("auth.service_api_key_registered", merchant_id=merchant_id)
 
     # ── Redis client (for OFAC feed caching) ──────────────────────────────────
     import redis.asyncio as redis
