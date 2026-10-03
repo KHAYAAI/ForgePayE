@@ -41,7 +41,7 @@ describe('ZARP and OUSD are on hold', () => {
     process.env['STABLECOIN_GATEWAY_URL'] = 'https://gateway.test';
     contributors.clear(); attributions.clear();
     const c = { id: 'c1', name: 'F', type: 'lending_protocol', apiKeyHash: 'h', permissions: [], queriesUsed: 0, queriesAllowed: 1, dataRecordsContributed: 1,
-      createdAt: '2026-01-01T00:00:00Z', status: 'active', payoutAddress: '0x1234567890123456789012345678901234567890', payoutAsset: 'ZARP' } as DataContributor;
+      createdAt: '2026-01-01T00:00:00Z', status: 'active', payoutAddress: '0x1234567890123456789012345678901234567890', payoutAsset: 'ZARP' } as unknown as DataContributor;
     setContributor(c);
     recordAttribution({ id: 'a1', contributorId: 'c1', reportId: 'r', agentId: 'ag', share: 1, amountUsdCents: 500, creditsAccrued: 0, phase: 'cash', createdAt: '2026-08-15T00:00:00Z' } as AttributionEntry);
     const fetchFn = vi.fn();
