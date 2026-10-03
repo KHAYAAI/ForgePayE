@@ -235,7 +235,8 @@ func (n *Node) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok": true, "id": n.cfg.ID, "domain": me.Domain, "preparams": n.pool.Available(),
 		"sealProvider": n.cfg.SealProvider, "policy": n.policy.Summary(), "mtls": n.cfg.TLS != nil,
-		"backup": n.BackupStatus(),
+		"backup":    n.BackupStatus(),
+		"placement": DescribePlacement(n.cfg.ID, n.cfg.SealProvider, me.Domain, os.Getenv, os.ReadFile),
 	})
 }
 

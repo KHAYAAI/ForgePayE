@@ -1,5 +1,8 @@
 # Platform readiness — 2 October 2026
 
+> Superseded for per-platform detail by `READINESS_BY_PLATFORM_2026-10-03.md`, which adds a test run of every service and the custody work done since.
+
+
 **Verdict: not ready for real customers' money. The bureau-first launch is the nearest, and it is gated by outside parties more than by code.**
 
 Evidence levels used below: **Tested** (automated tests and, where noted, a run against real Postgres/nodes), **Built** (written and reviewed by its author, not exercised for real), **Unverified** (exists on paper or in a chart; never run), **Not assessed** (not examined in this work; earlier documents in `forgepay/` make claims I have not re-checked).

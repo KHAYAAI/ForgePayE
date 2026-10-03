@@ -59,7 +59,15 @@ func (a *Activities) postJSON(ctx context.Context, url string, body, out interfa
 	if tok := os.Getenv("MPC_SIGNER_AUTH_TOKEN"); tok != "" && strings.HasPrefix(url, strings.TrimRight(a.MpcSignerURL, "/")+"/") {
 		req.Header.Set("Authorization", "Bearer "+tok)
 	}
-	resp, err := a.httpClient.Do(req)
+	client := a.httpClient
+	if strings.HasPrefix(url, strings.TrimRight(a.MpcSignerURL, "/")+"/") {
+		c, err := signerClient(a.httpClient)
+		if err != nil {
+			return err
+		}
+		client = c
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}

@@ -18,7 +18,15 @@ export function signerBaseUrl(env: NodeJS.ProcessEnv = process.env): string {
  */
 export function signerHttpsAgent(env: NodeJS.ProcessEnv = process.env): Agent | undefined {
   const cert = env.MPC_SIGNER_CLIENT_CERT_FILE, key = env.MPC_SIGNER_CLIENT_KEY_FILE, ca = env.MPC_SIGNER_CA_FILE;
-  if (!cert && !key && !ca) return undefined;
+  if (!cert && !key && !ca) {
+    if (env.NODE_ENV === 'production') {
+      throw new Error('production requires mutual TLS to the signer: set MPC_SIGNER_CLIENT_CERT_FILE, MPC_SIGNER_CLIENT_KEY_FILE and MPC_SIGNER_CA_FILE');
+    }
+    return undefined;
+  }
+  if (env.NODE_ENV === 'production' && !signerBaseUrl(env).startsWith('https://')) {
+    throw new Error('production requires an https MPC_SIGNER_URL');
+  }
   if (!cert || !key || !ca) throw new Error('set all of MPC_SIGNER_CLIENT_CERT_FILE, MPC_SIGNER_CLIENT_KEY_FILE and MPC_SIGNER_CA_FILE, or none');
   return new Agent({ cert: readFileSync(cert), key: readFileSync(key), ca: readFileSync(ca), minVersion: 'TLSv1.3' });
 }

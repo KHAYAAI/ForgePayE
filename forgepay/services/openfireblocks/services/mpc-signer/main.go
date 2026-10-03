@@ -200,6 +200,15 @@ func (s *server) handleMPCStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleTopology reports whether the signing nodes are as separate as the key's security assumes (see internal/mpc/topology.go).
+func (s *server) handleTopology(w http.ResponseWriter, r *http.Request) {
+	if s.coord == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "threshold signing is not configured on this signer"})
+		return
+	}
+	writeJSON(w, http.StatusOK, s.coord.Topology(r.Context(), mpc.Production()))
+}
+
 func (s *server) mpcErrStatus(err error) int {
 	var quorum *mpc.ErrQuorumUnavailable
 	var refused *mpc.NodeRefusal
@@ -376,6 +385,7 @@ func main() {
 	router.HandleFunc("/address", s.handleAddress).Methods(http.MethodGet)
 	router.HandleFunc("/mpc/keys", s.handleKeygen).Methods(http.MethodPost)
 	router.HandleFunc("/mpc/status", s.handleMPCStatus).Methods(http.MethodGet)
+	router.HandleFunc("/mpc/topology", s.handleTopology).Methods(http.MethodGet)
 	router.HandleFunc("/mpc/keys/{id}", s.handleKeyMeta).Methods(http.MethodGet)
 	router.HandleFunc("/mpc/keys/{id}/reshare", s.handleReshare).Methods(http.MethodPost)
 	router.HandleFunc("/mpc/keys/{id}/retire-stale", s.handleRetireStale).Methods(http.MethodPost)
@@ -388,6 +398,9 @@ func main() {
 	}
 	signerTLS, err := signerTLSFromEnv(os.Getenv)
 	if err != nil {
+		log.Fatal(err)
+	}
+	if err := checkSignerTLS(signerTLS, mpc.Production()); err != nil {
 		log.Fatal(err)
 	}
 	if signerTLS != nil {

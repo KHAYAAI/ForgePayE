@@ -7,6 +7,7 @@
 node:
   id: node3
   domain: operator-c-vault
+  infraId: onprem-dc-c # account/project/rack: must differ between trust domains
   url: https://node3.mpc.operator-c.example:8101
   env: production
 

@@ -71,7 +71,15 @@ spec:
                   name: {{ .Values.custodySecretsRef }}
                   key: proposal-secret
             - name: MPC_SIGNER_URL
-              value: http://{{ include "ofb.fullname" . }}-mpc-signer:{{ .Values.mpcSigner.port }}
+              value: {{ if include "ofb.signerTls.enabled" . }}https{{ else }}http{{ end }}://{{ include "ofb.fullname" . }}-mpc-signer:{{ .Values.mpcSigner.port }}
+            {{- if include "ofb.signerTls.enabled" . }}
+            - name: MPC_SIGNER_CLIENT_CERT_FILE
+              value: /etc/signer-client/tls.crt
+            - name: MPC_SIGNER_CLIENT_KEY_FILE
+              value: /etc/signer-client/tls.key
+            - name: MPC_SIGNER_CA_FILE
+              value: /etc/signer-client/ca.crt
+            {{- end }}
             - name: POLICY_SERVICE_URL
               value: http://{{ include "ofb.fullname" . }}-policy-service:{{ .Values.policyService.port }}
             - name: ETHEREUM_RPC_SEPOLIA
@@ -138,10 +146,21 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            {{- if include "ofb.signerTls.enabled" . }}
+            - name: signer-client-tls
+              mountPath: /etc/signer-client
+              readOnly: true
+            {{- end }}
       volumes:
         - name: tmp
           emptyDir:
             sizeLimit: 64Mi
+        {{- if include "ofb.signerTls.enabled" . }}
+        - name: signer-client-tls
+          secret:
+            secretName: {{ include "ofb.signerTls.clientSecret" . }}
+            defaultMode: 288 # 0440
+        {{- end }}
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:

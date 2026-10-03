@@ -25,6 +25,7 @@ node:
   url: "" # https URL peers and the coordinator reach this node at. Needed for init only.
   port: 8101
   dataDir: /data/node # a sub-directory of the volume: `mpc-node` insists it is mode 0700, which a volume root with fsGroup is not
+  infraId: "" # MPC_NODE_INFRA_ID: the cloud account / project / cluster this node runs in (a label; make it true). REQUIRED in production: the topology check fails a node that declares none, and fails two trust domains that declare the same one.
   env: production # MPC_ENV. "production" refuses file/env seal keys, plain HTTP, one-domain topologies and no backups.
   maxValueWei: "" # MPC_NODE_MAX_VALUE_WEI, the older single cap; prefer policy.json
 

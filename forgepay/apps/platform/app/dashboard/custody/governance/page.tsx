@@ -2,7 +2,7 @@
 
 import { FormEvent, useState } from 'react';
 import { PageHeader, Stat, StatGrid, Panel, Pill, DataTable, Grid2, LivePill, Mono } from '@/components/forge/ui';
-import { useCustody, shortTime } from '@/components/forge/useCustody';
+import { useCustody, shortTime, askSignature } from '@/components/forge/useCustody';
 
 /* FORGE Custody — Governance. Who can approve, and how many approvals it
    takes. Changing either is itself a proposal that needs the same quorum. */
@@ -118,8 +118,8 @@ export default function CustodyGovernance() {
               </span>,
               p.status === 'open' && canPropose && !voted ? (
                 <span key="b" style={{ display: 'flex', gap: 8 }}>
-                  <button className="btn-primary btn-sm" disabled={busy} onClick={() => act({ action: 'vote', proposalId: p.id, approve: true })}>Approve</button>
-                  <button className="btn-ghost btn-sm" disabled={busy} onClick={() => act({ action: 'vote', proposalId: p.id, approve: false })}>Reject</button>
+                  <button className="btn-primary btn-sm" disabled={busy} onClick={() => { const sig = askSignature(p, true); if (sig !== null) act({ action: 'vote', proposalId: p.id, approve: true, ...(sig ? { signature: sig } : {}) }); }}>Approve</button>
+                  <button className="btn-ghost btn-sm" disabled={busy} onClick={() => { const sig = askSignature(p, false); if (sig !== null) act({ action: 'vote', proposalId: p.id, approve: false, ...(sig ? { signature: sig } : {}) }); }}>Reject</button>
                 </span>
               ) : p.status === 'failed' && canPropose ? (
                 <button key="b" className="btn-primary btn-sm" disabled={busy} onClick={() => act({ action: 'retry_transfer', proposalId: p.id })}>Retry</button>

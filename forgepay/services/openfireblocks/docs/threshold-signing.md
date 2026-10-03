@@ -120,6 +120,14 @@ quorum; the default in production is 0 = all of them), and optionally per-token 
 `dailyTokenUnits`, `requireTokenCaps`). Limits of this design are listed in `docs/security-review/10-remediation-status.md`:
 the actor is asserted by the console, not proven by the person; the signer token is not mutual TLS.
 
+## Per-signer approval, mutual TLS to the signer, separate hosts, officers
+
+- Votes must carry the signer's own signature (production default): [custody-signer-approval.md](custody-signer-approval.md).
+- The signer's API requires mutual TLS in production (`MPC_SIGNER_TLS_*`; the gateway and worker present a certificate named
+  `gateway`), in addition to the bearer token. The chart's `signerApiTls` wires it (cert-manager or existing Secrets).
+- Placing the nodes on separate hosts and proving it (`mpc-node topology`, `GET /mpc/topology`): [custody-separate-hosts.md](custody-separate-hosts.md).
+- The recovery-officer ceremony, protected shares and the restore drill with an audit record: [custody-officer-ceremony.md](custody-officer-ceremony.md).
+
 ## Backup and disaster recovery
 
 Shares are backed up, encrypted to an offline recovery key split among officers, after every key change; a restore drill proves it. See [disaster-recovery.md](disaster-recovery.md). `MPC_ENV=production` refuses to start a node without backups.

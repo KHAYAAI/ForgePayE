@@ -17,7 +17,7 @@ export interface Signer {
   eligible: boolean;
 }
 
-export interface Vote { email: string; approve: boolean; voted_at: string }
+export interface Vote { email: string; approve: boolean; voted_at: string; signed?: boolean }
 
 export interface Proposal {
   id: string;
@@ -31,6 +31,8 @@ export interface Proposal {
   decided_at: string | null;
   result: Record<string, any> | null;
   votes: Vote[];
+  /** What a signer signs to vote (see the signer's CLI). `required` is true when votes must carry the signer's own signature. */
+  signing?: { required: boolean; digest: string; domain: string };
   /** The transfer's row in signing.transactions (approve_transaction proposals only, once one exists). */
   tx?: ChainTx | null;
 }
@@ -228,4 +230,20 @@ export function useCustody() {
   }
 
   return { data, live, reload, act, busy, error, me };
+}
+
+
+/**
+ * When the workspace requires signed votes, the signer signs on their own machine (scripts/signer-cli.ts in the
+ * OpenFireblocks gateway) and pastes the signature here. The console never holds a signing key, so it cannot vote for
+ * anyone. Returns undefined when no signature is needed, null if the signer cancelled.
+ */
+export function askSignature(p: { id: string; kind: string; signing?: { required: boolean; digest: string } }, approve: boolean): string | undefined | null {
+  if (!p.signing?.required) return undefined;
+  const v = window.prompt(
+    `This workspace requires your own signature to ${approve ? 'approve' : 'reject'} this ${p.kind.replace(/_/g, ' ')}.\n\n` +
+    `On your own machine run:\n  signer-cli vote --key <your key file> --proposal <proposal.json> --${approve ? 'approve' : 'reject'}\n` +
+    `and check that what it prints is what you mean to approve (digest ${p.signing.digest.slice(0, 16)}…).\n\nPaste the signature:`,
+  );
+  return v === null ? null : v.trim();
 }

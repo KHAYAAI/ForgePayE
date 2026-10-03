@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
   }
 
   // A 6-digit code has a million possibilities: without a limit it can simply be guessed.
-  const attempts = hit(`mfa:${user.id}`, 6, 10 * 60_000);
+  const attempts = await hit(`mfa:${user.id}`, 6, 10 * 60_000);
   if (!attempts.allowed) {
     await clearMfaPendingCookie();
     return NextResponse.json({ error: 'Too many attempts. Sign in again later.' }, { status: 429, headers: { 'retry-after': String(attempts.retryAfterSec) } });

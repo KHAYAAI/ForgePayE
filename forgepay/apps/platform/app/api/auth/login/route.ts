@@ -27,8 +27,8 @@ export async function POST(req: NextRequest) {
 
     // Throttle guessing: per address and per account, so one source cannot try many passwords and many
     // sources cannot hammer one account indefinitely.
-    const byIp = hit(`login:ip:${ipAddress}`, 20, 15 * 60_000);
-    const byAcct = hit(`login:acct:${email.toLowerCase()}`, 8, 15 * 60_000);
+    const byIp = await hit(`login:ip:${ipAddress}`, 20, 15 * 60_000);
+    const byAcct = await hit(`login:acct:${email.toLowerCase()}`, 8, 15 * 60_000);
     if (!byIp.allowed || !byAcct.allowed) {
       await logAuditEvent({ action: 'auth.login_throttled', actorEmail: email, ipAddress, userAgent });
       return NextResponse.json(

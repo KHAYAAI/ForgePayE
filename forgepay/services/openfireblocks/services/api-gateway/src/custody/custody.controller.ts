@@ -19,15 +19,20 @@ import { CustodyService, ProposalKind } from './custody.service';
 class BootstrapSignerDto {
   @IsEmail() email: string;
   @IsOptional() @IsString() name?: string;
+  /** Ed25519 public key (hex) and a signature, by that key, of the enrolment statement (see scripts/signer-cli.ts). */
+  @IsOptional() @IsString() publicKey?: string;
+  @IsOptional() @IsString() pop?: string;
 }
 
 class ProposeDto {
-  @IsIn(['add_signer', 'remove_signer', 'set_threshold', 'rotate_key']) kind: ProposalKind;
+  @IsIn(['add_signer', 'remove_signer', 'set_threshold', 'rotate_key', 'set_signer_key']) kind: ProposalKind;
   @IsObject() payload: Record<string, any>;
 }
 
 class VoteDto {
   @IsBoolean() approve: boolean;
+  /** The signer's Ed25519 signature (hex) over the vote; required when signatures are required. */
+  @IsOptional() @IsString() signature?: string;
 }
 
 class TransferDto {
@@ -62,7 +67,7 @@ export class CustodyController {
 
   @Post('signers/bootstrap')
   bootstrap(@Param('customerId') customerId: string, @Body() dto: BootstrapSignerDto) {
-    return this.custody.bootstrapSigner(customerId, dto.email.toLowerCase(), dto.name);
+    return this.custody.bootstrapSigner(customerId, dto.email.toLowerCase(), dto.name, dto.publicKey, dto.pop);
   }
 
   @Post('proposals')
@@ -81,7 +86,7 @@ export class CustodyController {
     @Headers('x-actor-email') actor: string,
     @Body() dto: VoteDto,
   ) {
-    return this.custody.vote(customerId, proposalId, requireActor(actor), dto.approve);
+    return this.custody.vote(customerId, proposalId, requireActor(actor), dto.approve, dto.signature);
   }
 
   @Post('proposals/:proposalId/retry')

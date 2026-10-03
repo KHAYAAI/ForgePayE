@@ -100,7 +100,7 @@ export async function getCustodyConsole(tenantId: string): Promise<{ live: boole
 export type CustodyAction =
   | { action: 'bootstrap_signer'; name?: string }
   | { action: 'propose'; kind: 'add_signer' | 'remove_signer' | 'set_threshold' | 'rotate_key'; payload: Record<string, unknown> }
-  | { action: 'vote'; proposalId: string; approve: boolean }
+  | { action: 'vote'; proposalId: string; approve: boolean; signature?: string }
   | { action: 'retry_transfer'; proposalId: string }
   | { action: 'retire_stale' }
   | { action: 'transfer'; to: string; amountEth: string }
@@ -122,7 +122,7 @@ export async function performCustodyAction(tenantId: string, actor: string, a: C
     case 'propose':
       return post('/proposals', { kind: a.kind, payload: a.payload });
     case 'vote':
-      return post(`/proposals/${encodeURIComponent(a.proposalId)}/votes`, { approve: a.approve });
+      return post(`/proposals/${encodeURIComponent(a.proposalId)}/votes`, { approve: a.approve, ...(a.signature ? { signature: a.signature } : {}) });
     case 'retire_stale':
       return post('/keys/retire-stale', {});
     case 'retry_transfer':

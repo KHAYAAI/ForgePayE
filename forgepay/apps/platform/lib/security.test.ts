@@ -5,16 +5,16 @@ process.env.JWT_SECRET = 'j'.repeat(48);
 
 describe('rate limit', () => {
   beforeEach(_clearAll);
-  it('allows up to the limit then refuses until the window passes', () => {
-    for (let i = 0; i < 3; i++) expect(hit('k', 3, 1000, 0).allowed).toBe(true);
-    const r = hit('k', 3, 1000, 10);
+  it('allows up to the limit then refuses until the window passes', async () => {
+    for (let i = 0; i < 3; i++) expect((await hit('k', 3, 1000, 0)).allowed).toBe(true);
+    const r = await hit('k', 3, 1000, 10);
     expect(r.allowed).toBe(false);
     expect(r.retryAfterSec).toBeGreaterThan(0);
-    expect(hit('k', 3, 1000, 1500).allowed).toBe(true);
+    expect((await hit('k', 3, 1000, 1500)).allowed).toBe(true);
   });
-  it('keys are independent', () => {
-    hit('a', 1, 1000, 0); expect(hit('a', 1, 1000, 1).allowed).toBe(false);
-    expect(hit('b', 1, 1000, 1).allowed).toBe(true);
+  it('keys are independent', async () => {
+    await hit('a', 1, 1000, 0); expect((await hit('a', 1, 1000, 1)).allowed).toBe(false);
+    expect((await hit('b', 1, 1000, 1)).allowed).toBe(true);
   });
 });
 

@@ -2,7 +2,7 @@
 
 import { FormEvent, useState } from 'react';
 import { PageHeader, Panel, Pill, DataTable, LivePill, Mono, Addr } from '@/components/forge/ui';
-import { useCustody, formatEth, shortTime, Proposal } from '@/components/forge/useCustody';
+import { useCustody, formatEth, shortTime, askSignature, Proposal } from '@/components/forge/useCustody';
 import { TxStatusPill, TxHash } from '@/components/forge/TxStatus';
 
 /* FORGE Custody — Signing Queue. New transfers, and transfers held for
@@ -140,8 +140,8 @@ export default function SigningQueue() {
                 </span>
               ) : p.status === 'open' && me?.eligible && !voted ? (
                 <span key="b" style={{ display: 'flex', gap: 8 }}>
-                  <button className="btn-primary btn-sm" disabled={busy} onClick={() => act({ action: 'vote', proposalId: p.id, approve: true })}>Approve</button>
-                  <button className="btn-ghost btn-sm" disabled={busy} onClick={() => act({ action: 'vote', proposalId: p.id, approve: false })}>Reject</button>
+                  <button className="btn-primary btn-sm" disabled={busy} onClick={() => { const sig = askSignature(p, true); if (sig !== null) act({ action: 'vote', proposalId: p.id, approve: true, ...(sig ? { signature: sig } : {}) }); }}>Approve</button>
+                  <button className="btn-ghost btn-sm" disabled={busy} onClick={() => { const sig = askSignature(p, false); if (sig !== null) act({ action: 'vote', proposalId: p.id, approve: false, ...(sig ? { signature: sig } : {}) }); }}>Reject</button>
                 </span>
               ) : (
                 <span key="n">—</span>

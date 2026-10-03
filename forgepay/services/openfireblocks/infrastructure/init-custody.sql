@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS custody.signers (
 CREATE TABLE IF NOT EXISTS custody.proposals (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   customer_id  VARCHAR(255) NOT NULL,
-  kind         VARCHAR(40)  NOT NULL CHECK (kind IN ('add_signer', 'remove_signer', 'set_threshold', 'rotate_key', 'approve_transaction')),
+  kind         VARCHAR(40)  NOT NULL CHECK (kind IN ('add_signer', 'remove_signer', 'set_threshold', 'rotate_key', 'approve_transaction', 'set_signer_key')),
   payload      JSONB        NOT NULL,
   status       VARCHAR(20)  NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'executed', 'rejected', 'failed')),
   required     INTEGER      NOT NULL,
@@ -114,3 +114,12 @@ ALTER TABLE custody.keys
 ALTER TABLE custody.proposals DROP CONSTRAINT IF EXISTS proposals_kind_check;
 ALTER TABLE custody.proposals ADD CONSTRAINT proposals_kind_check
   CHECK (kind IN ('add_signer', 'remove_signer', 'set_threshold', 'rotate_key', 'approve_transaction'));
+
+-- Per-signer cryptographic approval. Each signer's own Ed25519 public key (hex); a vote carries the signer's signature
+-- over the exact proposal, and is only counted when it verifies against this key. Idempotent.
+ALTER TABLE custody.signers ADD COLUMN IF NOT EXISTS public_key TEXT;
+ALTER TABLE custody.votes ADD COLUMN IF NOT EXISTS signature TEXT;
+ALTER TABLE custody.votes ADD COLUMN IF NOT EXISTS signed_digest TEXT;
+ALTER TABLE custody.proposals DROP CONSTRAINT IF EXISTS proposals_kind_check;
+ALTER TABLE custody.proposals ADD CONSTRAINT proposals_kind_check
+  CHECK (kind IN ('add_signer', 'remove_signer', 'set_threshold', 'rotate_key', 'approve_transaction', 'set_signer_key'));

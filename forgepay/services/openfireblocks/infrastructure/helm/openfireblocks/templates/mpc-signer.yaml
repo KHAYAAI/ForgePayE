@@ -79,6 +79,26 @@ spec:
             - name: MPC_TLS_KEY_FILE
               value: /etc/mpc/tls/{{ $t.tls.keys.key }}
             {{- end }}
+            {{- if include "ofb.signerTls.enabled" . }}
+            - name: MPC_SIGNER_TLS_CA_FILE
+              value: /etc/mpc/signer-api-tls/ca.crt
+            - name: MPC_SIGNER_TLS_CERT_FILE
+              value: /etc/mpc/signer-api-tls/tls.crt
+            - name: MPC_SIGNER_TLS_KEY_FILE
+              value: /etc/mpc/signer-api-tls/tls.key
+            {{- end }}
+          {{- if include "ofb.signerTls.enabled" . }}
+          # The listener requires a client certificate for every connection, /health included, so the kubelet
+          # (which has none) can only check that the port accepts connections.
+          livenessProbe:
+            tcpSocket: { port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket: { port: http }
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          {{- else }}
           livenessProbe:
             httpGet: { path: /health, port: http }
             initialDelaySeconds: 5
@@ -87,11 +107,17 @@ spec:
             httpGet: { path: /health, port: http }
             initialDelaySeconds: 3
             periodSeconds: 5
+          {{- end }}
           resources:
             {{- toYaml .Values.mpcSigner.resources | nindent 12 }}
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            {{- if include "ofb.signerTls.enabled" . }}
+            - name: signer-api-tls
+              mountPath: /etc/mpc/signer-api-tls
+              readOnly: true
+            {{- end }}
             {{- if $t.enabled }}
             - name: cluster
               mountPath: /etc/mpc/cluster
@@ -107,6 +133,12 @@ spec:
         - name: tmp
           emptyDir:
             sizeLimit: 64Mi
+        {{- if include "ofb.signerTls.enabled" . }}
+        - name: signer-api-tls
+          secret:
+            secretName: {{ include "ofb.signerTls.serverSecret" . }}
+            defaultMode: 288 # 0440
+        {{- end }}
         {{- if $t.enabled }}
         - name: cluster
           configMap:
@@ -185,4 +217,46 @@ spec:
   issuerRef:
     {{- toYaml $t.tls.certManager.issuerRef | nindent 4 }}
 {{- end }}
+{{- end }}
+{{- if and (include "ofb.signerTls.enabled" .) .Values.signerApiTls.certManager.enabled }}
+---
+# The signer's listener certificate. Common name "signer"; the DNS names are the Service's.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "ofb.fullname" . }}-signer-api-tls
+  labels:
+    {{- include "ofb.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mpc-signer
+spec:
+  secretName: {{ include "ofb.fullname" . }}-signer-api-tls
+  commonName: signer
+  dnsNames:
+    - {{ include "ofb.fullname" . }}-mpc-signer
+    - {{ include "ofb.fullname" . }}-mpc-signer.{{ .Release.Namespace }}.svc
+    - {{ include "ofb.fullname" . }}-mpc-signer.{{ .Release.Namespace }}.svc.cluster.local
+  duration: {{ .Values.signerApiTls.certManager.duration }}
+  renewBefore: {{ .Values.signerApiTls.certManager.renewBefore }}
+  usages: [digital signature, key encipherment, server auth]
+  privateKey: { algorithm: ECDSA, size: 256, rotationPolicy: Always }
+  issuerRef:
+    {{- toYaml .Values.signerApiTls.certManager.issuerRef | nindent 4 }}
+---
+# The gateway's client certificate. Common name "gateway": the only name the signer's API accepts.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "ofb.fullname" . }}-gateway-client-tls
+  labels:
+    {{- include "ofb.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api-gateway
+spec:
+  secretName: {{ include "ofb.fullname" . }}-gateway-client-tls
+  commonName: gateway
+  duration: {{ .Values.signerApiTls.certManager.duration }}
+  renewBefore: {{ .Values.signerApiTls.certManager.renewBefore }}
+  usages: [digital signature, key encipherment, client auth]
+  privateKey: { algorithm: ECDSA, size: 256, rotationPolicy: Always }
+  issuerRef:
+    {{- toYaml .Values.signerApiTls.certManager.issuerRef | nindent 4 }}
 {{- end }}

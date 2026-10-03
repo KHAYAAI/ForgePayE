@@ -8,6 +8,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { sealPayload, checkPayloadSeal, stripSeal } from '../common/proposal-seal';
+import { signaturesRequired, payloadDigest, voteMessage, enrollMessage, isPublicKeyHex, verifySignature } from '../common/signer-sig';
 import { installSignerAuth } from '../common/signer-auth';
 import { HttpService } from '@nestjs/axios';
 import { lastValueFrom } from 'rxjs';
@@ -22,7 +23,7 @@ import { requiredApprovals } from './quorum';
 import { KeysService } from './keys.service';
 import { EthereumService } from '../blockchain/ethereum.service';
 
-export type ProposalKind = 'add_signer' | 'remove_signer' | 'set_threshold' | 'rotate_key' | 'approve_transaction';
+export type ProposalKind = 'add_signer' | 'remove_signer' | 'set_threshold' | 'rotate_key' | 'approve_transaction' | 'set_signer_key';
 
 interface ProposalRow {
   id: string;
@@ -40,6 +41,7 @@ interface SignerRow {
   email: string;
   status: string;
   active_from: Date;
+  public_key?: string | null;
 }
 
 const DEFAULT_GAS_PRICE_WEI = '20000000000';
@@ -89,7 +91,7 @@ export class CustodyService {
 
   private async eligibleSigner(customerId: string, email: string): Promise<SignerRow> {
     const { rows } = await this.pool.query<SignerRow>(
-      `SELECT id, email, status, active_from FROM custody.signers
+      `SELECT id, email, status, active_from, public_key FROM custody.signers
         WHERE customer_id = $1 AND lower(email) = lower($2)`,
       [customerId, email],
     );
@@ -108,11 +110,28 @@ export class CustodyService {
   // ── Signers ────────────────────────────────────────────────────────────
 
   /**
+   * A signer's public key is accepted only with proof that its holder wants it bound to this email in this
+   * workspace (a signature over that statement), so nobody can enrol a key they do not hold, or someone else's key
+   * under their own name. When signatures are required, a signer must have one.
+   */
+  private checkEnrollment(customerId: string, email: string, publicKey?: string, pop?: string) {
+    if (publicKey === undefined && pop === undefined) {
+      if (signaturesRequired()) throw new BadRequestException('a signer must enrol a public key (publicKey and pop): votes are cryptographically signed');
+      return;
+    }
+    if (!isPublicKeyHex(publicKey)) throw new BadRequestException('publicKey must be 64 hex characters (an Ed25519 public key)');
+    if (!pop || !verifySignature(publicKey, enrollMessage(customerId, email, publicKey), pop)) {
+      throw new BadRequestException('pop is not a valid signature, by that key, of the enrolment statement for this email and workspace');
+    }
+  }
+
+  /**
    * The first signer can't be voted in — there is nobody to vote. Allowed only
    * while the roster is empty, and the bootstrap signer is active immediately.
    */
-  async bootstrapSigner(customerId: string, email: string, name?: string) {
+  async bootstrapSigner(customerId: string, email: string, name?: string, publicKey?: string, pop?: string) {
     await this.customers.getByCustomerId(customerId);
+    this.checkEnrollment(customerId, email, publicKey, pop);
     await this.ensureSettings(customerId);
     const { rows: existing } = await this.pool.query(
       `SELECT 1 FROM custody.signers WHERE customer_id = $1 AND status = 'active' LIMIT 1`,
@@ -122,12 +141,13 @@ export class CustodyService {
       throw new ConflictException('this workspace already has signers; new signers must be proposed and approved');
     }
     const { rows } = await this.pool.query(
-      `INSERT INTO custody.signers (customer_id, email, name)
-       VALUES ($1, $2, $3)
+      `INSERT INTO custody.signers (customer_id, email, name, public_key)
+       VALUES ($1, $2, $3, $4)
        ON CONFLICT (customer_id, email) DO UPDATE
-         SET status = 'active', active_from = NOW(), removed_at = NULL, name = EXCLUDED.name
-       RETURNING id, email, name, status, added_at, active_from`,
-      [customerId, email, name ?? null],
+         SET status = 'active', active_from = NOW(), removed_at = NULL, name = EXCLUDED.name,
+             public_key = COALESCE(EXCLUDED.public_key, custody.signers.public_key)
+       RETURNING id, email, name, status, added_at, active_from, public_key`,
+      [customerId, email, name ?? null, publicKey?.toLowerCase() ?? null],
     );
     // Start creating the workspace's key now so the first transfer isn't the
     // one that waits for it. Best effort: it is created on demand otherwise.
@@ -154,7 +174,7 @@ export class CustodyService {
     }
     await this.ensureSettings(customerId);
     await this.eligibleSigner(customerId, actor);
-    this.validateGovernancePayload(kind, payload);
+    this.validateGovernancePayload(customerId, kind, payload);
     if (kind === 'rotate_key') {
       // Fail now, before anyone votes, if the committee can't be used.
       if (!(await this.keys.activeKey(customerId))) throw new BadRequestException('this workspace has no signing key to rotate yet');
@@ -174,15 +194,21 @@ export class CustodyService {
       message: `${kind} ${JSON.stringify(payload)}; needs ${required} approval(s)`,
       status: 'open',
     });
-    // Proposing is itself an approval from the proposer.
+    // Proposing is itself an approval from the proposer, unless votes must be signed: the proposer's signature
+    // covers the proposal id, which did not exist until now, so they vote as a second step like everyone else.
+    if (signaturesRequired()) return this.proposalView(customerId, rows[0].id);
     return this.vote(customerId, rows[0].id, actor, true);
   }
 
-  private validateGovernancePayload(kind: ProposalKind, payload: Record<string, any>) {
-    if (kind === 'add_signer' || kind === 'remove_signer') {
+  private validateGovernancePayload(customerId: string, kind: ProposalKind, payload: Record<string, any>) {
+    if (kind === 'add_signer' || kind === 'remove_signer' || kind === 'set_signer_key') {
       if (typeof payload.email !== 'string' || !payload.email.includes('@')) {
         throw new BadRequestException('payload.email must be an email address');
       }
+    }
+    if (kind === 'add_signer' || kind === 'set_signer_key') {
+      if (kind === 'set_signer_key' && payload.publicKey === undefined) throw new BadRequestException('payload.publicKey and payload.pop are required');
+      this.checkEnrollment(customerId, payload.email, payload.publicKey, payload.pop);
     }
     if (kind === 'rotate_key' && (!Array.isArray(payload.nodes) || payload.signers_needed === undefined)) {
       throw new BadRequestException('payload needs nodes (a list of node ids) and signers_needed');
@@ -194,16 +220,34 @@ export class CustodyService {
     }
   }
 
-  async vote(customerId: string, proposalId: string, actor: string, approve: boolean) {
+  /** The digest a signer signs (with the proposal id and the decision) for this proposal. */
+  private digestOf(proposal: { customer_id: string; kind: string; request_id: string | null; payload: Record<string, any> }): string {
+    return payloadDigest(proposal.customer_id, proposal.kind, proposal.request_id, proposal.payload);
+  }
+
+  async vote(customerId: string, proposalId: string, actor: string, approve: boolean, signature?: string) {
     const signer = await this.eligibleSigner(customerId, actor);
     const proposal = await this.getProposal(customerId, proposalId);
     if (proposal.status !== 'open') {
       throw new ConflictException(`proposal is already ${proposal.status}`);
     }
+    // The payload is checked before anyone's approval is recorded against it.
+    const sealError = checkPayloadSeal(customerId, proposal.kind, proposal.request_id, proposal.payload);
+    if (sealError) throw new ConflictException(sealError);
+    const digest = this.digestOf(proposal);
+    const required = signaturesRequired();
+    if (required || signature) {
+      if (!signer.public_key) {
+        throw new ForbiddenException(`${actor} has no signing key enrolled: propose set_signer_key (with a proof of possession) first`);
+      }
+      if (!signature || !verifySignature(signer.public_key, voteMessage(customerId, proposalId, proposal.kind, digest, approve), signature)) {
+        throw new ForbiddenException('the signature is missing or does not verify against this signer\'s enrolled key for this proposal and decision');
+      }
+    }
     try {
       await this.pool.query(
-        `INSERT INTO custody.votes (proposal_id, signer_id, approve) VALUES ($1, $2, $3)`,
-        [proposalId, signer.id, approve],
+        `INSERT INTO custody.votes (proposal_id, signer_id, approve, signature, signed_digest) VALUES ($1, $2, $3, $4, $5)`,
+        [proposalId, signer.id, approve, signature ?? null, signature ? digest : null],
       );
     } catch (err: any) {
       if (err?.code === '23505') throw new ConflictException(`${actor} has already voted on this proposal`);
@@ -289,7 +333,9 @@ export class CustodyService {
       );
       const proposal = rows[0];
       if (proposal.status === 'open') {
-        const tally = await this.tally(client, customerId, proposalId);
+        const tally = signaturesRequired()
+          ? await this.tallySigned(client, customerId, proposal)
+          : await this.tally(client, customerId, proposalId);
         if (tally.approvals >= proposal.required) {
           decided = { proposal, outcome: 'approve' };
         } else if (tally.eligible - tally.rejections < proposal.required) {
@@ -316,6 +362,32 @@ export class CustodyService {
       await this.onRejected(decided.proposal);
     }
     return this.proposalView(customerId, proposalId);
+  }
+
+  /**
+   * The quorum count when votes must be signed: only votes whose signature verifies, now, against the signer's
+   * enrolled key for this proposal's current payload count, for or against. A row written straight into the
+   * database without a valid signature, or a vote on a payload that was changed afterwards, counts for nothing.
+   */
+  private async tallySigned(client: PoolClient, customerId: string, proposal: ProposalRow) {
+    const digest = this.digestOf(proposal);
+    const { rows } = await client.query<{ approve: boolean; signature: string | null; public_key: string | null }>(
+      `SELECT v.approve, v.signature, s.public_key FROM custody.votes v
+         JOIN custody.signers s ON s.id = v.signer_id
+        WHERE v.proposal_id = $1 AND s.status = 'active'`,
+      [proposal.id],
+    );
+    let approvals = 0, rejections = 0;
+    for (const v of rows) {
+      if (!v.signature || !v.public_key) continue;
+      if (!verifySignature(v.public_key, voteMessage(customerId, proposal.id, proposal.kind, digest, v.approve), v.signature)) continue;
+      if (v.approve) approvals++; else rejections++;
+    }
+    const { rows: el } = await client.query<{ eligible: string }>(
+      `SELECT COUNT(*) AS eligible FROM custody.signers WHERE customer_id = $1 AND status = 'active' AND active_from <= NOW()`,
+      [customerId],
+    );
+    return { approvals, rejections, eligible: Number(el[0].eligible) };
   }
 
   private async tally(client: PoolClient, customerId: string, proposalId: string) {
@@ -351,14 +423,24 @@ export class CustodyService {
           );
           const hours = rows[0]?.cooling_off_hours ?? 24;
           await this.pool.query(
-            `INSERT INTO custody.signers (customer_id, email, name, active_from)
-             VALUES ($1, $2, $3, NOW() + make_interval(hours => $4))
+            `INSERT INTO custody.signers (customer_id, email, name, active_from, public_key)
+             VALUES ($1, $2, $3, NOW() + make_interval(hours => $4), $5)
              ON CONFLICT (customer_id, email) DO UPDATE
                SET status = 'active', removed_at = NULL, name = EXCLUDED.name,
-                   active_from = NOW() + make_interval(hours => $4)`,
-            [customerId, proposal.payload.email, proposal.payload.name ?? null, hours],
+                   active_from = NOW() + make_interval(hours => $4),
+                   public_key = COALESCE(EXCLUDED.public_key, custody.signers.public_key)`,
+            [customerId, proposal.payload.email, proposal.payload.name ?? null, hours, proposal.payload.publicKey?.toLowerCase() ?? null],
           );
           result = { activeAfterHours: hours };
+          break;
+        }
+        case 'set_signer_key': {
+          const r = await this.pool.query(
+            `UPDATE custody.signers SET public_key = $3 WHERE customer_id = $1 AND lower(email) = lower($2) AND status = 'active'`,
+            [customerId, proposal.payload.email, String(proposal.payload.publicKey).toLowerCase()],
+          );
+          if (r.rowCount === 0) throw new Error('no active signer with that email');
+          result = { email: proposal.payload.email };
           break;
         }
         case 'remove_signer': {
@@ -458,7 +540,7 @@ export class CustodyService {
     const { rows } = await this.pool.query(
       `SELECT p.id, p.kind, p.payload, p.status, p.required, p.request_id, p.created_by,
               p.created_at, p.decided_at, p.result,
-              COALESCE(json_agg(json_build_object('email', s.email, 'approve', v.approve, 'voted_at', v.voted_at))
+              COALESCE(json_agg(json_build_object('email', s.email, 'approve', v.approve, 'voted_at', v.voted_at, 'signed', v.signature IS NOT NULL))
                 FILTER (WHERE v.signer_id IS NOT NULL), '[]') AS votes
          FROM custody.proposals p
          LEFT JOIN custody.votes v ON v.proposal_id = p.id
@@ -467,7 +549,17 @@ export class CustodyService {
         GROUP BY p.id`,
       [proposalId, customerId],
     );
-    return rows[0];
+    const view = rows[0];
+    if (!view) return view;
+    // What a signer must sign. Signers should recompute this digest from the payload themselves rather than trust it.
+    return {
+      ...view,
+      signing: {
+        required: signaturesRequired(),
+        digest: this.digestOf({ customer_id: customerId, kind: view.kind, request_id: view.request_id, payload: view.payload }),
+        domain: 'forge-custody-vote-v1',
+      },
+    };
   }
 
   // ── Transfers initiated from the console ───────────────────────────────

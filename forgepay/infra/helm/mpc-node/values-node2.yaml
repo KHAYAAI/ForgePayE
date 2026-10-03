@@ -3,6 +3,7 @@
 node:
   id: node2
   domain: aws-account-b
+  infraId: gcp-project-b # account/project/rack: must differ between trust domains
   url: https://node2.mpc.account-b.example:8101
   env: production
 

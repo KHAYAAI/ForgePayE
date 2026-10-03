@@ -61,6 +61,15 @@ jobs:
     defaults:
       run:
         working-directory: forgepay/services/stablecoin-gateway
+    services:
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
 
@@ -77,6 +86,7 @@ jobs:
         env:
           POSTGRES_PASSWORD: ci-dummy-not-a-real-password
           INTERNAL_WEBHOOK_SECRET: ci-dummy-webhook-secret-not-real-0000
+          REDIS_TEST_URL: redis://localhost:6379 # the shared rate-limit test runs against a real Redis
 
   # ── Stablecoin gateway: migrations stand alone ───────────────────────────────
   # The app runs its migrations at boot (src/index.ts → runMigrations). This proves they build the schema from nothing
@@ -155,6 +165,18 @@ jobs:
     defaults:
       run:
         working-directory: forgepay/services/openfireblocks/services/api-gateway
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: forgepay
+          POSTGRES_PASSWORD: forgepay
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
 
@@ -166,7 +188,10 @@ jobs:
 
       - run: npm ci
       - run: npm run build
+      # Includes the signed-approval tests against a real Postgres (they create and drop their own database).
       - run: npx jest
+        env:
+          CUSTODY_TEST_PG: postgresql://forgepay:forgepay@localhost:5432/postgres
 
   # ── Console (Next.js): typecheck + the auth/guard tests ─────────────────────
   console:
@@ -175,6 +200,15 @@ jobs:
     defaults:
       run:
         working-directory: forgepay/apps/platform
+    services:
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
 
@@ -187,6 +221,8 @@ jobs:
       - run: npm ci
       - run: npx tsc --noEmit
       - run: npm test
+        env:
+          REDIS_TEST_URL: redis://localhost:6379 # the shared login-throttle test runs against a real Redis
 
   # ── OpenFireblocks MPC signer + node (Go) ────────────────────────────────────
   # `-short` skips the tests that run real distributed key generation (minutes of CPU); those run in the nightly

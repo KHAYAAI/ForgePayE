@@ -107,3 +107,12 @@ func TestSignerMutualTLSAcceptsOnlyTheGatewayCertificate(t *testing.T) {
 		t.Fatal("a client with no certificate got through the handshake")
 	}
 }
+
+func TestProductionRefusesASignerAPIWithoutMutualTLS(t *testing.T) {
+	if checkSignerTLS(nil, true) == nil {
+		t.Fatal("production accepted a signer API with no mutual TLS")
+	}
+	if checkSignerTLS(nil, false) != nil || checkSignerTLS(&mpc.TLSFiles{}, true) != nil {
+		t.Fatal("development, or production with TLS configured, was refused")
+	}
+}

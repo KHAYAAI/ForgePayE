@@ -57,6 +57,15 @@ func checkAuthToken(token string, production bool) error {
 
 const signerClientCertName = "gateway"
 
+// checkSignerTLS enforces mutual TLS on the signer's API in production: the bearer token alone is not
+// accepted there, because it would travel in cleartext and anyone on the network path could replay it.
+func checkSignerTLS(t *mpc.TLSFiles, production bool) error {
+	if production && t == nil {
+		return errors.New("MPC_ENV=production requires mutual TLS on the signer API: set MPC_SIGNER_TLS_CA_FILE, MPC_SIGNER_TLS_CERT_FILE and MPC_SIGNER_TLS_KEY_FILE")
+	}
+	return nil
+}
+
 func signerTLSFromEnv(getenv func(string) string) (*mpc.TLSFiles, error) {
 	t := &mpc.TLSFiles{CAFile: getenv("MPC_SIGNER_TLS_CA_FILE"), CertFile: getenv("MPC_SIGNER_TLS_CERT_FILE"), KeyFile: getenv("MPC_SIGNER_TLS_KEY_FILE")}
 	if t.CAFile == "" && t.CertFile == "" && t.KeyFile == "" {

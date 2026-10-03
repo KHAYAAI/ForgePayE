@@ -51,13 +51,15 @@ Same caveat: fixed and tested by their author, not independently verified.
 | Sweep recovery destination editable in the database | Fixed | Recovery rows carry an HMAC over id, deposit, asset, source and destination, keyed from the gateway wallet key (not in the database); a mismatch fails the row | unit test. Rows planned before this change have no seal and fail closed |
 | Per-user API keys in plaintext | Fixed | Stored as `sha256:<hex>`; shown once; legacy plaintext keys upgraded on first use and by a schema statement | vitest |
 | Sweep crash recovery trusted any mined transaction | **New finding, fixed** | Found by the new reconciliation run against real data: a `sending` sweep was closed as done on any successful receipt. It now requires a transfer of its own units to its own destination | real-chain e2e: a foreign transaction no longer closes a sweep |
-| Throttling per process | Not fixed | | |
-| Per-signer cryptographic approval | Not fixed | | |
+| Throttling per process | Fixed (needs Redis) | Console login/MFA limiter and the gateway's rate limit use a shared Redis when `REDIS_URL` is set; they fall back to per-process counters (with a log line) if Redis is absent or down. The gateway's limiter fails open when Redis is down | Tests against a real Redis with several simulated replicas (counted exactly under concurrency), and the fallback |
+| Per-signer cryptographic approval | Built (CLI; no WebAuthn) | Each signer holds an Ed25519 key; a vote counts only with their signature over the exact proposal, checked on arrival and again when the quorum is counted; enrolment needs proof of possession; key replacement needs a quorum; on by default in production | unit tests; integration test on a real Postgres with the real schema (forged rows, wrong keys, cross-decision signatures, edited payloads all fail) |
+| Signer mTLS optional / not in the chart | Fixed | Production refuses to start the signer, the gateway or the temporal-worker without it; the chart wires cert-manager or existing Secrets for both certificates; probes switched to TCP | Go tests (real CA), jest, `helm lint` and a render check of all four deployments. **Never run on a cluster** |
+| Nodes on separate hosts | Tooling built, deployment not done | Nodes report where they run; `mpc-node topology` / `GET /mpc/topology` fail on a shared host, seal key or infrastructure, a domain mismatch, a quorum in one domain, file/env seal keys; the node chart requires `node.infraId` in production and injects the Kubernetes node name | unit tests, and a test that three real nodes in one process are reported as sharing a host. **No real multi-host deployment exists; a node can misreport itself** |
+| Restore drill with real officers | Tooling built, ceremony not done | Passphrase-protected shares, per-officer share check, a drill that writes a sealed audit record, a written ceremony | tests of the whole flow with protected shares. **No real officer has done it** |
 
 ## Not fixed (and not claimed fixed)
 
-- Per-signer proof of identity (WebAuthn / per-signer keys); throttling shared across replicas; F-08 (accepted).
-- Signer mutual TLS is optional and not in the chart.
+- A browser/hardware-token (WebAuthn) signing flow; F-08 (accepted).
 - Console data is platform-wide, not partitioned per tenant (fine for one operator; not for multi-tenant).
 - Items in `04` section 3 (documentation that contradicts the code), the logged RPC URL, Swagger without auth.
 - Base images for the bureau, gateway and console were moved from Node 18/20 to 22 (both older lines are past end of life); **the images themselves have not been built** (no Docker daemon was available), so this is untested beyond the code building under Node 22 locally.

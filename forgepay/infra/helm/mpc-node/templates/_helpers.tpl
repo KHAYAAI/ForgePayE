@@ -88,6 +88,16 @@ vault.hashicorp.com/role: {{ required "seal.vault.agent.role is required with se
 {{- define "mpc-node.sealEnv" -}}
 - name: MPC_ENV
   value: {{ .Values.node.env | quote }}
+# Where this node runs, reported to the coordinator's topology check (identity facts, no secrets). The Kubernetes node
+# name tells nodes on one machine apart; infraId names the account/project/cluster and must differ between trust domains.
+- name: MPC_NODE_HOST_ID
+  valueFrom:
+    fieldRef:
+      fieldPath: spec.nodeName
+{{- if .Values.node.infraId }}
+- name: MPC_NODE_INFRA_ID
+  value: {{ .Values.node.infraId | quote }}
+{{- end }}
 - name: MPC_SEAL_PROVIDER
   value: {{ .Values.seal.provider | quote }}
 {{- if eq .Values.seal.provider "vault" }}
@@ -262,6 +272,7 @@ vault.hashicorp.com/role: {{ required "seal.vault.agent.role is required with se
 {{- if not .Values.node.url }}{{ fail "node.url is required for init: the https URL the other nodes and the coordinator reach this node at" }}{{ end }}
 {{- end }}
 {{- if eq .Values.node.env "production" }}
+{{- if not .Values.node.infraId }}{{ fail "node.infraId is required in production: the account/project/cluster this node runs in, so the coordinator's topology check can prove separation from the other nodes" }}{{ end }}
 {{- if not (has .Values.seal.provider (list "vault" "awskms")) }}{{ fail "node.env=production requires seal.provider vault or awskms (file/env keep the seal key next to the data)" }}{{ end }}
 {{- end }}
 {{- if eq .Values.seal.provider "vault" }}

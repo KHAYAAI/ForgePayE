@@ -39,11 +39,30 @@ spec:
                   name: {{ .Values.custodySecretsRef }}
                   key: signer-auth-token
             - name: MPC_SIGNER_URL
-              value: http://{{ include "ofb.fullname" . }}-mpc-signer:{{ .Values.mpcSigner.port }}
+              value: {{ if include "ofb.signerTls.enabled" . }}https{{ else }}http{{ end }}://{{ include "ofb.fullname" . }}-mpc-signer:{{ .Values.mpcSigner.port }}
+            {{- if include "ofb.signerTls.enabled" . }}
+            - name: MPC_SIGNER_CLIENT_CERT_FILE
+              value: /etc/signer-client/tls.crt
+            - name: MPC_SIGNER_CLIENT_KEY_FILE
+              value: /etc/signer-client/tls.key
+            - name: MPC_SIGNER_CA_FILE
+              value: /etc/signer-client/ca.crt
+            {{- end }}
             - name: ETHEREUM_RPC_SEPOLIA
               value: {{ .Values.external.ethereumRpcSepolia | quote }}
             - name: REQUIRED_CONFIRMATIONS
               value: {{ .Values.external.requiredConfirmations | quote }}
           resources:
             {{- toYaml .Values.temporalWorker.resources | nindent 12 }}
+          {{- if include "ofb.signerTls.enabled" . }}
+          volumeMounts:
+            - name: signer-client-tls
+              mountPath: /etc/signer-client
+              readOnly: true
+      volumes:
+        - name: signer-client-tls
+          secret:
+            secretName: {{ include "ofb.signerTls.clientSecret" . }}
+            defaultMode: 288 # 0440
+          {{- end }}
 {{- end }}

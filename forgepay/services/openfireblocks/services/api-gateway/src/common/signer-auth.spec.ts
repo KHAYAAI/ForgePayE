@@ -1,4 +1,4 @@
-import { installSignerAuth } from './signer-auth';
+import { installSignerAuth, signerHttpsAgent } from './signer-auth';
 import axios from 'axios';
 
 describe('signer auth interceptor', () => {
@@ -14,5 +14,11 @@ describe('signer auth interceptor', () => {
   it('never sends it anywhere else', async () => {
     expect(await run('http://other:8080/sign')).toBeUndefined();
     expect(await run('http://signer:8080.evil.example/sign')).toBeUndefined();
+  });
+
+  it('production refuses to talk to the signer without mutual TLS or over plain http', () => {
+    expect(() => signerHttpsAgent({ NODE_ENV: 'production', MPC_SIGNER_URL: 'https://signer:8080' } as NodeJS.ProcessEnv)).toThrow(/mutual TLS/);
+    expect(() => signerHttpsAgent({ NODE_ENV: 'production', MPC_SIGNER_URL: 'http://signer:8080', MPC_SIGNER_CLIENT_CERT_FILE: 'a', MPC_SIGNER_CLIENT_KEY_FILE: 'b', MPC_SIGNER_CA_FILE: 'c' } as NodeJS.ProcessEnv)).toThrow(/https/);
+    expect(signerHttpsAgent({ NODE_ENV: 'development' } as NodeJS.ProcessEnv)).toBeUndefined();
   });
 });

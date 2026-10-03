@@ -67,6 +67,22 @@ apiGateway:
 # actions in production without the other two.
 custodySecretsRef: openfireblocks-custody-secrets
 
+# Mutual TLS on the signer's API (gateway -> signer). ENFORCED: the signer refuses to start in production without it, and
+# the gateway and temporal-worker refuse to talk to it without it. Two certificates from the SAME private CA, which must not
+# be a CA that also issues the signing nodes' certificates to anyone else:
+#   server  common name "signer"   -> the signer's listener            (secret keys tls.crt / tls.key / ca.crt)
+#   client  common name "gateway"  -> api-gateway and temporal-worker  (secret keys tls.crt / tls.key / ca.crt)
+# The signer accepts only a client certificate named "gateway"; a signing node's certificate is valid TLS but is refused.
+signerApiTls:
+  insecure: false # true only for local development; the chart then renders a plain-HTTP signer and the signer will not start with MPC_ENV=production
+  serverSecret: "" # existing Secret for the signer's listener (ignored when certManager.enabled)
+  clientSecret: "" # existing Secret for the gateway's client certificate (ignored when certManager.enabled)
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer, group: cert-manager.io }
+    duration: 2160h
+    renewBefore: 360h
+
 mpcSigner:
   enabled: true
   image: mpc-signer

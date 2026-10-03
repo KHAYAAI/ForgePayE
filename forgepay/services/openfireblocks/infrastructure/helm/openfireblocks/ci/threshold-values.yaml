@@ -26,3 +26,7 @@ networkPolicy:
     - ipBlock: { cidr: 198.51.100.11/32 }
     - ipBlock: { cidr: 198.51.100.12/32 }
 custodySecretsRef: openfireblocks-custody-secrets
+signerApiTls:
+  certManager:
+    enabled: true
+    issuerRef: { name: forge-mpc-ca, kind: ClusterIssuer, group: cert-manager.io }

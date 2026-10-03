@@ -54,6 +54,12 @@ func main() {
 		err = cmdBackupKeygen(args)
 	case "backup-inspect", "backup-drill":
 		err = cmdBackupInspect(args)
+	case "topology":
+		err = cmdTopology(args)
+	case "backup-share-protect":
+		err = cmdBackupShareProtect(args)
+	case "backup-share-check":
+		err = cmdBackupShareCheck(args)
 	case "backup-restore":
 		err = cmdBackupRestore(args)
 	case "pki-init":
@@ -69,7 +75,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: mpc-node <init|coordinator-key|cluster|serve|verify-audit|seal-migrate|seal-rewrap|preflight|seal-check|backup-keygen|backup-inspect|backup-restore|pki-init|pki-issue> [flags]")
+	fmt.Fprintln(os.Stderr, "usage: mpc-node <init|coordinator-key|cluster|serve|verify-audit|seal-migrate|seal-rewrap|preflight|seal-check|topology|backup-keygen|backup-inspect|backup-share-protect|backup-share-check|backup-restore|pki-init|pki-issue> [flags]")
 	os.Exit(2)
 }
 

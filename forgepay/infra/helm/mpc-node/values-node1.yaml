@@ -9,6 +9,7 @@
 node:
   id: node1
   domain: aws-account-a # trust-domain label: must be unique per node and TRUE
+  infraId: aws-account-a-222222222222 # account/project/rack: must differ between trust domains
   url: https://node1.mpc.account-a.example:8101
   env: production
 

@@ -170,3 +170,36 @@ func TestPlanRecovery(t *testing.T) {
 		t.Fatalf("%+v", out)
 	}
 }
+
+func TestProtectedSharesNeedTheirPassphrase(t *testing.T) {
+	shares, _ := SplitSecret(bytes.Repeat([]byte{3}, 32), 2, 3)
+	text := shares[0].Encode()
+	prot, err := ProtectShare(text, "correct horse battery")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(prot, "fpshare1") || strings.Contains(prot, shares[0].FP) {
+		t.Fatal("the protected form reveals the share or its fingerprint")
+	}
+	if !IsProtectedShare(prot) || IsProtectedShare(text) {
+		t.Fatal("IsProtectedShare is wrong")
+	}
+	back, err := UnprotectShare(prot, "correct horse battery")
+	if err != nil || back != text {
+		t.Fatalf("round trip failed: %v", err)
+	}
+	if _, err := UnprotectShare(prot, "correct horse batterY"); err == nil {
+		t.Fatal("a wrong passphrase was accepted")
+	}
+	damaged := prot[:len(prot)-3] + "AAA"
+	if _, err := UnprotectShare(damaged, "correct horse battery"); err == nil {
+		t.Fatal("a damaged share was accepted")
+	}
+	if _, err := ProtectShare(text, "short"); err == nil {
+		t.Fatal("a short passphrase was accepted")
+	}
+	other, _ := ProtectShare(text, "correct horse battery")
+	if other == prot {
+		t.Fatal("two protections of the same share are identical (no fresh salt)")
+	}
+}

@@ -24,6 +24,7 @@
  *   x402_payments        — one row per x402 micropayment
  */
 
+import { Redis } from 'ioredis';
 import { pathToFileURL } from 'node:url';
 import Fastify from 'fastify';
 import helmet from '@fastify/helmet';
@@ -78,7 +79,14 @@ export async function buildApp() {
   const app = Fastify({ logger: true, trustProxy: trustedProxyHops() });
   await app.register(helmet, { contentSecurityPolicy: false });
 
+  // Shared across replicas when REDIS_URL is set (one counter for all of them); per-process otherwise.
+  const rateLimitRedis = process.env['REDIS_URL']
+    ? new Redis(process.env['REDIS_URL'], { maxRetriesPerRequest: 2, enableOfflineQueue: false, connectTimeout: 2000 })
+    : undefined;
+  rateLimitRedis?.on('error', (e) => console.error('[stablecoin-gateway] Redis (rate limit):', e.message));
+  app.addHook('onClose', async () => { rateLimitRedis?.disconnect(); });
   await app.register(rateLimit, {
+    ...(rateLimitRedis ? { redis: rateLimitRedis, skipOnError: true } : {}),
     // Per client address. The bureau calls this service from one address, so size it for that caller.
     max: Math.max(1, Number(process.env['RATE_LIMIT_PER_MIN'] ?? '300')),
     timeWindow: '1 minute',
