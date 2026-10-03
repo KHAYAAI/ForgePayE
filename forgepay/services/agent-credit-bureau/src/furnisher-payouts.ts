@@ -43,6 +43,7 @@
 import { randomUUID } from 'crypto';
 import type { AttributionEntry, DataContributor, PaymentAsset } from './types';
 import { PAYMENT_ASSETS } from './types';
+import { isAssetEnabled, heldMessage } from './asset-hold';
 import {
   listAttributions, recordAttribution, getContributor, contributors,
 } from './store';
@@ -267,6 +268,11 @@ export async function settleFurnisherPeriod(period: string, now: Date = new Date
 
     const contributor = getContributor(line.contributorId);
     const asset = payoutAssetFor(contributor);
+    if (!isAssetEnabled(asset)) {
+      failed++;
+      lines.push({ ...line, error: `${heldMessage(asset)}; this furnisher's share stays owed and unsettled until the asset is enabled or they choose another` });
+      continue;
+    }
     try {
       const res = await fetch(`${root}/payouts`, {
         method: 'POST',

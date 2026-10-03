@@ -77,6 +77,7 @@ import {
 } from './store';
 import type { PlanId } from './types';
 import { PAYMENT_ASSETS } from './types';
+import { isAssetEnabled, heldMessage } from './asset-hold';
 import {
   buildLenderReport, renderLenderReportMarkdown,
   REASON_CODE_CATALOG, LENDER_REPORT_SCHEMA_VERSION,
@@ -1273,7 +1274,7 @@ async function buildApp() {
       });
       if (!res.ok) return reply.status(502).send({ error: 'GatewayError', message: `stablecoin-gateway /assets returned ${res.status}` });
       const body = await res.json() as { assets: Array<{ symbol: string; chain: string; unit: string; decimals: number | null; status: string; quotable: boolean; problem?: string }>; rates: unknown };
-      const offered = body.assets.filter((a) => (PAYMENT_ASSETS as readonly string[]).includes(a.symbol));
+      const offered = body.assets.filter((a) => (PAYMENT_ASSETS as readonly string[]).includes(a.symbol) && isAssetEnabled(a.symbol));
       return reply.send({
         data: {
           default: defaultAsset(),
@@ -1866,6 +1867,9 @@ async function buildApp() {
       return reply.status(404).send({ error: 'NotFound', message: 'Contributor not found' });
     }
 
+    if (parse.data.payoutAsset && !isAssetEnabled(parse.data.payoutAsset)) {
+      return reply.status(400).send({ error: 'AssetOnHold', message: heldMessage(parse.data.payoutAsset) });
+    }
     const previous = contributor.payoutAddress;
     const previousAsset = contributor.payoutAsset;
     contributor.payoutAddress = parse.data.payoutAddress;

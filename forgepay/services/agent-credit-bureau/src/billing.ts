@@ -31,6 +31,7 @@
 import { randomUUID } from 'crypto';
 import type { BillingAccount, BillingTransaction, TopUpReceipt, Subscription, PlanId, PaymentAsset } from './types';
 import { PAYMENT_ASSETS } from './types';
+import { isAssetEnabled, heldMessage } from './asset-hold';
 import { INQUIRY_FEE_USD } from './grade';
 import { entitlementForNextPull, periodHasLapsed, DEFAULT_PLAN_ID } from './plans';
 import {
@@ -305,7 +306,7 @@ interface X402VerifyResponse {
  */
 export function defaultAsset(): PaymentAsset {
   const v = (process.env['BUREAU_DEFAULT_ASSET'] ?? 'USDC').toUpperCase();
-  return (PAYMENT_ASSETS as readonly string[]).includes(v) ? (v as PaymentAsset) : 'USDC';
+  return (PAYMENT_ASSETS as readonly string[]).includes(v) && isAssetEnabled(v) ? (v as PaymentAsset) : 'USDC';
 }
 
 /** Chain top-ups are paid on. */
@@ -366,6 +367,9 @@ export async function requestTopUp(
   }
   if (!(amountUsd > 0)) {
     return { ok: false, reason: 'amount_invalid', message: 'amountUsd must be positive.' };
+  }
+  if (!isAssetEnabled(asset)) {
+    return { ok: false, reason: 'asset_unavailable', message: heldMessage(asset) };
   }
 
   try {

@@ -11,7 +11,7 @@ whoever owns the risk.
 | Wallet cap | `PAYOUT_SIGNER_DAILY_MAX_USD=500` rolling 24h | A bug that submits many "correct" payouts |
 | Float | `TREASURY_WARM_MAX_USD=1000`, replenish target 300, daily replenish cap 500 | What a hot-wallet key compromise can lose; the rest goes to cold storage |
 | Sweep | min $5, gas ceiling 5 gwei | Spending more on gas than a sweep is worth |
-| Assets | `ASSETS_ENABLED=USDC` first | Exposure to an unverified token |
+| Assets | **USDC only; ZARP and OUSD are on hold.** Two independent locks: the gateway's `ASSETS_ENABLED=USDC` and the bureau's `BUREAU_ENABLED_ASSETS` (in production it defaults to USDC only; ZARP/OUSD must be enabled by name) | Exposure to unverified tokens. A held asset is refused for top-ups and as a furnisher payout choice; a furnisher already set to one is not paid in USDC instead: the share stays owed |
 | Rand rate | operator-set, 24h max age, feed OFF | A bad feed pricing ZARP wrongly |
 | Replicas | 1 | No concurrency surprises while the leader-lock image is new |
 | Rate limit | `TRUST_PROXY_HOPS` set to the real proxy count | Evasion of the limit |
@@ -29,3 +29,7 @@ whoever owns the risk.
 
 The unfixed items in `docs/security-review/10-remediation-status.md`, the unreviewed code, the unverified tokens and the
 unanswered legal questions. The controls limit the damage; they do not remove the need for the review and counsel.
+
+## Releasing the hold on ZARP and OUSD later
+
+Only after, for each asset separately: the issuer has confirmed the contract and its behaviour; the first-contact dust tests in `03-infrastructure-and-dust-test.md` pass; the rand rate procedure is agreed (ZARP). Then add it to the gateway's `ASSETS_ENABLED` **and** the bureau's `BUREAU_ENABLED_ASSETS`, one at a time. Furnishers owed in a held asset are paid once it is enabled, or earlier if they choose another asset.
