@@ -22,6 +22,7 @@ import {
 import { getWalletSummary } from '@/lib/openprivy';
 import { getCustodyConsole } from '@/lib/openfireblocks';
 import { getCurrentUser } from '@/lib/auth';
+import { getEnabledProducts } from '@/lib/products';
 
 export const dynamic = 'force-dynamic';
 
@@ -81,21 +82,25 @@ export async function GET(
     case 'ontology': {
       const g = await guardRoute();
       if ('response' in g) return g.response;
-      return NextResponse.json(await getOntologyEvents());
+      return NextResponse.json(await getOntologyEvents(g.user.tenantId));
     }
     case 'overview': {
-      // Cross-platform aggregate for the unified dashboard.
+      // Cross-platform aggregate for the unified dashboard. Each panel goes
+      // through the same product gate as its own section, so the overview is
+      // not a back door to a product this workspace has not been given.
       const overviewUser = await getCurrentUser();
+      const off = (error: string) => Promise.resolve({ live: false, data: null, error });
+      if (!overviewUser) {
+        return NextResponse.json({ live: false, data: null, error: 'unauthenticated' }, { status: 401 });
+      }
+      const tenantId = overviewUser.tenantId;
+      const enabled = new Set(await getEnabledProducts(tenantId));
       const [custody, wallet, treasury, bureau, ontology] = await Promise.all([
-        overviewUser
-          ? getCustodyConsole(overviewUser.tenantId)
-          : Promise.resolve({ live: false, data: null, error: 'unauthenticated' }),
-        overviewUser
-          ? getWalletSummary(overviewUser.tenantId)
-          : Promise.resolve({ live: false, data: null, error: 'unauthenticated' }),
-        overviewUser ? getTreasurySummary<Record<string, unknown>>() : Promise.resolve({ live: false, data: null, error: 'unauthenticated' }),
-        overviewUser ? getBureauStats<Record<string, unknown>>(overviewUser.tenantId) : Promise.resolve({ live: false, data: null, error: 'unauthenticated' }),
-        overviewUser ? getOntologyEvents<Record<string, unknown>>() : Promise.resolve({ live: false, data: null, error: 'unauthenticated' }),
+        enabled.has('custody') ? getCustodyConsole(tenantId) : off('product not enabled'),
+        enabled.has('wallet') ? getWalletSummary(tenantId) : off('product not enabled'),
+        enabled.has('treasury') ? getTreasurySummary<Record<string, unknown>>() : off('product not enabled'),
+        enabled.has('credit-bureau') ? getBureauStats<Record<string, unknown>>(tenantId) : off('product not enabled'),
+        getOntologyEvents<Record<string, unknown>>(tenantId),
       ]);
       const anyLive = [custody, wallet, treasury, bureau, ontology].some((r) => r.live);
       return NextResponse.json({

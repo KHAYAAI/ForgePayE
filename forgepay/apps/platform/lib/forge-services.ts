@@ -9,7 +9,7 @@
  * unreachable/errored and the page should fall back to demo fixtures.
  */
 
-import { bureauScopeQuery, canSeeBureauAgent, withQuery } from './bureau-scope';
+import { bureauScopeQuery, canSeeBureauAgent, isBureauOperator, withQuery } from './bureau-scope';
 
 const TIMEOUT_MS = 4000;
 
@@ -461,10 +461,17 @@ export async function getServiceHealth(): Promise<ServiceHealth[]> {
   );
 }
 
-export function getOntologyEvents<T>(limit = 25): Promise<LiveResult<T>> {
+export function getOntologyEvents<T>(tenantId: string, limit = 25): Promise<LiveResult<T>> {
   // The events feed is merchant-scoped and Bearer-authenticated; the console
   // reads it with the internal secret when configured. Without it this
   // resolves live:false and the overview falls back to demo events.
+  //
+  // CONSOLE_MERCHANT_ID defaults to 'all' — every merchant's events — so the
+  // feed is shown to FORGE's operator workspace only. Customer workspaces get
+  // an empty state until events carry the workspace they belong to.
+  if (!isBureauOperator(tenantId)) {
+    return Promise.resolve({ live: false, data: null, error: 'not available for this workspace yet' });
+  }
   const token = process.env.INTERNAL_WEBHOOK_SECRET;
   const merchantId = process.env.CONSOLE_MERCHANT_ID ?? 'all';
   if (!token) return Promise.resolve({ live: false, data: null, error: 'no internal token' });
