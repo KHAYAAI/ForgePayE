@@ -46,7 +46,7 @@ describe('assessAgent', () => {
   });
 
   it('approves tier prime ($100k @ 60d @ 6%) for high reputation + extensive history', async () => {
-    mockFetch({ reputationScore: 85, transactionCount: 250 });
+    mockFetch({ reputationScore: 850, transactionCount: 250 });
     const out = await assessAgent('agent_prime');
     expect(out.approved).toBe(true);
     expect(out.recommendedLimitUsd).toBe(100_000);
@@ -56,7 +56,7 @@ describe('assessAgent', () => {
   });
 
   it('approves tier standard ($25k @ 30d @ 9%) for good reputation + medium history', async () => {
-    mockFetch({ reputationScore: 65, transactionCount: 75 });
+    mockFetch({ reputationScore: 650, transactionCount: 75 });
     const out = await assessAgent('agent_std');
     expect(out.approved).toBe(true);
     expect(out.recommendedLimitUsd).toBe(25_000);
@@ -66,7 +66,7 @@ describe('assessAgent', () => {
   });
 
   it('approves tier starter ($5k @ 30d @ 12%) for minimal qualifications', async () => {
-    mockFetch({ reputationScore: 45, transactionCount: 15 });
+    mockFetch({ reputationScore: 450, transactionCount: 15 });
     const out = await assessAgent('agent_start');
     expect(out.approved).toBe(true);
     expect(out.recommendedLimitUsd).toBe(5_000);
@@ -75,23 +75,29 @@ describe('assessAgent', () => {
   });
 
   it('declines with insufficient_reputation when score below 40', async () => {
-    mockFetch({ reputationScore: 30, transactionCount: 200 });
+    mockFetch({ reputationScore: 300, transactionCount: 200 });
     const out = await assessAgent('agent_low');
     expect(out.approved).toBe(false);
     expect(out.reasons).toContain('insufficient_reputation');
   });
 
   it('declines with insufficient_history when txns too low', async () => {
-    mockFetch({ reputationScore: 90, transactionCount: 5 });
+    mockFetch({ reputationScore: 900, transactionCount: 5 });
     const out = await assessAgent('agent_new');
     expect(out.approved).toBe(false);
     expect(out.reasons).toContain('insufficient_history');
   });
 
   it('accepts alternate field names (score / txCount)', async () => {
-    mockFetch({ score: 85, txCount: 200 });
+    mockFetch({ score: 850, txCount: 200 });
     const out = await assessAgent('agent_alt');
     expect(out.approved).toBe(true);
     expect(out.recommendedLimitUsd).toBe(100_000);
+  });
+
+  it('a brand-new agent (agent-identity default 500 = 50/100) is not "prime", however many transactions it reports', async () => {
+    mockFetch({ reputationScore: 500, transactionCount: 1000 });
+    const a = await assessAgent('agent-new-' + Date.now());
+    expect(a.recommendedLimitUsd).toBeLessThan(100_000);
   });
 });

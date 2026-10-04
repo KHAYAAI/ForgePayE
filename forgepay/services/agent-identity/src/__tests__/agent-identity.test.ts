@@ -642,14 +642,38 @@ describe('Per-resource ownership', () => {
     expect(res.statusCode).toBe(403);
   });
 
-  it('the owning merchant can post a reputation event for its own agent', async () => {
-    const res = await ownershipApp.inject({
-      method:  'POST',
-      url:     `/v1/agents/${agentAId}/reputation`,
-      headers: AUTH_A,
-      payload: { eventType: 'transaction_success', description: 'Legitimate event' },
+  // Reputation must be earned, not self-declared: an owner may report problems with its own agent, never praise it.
+  it('the owning merchant can report a failure of its own agent, but cannot praise it', async () => {
+    const bad = await ownershipApp.inject({
+      method: 'POST', url: `/v1/agents/${agentAId}/reputation`, headers: AUTH_A,
+      payload: { eventType: 'transaction_failure', description: 'Honest self-report' },
     });
-    expect(res.statusCode).toBe(201);
+    expect(bad.statusCode).toBe(201);
+    for (const eventType of ['transaction_success', 'vouched_by_trusted', 'dispute_resolved']) {
+      const res = await ownershipApp.inject({
+        method: 'POST', url: `/v1/agents/${agentAId}/reputation`, headers: AUTH_A,
+        payload: { eventType, description: 'self-praise' },
+      });
+      expect(res.statusCode, eventType).toBe(403);
+    }
+  });
+
+  it('a counterparty can report a transaction outcome once, naming the transaction', async () => {
+    const noTx = await ownershipApp.inject({
+      method: 'POST', url: `/v1/agents/${agentAId}/reputation`, headers: AUTH_B,
+      payload: { eventType: 'transaction_success', description: 'paid on time' },
+    });
+    expect(noTx.statusCode).toBe(403);
+    const first = await ownershipApp.inject({
+      method: 'POST', url: `/v1/agents/${agentAId}/reputation`, headers: AUTH_B,
+      payload: { eventType: 'transaction_success', description: 'paid on time', transactionId: 'tx-123' },
+    });
+    expect(first.statusCode).toBe(201);
+    const again = await ownershipApp.inject({
+      method: 'POST', url: `/v1/agents/${agentAId}/reputation`, headers: AUTH_B,
+      payload: { eventType: 'transaction_success', description: 'paid on time', transactionId: 'tx-123' },
+    });
+    expect(again.statusCode).toBe(403); // the same transaction cannot be counted twice
   });
 
   it('a different merchant cannot read another merchant\'s reputation history', async () => {

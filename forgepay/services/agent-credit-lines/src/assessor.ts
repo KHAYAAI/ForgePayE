@@ -6,6 +6,8 @@
  * credit limit, term length, and interest rate. The matrix favors agents
  * with both high reputation AND sustained on-chain activity.
  *
+ * Reputation is agent-identity's 0-1000 score scaled to 0-100.
+ *
  * Tiers:
  *   reputation ≥ 80 + > 100 txns → $100k @ 60d @ 6.0% APR
  *   reputation ≥ 60 + >  50 txns → $25k  @ 30d @ 9.0% APR
@@ -69,9 +71,12 @@ async function fetchReputation(agentId: string): Promise<{ reputation: number; t
   );
   if (!resp.ok) throw new Error(`agent-identity returned ${resp.status}`);
   const body = ((await resp.json()) as { data?: ReputationResponse }).data ?? {} as ReputationResponse;
-  const reputation = typeof body.reputationScore === 'number'
+  // agent-identity scores 0-1000 (default 500); the tiers below are on 0-100. Reading the raw value made every new agent
+  // (500) look "prime" as soon as it had the transaction count.
+  const rawScore = typeof body.reputationScore === 'number'
     ? body.reputationScore
     : (typeof body.score === 'number' ? body.score : 0);
+  const reputation = Math.max(0, Math.min(100, Math.round(rawScore / 10)));
   const txCount = typeof body.totalTransactions === 'number'
     ? body.totalTransactions
     : (typeof body.transactionCount === 'number'

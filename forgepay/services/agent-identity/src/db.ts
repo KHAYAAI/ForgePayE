@@ -85,6 +85,7 @@ export async function runMigrations(): Promise<void> {
       );
 
       CREATE INDEX IF NOT EXISTS idx_rep_agent_id ON agent_reputation_events(agent_id);
+      ALTER TABLE agent_reputation_events ADD COLUMN IF NOT EXISTS reported_by TEXT;
 
       -- Attestations from issuers (agents or merchants) to subject agents
       CREATE TABLE IF NOT EXISTS agent_attestations (

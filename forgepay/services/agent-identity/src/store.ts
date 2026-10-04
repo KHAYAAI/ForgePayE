@@ -325,8 +325,8 @@ export async function pushReputationEvent(event: ReputationEvent): Promise<void>
     .query(
       `
     INSERT INTO agent_reputation_events
-      (id, agent_id, event_type, score_delta, description, related_agent_id, transaction_id, created_at)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+      (id, agent_id, event_type, score_delta, description, related_agent_id, transaction_id, created_at, reported_by)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
   `,
       [
         event.id,
@@ -337,6 +337,7 @@ export async function pushReputationEvent(event: ReputationEvent): Promise<void>
         event.relatedAgentId ?? null,
         event.transactionId ?? null,
         event.createdAt,
+        event.reportedBy ?? null,
       ]
     )
     .catch((err) => {

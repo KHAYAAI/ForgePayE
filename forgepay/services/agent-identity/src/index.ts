@@ -21,13 +21,14 @@
  *   POST /v1/verify-signature                — verify Ed25519 signature
  */
 
+import { reputationEventRefusal } from './reputation-policy';
+import { verifyEd25519 } from './lib/ed25519';
 import Fastify, { type FastifyError } from 'fastify';
 import helmet from '@fastify/helmet';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import { v4 as uuidv4 } from 'uuid';
 import { mintAgentDid } from './did';
-import { createVerify } from 'crypto';
 import apiKeyAuth, { agentAccessError } from './plugins/api-key-auth';
 
 import {
@@ -295,9 +296,6 @@ async function buildApp() {
         .status(404)
         .send({ error: 'NotFound', message: `Agent ${req.params.id} not found` });
     }
-    const accessError = agentAccessError(req.auth, agent);
-    if (accessError) return reply.status(403).send(accessError);
-
     const body = req.body as Record<string, unknown>;
 
     if (
@@ -316,6 +314,16 @@ async function buildApp() {
       });
     }
 
+    // Who may say what (see reputation-policy.ts). Counterparties may now report; owners may no longer praise themselves.
+    const relatedAgent = typeof body['relatedAgentId'] === 'string' ? await getAgent(body['relatedAgentId'] as string) : undefined;
+    const refusal = reputationEventRefusal(
+      req.auth ? { kind: req.auth.kind === 'admin' ? 'admin' : 'merchant', principalId: req.auth.principalId } : undefined,
+      agent, body['eventType'] as ReputationEvent['eventType'],
+      { transactionId: body['transactionId'] as string | undefined, relatedAgent },
+      await getReputationEventsByAgentId(agent.id),
+    );
+    if (refusal) return reply.status(403).send({ error: 'Forbidden', message: refusal });
+
     const result = await recordReputationEvent(
       req.params.id,
       body['eventType'] as ReputationEvent['eventType'],
@@ -323,6 +331,7 @@ async function buildApp() {
       {
         relatedAgentId: body['relatedAgentId'] as string | undefined,
         transactionId: body['transactionId'] as string | undefined,
+        reportedBy: req.auth?.kind === 'admin' ? 'platform' : req.auth?.principalId,
       }
     );
 
@@ -463,12 +472,9 @@ async function buildApp() {
     }
 
     try {
-      const verify = createVerify('ed25519');
-      verify.update(body['message'] as string);
-      const isValid = verify.verify(
-        { key: Buffer.from(agent.publicKey, 'hex'), format: 'der', type: 'spki' },
-        Buffer.from(body['signature'] as string, 'hex')
-      );
+      // Ed25519 has no separate digest step, so Node's createVerify('ed25519') throws ("Invalid digest") on every call: the
+      // endpoint answered `valid: false` for every signature, genuine or not. crypto.verify(null, ...) is the Ed25519 API.
+      const isValid = verifyEd25519(agent.publicKey, body['message'] as string, body['signature'] as string);
       return reply.send({ valid: isValid, agentId: agent.id, did: agent.did });
     } catch (err) {
       app.log.warn(

@@ -33,6 +33,8 @@ export interface ReputationEvent {
   description: string;
   relatedAgentId?: string;       // counterparty agent
   transactionId?: string;
+  /** Who reported it: 'platform' for FORGE's own services, else the reporting merchant's id. */
+  reportedBy?: string;
   createdAt: string;
 }
 

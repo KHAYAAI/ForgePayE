@@ -32,6 +32,7 @@ function computeTrustLevel(score: number): TrustLevel {
 export interface RecordEventOptions {
   relatedAgentId?: string;
   transactionId?: string;
+  reportedBy?: string;
 }
 
 export async function recordReputationEvent(
@@ -82,6 +83,7 @@ export async function recordReputationEvent(
     description,
     relatedAgentId: options.relatedAgentId,
     transactionId: options.transactionId,
+    reportedBy: options.reportedBy,
     createdAt: new Date().toISOString(),
   };
 

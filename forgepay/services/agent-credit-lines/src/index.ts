@@ -235,6 +235,18 @@ async function buildApp() {
       return reply.status(400).send({ error: 'ValidationError', details: parse.error.flatten() });
     }
     const { agentId, limitUsd, termsDays, interestRateBps } = parse.data;
+    // A line used to be issued at whatever limit and rate the caller sent, with no assessment. Now it must be assessed, and
+    // may not exceed the assessed limit or undercut the assessed rate.
+    const assessment = await assessAgent(agentId);
+    if (!assessment.approved) {
+      return reply.status(422).send({ error: 'NotApproved', message: 'the assessment did not approve a credit line', reasons: assessment.reasons });
+    }
+    if (limitUsd > assessment.recommendedLimitUsd) {
+      return reply.status(422).send({ error: 'LimitTooHigh', message: `the assessed limit is ${assessment.recommendedLimitUsd} USD`, assessment });
+    }
+    if (interestRateBps < assessment.recommendedInterestRateBps) {
+      return reply.status(422).send({ error: 'RateTooLow', message: `the assessed rate is ${assessment.recommendedInterestRateBps} bps`, assessment });
+    }
     const line: CreditLine = {
       id:              nextLineId(),
       agentId,
