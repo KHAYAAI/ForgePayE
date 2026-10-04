@@ -524,7 +524,7 @@ function scoreTierFromScore(score: number) {
 // No-DB path: seed the in-memory maps at module load exactly as before.
 // When a database IS configured, seeding is handled by initPersistence()
 // (seed-if-empty, else hydrate) so we don't clobber persisted state.
-if (!isDbEnabled()) seed();
+if (!isDbEnabled() && demoSeedAllowed()) seed();
 
 /**
  * Bring the store online against Postgres when a database is configured.
@@ -534,6 +534,11 @@ if (!isDbEnabled()) seed();
  *   • on a fresh/empty database, seeds demo data and writes it through
  * When no database is configured this is a no-op (module load already seeded).
  */
+/** Demo data is for development only. In production it is never seeded, whatever else is set. */
+export function demoSeedAllowed(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env['NODE_ENV'] !== 'production';
+}
+
 export async function initPersistence(): Promise<void> {
   assertPersistenceConfigured();
   if (!isDbEnabled()) return;
@@ -547,7 +552,11 @@ export async function initPersistence(): Promise<void> {
     loadAllCreditBalances(),
   ]);
 
-  if (ps.length === 0) {
+  if (ps.length === 0 && !demoSeedAllowed()) {
+    // Production never seeds: the demo agents would appear in real lenders' results, and the demo contributors are
+    // ACTIVE furnishers whose API keys are published in .env.example, so anyone could submit credit history under them.
+    console.log('[credit-bureau] fresh production database: starting empty (no demo agents or demo furnishers)');
+  } else if (ps.length === 0) {
     // Fresh database — seed in memory, then persist the seed. Billing starts
     // empty on a fresh database — there is nothing to seed there, accounts
     // are created lazily on first credit/debit.
