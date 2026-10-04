@@ -191,15 +191,44 @@ export const listAttributionsForContributor = (contributorId: string) =>
 export const getCreditBalance = (contributorId: string) => creditBalances.get(contributorId);
 export const setCreditBalance = (b: CreditBalance) => { creditBalances.set(b.contributorId, b); if (isDbEnabled()) persist('credit balance', () => upsertCreditBalance(b)); return b; };
 
-export function listDisputes(filter?: { status?: string; agentId?: string }) {
+export function listDisputes(filter?: { status?: string; agentId?: string; managedBy?: string }) {
   let all = Array.from(disputes.values());
   if (filter?.status)  all = all.filter(d => d.status === filter.status);
   if (filter?.agentId) all = all.filter(d => d.agentId === filter.agentId);
+  if (filter?.managedBy) all = all.filter(d => profiles.get(d.agentId)?.managedBy === filter.managedBy);
   return all.sort((a, b) => b.filedAt.localeCompare(a.filedAt));
 }
 
-export function listProfiles(limit = 50, offset = 0) {
-  return Array.from(profiles.values()).slice(offset, offset + limit);
+export function listProfiles(limit = 50, offset = 0, managedBy?: string) {
+  const all = Array.from(profiles.values()).filter(p => !managedBy || p.managedBy === managedBy);
+  return { data: all.slice(offset, offset + limit), total: all.length };
+}
+
+/**
+ * Stats for one console workspace: only the agents it registered, and none of
+ * the platform's own revenue, prepaid balances or contributor counts.
+ */
+export function workspaceStats(managedBy: string) {
+  const all = Array.from(profiles.values()).filter(p => p.managedBy === managedBy);
+  const ids = new Set(all.map(p => p.agentId));
+  const totalDebt = all.reduce((s, p) => s + p.totalDebt, 0);
+  const totalLimit = all.reduce((s, p) => s + p.totalCreditLimit, 0);
+  const allInquiries = all.flatMap(p => p.hardInquiries);
+  const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
+  return {
+    totalAgents: all.length,
+    avgScore: all.length ? Math.round(all.reduce((s, p) => s + p.currentScore, 0) / all.length) : 0,
+    totalDebt,
+    totalCreditLimit: totalLimit,
+    utilizationRate: totalLimit ? +(totalDebt / totalLimit).toFixed(4) : 0,
+    delinquentAgents: all.filter(p => p.delinquencies.some(d => d.status === 'open')).length,
+    gradeDistribution: gradeDistribution(all.map(p => p.currentScore)),
+    inquiries24h: allInquiries.filter(i => new Date(i.timestamp).getTime() > dayAgo).length,
+    inquiriesTotal: allInquiries.length,
+    inquiryFeeUsd: INQUIRY_FEE_USD,
+    openDisputes: Array.from(disputes.values())
+      .filter(d => ids.has(d.agentId) && (d.status === 'open' || d.status === 'investigating')).length,
+  };
 }
 
 export function bureauStats() {

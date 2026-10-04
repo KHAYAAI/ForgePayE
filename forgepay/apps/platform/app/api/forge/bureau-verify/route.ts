@@ -8,7 +8,7 @@
 
 import { guardRoute } from '@/lib/route-guard';
 import { NextResponse } from 'next/server';
-import { postBureauVerify } from '@/lib/forge-services';
+import { bureauAgentVisibleTo, postBureauVerify } from '@/lib/forge-services';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,6 +18,10 @@ export async function POST(req: Request) {
   const body = (await req.json().catch(() => null)) as { agentId?: string } | null;
   if (!body?.agentId) {
     return NextResponse.json({ live: false, data: null, error: 'missing agentId' }, { status: 400 });
+  }
+  // Only agents this workspace registered (see lib/bureau-scope.ts).
+  if (!(await bureauAgentVisibleTo(g.user.tenantId, body.agentId))) {
+    return NextResponse.json({ live: false, data: null, error: 'not found' }, { status: 404 });
   }
   return NextResponse.json(await postBureauVerify(body.agentId));
 }

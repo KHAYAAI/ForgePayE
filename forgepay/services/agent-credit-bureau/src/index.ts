@@ -70,7 +70,7 @@ import { isRedisEnabled, getRedisClient } from './redis';
 import {
   getProfile, setProfile, getDispute, setDispute,
   getReport, setReport, getContributor, setContributor, listDisputes,
-  listProfiles, bureauStats, profiles, contributors, initPersistence, deriveScoreFields,
+  listProfiles, bureauStats, workspaceStats, profiles, contributors, initPersistence, deriveScoreFields,
   getLenderReport, setLenderReport, listLenderReports,
   getSubscription, listAttributionsForContributor,
   persistenceFailures, totalPersistenceFailures,
@@ -187,6 +187,9 @@ const CreateProfileSchema = z.object({
     message: 'Must be a 20-byte hex EVM address (0x + 40 hex characters)',
   }).optional(),
   operatorEntityId:    z.string().min(1),
+  // Console workspace that owns this registration. Honoured only from the
+  // admin key (the console); a contributor cannot tag agents into a workspace.
+  managedBy:           z.string().min(1).max(200).optional(),
   operatorEntityType:  z.enum(['individual', 'llc', 'corp', 'dao']),
   // Optional: an EIN/VAT/TRN isn't itself matchable against a sanctions list,
   // which screens by name. Without this, sanctionsScreen() can only run its
@@ -456,6 +459,7 @@ async function buildApp() {
       did:                 parse.data.did,
       evmAddress,
       operatorEntityId:    parse.data.operatorEntityId,
+      ...(req.auth?.kind === 'admin' && parse.data.managedBy ? { managedBy: parse.data.managedBy } : {}),
       operatorEntityType:  parse.data.operatorEntityType,
       operatorLegalName:   parse.data.operatorLegalName,
       operatorCountry:     parse.data.operatorCountry,
@@ -1758,10 +1762,10 @@ async function buildApp() {
   });
 
   // GET /v1/disputes — list all disputes (for compliance officers)
-  app.get<{ Querystring: { status?: string; limit?: string } }>('/v1/disputes', async (req, reply) => {
-    const q = req.query as { status?: string; limit?: string };
+  app.get<{ Querystring: { status?: string; limit?: string; managedBy?: string } }>('/v1/disputes', async (req, reply) => {
+    const q = req.query as { status?: string; limit?: string; managedBy?: string };
     const limit  = Math.min(parseInt(q.limit ?? '50', 10), 500);
-    const data   = listDisputes(q.status ? { status: q.status } : undefined).slice(0, limit).map(persistEscalationIfDue);
+    const data   = listDisputes({ status: q.status, managedBy: q.managedBy }).slice(0, limit).map(persistEscalationIfDue);
     return reply.send({ data, total: data.length });
   });
 
@@ -2045,17 +2049,20 @@ async function buildApp() {
   // ═══════════════════════════════════════════════════════════════════════════
 
   // GET /v1/bureau/stats
-  app.get('/v1/bureau/stats', async (_req, reply) => {
-    return reply.send({ data: bureauStats() });
+  // `?managedBy=` scopes the figures to one console workspace and drops the
+  // platform-wide revenue and billing totals, which are FORGE's, not theirs.
+  app.get<{ Querystring: { managedBy?: string } }>('/v1/bureau/stats', async (req, reply) => {
+    const managedBy = (req.query as { managedBy?: string }).managedBy;
+    return reply.send({ data: managedBy ? workspaceStats(managedBy) : bureauStats() });
   });
 
-  // GET /v1/agents — list all profiles
-  app.get<{ Querystring: { limit?: string; offset?: string } }>('/v1/agents', async (req, reply) => {
-    const q      = req.query as { limit?: string; offset?: string };
+  // GET /v1/agents — list profiles; `?managedBy=` limits to one workspace
+  app.get<{ Querystring: { limit?: string; offset?: string; managedBy?: string } }>('/v1/agents', async (req, reply) => {
+    const q      = req.query as { limit?: string; offset?: string; managedBy?: string };
     const limit  = Math.min(parseInt(q.limit ?? '50', 10), 200);
     const offset = parseInt(q.offset ?? '0', 10);
-    const data   = listProfiles(limit, offset);
-    return reply.send({ data, total: profiles.size });
+    const { data, total } = listProfiles(limit, offset, q.managedBy);
+    return reply.send({ data, total });
   });
 
   // ═══════════════════════════════════════════════════════════════════════════

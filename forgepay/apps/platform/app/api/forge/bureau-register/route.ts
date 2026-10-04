@@ -22,7 +22,7 @@ export async function POST(req: Request) {
       { status: 400 },
     );
   }
-  const result = await registerBureauAgent(body as RegisterAgentInput);
+  const result = await registerBureauAgent(g.user.tenantId, body as RegisterAgentInput);
   if (result.ok === false) {
     return NextResponse.json({ error: 'RegistrationFailed', detail: result.error }, { status: result.status || 502 });
   }

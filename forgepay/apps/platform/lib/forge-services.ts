@@ -9,6 +9,8 @@
  * unreachable/errored and the page should fall back to demo fixtures.
  */
 
+import { bureauScopeQuery, canSeeBureauAgent, withQuery } from './bureau-scope';
+
 const TIMEOUT_MS = 4000;
 
 export interface LiveResult<T> {
@@ -83,11 +85,13 @@ export async function getTreasurySummary<T = Record<string, unknown>>(): Promise
   };
 }
 
-export async function getBureauStats<T = Record<string, unknown>>(): Promise<LiveResult<T>> {
-  // Bureau endpoints wrap payloads in {data}. Compose stats + agent register.
+export async function getBureauStats<T = Record<string, unknown>>(tenantId: string): Promise<LiveResult<T>> {
+  // Bureau endpoints wrap payloads in {data}. Compose stats + agent register,
+  // both scoped to this workspace (see lib/bureau-scope.ts).
+  const scope = bureauScopeQuery(tenantId);
   const [stats, agents] = await Promise.all([
-    fetchJson<{ data: Record<string, unknown> }>(`${SERVICE_URLS.bureau}/v1/bureau/stats`, bureauAuthHeaders()),
-    fetchJson<{ data: unknown[] }>(`${SERVICE_URLS.bureau}/v1/agents?limit=20`, bureauAuthHeaders()),
+    fetchJson<{ data: Record<string, unknown> }>(withQuery(`${SERVICE_URLS.bureau}/v1/bureau/stats`, scope), bureauAuthHeaders()),
+    fetchJson<{ data: unknown[] }>(withQuery(`${SERVICE_URLS.bureau}/v1/agents?limit=20`, scope), bureauAuthHeaders()),
   ]);
   if (!stats.live) return { live: false, data: null, error: stats.error };
   return {
@@ -101,13 +105,22 @@ interface BureauAgentRow {
   did: string;
   operatorEntityId: string;
   currentScore: number;
+  managedBy?: string;
 }
 
-async function listBureauAgents(limit = 50): Promise<BureauAgentRow[]> {
+async function listBureauAgents(tenantId: string, limit = 50): Promise<BureauAgentRow[]> {
   const agents = await fetchJson<{ data: BureauAgentRow[] }>(
-    `${SERVICE_URLS.bureau}/v1/agents?limit=${limit}`, bureauAuthHeaders(),
+    withQuery(`${SERVICE_URLS.bureau}/v1/agents?limit=${limit}`, bureauScopeQuery(tenantId)), bureauAuthHeaders(),
   );
   return agents.live ? (agents.data?.data ?? []) : [];
+}
+
+/** True when this workspace may see (and pay to verify) this agent's file. */
+export async function bureauAgentVisibleTo(tenantId: string, agentId: string): Promise<boolean> {
+  const res = await fetchJson<{ data: { managedBy?: string } }>(
+    `${SERVICE_URLS.bureau}/v1/agents/${encodeURIComponent(agentId)}/profile`, bureauAuthHeaders(),
+  );
+  return res.live && canSeeBureauAgent(tenantId, res.data?.data);
 }
 
 interface RawCreditEvent {
@@ -118,7 +131,8 @@ interface RawCreditEvent {
 }
 
 /** Score factors + credit history for one agent's file — Agents page drill-in. */
-export async function getBureauAgentDetail<T = Record<string, unknown>>(agentId: string): Promise<LiveResult<T>> {
+export async function getBureauAgentDetail<T = Record<string, unknown>>(tenantId: string, agentId: string): Promise<LiveResult<T>> {
+  if (!(await bureauAgentVisibleTo(tenantId, agentId))) return { live: false, data: null, error: 'not found' };
   const [score, history] = await Promise.all([
     fetchJson<{ data: Record<string, unknown> }>(`${SERVICE_URLS.bureau}/v1/agents/${encodeURIComponent(agentId)}/score`, bureauAuthHeaders()),
     fetchJson<{ data: RawCreditEvent[] }>(`${SERVICE_URLS.bureau}/v1/agents/${encodeURIComponent(agentId)}/history?limit=20`, bureauAuthHeaders()),
@@ -145,8 +159,8 @@ interface RawDualScore {
 }
 
 /** Dual-mode (Mode 1 / Mode 2) score for every registered agent — Scores page register. */
-export async function getBureauDualScores<T = Record<string, unknown>>(): Promise<LiveResult<T>> {
-  const agents = await listBureauAgents();
+export async function getBureauDualScores<T = Record<string, unknown>>(tenantId: string): Promise<LiveResult<T>> {
+  const agents = await listBureauAgents(tenantId);
   if (agents.length === 0) return { live: false, data: null, error: 'bureau unreachable or no agents' };
 
   const scores = await Promise.all(
@@ -212,10 +226,10 @@ function disputeClock(filedAt: string, status: RawDispute['status']): string {
 }
 
 /** The FCRA-style dispute queue, joined with each disputed agent's DID. */
-export async function getBureauDisputes<T = Record<string, unknown>>(): Promise<LiveResult<T>> {
+export async function getBureauDisputes<T = Record<string, unknown>>(tenantId: string): Promise<LiveResult<T>> {
   const [disputes, agents] = await Promise.all([
-    fetchJson<{ data: RawDispute[] }>(`${SERVICE_URLS.bureau}/v1/disputes?limit=100`, bureauAuthHeaders()),
-    listBureauAgents(),
+    fetchJson<{ data: RawDispute[] }>(withQuery(`${SERVICE_URLS.bureau}/v1/disputes?limit=100`, bureauScopeQuery(tenantId)), bureauAuthHeaders()),
+    listBureauAgents(tenantId),
   ]);
   if (!disputes.live) return { live: false, data: null, error: disputes.error };
 
@@ -289,6 +303,7 @@ export interface RegisterAgentInput {
 
 /** Real agent registration — POST /v1/agents/:agentId/profile. The console's only write path onto the bureau register. */
 export async function registerBureauAgent<T = Record<string, unknown>>(
+  tenantId: string,
   input: RegisterAgentInput,
 ): Promise<{ ok: true; data: T } | { ok: false; status: number; error: unknown }> {
   const { agentId } = input;
@@ -296,7 +311,8 @@ export async function registerBureauAgent<T = Record<string, unknown>>(
     const res = await fetch(`${SERVICE_URLS.bureau}/v1/agents/${encodeURIComponent(agentId)}/profile`, {
       method: 'POST',
       headers: { ...bureauAuthHeaders(), 'content-type': 'application/json' },
-      body: JSON.stringify(input),
+      // managedBy last, so a caller-supplied value can never override it.
+      body: JSON.stringify({ ...input, managedBy: tenantId }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
     const json = await res.json().catch(() => null);

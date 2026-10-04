@@ -59,24 +59,24 @@ export async function GET(
     case 'bureau': {
       const g = await guardRoute({ product: 'credit-bureau' });
       if ('response' in g) return g.response;
-      return NextResponse.json(await getBureauStats());
+      return NextResponse.json(await getBureauStats(g.user.tenantId));
     }
     case 'bureau-agent-detail': {
       const g = await guardRoute({ product: 'credit-bureau' });
       if ('response' in g) return g.response;
       const agentId = new URL(req.url).searchParams.get('agentId');
       if (!agentId) return NextResponse.json({ live: false, data: null, error: 'missing agentId' }, { status: 400 });
-      return NextResponse.json(await getBureauAgentDetail(agentId));
+      return NextResponse.json(await getBureauAgentDetail(g.user.tenantId, agentId));
     }
     case 'bureau-scores': {
       const g = await guardRoute({ product: 'credit-bureau' });
       if ('response' in g) return g.response;
-      return NextResponse.json(await getBureauDualScores());
+      return NextResponse.json(await getBureauDualScores(g.user.tenantId));
     }
     case 'bureau-disputes': {
       const g = await guardRoute({ product: 'credit-bureau' });
       if ('response' in g) return g.response;
-      return NextResponse.json(await getBureauDisputes());
+      return NextResponse.json(await getBureauDisputes(g.user.tenantId));
     }
     case 'ontology': {
       const g = await guardRoute();
@@ -94,7 +94,7 @@ export async function GET(
           ? getWalletSummary(overviewUser.tenantId)
           : Promise.resolve({ live: false, data: null, error: 'unauthenticated' }),
         overviewUser ? getTreasurySummary<Record<string, unknown>>() : Promise.resolve({ live: false, data: null, error: 'unauthenticated' }),
-        overviewUser ? getBureauStats<Record<string, unknown>>() : Promise.resolve({ live: false, data: null, error: 'unauthenticated' }),
+        overviewUser ? getBureauStats<Record<string, unknown>>(overviewUser.tenantId) : Promise.resolve({ live: false, data: null, error: 'unauthenticated' }),
         overviewUser ? getOntologyEvents<Record<string, unknown>>() : Promise.resolve({ live: false, data: null, error: 'unauthenticated' }),
       ]);
       const anyLive = [custody, wallet, treasury, bureau, ontology].some((r) => r.live);

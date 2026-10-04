@@ -28,6 +28,12 @@ export interface AgentCreditProfile {
    */
   evmAddress?: string;
   operatorEntityId: string;         // Legal entity (EIN/VAT/TRN) bound to this agent
+  /**
+   * The console workspace (tenant) that registered this agent, when it was
+   * registered through the console. Set only by an admin caller; the console
+   * uses it to show each workspace its own agents and nobody else's.
+   */
+  managedBy?: string;
   operatorEntityType: 'individual' | 'llc' | 'corp' | 'dao';
   /**
    * The operator's legal name — a person's or a business's. Optional: an EIN
