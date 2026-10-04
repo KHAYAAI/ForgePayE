@@ -1,8 +1,8 @@
 # FORGE / ForgePay: the whole platform, who it is for, and what is ready
 
 4 October 2026. Built from a read of every service, app, contract, infrastructure file and company document in this repository, the
-test runs of 3 October, and the launch work of the last weeks. Every claim about code below was checked in the code; where a
-statement comes only from a company document, it says so. **"Real" means the code does the thing; it does not mean tested against
+test runs of 3 October, and the launch work of the last weeks. Claims about code come from reading the code (file and line references are in the survey notes; the launch-path items were
+also tested). Statements that come only from a company document say so. **"Real" means the code does the thing; it does not mean tested against
 the real world, secure, or licensed.**
 
 ---
