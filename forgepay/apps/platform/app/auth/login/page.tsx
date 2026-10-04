@@ -114,7 +114,7 @@ export default function LoginPage() {
           {[
             ['0–1000', 'Agent credit score'],
             ['$2.80', 'Per score inquiry'],
-            ['99.7%', 'Payment success'],
+            ['USDC', 'Billing on Base'],
           ].map(([v, k]) => (
             <div key={k}>
               <div style={{ fontSize: 'clamp(19px, 2vw, 26px)', fontWeight: 500, letterSpacing: -0.4 }}>{v}</div>

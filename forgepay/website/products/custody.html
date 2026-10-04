@@ -186,7 +186,7 @@
               <div class="menu-section-h">Deep dive</div>
               <a href="../features/ontology.html">Revenue Ontology<span class="mn">The unified ledger</span></a>
               <a href="../features/agents.html">Agentic Commerce<span class="mn">Six-part stack for AI</span></a>
-              <a href="../features/mor.html">Global Tax &amp; MoR<span class="mn">200+ countries automated</span></a>
+              <a href="../features/mor.html">Global Tax &amp; MoR<span class="mn">In development</span></a>
               <a href="../features/privacy.html">Privacy &amp; ZK<span class="mn">Coming soon</span></a>
             </div>
             <div class="menu-section menu-section-wide">
@@ -358,34 +358,35 @@
           <div class="eye" style="margin-bottom: 24px;"><span class="mono">Capabilities</span><span class="tick"></span><span class="mono">Custody that stays useful</span></div>
           <h2 class="big">Secured here.<br/>Still <em>working</em>.</h2>
         </div>
-        <p class="lede">Most custody forces a trade-off: assets are safe but idle, or productive but exposed. Custody keeps holdings under your control while they trade, settle and earn.</p>
+        <p class="lede">What the pilot does today, and nothing it doesn't.</p>
       </div>
       <div class="feature-grid">
         <div class="cell">
-          <h3>Off-venue settlement</h3>
-          <p>Trade on connected venues while assets stay in custody. Only the net result settles, so nothing sits on an exchange balance sheet waiting to be a counterparty risk.</p>
+          <h3>A threshold key per workspace</h3>
+          <p>Each workspace gets its own 2-of-3 threshold key. No single machine ever holds the whole key, and signing needs two independent signing nodes to agree.</p>
         </div>
         <div class="cell">
-          <h3>Collateral mobility</h3>
-          <p>Pledge custodied assets as margin without transferring them out. Positions open in minutes instead of waiting on a deposit confirmation.</p>
+          <h3>Approvals signed by each person</h3>
+          <p>Transfers above your policy need a quorum of your signers, and each approval is signed with that signer's own key. The console cannot approve on anyone's behalf.</p>
         </div>
         <div class="cell">
-          <h3>Segregated accounts</h3>
-          <p>Client assets are held in dedicated accounts, never pooled with FORGE's own balances or another client's. Segregation is enforced at the key layer, not by bookkeeping.</p>
+          <h3>Limits on every node</h3>
+          <p>Each signing node enforces its own limits (amounts, destinations, daily totals), whatever it is asked to sign.</p>
         </div>
         <div class="cell">
-          <h3>Staking in place</h3>
-          <p>Earn protocol rewards on eligible assets without surrendering custody or handing keys to a third-party validator operator.</p>
+          <h3>Segregated keys</h3>
+          <p>Every workspace has its own key and address, never pooled with FORGE's or another client's.</p>
         </div>
         <div class="cell">
-          <h3>Venue connectivity</h3>
-          <p>One custody account, many trading destinations. Add or remove venues without re-onboarding or moving assets between wallets.</p>
+          <h3>Encrypted backups and recovery</h3>
+          <p>Key shares are backed up encrypted to an offline recovery key held by named officers, with a restore drill that proves recovery works.</p>
         </div>
         <div class="cell">
-          <h3>Reporting for auditors</h3>
-          <p>Position, transfer and approval reports export straight from the ledger, already reconciled against FORGE Treasury's view of the same funds.</p>
+          <h3>Audit trail</h3>
+          <p>Every proposal, approval and signature is recorded in a tamper-evident log.</p>
         </div>
       </div>
+      <p style="margin-top:24px;">Not offered: staking, collateral pledging, off-venue settlement or exchange connectivity. EVM networks only.</p>
     </div>
   </section>
 
@@ -402,8 +403,8 @@
       <div class="box">
         <div><span class="status">Pilot · testnet</span></div>
         <div>
-          <p>Custody's policy engine, approval workflow, signing pipeline, and audit trail are fully built and have processed real signed transfers end-to-end.</p>
-          <p>We're rolling it out to design partners on pilot and testnet volumes first, while the distributed-signing ceremony completes an external security review general availability for large customer funds follows once that review clears.</p>
+          <p>Custody's policy engine, approval workflow, signing and audit trail are built and tested, and sign real transfers on testnet. They have not yet run on separately hosted infrastructure.</p>
+          <p>We're rolling it out to design partners on pilot and testnet volumes first, while an independent security review is arranged. General availability for large customer funds follows once that review clears.</p>
         </div>
       </div>
     </div>
@@ -455,7 +456,7 @@
           <a href="../index.html" class="mark" style="color:var(--paper);">
             <svg viewBox="0 0 520 100" height="22"><path d="M0 4 L60 4 L60 18 L16 18 L16 44 L52 44 L52 58 L16 58 L16 96 L0 96 Z" fill="currentColor"/><g transform="translate(72,4)"><circle cx="46" cy="46" r="42" fill="none" stroke="currentColor" stroke-width="14"/><line x1="-6" y1="46" x2="98" y2="46" stroke="#0A0A0A" stroke-width="2"/></g><path d="M180 4 L232 4 C250 4 260 16 260 32 C260 44 254 54 244 58 L262 96 L244 96 L228 62 L196 62 L196 96 L180 96 Z M196 18 L196 48 L230 48 C238 48 244 42 244 33 C244 24 238 18 230 18 Z" fill="currentColor"/><path d="M276 50 C276 22 296 2 324 2 C342 2 358 10 366 24 L353 32 C347 22 336 16 324 16 C305 16 292 30 292 50 C292 70 305 84 324 84 C340 84 352 74 354 60 L326 60 L326 46 L370 46 L370 96 L358 96 L356 84 C350 92 338 98 322 98 C295 98 276 78 276 50 Z" fill="currentColor"/><path d="M384 4 L448 4 L448 18 L400 18 L400 44 L444 44 L444 58 L400 58 L400 82 L450 82 L450 96 L384 96 Z" fill="currentColor"/></svg>
           </a>
-          <p>The Revenue Ontology. Financial and value orchestration for traditional finance, crypto, autonomous agents and tokenized real-world assets across 200+ countries.</p>
+          <p>The Revenue Ontology. Financial and value orchestration for traditional finance, crypto, autonomous agents and tokenized real-world assets.</p>
         </div>
         <div>
           <h4>Products</h4>

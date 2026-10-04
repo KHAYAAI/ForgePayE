@@ -40,10 +40,9 @@ export default function HelpPage() {
           Wallet, Enterprise Treasury, Agent Credit Bureau) show that real empty state instead of
           invented numbers. Check System Health for what's actually reachable right now.
         </Entry>
-        <Entry term="Live vs demo data">
-          The "live data" / "demo data" pill in a page header tells you whether that page is
-          reading its backend service right now. Demo fixtures only render when a service is
-          offline, and are visually marked as such.
+        <Entry term="Live data only">
+          Every page reads its backend service directly. When a service is unreachable the page
+          says so and shows nothing, rather than sample data.
         </Entry>
       </Panel>
 
@@ -94,13 +93,6 @@ export default function HelpPage() {
             A failed payment is never silent: the fallback chain retries card → ACH → USDC before a
             failure surfaces on the Transactions page, and every attempt is recorded as its own
             ontology event.
-          </Entry>
-          <Entry term="Tier-based routing">
-            Payments under $100K route directly through FORGE Wallet. $100K–$1M route through
-            FORGE Payments' fallback chain. Above $1M, a payment doesn't fail — the wallet refuses
-            with <code>409 route:forge-custody</code> and the router re-submits it to the Custody
-            signing queue automatically. Routing is policy, not code — thresholds live in
-            Treasury's money-movement rules and apply across every merchant.
           </Entry>
           <Entry term="Disputes & refunds">
             Refunds above R10,000 require a second approver (dual control) — the request routes to

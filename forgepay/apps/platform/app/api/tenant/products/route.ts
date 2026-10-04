@@ -3,6 +3,7 @@ import { getCurrentUser } from '@/lib/auth';
 import { getEnabledProducts, setEnabledProducts } from '@/lib/products';
 import { getProductCatalog } from '@/lib/forge-services';
 import { logAuditEvent, clientIp } from '@/lib/audit';
+import { productOpenTo } from '@/lib/launch-gate';
 
 /** The real catalog (with availability) plus this tenant's current selection. */
 export async function GET() {
@@ -14,9 +15,12 @@ export async function GET() {
     getEnabledProducts(user.tenantId),
   ]);
 
+  // A product that has not launched is shown as such, not as available, whatever the catalog says.
+  const shown = (catalog.data ?? []).map((p) =>
+    productOpenTo(p.key, user.tenantId) ? p : { ...p, availability: 'waitlist' as const });
   return NextResponse.json({
     live: catalog.live,
-    catalog: catalog.data ?? [],
+    catalog: shown,
     enabled,
   });
 }
@@ -38,7 +42,7 @@ export async function POST(req: NextRequest) {
   }
 
   const availableKeys = new Set(catalog.data.filter((p) => p.availability === 'available').map((p) => p.key));
-  const invalid = requested.filter((key) => !availableKeys.has(key));
+  const invalid = requested.filter((key) => !availableKeys.has(key) || !productOpenTo(key, user.tenantId));
   if (invalid.length > 0) {
     return NextResponse.json({
       error: 'NotAvailable',

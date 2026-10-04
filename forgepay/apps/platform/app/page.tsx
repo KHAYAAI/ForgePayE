@@ -38,7 +38,7 @@ export default function Home() {
             Payment & Credit <span style={{ background: 'linear-gradient(90deg, var(--cyan) 0%, #00D4FF 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Infrastructure</span>
           </h1>
           <p style={{ fontSize: 20, opacity: 0.95, marginBottom: 40 }}>
-            Process payments, manage treasury, and build credit—unified in one platform.
+            Credit for AI agents first. Payments, treasury and custody are in development.
           </p>
           <div style={{ display: 'flex', gap: 16, justifyContent: 'center', flexWrap: 'wrap' }}>
             <Link href="/auth/signup" style={{
@@ -50,7 +50,7 @@ export default function Home() {
               textDecoration: 'none',
               display: 'inline-block',
             }}>
-              Start Free Trial
+              Request early access
             </Link>
             <Link href="/products/payments" style={{
               padding: '14px 32px',
@@ -94,7 +94,7 @@ export default function Home() {
       <section style={{ background: 'linear-gradient(135deg, var(--navy) 0%, var(--dark-blue) 100%)', color: 'white', textAlign: 'center', padding: '80px 40px', borderRadius: 12, margin: '60px 40px' }}>
         <h2 style={{ color: 'white', marginBottom: 24 }}>Ready to Transform Your Payment Stack?</h2>
         <p style={{ fontSize: 18, opacity: 0.95, marginBottom: 32, maxWidth: 600, marginLeft: 'auto', marginRight: 'auto' }}>
-          Join 50+ early adopters processing millions in GMV on ForgePay.
+          The Credit Bureau is opening first, to early-access partners. Payments, treasury and custody follow later.
         </p>
         <Link href="/auth/signup" style={{
           padding: '14px 32px',
@@ -105,7 +105,7 @@ export default function Home() {
           textDecoration: 'none',
           display: 'inline-block',
         }}>
-          Start Your Free Trial
+          Request early access
         </Link>
       </section>
 

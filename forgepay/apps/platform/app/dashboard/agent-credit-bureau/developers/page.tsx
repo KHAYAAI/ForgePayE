@@ -40,7 +40,7 @@ export default function BureauDevelopers() {
       />
 
       <Grid2>
-        <Panel title="Score-Gated Tools" label="@forge/langgraph" ink>
+        <Panel title="Score-Gated Tools (planned)" label="@forge/langgraph — not yet published" ink>
           <pre className="mono" style={{ fontSize: 12.5, lineHeight: 1.7, whiteSpace: 'pre-wrap', margin: 0 }}>{SNIPPET}</pre>
           <p className="lede" style={{ fontSize: 13, marginTop: 14 }}>
             The gate pulls the score before any tool executes and records the outcome after — the
@@ -48,7 +48,7 @@ export default function BureauDevelopers() {
           </p>
         </Panel>
 
-        <Panel title="Framework Integrations" label="one metered inquiry per gate check">
+        <Panel title="Framework Integrations (planned, not yet published)" label="call the REST API directly today">
           <ol style={{ listStyle: 'none' }}>
             {[
               ['@forge/langgraph', 'Score-gated tools', 'checkNode() blocks tool execution below threshold; outcomes recorded back'],

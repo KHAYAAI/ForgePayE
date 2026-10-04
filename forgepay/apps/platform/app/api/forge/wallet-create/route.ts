@@ -7,12 +7,17 @@
 import { NextResponse } from 'next/server';
 import { createWallet } from '@/lib/openprivy';
 import { getCurrentUser } from '@/lib/auth';
+import { getEnabledProducts } from '@/lib/products';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  // It never checked: any signed-in user could create wallets whether or not Wallet was enabled (or launched).
+  if (!(await getEnabledProducts(user.tenantId)).includes('wallet')) {
+    return NextResponse.json({ error: 'Forbidden', message: 'Wallet is not enabled for this account' }, { status: 403 });
+  }
 
   const body = (await req.json().catch(() => null)) as { chain?: string } | null;
   if (!body?.chain) {

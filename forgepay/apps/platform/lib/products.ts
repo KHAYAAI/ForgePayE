@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import { getCurrentUser } from './auth';
 import { query, queryOne } from './db';
+import { productOpenTo } from './launch-gate';
 
 /** This tenant's console-native product selection — separate from unified-router's billing entitlements. See lib/schema.sql. */
 export async function getEnabledProducts(tenantId: string): Promise<string[]> {
@@ -8,7 +9,9 @@ export async function getEnabledProducts(tenantId: string): Promise<string[]> {
     `SELECT enabled_products FROM tenants WHERE id = $1`,
     [tenantId],
   );
-  return row?.enabled_products ?? [];
+  // A product that has not launched (or for which this workspace is not a design partner) is never enabled, even if
+  // it was selected before: the layout, the product guards and every product API read this list.
+  return (row?.enabled_products ?? []).filter((p) => productOpenTo(p, tenantId));
 }
 
 export async function setEnabledProducts(tenantId: string, products: string[]): Promise<string[]> {

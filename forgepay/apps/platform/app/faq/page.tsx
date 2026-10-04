@@ -23,52 +23,52 @@ export default function FAQPage() {
       <section style={{ maxWidth: 800, margin: '0 auto', padding: '0 40px 100px' }}>
         <FAQItem
           question="What's the difference between Mode 1 and Mode 2 credit scoring?"
-          answer="Mode 1 uses traditional FICO-style scoring (40% payment history, 30% volume, 20% age, 10% risk). Mode 2 analyzes on-chain operational metrics (35% success rate, 30% volume, 20% compliance, 15% age). We calculate both and alert you when they diverge significantly (>50 points)."
+          answer="Mode 1 scores an agent from the records its data furnishers report, using a published rule-based formula (not a trained model). Mode 2 is meant to score on-chain activity; it runs on testnet only today and most agents have no on-chain history yet."
         />
 
         <FAQItem
-          question="How does the payment fallback chain work?"
-          answer="When a payment via Stripe ACH fails (timeout, 5xx error, network issue), we automatically retry via Circle USDC if the customer has a wallet. If both fail, we send a manual payment request (bank wire). This maximizes success rates to 99.7%."
+          question="Can I take payments with FORGE?"
+          answer="Not yet. Payments launch only after licensing. Today the Credit Bureau is the only product opening, to early-access partners, billed in USDC."
         />
 
         <FAQItem
           question="Can I use just one product, or must I subscribe to all three?"
-          answer="You can subscribe to any combination. Forge Payments is independent. Treasury requires 10+ agents to be cost-effective. Credit Bureau can be standalone or bundled with Treasury for a discount (R45K/mo saves R3.5K)."
+          answer="Only the Credit Bureau is available today. Payments, Treasury, Custody and Wallet will each open separately when they are ready."
         />
 
         <FAQItem
           question="How are subscriptions billed?"
-          answer="All subscriptions are monthly, billed in advance via Kill Bill. We auto-prorate when you upgrade mid-month. For example, upgrading from Payments (R15K) to Treasury (R40K) mid-month will only charge you for the remaining days at the daily rate."
+          answer="The Credit Bureau is prepaid: you top up in USDC and each report draws down your balance, or you take a monthly plan. See the Credit Bureau pricing for current figures."
         />
 
         <FAQItem
           question="Is there a setup fee?"
-          answer="No. All products are free to set up. We include 14-day free trials (no credit card required) so you can test before committing."
+          answer="No setup fee. Early-access partners agree terms with us directly."
         />
 
         <FAQItem
-          question="What SLA do you guarantee?"
-          answer="99.7% uptime on payment processing, with 24-hour support ticket resolution SLA. Kill Bill sync verification runs hourly to catch any divergences. If we fail to meet SLA, we offer service credits."
+          question="Do you offer an SLA?"
+          answer="Not yet. We will agree service levels with early-access partners once we have run the service in production long enough to stand behind a number."
         />
 
         <FAQItem
           question="Can I regenerate my API key?"
-          answer="Yes. Go to Settings > API Keys and click 'Regenerate'. We'll email you the new key. The old key immediately becomes invalid."
+          answer="Yes. Go to Settings > API Keys and click 'Regenerate'. It is shown once. The old key immediately becomes invalid."
         />
 
         <FAQItem
           question="How do I monitor churn risk?"
-          answer="The Analytics dashboard tracks 4 signals daily: cancellation requests, API inactivity (7+ days), MRR decline (>20%), and settlement inactivity. We alert your CSM to high-severity signals within 2 hours."
+          answer="This is not offered yet."
         />
 
         <FAQItem
           question="Do you offer onboarding support?"
-          answer="Yes. All customers get email-based onboarding, video tutorials, and live Intercom chat. For Treasury customers (10+ agents), we include 1 CSM call. For churn risk or high-value customers, we offer manual CSM walkthrough."
+          answer="Yes. Early-access partners work with us directly during onboarding."
         />
 
         <FAQItem
           question="What about PCI compliance?"
-          answer="All card data is tokenized in Hyperswitch's PCI vault. We never store card numbers, CVV, or expiry dates. We're also ISO 27001 certified and POPIA-compliant."
+          answer="Card payments are not live. When they are, card data will be tokenised in the payment engine's vault and never stored by FORGE. We hold no PCI DSS or ISO 27001 certification today."
         />
       </section>
 

@@ -31,26 +31,29 @@ export async function GET(
 ) {
   switch (params.section) {
     case 'custody': {
-      const user = await getCurrentUser();
-      if (!user) return NextResponse.json({ live: false, data: null, error: 'unauthenticated' }, { status: 401 });
+      const g = await guardRoute({ product: 'custody' });
+      if ('response' in g) return g.response;
+      const user = g.user;
       const result = await getCustodyConsole(user.tenantId);
       return NextResponse.json(
         result.live ? { ...result, data: { ...(result.data as object), viewer: user.email.toLowerCase() } } : result,
       );
     }
     case 'wallet': {
-      const user = await getCurrentUser();
-      if (!user) return NextResponse.json({ live: false, data: null, error: 'unauthenticated' }, { status: 401 });
+      const g = await guardRoute({ product: 'wallet' });
+      if ('response' in g) return g.response;
+      const user = g.user;
       return NextResponse.json(await getWalletSummary(user.tenantId));
     }
     case 'treasury': {
-      const g = await guardRoute();
+      const g = await guardRoute({ product: 'treasury' });
       if ('response' in g) return g.response;
       return NextResponse.json(await getTreasurySummary());
     }
     case 'payments': {
-      const user = await getCurrentUser();
-      if (!user) return NextResponse.json({ live: false, data: null, error: 'unauthenticated' }, { status: 401 });
+      const g = await guardRoute({ product: 'payments' });
+      if ('response' in g) return g.response;
+      const user = g.user;
       return NextResponse.json(await getMerchantSummary(user.email));
     }
     case 'bureau': {

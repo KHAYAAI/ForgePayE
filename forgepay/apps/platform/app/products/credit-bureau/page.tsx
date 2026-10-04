@@ -22,7 +22,7 @@ export default function CreditBureauProductPage() {
           <Link href="/" style={{ fontSize: 20, fontWeight: 700, color: 'var(--navy)', textDecoration: 'none' }}>
             Forge<span style={{ color: 'var(--cyan)' }}>Pay</span>
           </Link>
-          <Link href="/auth/signup" className="btn-primary">Start Trial</Link>
+          <Link href="/auth/signup" className="btn-primary">Request early access</Link>
         </div>
       </nav>
 
@@ -203,7 +203,7 @@ export default function CreditBureauProductPage() {
           textDecoration: 'none',
           display: 'inline-block',
         }}>
-          Start Your Trial
+          Request early access
         </Link>
       </section>
 

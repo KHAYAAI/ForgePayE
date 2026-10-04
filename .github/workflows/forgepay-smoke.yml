@@ -38,8 +38,6 @@ jobs:
       matrix:
         service:
           - agent-credit-bureau
-          - forge-custody
-          - forge-wallet
           - unified-router
           - enterprise-treasury
           - agent-identity
