@@ -262,7 +262,7 @@ jobs:
                       href = m.group(1)
                       if href.startswith(("http://", "https://", "mailto:", "#")):
                           continue
-                      href_path = href.split("#")[0]
+                      href_path = href.split("#")[0].split("?")[0]
                       if not href_path:
                           continue
                       target = os.path.normpath(os.path.join(dirpath, href_path))

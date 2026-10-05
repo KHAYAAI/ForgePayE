@@ -55,8 +55,15 @@ describe('RWA Registry NAV Pricing — PostgreSQL Persistence', () => {
     await pool.end();
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
     mockFetch.mockClear();
+    // Each test starts from an empty cache; rows used to leak between tests.
+    const client = await pool.connect();
+    try {
+      await client.query('DELETE FROM rwa_nav_cache');
+    } finally {
+      client.release();
+    }
   });
 
   // ── Test: Write-through caching ──────────────────────────────────────────
@@ -114,7 +121,7 @@ describe('RWA Registry NAV Pricing — PostgreSQL Persistence', () => {
         `SELECT COUNT(*) as cnt FROM rwa_nav_cache WHERE asset = $1`,
         [asset]
       );
-      expect(result.rows[0].cnt).toBe(1);
+      expect(Number(result.rows[0].cnt)).toBe(1); // COUNT(*) comes back from pg as a string
     } finally {
       client.release();
     }
@@ -316,10 +323,8 @@ describe('RWA Registry NAV Pricing — PostgreSQL Persistence', () => {
       json: async () => ({}),
     });
 
-    // Should not crash
-    expect(async () => {
-      await refreshAllNAVs();
-    }).not.toThrow();
+    // Should not crash (awaited: the cache check below needs the refresh done)
+    await expect(refreshAllNAVs()).resolves.toBeUndefined();
 
     // At least one price should have been cached
     const cached = await getCachedNAV('USDY');
@@ -360,7 +365,7 @@ describe('RWA Registry NAV Pricing — PostgreSQL Persistence', () => {
     const price = 1.0;
 
     // Should not crash even if DB operations fail
-    await expect(cacheNAV(asset, price)).resolves.toBeDefined();
+    await expect(cacheNAV(asset, price)).resolves.toBeUndefined();
   });
 
   // ── Test: Concurrent reads and writes don't corrupt state ──────────────
@@ -383,7 +388,7 @@ describe('RWA Registry NAV Pricing — PostgreSQL Persistence', () => {
         `SELECT COUNT(*) as cnt FROM rwa_nav_cache WHERE asset = $1`,
         [asset]
       );
-      expect(result.rows[0].cnt).toBe(1); // Only one row, no duplicates
+      expect(Number(result.rows[0].cnt)).toBe(1); // COUNT(*) comes back from pg as a string // Only one row, no duplicates
     } finally {
       client.release();
     }

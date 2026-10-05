@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from forgepay._http import SyncTransport, AsyncTransport
-from forgepay.types import Plan, ListResponse
+from forgepay._http import AsyncTransport, SyncTransport
+from forgepay.types import ListResponse, Plan
 
 
 class PlansResource:
@@ -13,7 +13,7 @@ class PlansResource:
     def retrieve(self, plan_id: str) -> Plan:
         return Plan.model_validate(self._t.request("GET", f"/v1/plans/{plan_id}"))
 
-    def list(self, **params: Any) -> ListResponse[Plan]:  # type: ignore[type-arg]
+    def list(self, **params: Any) -> ListResponse[Plan]:
         raw = self._t.request("GET", "/v1/plans", params=params or None)
         return ListResponse[Plan].model_validate(raw)
 
@@ -25,6 +25,6 @@ class AsyncPlansResource:
     async def retrieve(self, plan_id: str) -> Plan:
         return Plan.model_validate(await self._t.request("GET", f"/v1/plans/{plan_id}"))
 
-    async def list(self, **params: Any) -> ListResponse[Plan]:  # type: ignore[type-arg]
+    async def list(self, **params: Any) -> ListResponse[Plan]:
         raw = await self._t.request("GET", "/v1/plans", params=params or None)
         return ListResponse[Plan].model_validate(raw)

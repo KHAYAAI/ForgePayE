@@ -86,7 +86,7 @@ jobs:
       # Fails the build on a CRITICAL vulnerability that has a fix available. HIGH is reported, not blocking,
       # until the baseline has been triaged.
       - name: Scan (Trivy)
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0 (pinned by commit; tag 0.24.0 no longer resolves)
         with:
           image-ref: ${{ steps.meta.outputs.tags }}
           format: sarif

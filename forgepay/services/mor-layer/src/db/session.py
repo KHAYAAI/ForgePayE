@@ -6,15 +6,15 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
 from src.config import get_settings
 
-_engine = None
+_engine: AsyncEngine | None = None
 _session_factory = None
 
 
-def get_engine():
+def get_engine() -> AsyncEngine:
     global _engine
     if _engine is None:
         settings = get_settings()

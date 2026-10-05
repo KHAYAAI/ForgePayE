@@ -13,16 +13,13 @@ When auditable-privacy-payment ships BabyJubjub, swap X25519PrivateKey for
 the BabyJubjub equivalent while keeping AES-GCM layer identical.
 """
 
-import asyncio
-import concurrent.futures
 import hashlib
 import json
 import logging
 import os
 import secrets
-import time
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 import redis
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
@@ -229,7 +226,7 @@ class AuditorClient:
             raise ValueError(f"Decrypted payload is not valid ShieldedTxData: {e}") from e
 
     @staticmethod
-    def encrypt_memo(plaintext: dict, auditor_pk_hex: str) -> bytes:
+    def encrypt_memo(plaintext: dict[str, Any], auditor_pk_hex: str) -> bytes:
         """
         Encrypt a transaction memo to an auditor's X25519 public key.
 
@@ -274,7 +271,7 @@ class AuditorClient:
         }
         return json.dumps(memo).encode()
 
-    def verify_audit_proof(self, proof_bytes: bytes, public_inputs: Optional[list] = None) -> bool:
+    def verify_audit_proof(self, proof_bytes: bytes, public_inputs: Optional[list[Any]] = None) -> bool:
         """
         Verify a Groth16 audit circuit proof.
 
@@ -311,7 +308,7 @@ class AuditorClient:
             )
             if response.status_code == 200:
                 data = response.json()
-                is_valid = data.get("valid", False)
+                is_valid = data.get("valid") is True
                 logger.info("ZK proof verification result: %s", is_valid)
                 return is_valid
             else:

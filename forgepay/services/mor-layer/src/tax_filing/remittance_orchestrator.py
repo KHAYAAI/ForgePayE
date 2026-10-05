@@ -6,7 +6,7 @@ to remit taxes to the appropriate authorities.
 """
 from dataclasses import dataclass, field
 from datetime import datetime, date
-from typing import Optional
+from typing import Any, Optional
 import logging
 
 import httpx
@@ -109,7 +109,7 @@ def generate_eu_vat_remittance(
 
 def generate_us_sales_tax_remittances(
     merchant_id: str,
-    state_amounts: list[dict],  # [{state, amount, period, due_date}]
+    state_amounts: list[dict[str, Any]],  # [{state, amount, period, due_date}]
 ) -> list[RemittanceInstruction]:
     """Generate remittance instructions for US state sales tax."""
     import uuid
@@ -230,9 +230,12 @@ async def schedule_periodic_remittance(
     prev_year = last_of_prev.year
     prev_month = last_of_prev.month
     period = f"{prev_year}-{prev_month:02d}"
-    period_start = date(prev_year, prev_month, 1)
     period_end = date(prev_year, prev_month, monthrange(prev_year, prev_month)[1])
-    due_date = period_end.replace(day=28)  # Simplified: use 28th of following month
+    # 28th of the month after the period. This was period_end.replace(day=28),
+    # the 28th of the period's own month — a due date before the period ended.
+    # (Simplified: real deadlines are per jurisdiction and filing frequency.)
+    following = period_end + timedelta(days=1)
+    due_date = following.replace(day=28)
 
     logger.info(
         "schedule_periodic_remittance: generating EU VAT remittance for period %s", period

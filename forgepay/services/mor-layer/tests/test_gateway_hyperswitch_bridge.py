@@ -10,7 +10,6 @@ Covers create_payment, retrieve_payment, and refund_payment, verifying:
 """
 
 import json
-from unittest.mock import patch
 
 import httpx
 import pytest

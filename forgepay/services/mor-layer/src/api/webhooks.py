@@ -11,12 +11,12 @@ from __future__ import annotations
 import json
 import logging
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Any, Annotated
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update
+from sqlalchemy import update
 
 from src.bridges.hyperswitch import verify_hyperswitch_webhook
 from src.bridges.killbill import get_killbill_client
@@ -43,7 +43,7 @@ async def handle_hyperswitch_webhook(
     request: Request,
     cfg:     Annotated[Settings, Depends(get_settings)],
     db:      Annotated[AsyncSession, Depends(get_db)],
-) -> dict:
+) -> dict[str, Any]:
     raw_body  = await request.body()
     signature = request.headers.get("x-webhook-signature-512", "")
 
@@ -69,7 +69,7 @@ async def handle_hyperswitch_webhook(
     return {"received": True}
 
 
-async def _handle_payment_succeeded(event: dict, cfg: Settings, db: AsyncSession) -> None:
+async def _handle_payment_succeeded(event: dict[str, Any], cfg: Settings, db: AsyncSession) -> None:
     payment_obj = event.get("content", {}).get("object", {})
     payment_id  = payment_obj.get("payment_id", "")
     metadata    = payment_obj.get("metadata", {})
@@ -117,7 +117,7 @@ async def _handle_payment_succeeded(event: dict, cfg: Settings, db: AsyncSession
     # after it receives the forwarded event (see _forward_to_unified_router below).
 
 
-async def _handle_payment_failed(event: dict, cfg: Settings, db: AsyncSession) -> None:
+async def _handle_payment_failed(event: dict[str, Any], cfg: Settings, db: AsyncSession) -> None:
     payment_obj   = event.get("content", {}).get("object", {})
     payment_id    = payment_obj.get("payment_id", "")
     error_message = payment_obj.get("error_message", "unknown error")

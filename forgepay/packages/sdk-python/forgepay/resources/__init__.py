@@ -1,11 +1,11 @@
-from forgepay.resources.payments      import PaymentsResource, AsyncPaymentsResource
-from forgepay.resources.customers     import CustomersResource, AsyncCustomersResource
-from forgepay.resources.subscriptions import SubscriptionsResource, AsyncSubscriptionsResource
-from forgepay.resources.plans         import PlansResource, AsyncPlansResource
-from forgepay.resources.usage         import UsageResource, AsyncUsageResource
-from forgepay.resources.stablecoins   import StablecoinsResource, AsyncStablecoinsResource
-from forgepay.resources.crypto        import CryptoResource, AsyncCryptoResource
-from forgepay.resources.webhooks      import WebhookResource
+from forgepay.resources.crypto import AsyncCryptoResource, CryptoResource
+from forgepay.resources.customers import AsyncCustomersResource, CustomersResource
+from forgepay.resources.payments import AsyncPaymentsResource, PaymentsResource
+from forgepay.resources.plans import AsyncPlansResource, PlansResource
+from forgepay.resources.stablecoins import AsyncStablecoinsResource, StablecoinsResource
+from forgepay.resources.subscriptions import AsyncSubscriptionsResource, SubscriptionsResource
+from forgepay.resources.usage import AsyncUsageResource, UsageResource
+from forgepay.resources.webhooks import WebhookResource
 
 __all__ = [
     "PaymentsResource",      "AsyncPaymentsResource",

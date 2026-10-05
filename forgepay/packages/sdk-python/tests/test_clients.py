@@ -1,16 +1,16 @@
 """Tests for ForgePay and AsyncForgePay top-level clients."""
 
+import httpx
 import pytest
 import respx
-import httpx
 
-from forgepay import ForgePay, AsyncForgePay
-from forgepay.resources.payments      import PaymentsResource, AsyncPaymentsResource
-from forgepay.resources.customers     import CustomersResource, AsyncCustomersResource
-from forgepay.resources.subscriptions import SubscriptionsResource, AsyncSubscriptionsResource
-from forgepay.resources.stablecoins   import StablecoinsResource, AsyncStablecoinsResource
-from forgepay.resources.crypto        import CryptoResource, AsyncCryptoResource
-from forgepay.resources.webhooks      import WebhookResource
+from forgepay import AsyncForgePay, ForgePay
+from forgepay.resources.crypto import AsyncCryptoResource, CryptoResource
+from forgepay.resources.customers import AsyncCustomersResource, CustomersResource
+from forgepay.resources.payments import AsyncPaymentsResource, PaymentsResource
+from forgepay.resources.stablecoins import AsyncStablecoinsResource, StablecoinsResource
+from forgepay.resources.subscriptions import AsyncSubscriptionsResource, SubscriptionsResource
+from forgepay.resources.webhooks import WebhookResource
 
 BASE = "https://api.forgepay.io"
 

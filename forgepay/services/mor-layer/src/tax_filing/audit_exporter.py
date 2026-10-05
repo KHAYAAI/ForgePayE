@@ -4,9 +4,9 @@ Tax Compliance Audit Exporter.
 Generates compliance reports for merchants and tax authorities.
 Outputs: JSON, CSV, and plain-text formats.
 """
+from typing import Any
 from dataclasses import dataclass
 from datetime import datetime, date
-from typing import Optional
 import csv
 import io
 import json
@@ -37,7 +37,7 @@ def generate_summary_report(
     period: str,
     period_start: date,
     period_end: date,
-    transactions: list[dict],
+    transactions: list[dict[str, Any]],
 ) -> AuditReport:
     """Generate a human-readable tax summary report."""
     total_revenue = sum(t.get("amount", 0) for t in transactions)
@@ -64,7 +64,7 @@ TAX BY JURISDICTION
 """.strip()
 
     # Group by jurisdiction
-    by_jurisdiction: dict[str, dict] = {}
+    by_jurisdiction: dict[str, dict[str, Any]] = {}
     for txn in transactions:
         j = txn.get("jurisdiction", "UNKNOWN")
         if j not in by_jurisdiction:
@@ -108,7 +108,7 @@ def generate_csv_report(
     period: str,
     period_start: date,
     period_end: date,
-    transactions: list[dict],
+    transactions: list[dict[str, Any]],
 ) -> AuditReport:
     """Generate a CSV compliance report for import into accounting software."""
     output = io.StringIO()
@@ -159,10 +159,10 @@ def generate_json_report(
     period: str,
     period_start: date,
     period_end: date,
-    transactions: list[dict],
+    transactions: list[dict[str, Any]],
 ) -> AuditReport:
     """Generate JSON compliance report for API consumption."""
-    by_jurisdiction: dict[str, dict] = {}
+    by_jurisdiction: dict[str, dict[str, Any]] = {}
     total_revenue = 0.0
     total_tax = 0.0
 

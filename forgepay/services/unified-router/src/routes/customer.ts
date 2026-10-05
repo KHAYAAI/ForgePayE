@@ -2,7 +2,6 @@ import type { FastifyInstance } from 'fastify';
 import { db } from '../db';
 import * as killbill from '../lib/killbill-client';
 import { isCatalogPlan } from '../lib/plans';
-import { v4 as uuidv4 } from 'uuid';
 
 export async function customerRoutes(app: FastifyInstance) {
   // GET /v1/customer/products — List licensed products and subscriptions
@@ -159,7 +158,7 @@ export async function customerRoutes(app: FastifyInstance) {
         }
 
         // Change plan in Kill Bill (proration happens automatically)
-        const updated = await killbill.changeSubscriptionPlan(kbSubscriptionId, newPlanName);
+        await killbill.changeSubscriptionPlan(kbSubscriptionId, newPlanName);
 
         // Update Postgres
         subscriptions[product] = {

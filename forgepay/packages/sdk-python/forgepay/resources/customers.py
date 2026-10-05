@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from forgepay._http import SyncTransport, AsyncTransport
+from forgepay._http import AsyncTransport, SyncTransport
 from forgepay.types import Customer, CustomerCreateParams, ListResponse
 
 
@@ -22,12 +22,13 @@ class CustomersResource:
         raw = self._t.request("POST", f"/v1/customers/{customer_id}", json=kwargs)
         return Customer.model_validate(raw)
 
-    def list(self, **params: Any) -> ListResponse[Customer]:  # type: ignore[type-arg]
+    def list(self, **params: Any) -> ListResponse[Customer]:
         raw = self._t.request("GET", "/v1/customers", params=params or None)
         return ListResponse[Customer].model_validate(raw)
 
     def delete(self, customer_id: str) -> dict[str, Any]:
-        return self._t.request("DELETE", f"/v1/customers/{customer_id}")  # type: ignore[return-value]
+        result: dict[str, Any] = self._t.request("DELETE", f"/v1/customers/{customer_id}")
+        return result
 
 
 class AsyncCustomersResource:
@@ -50,9 +51,10 @@ class AsyncCustomersResource:
         raw = await self._t.request("POST", f"/v1/customers/{customer_id}", json=kwargs)
         return Customer.model_validate(raw)
 
-    async def list(self, **params: Any) -> ListResponse[Customer]:  # type: ignore[type-arg]
+    async def list(self, **params: Any) -> ListResponse[Customer]:
         raw = await self._t.request("GET", "/v1/customers", params=params or None)
         return ListResponse[Customer].model_validate(raw)
 
     async def delete(self, customer_id: str) -> dict[str, Any]:
-        return await self._t.request("DELETE", f"/v1/customers/{customer_id}")  # type: ignore[return-value]
+        result: dict[str, Any] = await self._t.request("DELETE", f"/v1/customers/{customer_id}")
+        return result

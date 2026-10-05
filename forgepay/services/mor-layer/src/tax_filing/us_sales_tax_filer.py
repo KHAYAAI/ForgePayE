@@ -6,13 +6,13 @@ This module generates filing reports and triggers remittance.
 """
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import Optional
+from typing import Any, Optional
 import logging
 
 logger = logging.getLogger(__name__)
 
 # US states that require sales tax (all 45 + DC)
-US_SALES_TAX_STATES = {
+US_SALES_TAX_STATES: dict[str, dict[str, Any]] = {
     "AL": {"name": "Alabama", "has_local_tax": True, "filing_frequency": "monthly"},
     "AK": {"name": "Alaska", "has_local_tax": True, "filing_frequency": "quarterly"},
     "AZ": {"name": "Arizona", "has_local_tax": True, "filing_frequency": "monthly"},
@@ -94,13 +94,13 @@ class USSalesTaxReturn:
 
 def generate_us_return(
     merchant_id: str,
-    transactions: list[dict],  # Each: {state, amount, tax_amount, is_exempt}
+    transactions: list[dict[str, Any]],  # Each: {state, amount, tax_amount, is_exempt}
     period: str,
     period_start: date,
     period_end: date,
 ) -> USSalesTaxReturn:
     """Generate a US sales tax return from transaction data."""
-    by_state: dict[str, dict] = {}
+    by_state: dict[str, dict[str, Any]] = {}
 
     for txn in transactions:
         state = txn.get("state", "")
@@ -138,7 +138,7 @@ def generate_us_return(
         total_tax += total_state_tax
 
         # Filing due: 20th of month following period
-        from dateutil.relativedelta import relativedelta
+        from dateutil.relativedelta import relativedelta  # type: ignore[import-untyped]
         due_date = period_end.replace(day=1) + relativedelta(months=1, days=19)
 
         lines.append(USSalesTaxLine(
@@ -160,13 +160,13 @@ def generate_us_return(
         period=period,
         period_start=period_start,
         period_end=period_end,
-        lines=sorted(lines, key=lambda l: l.total_tax, reverse=True),
+        lines=sorted(lines, key=lambda line: line.total_tax, reverse=True),
         total_tax_due=round(total_tax, 2),
         status="draft",
     )
 
 
-def file_via_avalara_stub(merchant_id: str, tax_return: USSalesTaxReturn) -> dict:
+def file_via_avalara_stub(merchant_id: str, tax_return: USSalesTaxReturn) -> dict[str, Any]:
     """
     Stub for filing US sales tax via Avalara Managed Returns.
 
@@ -176,7 +176,7 @@ def file_via_avalara_stub(merchant_id: str, tax_return: USSalesTaxReturn) -> dic
     logger.info(
         f"[AVALARA STUB] Would file US sales tax for merchant {merchant_id}, "
         f"period {tax_return.period}, total tax ${tax_return.total_tax_due:.2f}, "
-        f"states: {[l.state for l in tax_return.lines]}"
+        f"states: {[line.state for line in tax_return.lines]}"
     )
 
     return {

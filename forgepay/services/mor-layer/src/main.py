@@ -35,8 +35,10 @@ Ports:
 
 from __future__ import annotations
 
+from typing import Any
+
 import logging
-import os
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import httpx
@@ -81,7 +83,7 @@ logger = structlog.get_logger(__name__)
 limiter = Limiter(key_func=get_remote_address)
 
 # Rate limit handler
-async def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+async def _rate_limit_handler(request: Request, exc: Exception) -> JSONResponse:
     logger.warning("rate_limit_exceeded", path=request.url.path, remote=get_remote_address(request))
     return JSONResponse(
         status_code=429,
@@ -90,7 +92,7 @@ async def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONR
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Startup
     _settings = get_settings()
     await ensure_mor_operating_account(
@@ -148,12 +150,12 @@ async def metrics() -> Response:
 
 
 @app.get("/healthz", include_in_schema=False)
-async def healthz() -> dict:
+async def healthz() -> dict[str, Any]:
     return {"status": "ok", "service": "mor-layer"}
 
 
-@app.get("/readyz", include_in_schema=False)
-async def readyz() -> dict:
+@app.get("/readyz", include_in_schema=False, response_model=None)
+async def readyz() -> dict[str, Any] | Response:
     """
     Real readiness probe — checks all three upstream dependencies.
     Returns 503 if any check fails so Kubernetes stops routing traffic here.

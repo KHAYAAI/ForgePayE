@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from forgepay._http import SyncTransport, AsyncTransport
-from forgepay.types import CryptoPayment, CryptoCreateParams, ListResponse
+from forgepay._http import AsyncTransport, SyncTransport
+from forgepay.types import CryptoCreateParams, CryptoPayment, ListResponse
 
 
 class CryptoResource:
@@ -25,7 +25,7 @@ class CryptoResource:
             self._t.request("GET", f"/v1/crypto/{payment_id}")
         )
 
-    def list(self, **params: Any) -> ListResponse[CryptoPayment]:  # type: ignore[type-arg]
+    def list(self, **params: Any) -> ListResponse[CryptoPayment]:
         raw = self._t.request("GET", "/v1/crypto", params=params or None)
         return ListResponse[CryptoPayment].model_validate(raw)
 
@@ -49,6 +49,6 @@ class AsyncCryptoResource:
             await self._t.request("GET", f"/v1/crypto/{payment_id}")
         )
 
-    async def list(self, **params: Any) -> ListResponse[CryptoPayment]:  # type: ignore[type-arg]
+    async def list(self, **params: Any) -> ListResponse[CryptoPayment]:
         raw = await self._t.request("GET", "/v1/crypto", params=params or None)
         return ListResponse[CryptoPayment].model_validate(raw)

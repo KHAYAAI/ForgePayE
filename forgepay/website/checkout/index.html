@@ -568,6 +568,16 @@
       });
     }
 
+    // Payments are not open yet (they launch only after licensing). This page
+    // creates accounts and takes card/USDC payments against whatever
+    // unified-router API_BASE points at, so it stays closed unless the
+    // deployment sets window.FORGE_CHECKOUT_OPEN = true on purpose.
+    if (window.FORGE_CHECKOUT_OPEN !== true) {
+      $all('.co-panel, #step-rail').forEach(function (el) { el.style.display = 'none'; });
+      showStatus('error', 'FORGE Payments is not open yet: it launches only after licensing. Contact us to join the waitlist.');
+      return;
+    }
+
     fetch(API_BASE + '/v1/pricing')
       .then(function (r) { if (!r.ok) throw new Error('status ' + r.status); return r.json(); })
       .then(function (body) {

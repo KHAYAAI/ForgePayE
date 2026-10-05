@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Annotated
+from typing import Any, Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr
@@ -84,6 +84,6 @@ async def list_payment_methods(
     customer_id: str,
     hs: Annotated[HyperswitchClient, Depends(get_hyperswitch_client)],
     current_merchant: Annotated[Merchant, Depends(get_current_merchant)],
-) -> dict:
+) -> dict[str, Any]:
     methods = await hs.list_payment_methods(customer_id)
     return {"data": methods, "count": len(methods)}

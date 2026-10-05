@@ -6,7 +6,6 @@ If not, creates it as a virtual account (no real bank linking needed for
 internal-only transfers — it represents ForgePay's own treasury account).
 """
 
-import asyncio
 import httpx
 import logging
 

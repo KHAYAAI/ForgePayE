@@ -27,10 +27,10 @@ Async usage::
         payment = await fp.payments.create(amount=4900, currency="USD", ...)
 """
 
-from forgepay.client import ForgePay, AsyncForgePay
+from forgepay.client import AsyncForgePay, ForgePay
 from forgepay.errors import (
-    ForgePayError,
     AuthenticationError,
+    ForgePayError,
     InvalidRequestError,
     RateLimitError,
     ServiceUnavailableError,

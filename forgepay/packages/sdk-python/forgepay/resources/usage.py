@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from forgepay._http import SyncTransport, AsyncTransport
+from forgepay._http import AsyncTransport, SyncTransport
 from forgepay.types import UsageRecord, UsageReportParams
 
 

@@ -76,7 +76,7 @@ class SyncTransport:
     def close(self) -> None:
         self._client.close()
 
-    def __enter__(self) -> "SyncTransport":
+    def __enter__(self) -> SyncTransport:
         return self
 
     def __exit__(self, *_: object) -> None:
@@ -126,7 +126,7 @@ class AsyncTransport:
     async def aclose(self) -> None:
         await self._client.aclose()
 
-    async def __aenter__(self) -> "AsyncTransport":
+    async def __aenter__(self) -> AsyncTransport:
         return self
 
     async def __aexit__(self, *_: object) -> None:

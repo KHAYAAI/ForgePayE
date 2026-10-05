@@ -193,10 +193,14 @@ class HyperswitchClient:
             "merchant_reference_id": req.merchant_reference_id,
             "metadata": req.metadata,
         }
-        if req.email:       payload["email"]       = req.email
-        if req.name:        payload["name"]         = req.name
-        if req.phone:       payload["phone"]        = req.phone
-        if req.description: payload["description"]  = req.description
+        if req.email:
+            payload["email"] = req.email
+        if req.name:
+            payload["name"] = req.name
+        if req.phone:
+            payload["phone"] = req.phone
+        if req.description:
+            payload["description"] = req.description
 
         response = await self._client.post("/customers", json=payload)
         response.raise_for_status()

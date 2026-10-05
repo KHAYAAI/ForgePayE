@@ -6,7 +6,7 @@ These routes expose tax filing, remittance, and audit export capabilities.
 import json
 import logging
 from datetime import date
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
@@ -20,10 +20,10 @@ from ..tax_filing.audit_exporter import (
 from ..tax_filing.eu_vat_filer import (
     VATTransaction,
     file_eu_oss_return,
-    file_vat_return_stub,
     generate_vat_return,
 )
 from ..tax_filing.remittance_orchestrator import (
+    RemittanceInstruction,
     RemittanceResult,
     generate_eu_vat_remittance,
     generate_us_sales_tax_remittances,
@@ -41,7 +41,7 @@ class EUVATReturnRequest(BaseModel):
     period: str                    # e.g. "2026-Q1"
     period_start: date
     period_end: date
-    transactions: list[dict]       # VATTransaction-like dicts
+    transactions: list[dict[str, Any]]       # VATTransaction-like dicts
     auto_file: bool = False        # If True, file immediately (stub)
 
 
@@ -50,7 +50,7 @@ class USSalesTaxReturnRequest(BaseModel):
     period: str
     period_start: date
     period_end: date
-    transactions: list[dict]
+    transactions: list[dict[str, Any]]
     auto_file_via_avalara: bool = False
 
 
@@ -59,7 +59,7 @@ class AuditReportRequest(BaseModel):
     period: str
     period_start: date
     period_end: date
-    transactions: list[dict]
+    transactions: list[dict[str, Any]]
     format: str = "summary"        # "summary" | "csv" | "json"
 
 
@@ -75,7 +75,7 @@ class RemittanceRequest(BaseModel):
 
 
 @router.post("/eu-vat/generate")
-async def generate_eu_vat_return(request: EUVATReturnRequest):
+async def generate_eu_vat_return(request: EUVATReturnRequest) -> dict[str, Any]:
     """Generate an EU VAT return from transaction data."""
     txns = [
         VATTransaction(
@@ -129,14 +129,14 @@ async def generate_eu_vat_return(request: EUVATReturnRequest):
 
 
 @router.post("/eu-vat/file")
-async def file_eu_vat(request: EUVATReturnRequest):
+async def file_eu_vat(request: EUVATReturnRequest) -> dict[str, Any]:
     """Generate and immediately file EU VAT return via OSS (stub)."""
     request.auto_file = True
     return await generate_eu_vat_return(request)
 
 
 @router.post("/us-sales-tax/generate")
-async def generate_us_sales_tax(request: USSalesTaxReturnRequest):
+async def generate_us_sales_tax(request: USSalesTaxReturnRequest) -> dict[str, Any]:
     """Generate US sales tax return from transaction data."""
     tax_return = generate_us_return(
         merchant_id=request.merchant_id,
@@ -174,10 +174,11 @@ async def generate_us_sales_tax(request: USSalesTaxReturnRequest):
 
 
 @router.post("/remittance/initiate")
-async def initiate_remittance_endpoint(request: RemittanceRequest):
+async def initiate_remittance_endpoint(request: RemittanceRequest) -> dict[str, Any]:
     """Initiate a tax remittance payment to the tax authority via bank-connectivity."""
     settings = get_settings()
 
+    instruction: RemittanceInstruction | None
     if request.tax_type == "eu_vat":
         instruction = generate_eu_vat_remittance(
             merchant_id=request.merchant_id,
@@ -239,9 +240,9 @@ async def initiate_remittance_endpoint(request: RemittanceRequest):
 
 
 @router.post("/audit/export")
-async def export_audit_report(request: AuditReportRequest):
+async def export_audit_report(request: AuditReportRequest) -> dict[str, Any]:
     """Generate a tax compliance audit report."""
-    kwargs = dict(
+    kwargs: dict[str, Any] = dict(
         merchant_id=request.merchant_id,
         period=request.period,
         period_start=request.period_start,
@@ -279,7 +280,7 @@ async def export_audit_report(request: AuditReportRequest):
 
 
 @router.get("/status/{merchant_id}")
-async def get_filing_status(merchant_id: str, period: str = Query(default="current")):
+async def get_filing_status(merchant_id: str, period: str = Query(default="current")) -> dict[str, Any]:
     """Get the current tax filing status for a merchant."""
     # In production: query from PostgreSQL
     return {

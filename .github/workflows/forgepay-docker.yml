@@ -149,7 +149,7 @@ jobs:
       # `exit-code: 1` on CRITICAL once that baseline has been triaged.
       - name: Scan image for known vulnerabilities (Trivy)
         if: ${{ matrix.condition == 'true' || github.event_name == 'workflow_dispatch' }}
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0 (pinned by commit; tag 0.24.0 no longer resolves)
         with:
           image-ref: ${{ env.IMAGE_PREFIX }}-${{ matrix.service }}:${{ steps.meta.outputs.version }}
           format: sarif

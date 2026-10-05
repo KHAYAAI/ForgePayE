@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from forgepay._http import SyncTransport, AsyncTransport
-from forgepay.types import StablecoinPayment, StablecoinCreateParams, ListResponse
+from forgepay._http import AsyncTransport, SyncTransport
+from forgepay.types import ListResponse, StablecoinCreateParams, StablecoinPayment
 
 
 class StablecoinsResource:
@@ -25,7 +25,7 @@ class StablecoinsResource:
             self._t.request("GET", f"/v1/stablecoins/{payment_id}")
         )
 
-    def list(self, **params: Any) -> ListResponse[StablecoinPayment]:  # type: ignore[type-arg]
+    def list(self, **params: Any) -> ListResponse[StablecoinPayment]:
         raw = self._t.request("GET", "/v1/stablecoins", params=params or None)
         return ListResponse[StablecoinPayment].model_validate(raw)
 
@@ -49,6 +49,6 @@ class AsyncStablecoinsResource:
             await self._t.request("GET", f"/v1/stablecoins/{payment_id}")
         )
 
-    async def list(self, **params: Any) -> ListResponse[StablecoinPayment]:  # type: ignore[type-arg]
+    async def list(self, **params: Any) -> ListResponse[StablecoinPayment]:
         raw = await self._t.request("GET", "/v1/stablecoins", params=params or None)
         return ListResponse[StablecoinPayment].model_validate(raw)

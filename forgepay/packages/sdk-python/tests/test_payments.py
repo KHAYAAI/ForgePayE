@@ -1,11 +1,11 @@
 """Tests for sync and async payments resource."""
 
+import httpx
 import pytest
 import respx
-import httpx
 
-from forgepay import ForgePay, AsyncForgePay
-from forgepay.errors import AuthenticationError, ServiceUnavailableError, RateLimitError
+from forgepay import AsyncForgePay, ForgePay
+from forgepay.errors import AuthenticationError, RateLimitError, ServiceUnavailableError
 
 BASE = "https://api.forgepay.io"
 
@@ -44,7 +44,9 @@ class TestPaymentsSync:
 
     @respx.mock
     def test_create_payment(self) -> None:
-        respx.post(f"{BASE}/v1/payments").mock(return_value=httpx.Response(200, json=PAYMENT_FIXTURE))
+        respx.post(f"{BASE}/v1/payments").mock(
+            return_value=httpx.Response(200, json=PAYMENT_FIXTURE)
+        )
         payment = self.client.payments.create(amount=4900, currency="USD")
         assert payment.payment_id == "pay_abc123"
         assert payment.amount == 4900
@@ -108,7 +110,9 @@ class TestPaymentsSync:
 class TestPaymentsAsync:
     @respx.mock
     async def test_create_payment_async(self) -> None:
-        respx.post(f"{BASE}/v1/payments").mock(return_value=httpx.Response(200, json=PAYMENT_FIXTURE))
+        respx.post(f"{BASE}/v1/payments").mock(
+            return_value=httpx.Response(200, json=PAYMENT_FIXTURE)
+        )
         async with AsyncForgePay(api_key="sk_test_123", base_url=BASE) as fp:
             payment = await fp.payments.create(amount=4900, currency="USD")
         assert payment.payment_id == "pay_abc123"

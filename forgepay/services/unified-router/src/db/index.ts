@@ -8,8 +8,8 @@
  *             directly (2 args, tenant-agnostic — e.g. forgepay_events).
  *
  *   `db`    — tenant-scoped query wrapper. churn-prevention.ts,
- *             credit-bureau-education.ts, medium-risk-monitoring.ts,
- *             onboarding-analytics.ts, upsell-engine.ts, killbill-sync.ts,
+ *             medium-risk-monitoring.ts,
+ *             upsell-engine.ts, killbill-sync.ts,
  *             require-product middleware, and the bundle/csm/customer
  *             routes all call `db.query(tenantIdOrSchema, sql, params)`
  *             (3 args, first arg is a tenantId or the literal 'public').

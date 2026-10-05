@@ -22,6 +22,7 @@ Auth:
   near the bottom of each section below.
 """
 
+from unittest.mock import MagicMock, patch
 import base64
 import json
 import pytest
@@ -194,8 +195,7 @@ async def test_checkout_multi_item_subtotal(client: AsyncClient, merchant: dict)
         headers=merchant["headers"],
     )
     data = resp.json()
-    expected = 4900 + (2450 * 2) + (2000 * 2)  # = 14800... wait: 4900+4900+4000 = 13800
-    # 4900 + 4900 + 4000 = 13800
+    # 4900 + (2450 * 2) + (2000 * 2) = 13800
     assert data["amount_subtotal"] == 4900 + 4900 + 4000
 
 
@@ -487,7 +487,6 @@ async def test_shielded_checkout_rejects_unauthenticated(client: AsyncClient):
 
 # ── Auditor Decrypt Tests ─────────────────────────────────────────────────────
 
-from unittest.mock import MagicMock, patch
 
 # A valid 64-hex-char seed used in all auditor tests
 _AUDITOR_SEED = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"

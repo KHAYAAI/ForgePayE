@@ -6,13 +6,13 @@ Filing is done via country-specific APIs (stubbed) or via Avalara's EU VAT servi
 """
 from dataclasses import dataclass, field
 from datetime import datetime, date
-from typing import Optional
+from typing import Any, Optional
 import logging
 
 logger = logging.getLogger(__name__)
 
 # EU VAT rates per country (standard rate, reduced rate)
-EU_VAT_RATES = {
+EU_VAT_RATES: dict[str, dict[str, Any]] = {
     "AT": {"standard": 0.20, "reduced": 0.10, "name": "Austria"},
     "BE": {"standard": 0.21, "reduced": 0.06, "name": "Belgium"},
     "BG": {"standard": 0.20, "reduced": 0.09, "name": "Bulgaria"},
@@ -137,7 +137,7 @@ def generate_vat_return(
         period=period,
         period_start=period_start,
         period_end=period_end,
-        lines=sorted(lines, key=lambda l: l.vat_collected, reverse=True),
+        lines=sorted(lines, key=lambda line: line.vat_collected, reverse=True),
         total_vat_due=round(total_vat, 2),
         filing_due_date=_calculate_filing_due_date(period_end, "EU"),
     )
@@ -147,11 +147,12 @@ def _calculate_filing_due_date(period_end: date, country_code: str) -> date:
     """Calculate the VAT filing due date for a given period end and country."""
     # EU MOSS: file within 20 days of quarter end
     # Individual countries: typically 1 month after period end
-    from dateutil.relativedelta import relativedelta
-    return period_end + relativedelta(months=1)
+    from dateutil.relativedelta import relativedelta  # type: ignore[import-untyped]
+    due: date = period_end + relativedelta(months=1)
+    return due
 
 
-def file_vat_return_stub(vat_return: VATReturn, country_code: str) -> dict:
+def file_vat_return_stub(vat_return: VATReturn, country_code: str) -> dict[str, Any]:
     """
     Stub for filing a VAT return to a tax authority.
 
@@ -179,7 +180,7 @@ def file_vat_return_stub(vat_return: VATReturn, country_code: str) -> dict:
     }
 
 
-def file_eu_oss_return(vat_return: VATReturn) -> dict:
+def file_eu_oss_return(vat_return: VATReturn) -> dict[str, Any]:
     """
     File the EU One Stop Shop (OSS) return for cross-border digital services.
     This is the simplified way to file for B2C digital services across all EU countries.
@@ -189,7 +190,7 @@ def file_eu_oss_return(vat_return: VATReturn) -> dict:
     logger.info(
         f"[EU OSS STUB] Would file OSS return for {vat_return.period}, "
         f"total VAT due: €{vat_return.total_vat_due:.2f}, "
-        f"countries: {[l.country_code for l in vat_return.lines]}"
+        f"countries: {[line.country_code for line in vat_return.lines]}"
     )
 
     return {

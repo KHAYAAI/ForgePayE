@@ -6,13 +6,15 @@ from __future__ import annotations
 class ForgePayError(Exception):
     """Base class for all ForgePay SDK errors."""
 
-    def __init__(self, message: str, *, status_code: int | None = None, body: object = None) -> None:
+    def __init__(
+        self, message: str, *, status_code: int | None = None, body: object = None
+    ) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.body        = body
 
     def __repr__(self) -> str:
-        return f"{type(self).__name__}(message={self!s!r}, status_code={self.status_code})"
+        return f"{type(self).__name__}(message={str(self)!r}, status_code={self.status_code})"
 
 
 class AuthenticationError(ForgePayError):

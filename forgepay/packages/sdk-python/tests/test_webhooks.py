@@ -6,8 +6,8 @@ import json
 
 import pytest
 
-from forgepay.resources.webhooks import WebhookResource
 from forgepay.errors import WebhookSignatureError
+from forgepay.resources.webhooks import WebhookResource
 
 SECRET  = "whsec_test_secret"
 PAYLOAD = json.dumps({

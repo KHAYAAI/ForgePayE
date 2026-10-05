@@ -16,7 +16,7 @@ import json
 import logging
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Annotated
+from typing import Any, Annotated
 
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -445,7 +445,7 @@ async def retrieve_checkout_session(
     # 1. Try Redis cache for payment_id
     redis = get_redis()
     cached_raw = await redis.get(f"session:{session_id}")
-    cached: dict | None = json.loads(cached_raw) if cached_raw else None
+    cached: dict[str, Any] | None = json.loads(cached_raw) if cached_raw else None
 
     # 2. Load full record from Postgres
     result = await db.execute(select(CheckoutSession).where(CheckoutSession.id == session_id))

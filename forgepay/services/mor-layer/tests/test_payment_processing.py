@@ -2,8 +2,6 @@
 
 import pytest
 from datetime import datetime
-from decimal import Decimal
-from typing import Optional
 
 
 # Mock payment processing

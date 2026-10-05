@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from forgepay._http import SyncTransport, AsyncTransport
-from forgepay.types import Subscription, SubscriptionCreateParams, ListResponse
+from forgepay._http import AsyncTransport, SyncTransport
+from forgepay.types import ListResponse, Subscription, SubscriptionCreateParams
 
 
 class SubscriptionsResource:
@@ -33,7 +33,7 @@ class SubscriptionsResource:
         )
         return Subscription.model_validate(raw)
 
-    def list(self, **params: Any) -> ListResponse[Subscription]:  # type: ignore[type-arg]
+    def list(self, **params: Any) -> ListResponse[Subscription]:
         raw = self._t.request("GET", "/v1/subscriptions", params=params or None)
         return ListResponse[Subscription].model_validate(raw)
 
@@ -65,6 +65,6 @@ class AsyncSubscriptionsResource:
         )
         return Subscription.model_validate(raw)
 
-    async def list(self, **params: Any) -> ListResponse[Subscription]:  # type: ignore[type-arg]
+    async def list(self, **params: Any) -> ListResponse[Subscription]:
         raw = await self._t.request("GET", "/v1/subscriptions", params=params or None)
         return ListResponse[Subscription].model_validate(raw)

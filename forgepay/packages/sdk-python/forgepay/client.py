@@ -42,19 +42,19 @@ NOTE: SyncTransport uses time.sleep() and will block the event loop if called
 from __future__ import annotations
 
 from forgepay._http import (
-    AsyncTransport,
     DEFAULT_BASE_URL,
     DEFAULT_TIMEOUT,
+    AsyncTransport,
     SyncTransport,
 )
-from forgepay.resources.crypto        import AsyncCryptoResource, CryptoResource
-from forgepay.resources.customers     import AsyncCustomersResource, CustomersResource
-from forgepay.resources.payments      import AsyncPaymentsResource, PaymentsResource
-from forgepay.resources.plans         import AsyncPlansResource, PlansResource
-from forgepay.resources.stablecoins   import AsyncStablecoinsResource, StablecoinsResource
+from forgepay.resources.crypto import AsyncCryptoResource, CryptoResource
+from forgepay.resources.customers import AsyncCustomersResource, CustomersResource
+from forgepay.resources.payments import AsyncPaymentsResource, PaymentsResource
+from forgepay.resources.plans import AsyncPlansResource, PlansResource
+from forgepay.resources.stablecoins import AsyncStablecoinsResource, StablecoinsResource
 from forgepay.resources.subscriptions import AsyncSubscriptionsResource, SubscriptionsResource
-from forgepay.resources.usage         import AsyncUsageResource, UsageResource
-from forgepay.resources.webhooks      import WebhookResource
+from forgepay.resources.usage import AsyncUsageResource, UsageResource
+from forgepay.resources.webhooks import WebhookResource
 
 
 class ForgePay:
@@ -84,7 +84,7 @@ class ForgePay:
     def close(self) -> None:
         self._transport.close()
 
-    def __enter__(self) -> "ForgePay":
+    def __enter__(self) -> ForgePay:
         return self
 
     def __exit__(self, *_: object) -> None:
@@ -118,7 +118,7 @@ class AsyncForgePay:
     async def aclose(self) -> None:
         await self._transport.aclose()
 
-    async def __aenter__(self) -> "AsyncForgePay":
+    async def __aenter__(self) -> AsyncForgePay:
         return self
 
     async def __aexit__(self, *_: object) -> None:
