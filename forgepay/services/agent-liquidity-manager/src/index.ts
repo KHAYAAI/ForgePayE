@@ -22,6 +22,7 @@
  *   LOG_LEVEL           — default info
  */
 
+import { refreshPrices } from './prices';
 import Fastify, { FastifyError } from 'fastify';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
@@ -118,7 +119,7 @@ function buildSnapshot(agentId: string, wallets: AgentWallet[]): PortfolioSnapsh
 
   for (const w of wallets) {
     for (const a of w.assets) {
-      const usd = a.balanceUsd > 0 ? a.balanceUsd : toUsd(a.balanceNative, a.asset);
+      const usd = toUsd(a.balanceNative, a.asset);
       const key = a.asset.toUpperCase();
       if (!byAsset[key]) {
         byAsset[key] = { balanceUsd: 0, balanceNative: 0, chain: a.chain };
@@ -332,6 +333,10 @@ async function buildApp() {
         return reply.send({
           data:      results,
           executed:  true,
+          // Updates this service's tracked balances only. No trade is placed
+          // with any exchange, DEX or custodian; on-chain holdings are unchanged.
+          tradesExecuted: false,
+          note: 'Bookkeeping only: tracked balances were updated; no trades were placed.',
           skipped:   false,
           totalLegs: results.length,
           failedLegs: failed.length,
@@ -361,6 +366,7 @@ async function buildApp() {
     }
     const wallets = getWalletsForAgent(req.params.agentId);
     const result  = await sweepToYield(req.params.agentId, policy, wallets);
+    if (result.status === 'not_supported') return reply.status(501).send({ data: result });
     if (result.status === 'swept') {
       // sweepToYield() genuinely moves funds to the vault (real side effect)
       // but doesn't touch this service's own tracked balances — debit the
@@ -381,6 +387,7 @@ async function buildApp() {
     }
     const wallets = getWalletsForAgent(req.params.agentId);
     const result  = await liquidateFromYield(req.params.agentId, policy, wallets);
+    if (result.status === 'not_supported') return reply.status(501).send({ data: result });
     if (result.status === 'liquidated') {
       // Mirror of the sweep fix above: credit the withdrawn stables back
       // into tracked balances so a repeat liquidate call sees the
@@ -467,6 +474,15 @@ async function main(): Promise<void> {
   }
 
   const app = await buildApp();
+
+  // Live prices (see prices.ts). Without PRICE_FEED_URL only pegged
+  // stablecoins can be valued and everything else answers 503.
+  const pullPrices = () => refreshPrices()
+    .then((n) => app.log.info({ quotes: n }, '[alm] prices refreshed'))
+    .catch((err) => app.log.warn({ err }, '[alm] price refresh failed; quotes will go stale'));
+  if (!process.env['PRICE_FEED_URL']) app.log.warn('[alm] PRICE_FEED_URL not set: only USDC/USDT/DAI can be valued');
+  await pullPrices();
+  setInterval(pullPrices, 60_000).unref();
 
   const shutdown = async () => {
     app.log.info('[alm] Shutting down...');

@@ -4,18 +4,20 @@
  * Auto-deploys idle stablecoin balances to yield vaults and pulls back
  * liquidity when an agent dips below its safety floor.
  *
- * Talks to the yield-engine over HTTP (POST /v1/sweep/trigger, /v1/sweep/withdraw).
+ * Not connected. These posted to yield-engine /v1/sweep/trigger and
+ * /v1/sweep/withdraw, which do not exist (yield-engine's routes are under
+ * /api/v1 and act only for a merchant's own JWT), and yield-engine cannot
+ * execute withdrawals. Both now return 'not_supported' with the reason, and
+ * nothing is debited or credited.
  */
 
 import { AgentWallet, LiquidityPolicy } from './types';
 import { getAssetClass, toUsd } from './rebalancer';
 
-const DEFAULT_YIELD_ENGINE_URL = 'http://localhost:3007';
 const DEFAULT_MAX_IDLE_USD     = 1_000;
 
-function yieldEngineUrl(): string {
-  return process.env['YIELD_ENGINE_URL'] ?? DEFAULT_YIELD_ENGINE_URL;
-}
+export const YIELD_NOT_CONNECTED =
+  'Not available: the liquidity manager is not connected to the yield engine, so it cannot sweep to or withdraw from yield.';
 
 // ── Liquidity math ────────────────────────────────────────────────────────────
 
@@ -25,7 +27,7 @@ export function computeLiquidStableUsd(wallets: AgentWallet[] | AgentWallet): nu
   for (const w of list) {
     for (const a of w.assets) {
       if (getAssetClass(a.asset) !== 'stables') continue;
-      total += a.balanceUsd > 0 ? a.balanceUsd : toUsd(a.balanceNative, a.asset);
+      total += toUsd(a.balanceNative, a.asset);
     }
   }
   return total;
@@ -42,7 +44,7 @@ export function computeIdleStableUsd(
 // ── Sweep ─────────────────────────────────────────────────────────────────────
 
 export interface SweepResult {
-  status:      'swept' | 'skipped';
+  status:      'swept' | 'skipped' | 'not_supported';
   amountUsd:   number;
   vault?:      string;
   reason?:     string;
@@ -65,43 +67,18 @@ export async function sweepToYield(
     };
   }
 
-  const body = {
-    agentId,
-    vault:     policy.sweepVault,
-    amountUsd: idleUsd,
-    asset:     'USDC',
-  };
-
-  let response: unknown = null;
-  try {
-    const resp = await fetch(`${yieldEngineUrl()}/v1/sweep/trigger`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json', 'x-source': 'agent-liquidity-manager' },
-      body:    JSON.stringify(body),
-      signal:  AbortSignal.timeout(10_000),
-    });
-    if (!resp.ok) throw new Error(`yield-engine returned ${resp.status}`);
-    response = await resp.json().catch(() => ({}));
-  } catch (err) {
-    return {
-      status:    'skipped',
-      amountUsd: idleUsd,
-      reason:    `yield-engine unavailable: ${(err as Error).message}`,
-    };
-  }
-
+  void agentId;
   return {
-    status:    'swept',
+    status:    'not_supported',
     amountUsd: idleUsd,
-    vault:     policy.sweepVault,
-    response,
+    reason:    YIELD_NOT_CONNECTED,
   };
 }
 
 // ── Liquidate ─────────────────────────────────────────────────────────────────
 
 export interface LiquidateResult {
-  status:    'liquidated' | 'skipped';
+  status:    'liquidated' | 'skipped' | 'not_supported';
   amountUsd: number;
   reason?:   string;
   response?: unknown;
@@ -123,29 +100,10 @@ export async function liquidateFromYield(
   }
 
   const deficit = policy.autoLiquidateBelowUsd - liquid;
-
-  const body = { agentId, amountUsd: deficit };
-  let response: unknown = null;
-  try {
-    const resp = await fetch(`${yieldEngineUrl()}/v1/sweep/withdraw`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json', 'x-source': 'agent-liquidity-manager' },
-      body:    JSON.stringify(body),
-      signal:  AbortSignal.timeout(10_000),
-    });
-    if (!resp.ok) throw new Error(`yield-engine returned ${resp.status}`);
-    response = await resp.json().catch(() => ({}));
-  } catch (err) {
-    return {
-      status:    'skipped',
-      amountUsd: deficit,
-      reason:    `yield-engine unavailable: ${(err as Error).message}`,
-    };
-  }
-
+  void agentId;
   return {
-    status:    'liquidated',
+    status:    'not_supported',
     amountUsd: deficit,
-    response,
+    reason:    YIELD_NOT_CONNECTED,
   };
 }

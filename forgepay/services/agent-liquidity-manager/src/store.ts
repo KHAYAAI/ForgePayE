@@ -17,7 +17,8 @@ import {
   RebalanceAction,
   RebalanceLegResult,
 } from './types';
-import { recomputeWalletUsd, getAssetClass, toUsd, USD_RATES } from './rebalancer';
+import { recomputeWalletUsd, getAssetClass, toUsd } from './rebalancer';
+import { rateFor } from './prices';
 import { persistAsync } from './db';
 import { hashApiKey, safeEqualHex } from './hash';
 import { randomBytes } from 'node:crypto';
@@ -145,8 +146,8 @@ function drawCandidates(agentId: string, cls: AssetClass): DrawCandidate[] {
   for (const w of getWalletsForAgent(agentId)) {
     w.assets.forEach((a, index) => {
       if (getAssetClass(a.asset) !== cls) return;
-      const usd  = a.balanceUsd > 0 ? a.balanceUsd : toUsd(a.balanceNative, a.asset);
-      const rate = USD_RATES[a.asset.toUpperCase()] ?? 0;
+      const usd  = toUsd(a.balanceNative, a.asset);
+      const rate = rateFor(a.asset);
       if (usd <= 0 || rate <= 0) return;
       candidates.push({ walletId: w.walletId, index, usd, rate });
     });
@@ -203,7 +204,7 @@ export function executeRebalanceLeg(agentId: string, action: RebalanceAction): R
   //    synchronous with no I/O in between, so nothing else in this process
   //    can observe or mutate wallet state mid-application: the leg commits
   //    as a whole or (per the check above) not at all.
-  const destRate = USD_RATES[destAsset.toUpperCase()] ?? 0;
+  const destRate = rateFor(destAsset);
   for (const d of debits) {
     const wallet = getWallet(d.walletId);
     if (!wallet) continue;
@@ -275,7 +276,7 @@ export function creditAssetToAgent(agentId: string, asset: string, amountUsd: nu
   const target = agentWallets[0];
   if (!target) return 0;
 
-  const rate = USD_RATES[asset.toUpperCase()] ?? 1;
+  const rate = rateFor(asset);
   const nativeAmt = amountUsd / rate;
   const nextAssets = target.assets.map(a => ({ ...a }));
   const idx = nextAssets.findIndex(a => a.asset.toUpperCase() === asset.toUpperCase());

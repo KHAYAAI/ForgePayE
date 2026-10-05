@@ -5,6 +5,7 @@
  * allocation toward its PortfolioTarget. Skips trivial drifts under 2 %.
  */
 
+import { rateFor } from './prices';
 import {
   AgentWallet,
   AssetBalance,
@@ -34,21 +35,11 @@ export function getAssetClass(asset: string): AssetClass {
 
 // ── FX / USD conversion ───────────────────────────────────────────────────────
 
-export const USD_RATES: Record<string, number> = {
-  USDC:  1.0,
-  USDT:  1.0,
-  DAI:   1.0,
-  USDY:  1.0,
-  TBILL: 1.0,
-  BUIDL: 1.0,
-  ETH:   3200.0,
-  WETH:  3200.0,
-  BTC:   68000.0,
-  WBTC:  68000.0,
-};
-
+// Prices come from ./prices (a live feed; $1 only for pegged stablecoins).
+// The hardcoded USD_RATES table this replaced valued ETH at $3,200 and BTC at
+// $68,000 forever.
 export function toUsd(amount: number, asset: string): number {
-  return amount * (USD_RATES[asset.toUpperCase()] ?? 0);
+  return amount * rateFor(asset);
 }
 
 // ── Target validation ─────────────────────────────────────────────────────────
@@ -82,7 +73,7 @@ export function snapshotAllocation(wallets: AgentWallet[] | AgentWallet): Alloca
   let totalUsd = 0;
   for (const w of list) {
     for (const a of w.assets) {
-      const usd = a.balanceUsd > 0 ? a.balanceUsd : toUsd(a.balanceNative, a.asset);
+      const usd = toUsd(a.balanceNative, a.asset);
       const cls = getAssetClass(a.asset);
       byClass[cls] += usd;
       totalUsd    += usd;

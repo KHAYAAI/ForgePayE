@@ -67,25 +67,13 @@ describe('sweepToYield', () => {
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
-  it('sweeps when idle exceeds threshold and calls yield-engine', async () => {
+  it('reports not_supported above the threshold and calls nothing (the yield routes never existed)', async () => {
     const w = makeWallet([{ asset: 'USDC', balanceNative: 10_000 }]);
     const res = await sweepToYield('a_test', policy({ minLiquidStableUsd: 1_000, maxIdleStableUsd: 1_000, sweepVault: 'ondo' }), w);
-    expect(res.status).toBe('swept');
+    expect(res.status).toBe('not_supported');
     expect(res.amountUsd).toBeCloseTo(9_000);
-    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
-    const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]!;
-    expect(String(url)).toContain('/v1/sweep/trigger');
-    const body = JSON.parse((init as RequestInit).body as string);
-    expect(body).toMatchObject({ agentId: 'a_test', vault: 'ondo', asset: 'USDC' });
-    expect(body.amountUsd).toBeCloseTo(9_000);
-  });
-
-  it('marks as skipped on yield-engine failure', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response('boom', { status: 500 })));
-    const w = makeWallet([{ asset: 'USDC', balanceNative: 10_000 }]);
-    const res = await sweepToYield('a_test', policy({ minLiquidStableUsd: 1_000, maxIdleStableUsd: 1_000 }), w);
-    expect(res.status).toBe('skipped');
-    expect(res.reason).toContain('yield-engine');
+    expect(res.reason).toMatch(/not connected/);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 });
 
@@ -97,14 +85,12 @@ describe('liquidateFromYield', () => {
     vi.unstubAllGlobals();
   });
 
-  it('detects a deficit and posts withdraw request', async () => {
+  it('reports not_supported for a deficit and calls nothing', async () => {
     const w = makeWallet([{ asset: 'USDC', balanceNative: 300 }]);
     const res = await liquidateFromYield('a_test', policy({ autoLiquidateBelowUsd: 500 }), w);
-    expect(res.status).toBe('liquidated');
+    expect(res.status).toBe('not_supported');
     expect(res.amountUsd).toBeCloseTo(200);
-    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
-    const [url] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]!;
-    expect(String(url)).toContain('/v1/sweep/withdraw');
+    expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
   it('skips when liquid balance is above floor', async () => {
