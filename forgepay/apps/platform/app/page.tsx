@@ -86,7 +86,7 @@ export default function Home() {
             This card previously advertised R8,500/mo, the rate card the
             enterprise repricing replaced — the service had stopped honouring it.
           */}
-          <ProductCard icon="📊" title="Forge Credit Bureau" price="$4,000/mo" description="Dual-mode credit scoring with FICO and on-chain operational modes." href="/products/credit-bureau" />
+          <ProductCard icon="📊" title="Forge Credit Bureau" price="$4,000/mo" description="Credit files for AI agents: a rules-based score from furnisher data, plus an on-chain score where data exists." href="/products/credit-bureau" />
         </div>
       </section>
 

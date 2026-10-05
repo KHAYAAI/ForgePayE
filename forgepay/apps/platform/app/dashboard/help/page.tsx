@@ -58,7 +58,7 @@ export default function HelpPage() {
             Disputes.
           </Entry>
           <Entry term="Dual-mode scoring (Mode 1 / Mode 2)">
-            Mode 1 (FORGE FICO, off-chain) always makes the lending decision. Mode 2 (operational,
+            Mode 1 (rules-based, off-chain) always makes the lending decision. Mode 2 (operational,
             Qova-derived) exists to catch what a credit file can't: an agent whose on-book profile
             looks healthy but whose live operational behavior — failure rates, budget breaches —
             has deteriorated. When Mode 2 hasn't yet settled, consensus reports MEDIUM and Mode 1
@@ -66,7 +66,7 @@ export default function HelpPage() {
           </Entry>
           <Entry term="On-chain settlement">
             Settled Mode 2 scores are readable by any external protocol — the bureau's audit trail
-            without exposing the underlying credit file. Settlement runs on a schedule; the FICO
+            without exposing the underlying credit file. Settlement runs on a schedule; the Mode 1
             file never leaves FORGE.
           </Entry>
           <Entry term="Disputes (FCRA-style process)">

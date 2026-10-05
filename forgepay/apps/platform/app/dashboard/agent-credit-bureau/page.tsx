@@ -130,7 +130,7 @@ export default function BureauOverview() {
       </Panel>
 
       <Grid2>
-        <Panel title="Mode 1 — FORGE FICO" label="authoritative for lending · off-chain · <15ms">
+        <Panel title="Mode 1 — rules-based score" label="authoritative for lending · off-chain · <15ms">
           <ol style={{ listStyle: 'none' }}>
             {[
               ['35%', 'Payment history', 'on-time rate, open delinquencies, defaults on record'],

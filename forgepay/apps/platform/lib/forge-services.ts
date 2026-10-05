@@ -156,6 +156,7 @@ interface RawDualScore {
   mode1: { score: number; recommendation: string };
   mode2: { score: number; txHash?: string; blockNumber?: number; chainId?: number; settledAt?: string } | null;
   consensus: { level: 'HIGH' | 'MEDIUM' | 'LOW' };
+  mode2Unavailable?: { reason: string; detail?: string };
 }
 
 /** Dual-mode (Mode 1 / Mode 2) score for every registered agent — Scores page register. */
@@ -180,8 +181,11 @@ export async function getBureauDualScores<T = Record<string, unknown>>(tenantId:
       did: agent.did,
       operator: agent.operatorEntityId,
       mode1: d.mode1.score,
-      mode2: d.mode2?.score ?? d.mode1.score,
-      consensus: d.consensus.level,
+      // No on-chain score is no score: never show Mode 1 again in its place,
+      // and no consensus, since there is nothing to agree with.
+      mode2: d.mode2 ? d.mode2.score : null,
+      mode2Reason: d.mode2 ? null : (d.mode2Unavailable?.detail ?? 'No on-chain data for this agent.'),
+      consensus: d.mode2 ? d.consensus.level : null,
       decision: d.mode1.recommendation,
       settled: !!d.mode2?.txHash,
     };

@@ -30,7 +30,7 @@ export default function CreditBureauProductPage() {
       <section style={{ padding: '140px 40px 80px', background: 'linear-gradient(135deg, #00D4FF 0%, var(--cyan) 100%)', color: 'var(--navy)', textAlign: 'center', marginTop: 60 }}>
         <h1 style={{ fontSize: 48, fontWeight: 700, marginBottom: 16 }}>📊 Forge Credit Bureau</h1>
         <p style={{ fontSize: 20, opacity: 0.9, maxWidth: 700, margin: '0 auto' }}>
-          Credit files for autonomous agents. A traditional FICO-style score and an on-chain
+          Credit files for autonomous agents. A rules-based score and an on-chain
           operational score, side by side, with the variance between them explained.
         </p>
       </section>
@@ -44,7 +44,7 @@ export default function CreditBureauProductPage() {
           <FeatureCard
             icon="🎯"
             title="Dual-Mode Scoring"
-            description="Mode 1 is FICO-shaped: payment history, utilisation, age, mix, new credit. Mode 2 scores on-chain operational behaviour. Both are returned, never blended into one opaque number."
+            description="Mode 1 is a published rules-based formula over payment history, utilisation, age, mix, new credit. Mode 2 scores on-chain operational behaviour. Both are returned, never blended into one opaque number."
           />
           <FeatureCard
             icon="🔍"

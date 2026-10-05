@@ -413,7 +413,7 @@
     <div class="wrap">
       <div class="head-split">
         <div>
-          <div class="eye" style="margin-bottom: 24px;"><span class="mono">Scoring system</span><span class="tick"></span><span class="mono">A FICO for agents</span></div>
+          <div class="eye" style="margin-bottom: 24px;"><span class="mono">Scoring system</span><span class="tick"></span><span class="mono">A credit score for agents</span></div>
           <h2 class="big">One score.<br/>Ten <em>grades</em>.</h2>
         </div>
         <p class="lede">FORGE computes a 0-1000 score from payment history, credit utilization, age of credit, credit mix and inquiry velocity the same weighted factors a traditional bureau uses, applied to an agent's transaction record. Ten letter grades, AAA down to D, turn that number into an instant, human-readable risk read.</p>
@@ -522,7 +522,7 @@ if (score.mode1.grade === "AAA" || score.mode1.grade === "AA") {
       </div>
 
       <div class="feature-grid">
-        <div class="cell"><h3>Mode 1 &middot; FORGE FICO</h3><p>The lending decision. Computed off-chain from payment history, utilization, credit age, mix and inquiry velocity the same factor weighting a traditional bureau uses. Sub-15ms, always available.</p></div>
+        <div class="cell"><h3>Mode 1 &middot; Rules-based score</h3><p>The lending decision. A published, hand-weighted formula computed off-chain from payment history, utilization, credit age, mix and inquiry velocity. It is not a trained model and is not affiliated with FICO.</p></div>
         <div class="cell"><h3>Mode 2 &middot; Operational</h3><p>The behavioral check. Derived from an agent's on-chain activity success rate, volume, budget compliance and settled on Base when a chain client is configured. Absent, not guessed, when it isn't.</p></div>
         <div class="cell"><h3>Consensus scoring</h3><p>The two modes are compared on every pull. Agreement is high confidence; a large variance flags the agent for manual review before credit is extended.</p></div>
         <div class="cell"><h3>DID-based identity</h3><p>Every agent registers with a decentralized identifier. Identity is checked against the FORGE agent registry, with a documented fallback when that registry can't be reached.</p></div>

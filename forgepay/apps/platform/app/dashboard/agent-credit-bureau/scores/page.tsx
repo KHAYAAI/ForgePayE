@@ -17,7 +17,7 @@ import { gradeFor, gradeTone } from '@/lib/credit-grade';
 
 /* ────────────────────────────────────────────────────────────────
    Agent Credit Bureau — Scores (dual-mode analysis).
-   Mode 1 (FORGE FICO, authoritative) vs Mode 2 (operational,
+   Mode 1 (rules-based, authoritative) vs Mode 2 (operational,
    Qova-derived) with consensus levels, variance flags and
    on-chain settlement receipts.
    Mirrors GET /v1/agents/:id/dual-score + /v1/settlement/status.
@@ -27,8 +27,9 @@ interface DualRow {
   did: string;
   operator: string;
   mode1: number;
-  mode2: number;
-  consensus: 'HIGH' | 'MEDIUM' | 'LOW';
+  mode2: number | null;
+  mode2Reason?: string | null;
+  consensus: 'HIGH' | 'MEDIUM' | 'LOW' | null;
   decision: string;
   settled: boolean;
 }
@@ -67,10 +68,14 @@ export default function BureauScores() {
   const settlements = data.settlements ?? [];
 
   const hasRows = dualRows.length > 0;
-  const variances = dualRows.map((r) => Math.abs(r.mode1 - r.mode2));
-  const flagged = dualRows.filter((r) => r.consensus !== 'HIGH').length;
+  // Mode 2 exists only for agents with on-chain data; averages and variance
+  // are over those agents alone.
+  const withMode2 = dualRows.filter((r): r is DualRow & { mode2: number } => r.mode2 !== null);
+  const hasMode2 = withMode2.length > 0;
+  const variances = withMode2.map((r) => Math.abs(r.mode1 - r.mode2));
+  const flagged = dualRows.filter((r) => r.consensus !== null && r.consensus !== 'HIGH').length;
   const avgMode1 = hasRows ? Math.round(dualRows.reduce((s, r) => s + r.mode1, 0) / dualRows.length) : null;
-  const avgMode2 = hasRows ? Math.round(dualRows.reduce((s, r) => s + r.mode2, 0) / dualRows.length) : null;
+  const avgMode2 = hasMode2 ? Math.round(withMode2.reduce((s, r) => s + r.mode2, 0) / withMode2.length) : null;
 
   return (
     <>
@@ -81,15 +86,15 @@ export default function BureauScores() {
             Two lenses, <em>one decision</em>
           </>
         }
-        lede="Every dual-score pull computes Mode 1 (FORGE FICO — the lending decision) and Mode 2 (operational behavior) side by side. Agreement builds confidence; divergence flags the agent before credit is extended."
+        lede="Every dual-score pull computes Mode 1 (the rules-based score that drives the lending decision) and, where the agent has on-chain data, Mode 2 (operational behaviour) side by side. Agreement builds confidence; divergence flags the agent before credit is extended."
         actions={<LivePill live={live} />}
       />
 
       <StatGrid>
-        <Stat label="Avg Mode 1 score" value={hasRows ? `${avgMode1}` : '—'} delta={hasRows ? `${gradeFor(avgMode1!).grade} · FICO lens` : 'no scores yet'} />
-        <Stat label="Avg Mode 2 score" value={hasRows ? `${avgMode2}` : '—'} delta={hasRows ? `${gradeFor(avgMode2!).grade} · operational lens` : 'no scores yet'} />
+        <Stat label="Avg Mode 1 score" value={hasRows ? `${avgMode1}` : '—'} delta={hasRows ? `${gradeFor(avgMode1!).grade} · lending lens` : 'no scores yet'} />
+        <Stat label="Avg Mode 2 score" value={hasMode2 ? `${avgMode2}` : '—'} delta={hasMode2 ? `${gradeFor(avgMode2!).grade} · ${withMode2.length} of ${dualRows.length} agents` : 'no on-chain data yet'} />
         <Stat label="Variance flags" value={flagged} deltaTone={flagged > 0 ? 'down' : undefined} delta="consensus below HIGH" />
-        <Stat label="Max variance" value={hasRows ? `${Math.max(...variances)} pts` : '—'} delta=">100 pts → manual review" />
+        <Stat label="Max variance" value={hasMode2 ? `${Math.max(...variances)} pts` : '—'} delta=">100 pts → manual review" />
         <Stat label="Settled on-chain" value={settlements.length} delta="external verification" />
       </StatGrid>
 
@@ -99,17 +104,17 @@ export default function BureauScores() {
           emptyMessage="No dual-scores computed yet."
           rows={dualRows.map((r) => {
             const g1 = gradeFor(r.mode1);
-            const g2 = gradeFor(r.mode2);
-            const variance = Math.abs(r.mode1 - r.mode2);
+            const g2 = r.mode2 !== null ? gradeFor(r.mode2) : null;
+            const variance = r.mode2 !== null ? Math.abs(r.mode1 - r.mode2) : null;
             return [
               <Addr key="d">{r.did}</Addr>,
               r.operator,
               <Mono key="m1">{r.mode1}</Mono>,
               <Pill key="g1" tone={gradeTone(g1.grade)}>{g1.grade}</Pill>,
-              <Mono key="m2">{r.mode2}</Mono>,
-              <Pill key="g2" tone={gradeTone(g2.grade)}>{g2.grade}</Pill>,
-              <Mono key="v">{variance} pts</Mono>,
-              <Pill key="c" tone={CONSENSUS_TONE[r.consensus]}>{r.consensus.toLowerCase()}</Pill>,
+              <Mono key="m2">{r.mode2 ?? <span title={r.mode2Reason ?? undefined}>—</span>}</Mono>,
+              g2 ? <Pill key="g2" tone={gradeTone(g2.grade)}>{g2.grade}</Pill> : '—',
+              <Mono key="v">{variance !== null ? `${variance} pts` : '—'}</Mono>,
+              r.consensus ? <Pill key="c" tone={CONSENSUS_TONE[r.consensus]}>{r.consensus.toLowerCase()}</Pill> : 'no on-chain data',
               <Pill key="dec" tone={DECISION_TONE[r.decision]}>{r.decision.replace(/_/g, ' ')}</Pill>,
             ];
           })}
