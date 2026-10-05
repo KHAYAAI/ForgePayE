@@ -17,15 +17,15 @@
 #### A. API Health (30 min)
 ```bash
 # Test each endpoint
-curl https://api.forgepay.co.za/api/health
+curl https://api.myforgepay.com/api/health
 # Expected: HTTP 200, uptime >99.9%
 
-curl -X POST https://api.forgepay.co.za/api/auth/signup \
+curl -X POST https://api.myforgepay.com/api/auth/signup \
   -H "Content-Type: application/json" \
   -d '{"email":"test@test.com","name":"Test","password":"Test123456"}'
 # Expected: HTTP 201, user created
 
-curl https://api.forgepay.co.za/api/dashboard/payments
+curl https://api.myforgepay.com/api/dashboard/payments
 # Expected: HTTP 200, live metrics returned
 ```
 
@@ -130,7 +130,7 @@ aws cloudwatch describe-alarms --alarm-name-prefix forgepay \
 #### G. Security Verification (15 min)
 ```bash
 # Check SSL/TLS certificate
-openssl s_client -connect api.forgepay.co.za:443 -servername api.forgepay.co.za \
+openssl s_client -connect api.myforgepay.com:443 -servername api.myforgepay.com \
   | openssl x509 -noout -dates
 # Expected: notBefore before today, notAfter after today
 
@@ -320,7 +320,7 @@ Escalation email templates prepared?
 For each support team member:
 
 Support #1: ___________________
-☐ Can login to https://forgepay.co.za/dashboard/ops
+☐ Can login to https://myforgepay.com/dashboard/ops
 ☐ Can see "System Health" metrics
 ☐ Can see "Payment Metrics" (last 24h)
 ☐ Can see "Kill Bill Sync" status
@@ -329,22 +329,22 @@ Support #1: ___________________
 Password: Reset ☐
 
 Support #2: ___________________
-☐ Can login to https://forgepay.co.za/dashboard/ops
+☐ Can login to https://myforgepay.com/dashboard/ops
 ☐ Can see all sections above
 Password: Reset ☐
 
 Support #3: ___________________
-☐ Can login to https://forgepay.co.za/dashboard/ops
+☐ Can login to https://myforgepay.com/dashboard/ops
 ☐ Can see all sections above
 Password: Reset ☐
 
 Support #4: ___________________
-☐ Can login to https://forgepay.co.za/dashboard/ops
+☐ Can login to https://myforgepay.com/dashboard/ops
 ☐ Can see all sections above
 Password: Reset ☐
 
 Support #5: ___________________
-☐ Can login to https://forgepay.co.za/dashboard/ops
+☐ Can login to https://myforgepay.com/dashboard/ops
 ☐ Can see all sections above
 Password: Reset ☐
 ```
@@ -388,11 +388,11 @@ Verify notifications received:
 Are all runbooks accessible to support team?
 
 Runbook locations:
-☐ Payment Failure: https://docs.forgepay.co.za/support/payment-failure
-☐ KB Sync Failure: https://docs.forgepay.co.za/support/kb-sync
-☐ Email Queue Backed Up: https://docs.forgepay.co.za/support/email-queue
-☐ Support SLA Breach: https://docs.forgepay.co.za/support/sla-breach
-☐ Troubleshooting: https://docs.forgepay.co.za/support/troubleshooting
+☐ Payment Failure: https://docs.myforgepay.com/support/payment-failure
+☐ KB Sync Failure: https://docs.myforgepay.com/support/kb-sync
+☐ Email Queue Backed Up: https://docs.myforgepay.com/support/email-queue
+☐ Support SLA Breach: https://docs.myforgepay.com/support/sla-breach
+☐ Troubleshooting: https://docs.myforgepay.com/support/troubleshooting
 
 Are all documents printed/bookmarked?
 ☐ Support #1: Runbooks available
@@ -413,7 +413,7 @@ Are all documents printed/bookmarked?
 Are all support channels working?
 
 Email:
-☐ support@forgepay.co.za inbox monitored
+☐ support@myforgepay.com inbox monitored
 ☐ Auto-response set up
 ☐ Ticket system tracking
 
@@ -447,7 +447,7 @@ Email templates:
 ☐ Incident root cause report
 
 Status page:
-☐ https://status.forgepay.co.za live
+☐ https://status.myforgepay.com live
 ☐ Incidents can be posted
 ☐ Subscriptions can be created
 ☐ Historical incidents visible
@@ -684,7 +684,7 @@ helm rollback platform 1 --namespace forgepay
 kubectl rollout status deployment/platform -n forgepay --timeout=3m
 
 # Step 3: Run smoke test
-curl https://api.forgepay.co.za/api/health
+curl https://api.myforgepay.com/api/health
 # Expected: HTTP 200
 
 # Step 4: Verify metrics
@@ -782,7 +782,7 @@ Internal:
 ☐ Message support team (within 5 min)
 
 External (if customer-facing):
-☐ Post incident on status.forgepay.co.za
+☐ Post incident on status.myforgepay.com
 ☐ Send customer email (if needed)
 ☐ Tweet status update (if prolonged)
 

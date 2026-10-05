@@ -30,7 +30,7 @@ import axios from 'axios';
 // ---------------------------------------------------------------------------
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY ?? 'sk-ant-demo';
 const FORGEPAY_API_KEY = process.env.FORGEPAY_API_KEY ?? 'fp_demo_key';
-const FORGEPAY_BASE_URL = process.env.FORGEPAY_BASE_URL ?? 'https://api.forgepay.io';
+const FORGEPAY_BASE_URL = process.env.FORGEPAY_BASE_URL ?? 'https://api.myforgepay.com';
 const MARKETPLACE_BASE_URL = process.env.MARKETPLACE_URL ?? 'https://marketplace.example.io';
 
 /** Maximum price in USD the agent is authorized to pay */

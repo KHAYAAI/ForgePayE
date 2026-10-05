@@ -37,7 +37,7 @@
       "properties": {
         "forgepay.dashboardUrl": {
           "type":        "string",
-          "default":     "https://dashboard.forgepay.io",
+          "default":     "https://dashboard.myforgepay.com",
           "description": "ForgePay dashboard URL (used as API endpoint)"
         }
       }

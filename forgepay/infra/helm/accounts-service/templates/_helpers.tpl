@@ -29,7 +29,7 @@ helm.sh/chart: {{ include "accounts-service.name" . }}-{{ .Chart.Version }}
 {{ include "accounts-service.selectorLabels" . }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
-app.forgepay.io/component: accounts-service
+app.myforgepay.com/component: accounts-service
 {{- end }}
 
 {{/*

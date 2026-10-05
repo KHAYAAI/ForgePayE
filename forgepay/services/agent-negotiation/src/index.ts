@@ -75,7 +75,7 @@ export function resolveCorsOrigin(): string | string[] {
     throw new Error(
       'CORS_ORIGIN is not set (or is "*") in production. The negotiation service refuses to ' +
       'start without an explicit origin allowlist — set it to a comma-separated list of ' +
-      'trusted origins, e.g. CORS_ORIGIN=https://dashboard.forgepay.io,https://app.forgepay.io',
+      'trusted origins, e.g. CORS_ORIGIN=https://dashboard.myforgepay.com,https://app.myforgepay.com',
     );
   }
 

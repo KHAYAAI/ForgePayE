@@ -405,8 +405,8 @@ CREATE TABLE auditor_key_rotation_log (
   "old_public_key": "0x1234...abcd",
   "new_public_key": "0x5678...efgh",
   "rotation_reason": "Annual rotation (per policy)",
-  "initiated_by": "ops-team@forgepay.io",
-  "approved_by": "security-council@forgepay.io",
+  "initiated_by": "ops-team@myforgepay.com",
+  "approved_by": "security-council@myforgepay.com",
   "effective_at": "2026-04-24T14:00:00Z",
   "created_at": "2026-04-24T14:00:00Z"
 }
@@ -531,6 +531,6 @@ INSERT INTO frozen_nullifiers (
 
 ## Questions?
 
-For security questions, contact: security@forgepay.io
+For security questions, contact: security@myforgepay.com
 
-For academic inquiries, contact: research@forgepay.io
+For academic inquiries, contact: research@myforgepay.com

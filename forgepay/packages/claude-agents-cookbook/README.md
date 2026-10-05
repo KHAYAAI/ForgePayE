@@ -34,7 +34,7 @@ x-402-version: 1
 x-402-scheme: x402
 x-402-max-amount: 0.50
 x-402-asset: USDC
-x-402-payment-endpoint: https://api.forgepay.io/v1/x402/pay
+x-402-payment-endpoint: https://api.myforgepay.com/v1/x402/pay
 x-402-chain: base
 ```
 
@@ -95,7 +95,7 @@ import { createForgePayPlugin } from '@forgepay/elizaos-plugin';
 const forgePayPlugin = createForgePayPlugin({
   apiKey: process.env.FORGEPAY_API_KEY,
   merchantId: process.env.FORGEPAY_MERCHANT_ID,
-  // baseUrl: 'https://api.forgepay.io'  // optional
+  // baseUrl: 'https://api.myforgepay.com'  // optional
 });
 
 // Register with your ElizaOS agent
@@ -464,7 +464,7 @@ All three examples follow the same agentic loop pattern:
        ▼                        ▼
 ┌──────────────┐    ┌───────────────────────┐
 │  External    │    │   ForgePay API        │
-│  APIs        │    │   (api.forgepay.io)   │
+│  APIs        │    │   (api.myforgepay.com)   │
 │  (data,      │    │                       │
 │   market)    │    │  /v1/x402/pay         │
 └──────────────┘    │  /v1/accounts/balance │
@@ -518,7 +518,7 @@ toolResults.push({
 |---|---|---|
 | `ANTHROPIC_API_KEY` | — | Claude API key |
 | `FORGEPAY_API_KEY` | — | ForgePay merchant API key |
-| `FORGEPAY_BASE_URL` | `https://api.forgepay.io` | ForgePay API base URL |
+| `FORGEPAY_BASE_URL` | `https://api.myforgepay.com` | ForgePay API base URL |
 | `FORGEPAY_MERCHANT_ID` | — | Your merchant ID |
 | `PREMIUM_API_URL` | example endpoint | Target for x402 agent |
 | `BUDGET_USD` | `50` | Max spend for marketplace agent |

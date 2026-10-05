@@ -132,9 +132,9 @@ TF_LOCKS_TABLE="forgepay-terraform-locks-${REGION}"
 TF_STATE_KEY="forgepay/staging/${REGION}/terraform.tfstate"
 
 case "${REGION}" in
-  af-south-1) BASE_DOMAIN="staging.af.forgepay.io" ;;
-  us-east-1)  BASE_DOMAIN="staging.us.forgepay.io" ;;
-  eu-west-2)  BASE_DOMAIN="staging.eu.forgepay.io" ;;
+  af-south-1) BASE_DOMAIN="staging.af.myforgepay.com" ;;
+  us-east-1)  BASE_DOMAIN="staging.us.myforgepay.com" ;;
+  eu-west-2)  BASE_DOMAIN="staging.eu.myforgepay.com" ;;
 esac
 
 # =============================================================================
@@ -265,7 +265,7 @@ run_terraform() {
 
   export TF_VAR_db_username="${DATABASE_USER:-forgepay_staging}"
   export TF_VAR_db_password="${DATABASE_PASSWORD:-}"
-  export TF_VAR_alert_email="${ALERT_EMAIL:-devops@forgepay.io}"
+  export TF_VAR_alert_email="${ALERT_EMAIL:-devops@myforgepay.com}"
 
   if [[ -z "${TF_VAR_db_password}" ]]; then
     log_warn "DATABASE_PASSWORD not set in env file — Terraform may prompt for db_password"

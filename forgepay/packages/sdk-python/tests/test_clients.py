@@ -12,7 +12,7 @@ from forgepay.resources.stablecoins import AsyncStablecoinsResource, Stablecoins
 from forgepay.resources.subscriptions import AsyncSubscriptionsResource, SubscriptionsResource
 from forgepay.resources.webhooks import WebhookResource
 
-BASE = "https://api.forgepay.io"
+BASE = "https://api.myforgepay.com"
 
 
 class TestForgePay:

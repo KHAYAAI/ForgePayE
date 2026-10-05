@@ -99,10 +99,10 @@ export const config = {
     // Comma-separated list of trusted JWT issuer URLs
     trustedIssuers: optional(
       'KYAPAY_TRUSTED_ISSUERS',
-      'https://skyfire.xyz,https://api.forgepay.com',
+      'https://skyfire.xyz,https://api.myforgepay.com',
     ).split(',').map(s => s.trim()).filter(Boolean),
     // ForgePay's own issuer URL (used when we issue tokens)
-    issuerUrl: optional('FORGEPAY_ISSUER_URL', 'https://api.forgepay.com'),
+    issuerUrl: optional('FORGEPAY_ISSUER_URL', 'https://api.myforgepay.com'),
   },
 } as const;
 

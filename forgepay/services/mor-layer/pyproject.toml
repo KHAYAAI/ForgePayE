@@ -2,7 +2,7 @@
 name = "forgepay-mor-layer"
 version = "0.1.0"
 description = "ForgePay MoR Layer — Merchant of Record service forked from Polar, wired to Hyperswitch"
-authors = ["ForgePay Engineering <eng@forgepay.io>"]
+authors = ["ForgePay Engineering <eng@myforgepay.com>"]
 license = "Apache-2.0"
 readme = "README.md"
 packages = [{ include = "src" }]

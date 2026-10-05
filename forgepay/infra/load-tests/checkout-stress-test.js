@@ -10,7 +10,7 @@ const checkoutLatency = new Trend('checkout_latency');
  *
  * Usage:
  *   k6 run --out json=results/stress.json checkout-stress-test.js
- *   BASE_URL=https://api.staging.forgepay.io k6 run checkout-stress-test.js
+ *   BASE_URL=https://api.staging.myforgepay.com k6 run checkout-stress-test.js
  *
  * Thresholds (relaxed vs standard 100 VU):
  * - p95 latency: < 800 ms (vs 500ms for standard)
@@ -40,7 +40,7 @@ export default function () {
     currency: 'USD',
     amount_subtotal_cents: 1999,
     customer_id: `cus_${__VU}_${__ITER}`,
-    customer_email: `stress${__VU}@loadtest.forgepay.io`,
+    customer_email: `stress${__VU}@loadtest.myforgepay.com`,
     customer_country: 'US',
     customer_state: 'CA',
     success_url: 'https://example.com/success',

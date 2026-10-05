@@ -119,7 +119,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if settings.environment == "development" else ["https://forgepay.io"],
+    allow_origins=["*"] if settings.environment == "development" else ["https://myforgepay.com"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

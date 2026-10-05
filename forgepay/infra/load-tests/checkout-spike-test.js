@@ -36,7 +36,7 @@ export default function () {
     currency: 'USD',
     amount_subtotal_cents: 1999,
     customer_id: `cus_spike_${__VU}_${__ITER}`,
-    customer_email: `spike${__VU}@loadtest.forgepay.io`,
+    customer_email: `spike${__VU}@loadtest.myforgepay.com`,
     customer_country: 'US',
     customer_state: 'NY',
     success_url: 'https://example.com/success',

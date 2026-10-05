@@ -415,6 +415,6 @@ helm install compliance-monitor ./infra/helm/compliance-monitor/ \
 ## Support
 
 For issues or questions:
-- Email: compliance@forgepay.io
+- Email: compliance@myforgepay.com
 - Slack: #compliance-monitor
 - JIRA: ForgePay/COMPLIANCE-*

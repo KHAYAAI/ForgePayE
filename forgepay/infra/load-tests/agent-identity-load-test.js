@@ -20,7 +20,7 @@ export const options = {
 // Pre-register some agents for discovery tests
 const AGENT_PAYLOAD = JSON.stringify({
   name: 'test-agent-${__VU}',
-  endpoint: 'https://test.forgepay.io/agent',
+  endpoint: 'https://test.myforgepay.com/agent',
   capabilities: ['negotiation', 'payment'],
   framework: 'forgepay',
 });

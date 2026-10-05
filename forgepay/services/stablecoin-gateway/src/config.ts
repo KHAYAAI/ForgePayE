@@ -26,7 +26,7 @@ export function resolveCorsOrigins(): string[] {
     throw new Error(
       'CORS_ALLOWED_ORIGINS is not set (or is "*") in production. stablecoin-gateway refuses to ' +
       'start without an explicit origin allowlist — set it to a comma-separated list of trusted ' +
-      'origins, e.g. CORS_ALLOWED_ORIGINS=https://dashboard.forgepay.io,https://app.forgepay.io',
+      'origins, e.g. CORS_ALLOWED_ORIGINS=https://dashboard.myforgepay.com,https://app.myforgepay.com',
     );
   }
 

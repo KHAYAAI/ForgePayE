@@ -99,7 +99,7 @@ tiers:
         features:
           - custom_routing
           - white_label_checkout
-        message: "This feature requires Enterprise tier. Contact sales@forgepay.io"
+        message: "This feature requires Enterprise tier. Contact sales@myforgepay.com"
 
 # Upgrade pricing
 upgrade:

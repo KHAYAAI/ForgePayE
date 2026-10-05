@@ -263,7 +263,7 @@ normalize_name("ACME INC")  # → "acme"
 - **Docs**: See OFAC_INTEGRATION.md
 - **Examples**: See OFAC_USAGE_EXAMPLES.md
 - **Tests**: tests/test_ofac_feed_integration.py
-- **Email**: compliance@forgepay.io
+- **Email**: compliance@myforgepay.com
 - **Slack**: #compliance-monitor
 
 ---

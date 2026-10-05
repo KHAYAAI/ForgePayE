@@ -29,7 +29,7 @@ helm.sh/chart: {{ include "yield-engine.name" . }}-{{ .Chart.Version }}
 {{ include "yield-engine.selectorLabels" . }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
-app.forgepay.io/component: yield-engine
+app.myforgepay.com/component: yield-engine
 {{- end }}
 
 {{/*

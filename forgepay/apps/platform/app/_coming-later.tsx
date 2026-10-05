@@ -31,7 +31,7 @@ export function ComingLater({ name, summary, built, before }: { name: string; su
         </div>
       </section>
       <footer style={{ background: 'var(--navy)', color: 'white', textAlign: 'center', padding: 40 }}>
-        <p>Want to hear when it opens? <a href="mailto:hello@forgepay.co.za" style={{ color: 'var(--cyan)', textDecoration: 'none' }}>Get in touch</a></p>
+        <p>Want to hear when it opens? <a href="mailto:hello@myforgepay.com" style={{ color: 'var(--cyan)', textDecoration: 'none' }}>Get in touch</a></p>
       </footer>
     </div>
   );

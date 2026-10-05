@@ -6,7 +6,7 @@
 <title>FORGE Console — The Revenue Ontology</title>
 <meta name="description" content="End-to-end demo console for the FORGE platform: payments, treasury, custody, wallet, stablecoin rails and the AI agent credit bureau — all resolving to one canonical event."/>
 <style>
-/* ══ FORGE console — editorial cream/ink system, matched to forgepay.io ══
+/* ══ FORGE console — editorial cream/ink system, matched to myforgepay.com ══
    Paper #F4F2EE · Ink #0A0A0A · hairline grids · no radii · mono micro-labels
    Fonts: Inter Tight / JetBrains Mono are CDN-blocked in hosted artifacts,
    so the closest system stacks stand in. Swap the two @font-face rules in
@@ -436,9 +436,9 @@ const VAULTS=[
  {n:'Merchant Float — ZAR',t:'Fiat',bal:'R 2 410 022.40',as:'ZAR (FBO)',ch:'—',pol:'Dual control',st:'Rebalancing'}];
 
 let APPROVALS=[
- {id:'apr_101',w:'Withdraw $25 000 USDC → Circle payout',v:'Operating Treasury',by:'zanele@forgepay.io',need:'2-of-3',have:1,risk:'Standard'},
- {id:'apr_102',w:'Add signer 0x8c4d…f21a to Agent Escrow',v:'Agent Escrow',by:'sipho@forgepay.io',need:'2-of-3',have:1,risk:'Elevated'},
- {id:'apr_103',w:'Raise auto-approve limit $500 → $1 000',v:'Agent Escrow',by:'tebogo@forgepay.io',need:'2-of-3',have:0,risk:'Elevated'}];
+ {id:'apr_101',w:'Withdraw $25 000 USDC → Circle payout',v:'Operating Treasury',by:'zanele@myforgepay.com',need:'2-of-3',have:1,risk:'Standard'},
+ {id:'apr_102',w:'Add signer 0x8c4d…f21a to Agent Escrow',v:'Agent Escrow',by:'sipho@myforgepay.com',need:'2-of-3',have:1,risk:'Elevated'},
+ {id:'apr_103',w:'Raise auto-approve limit $500 → $1 000',v:'Agent Escrow',by:'tebogo@myforgepay.com',need:'2-of-3',have:0,risk:'Elevated'}];
 
 const NETRUNS=[
  {id:'#214',d:'Today 12:30',a:12,g:'$41 207.10',n:'$8 412.90',sv:'$612.40',ofac:'12/12 clear',st:'Settled'},
@@ -454,9 +454,9 @@ const WALLETS=[
 
 const TEAM=[
  {n:'Tebogo Mvelase',e:'cashmoneytebza@gmail.com',r:'Owner'},
- {n:'Zanele Dube',e:'zanele@forgepay.io',r:'Admin'},
- {n:'Sipho Ndlovu',e:'sipho@forgepay.io',r:'Approver'},
- {n:'Lerato Molefe',e:'lerato@forgepay.io',r:'Analyst'}];
+ {n:'Zanele Dube',e:'zanele@myforgepay.com',r:'Admin'},
+ {n:'Sipho Ndlovu',e:'sipho@myforgepay.com',r:'Approver'},
+ {n:'Lerato Molefe',e:'lerato@myforgepay.com',r:'Analyst'}];
 
 const NOTIFS=[
  {t:'Netting run #214 settled',d:'12 agents netted · $612.40 FX saved',w:'9m ago'},
@@ -469,7 +469,7 @@ const DIST=[{b:'350',n:1},{b:'450',n:1},{b:'550',n:0},{b:'650',n:1},{b:'750',n:1
 
 const DEFAULT_HOOKS=[
  {url:'https://api.merchant.example/webhooks/forge',ev:['payment.succeeded','payment.failed'],on:true},
- {url:'https://ops.forgepay.io/hooks/bureau',ev:['score.updated','dispute.filed'],on:true}];
+ {url:'https://ops.myforgepay.com/hooks/bureau',ev:['score.updated','dispute.filed'],on:true}];
 
 /* ══════════════════════ STATE ══════════════════════ */
 let ENV='Sandbox';
@@ -1165,48 +1165,48 @@ function addHook(){
 
 P.docs=()=>{
  const EPS=[
-  {m:'POST',p:'/v1/payments',d:'Create a payment on any rail',c:`curl -X POST https://api.forgepay.io/v1/payments \\
+  {m:'POST',p:'/v1/payments',d:'Create a payment on any rail',c:`curl -X POST https://api.myforgepay.com/v1/payments \\
   -H "Authorization: Bearer fg_live_…" \\
   -d '{ "amount": 482000, "currency": "zar", "rail": "auto",
         "fallback": ["peach","stripe","stitch_eft"] }'
 
 { "id": "pay_9f2Kd1", "status": "processing",
   "event": "evt_01HQZ9F2K" }`},
-  {m:'GET',p:'/v1/events',d:'Read the canonical log',c:`curl "https://api.forgepay.io/v1/events?after=evt_01HQZ90J8&limit=50" \\
+  {m:'GET',p:'/v1/events',d:'Read the canonical log',c:`curl "https://api.myforgepay.com/v1/events?after=evt_01HQZ90J8&limit=50" \\
   -H "Authorization: Bearer fg_live_…"
 
 { "data": [ { "id": "evt_01HQZ9F2K",
     "type": "payment.succeeded", "rail": "card",
     "amount": { "gross": 482000, "net": 419130, "tax": 62870 },
     "signature": "sha256=8f21c…d90a" } ], "has_more": true }`},
-  {m:'GET',p:'/v1/agents/:id/score',d:'Current score and factors',c:`curl https://api.forgepay.io/v1/agents/agent_prime_001/score \\
+  {m:'GET',p:'/v1/agents/:id/score',d:'Current score and factors',c:`curl https://api.myforgepay.com/v1/agents/agent_prime_001/score \\
   -H "Authorization: Bearer fg_live_…"
 
 { "data": { "agentId": "agent_prime_001", "score": 847,
     "tier": "SUPER_PRIME",
     "grade": { "grade": "BBB", "riskLevel": "Moderate" },
     "utilization": 0.24, "paymentRate": 1, "frozen": false } }`},
-  {m:'POST',p:'/v1/verify',d:'Registration, score and sanctions in one call',c:`curl -X POST https://api.forgepay.io/v1/verify \\
+  {m:'POST',p:'/v1/verify',d:'Registration, score and sanctions in one call',c:`curl -X POST https://api.myforgepay.com/v1/verify \\
   -H "Authorization: Bearer fg_live_…" \\
   -d '{ "did": "did:forge:0x7a3b…7a8b" }'
 
 { "registered": true, "score": 847, "grade": "BBB",
   "sanctions": "clear", "recommendation": "extend_credit" }`},
-  {m:'POST',p:'/v1/inquiries',d:'Consent-gated hard pull · $2.80',c:`curl -X POST https://api.forgepay.io/v1/inquiries \\
+  {m:'POST',p:'/v1/inquiries',d:'Consent-gated hard pull · $2.80',c:`curl -X POST https://api.myforgepay.com/v1/inquiries \\
   -H "Authorization: Bearer fg_live_…" \\
   -d '{ "agentId": "agent_prime_001",
         "purpose": "credit_application",
         "consentToken": "tok_abc123" }'`},
-  {m:'POST',p:'/v1/treasury/netting/runs',d:'Trigger an off-cycle netting run',c:`curl -X POST https://api.forgepay.io/v1/treasury/netting/runs \\
+  {m:'POST',p:'/v1/treasury/netting/runs',d:'Trigger an off-cycle netting run',c:`curl -X POST https://api.myforgepay.com/v1/treasury/netting/runs \\
   -H "Authorization: Bearer fg_live_…"
 
 { "run": "#215", "agents": 12, "net": 810261,
   "fx_saved": 59420, "ofac": "clear" }`},
-  {m:'GET',p:'/v1/grade-scale',d:'Public grade scale and inquiry fee',c:`curl https://api.forgepay.io/v1/grade-scale`},
-  {m:'DELETE',p:'/v1/webhooks/:id',d:'Remove an endpoint',c:`curl -X DELETE https://api.forgepay.io/v1/webhooks/wh_31 \\
+  {m:'GET',p:'/v1/grade-scale',d:'Public grade scale and inquiry fee',c:`curl https://api.myforgepay.com/v1/grade-scale`},
+  {m:'DELETE',p:'/v1/webhooks/:id',d:'Remove an endpoint',c:`curl -X DELETE https://api.myforgepay.com/v1/webhooks/wh_31 \\
   -H "Authorization: Bearer fg_live_…"`}];
  return head('XIX','Developers · reference','Five lines. <em>Any</em> rail.',
-  'REST plus signed webhooks. Base URL <span class="mono" style="text-transform:none;font-size:13px;letter-spacing:.3px">https://api.forgepay.io</span>, authenticated with a Bearer key. Idempotent by default, OpenAPI 3.1 published.')+
+  'REST plus signed webhooks. Base URL <span class="mono" style="text-transform:none;font-size:13px;letter-spacing:.3px">https://api.myforgepay.com</span>, authenticated with a Bearer key. Idempotent by default, OpenAPI 3.1 published.')+
  `<div>${EPS.map((e,i)=>`<div class="ep">
   <button class="ep-h" onclick="var c=this.nextElementSibling;c.style.display=c.style.display==='none'?'block':'none'">
    <span class="meth m-${e.m==='GET'?'get':e.m==='DELETE'?'del':'post'}">${e.m}</span>
@@ -1555,7 +1555,7 @@ P.payCheckout=()=>{
  const active=PY_LINKS.filter(l=>l.st==='Active').length;
  return head('PAY·03','Products · hosted checkout','Paid in <em>one</em> tab.',
   'A hosted page and a shareable link over the same router. Methods are offered by country, and the routing trace is written to the canonical log either way.',
-  `<button class="btn btn-ink" onclick="toast('Payment link created: pay.forgepay.io/l/9f2Kd1','Checkout')">＋ Payment link</button>`)+
+  `<button class="btn btn-ink" onclick="toast('Payment link created: pay.myforgepay.com/l/9f2Kd1','Checkout')">＋ Payment link</button>`)+
  `<div class="grid g4 mb16">
    <div class="kpi"><div class="k">Active links</div><div class="v">${active}</div><div class="d">of ${PY_LINKS.length} created</div></div>
    <div class="kpi"><div class="k">Hosted sessions · 24h</div><div class="v">2 118</div><div class="d up">▲ 9% vs yesterday</div></div>
@@ -2686,14 +2686,14 @@ const CU_VAULTS=[
    {d:'Yesterday 07:00',t:'Acquirer settlement in — Stripe T+2',a:'+R 402 118.00',n:false}]}];
 
 const CU_DECIDED=[
- {id:'apr_098',w:'Withdraw $180 000 BTC → Cold Storage',v:'Cold Storage',by:'zanele@forgepay.io',out:'Executed',sig:'4-of-7',took:'26h 12m',d:'22 Jul'},
+ {id:'apr_098',w:'Withdraw $180 000 BTC → Cold Storage',v:'Cold Storage',by:'zanele@myforgepay.com',out:'Executed',sig:'4-of-7',took:'26h 12m',d:'22 Jul'},
  {id:'apr_097',w:'Release escrow — agent_prime_001 compute deal',v:'Agent Escrow',by:'policy-engine',out:'Auto-approved',sig:'policy',took:'0.4s',d:'21 Jul'},
- {id:'apr_096',w:'Withdraw $60 000 USDC → Circle payout',v:'Operating Treasury',by:'tebogo@forgepay.io',out:'Executed',sig:'2-of-3',took:'14m',d:'21 Jul'},
- {id:'apr_095',w:'Add signer 0x21ba…9f04 to Cold Storage',v:'Cold Storage',by:'sipho@forgepay.io',out:'Rejected',sig:'1-of-7',took:'3h 41m',d:'20 Jul'},
- {id:'apr_094',w:'Raise ZAR float dual-control limit',v:'Merchant Float — ZAR',by:'lerato@forgepay.io',out:'Executed',sig:'2-of-4',took:'52m',d:'19 Jul'},
+ {id:'apr_096',w:'Withdraw $60 000 USDC → Circle payout',v:'Operating Treasury',by:'tebogo@myforgepay.com',out:'Executed',sig:'2-of-3',took:'14m',d:'21 Jul'},
+ {id:'apr_095',w:'Add signer 0x21ba…9f04 to Cold Storage',v:'Cold Storage',by:'sipho@myforgepay.com',out:'Rejected',sig:'1-of-7',took:'3h 41m',d:'20 Jul'},
+ {id:'apr_094',w:'Raise ZAR float dual-control limit',v:'Merchant Float — ZAR',by:'lerato@myforgepay.com',out:'Executed',sig:'2-of-4',took:'52m',d:'19 Jul'},
  {id:'apr_093',w:'Merchant payout batch — 38 merchants',v:'Merchant Float — ZAR',by:'ops-scheduler',out:'Executed',sig:'2-of-4',took:'9m',d:'19 Jul'},
  {id:'apr_092',w:'Escrow release — agent_subprime_001',v:'Agent Escrow',by:'policy-engine',out:'Auto-approved',sig:'policy',took:'0.3s',d:'18 Jul'},
- {id:'apr_091',w:'Withdraw $12 000 USDT → treasury rebalance',v:'Operating Treasury',by:'zanele@forgepay.io',out:'Executed',sig:'2-of-3',took:'21m',d:'18 Jul'}];
+ {id:'apr_091',w:'Withdraw $12 000 USDT → treasury rebalance',v:'Operating Treasury',by:'zanele@myforgepay.com',out:'Executed',sig:'2-of-3',took:'21m',d:'18 Jul'}];
 
 const CU_POLICY=[
  {id:'CP-01',scope:'Agent Escrow',cond:'amount ≤ $500 and destination is a registered agent DID',q:'auto',tl:'—',st:'Active'},
@@ -2730,15 +2730,15 @@ const CU_AUDIT=[
  {t:'2026-07-28 12:38:44',ac:'policy-engine',a:'settlement.credit',tg:'Operating Treasury',q:'policy',h:'8f21c4d90a'},
  {t:'2026-07-28 12:21:48',ac:'policy-engine',a:'escrow.release',tg:'Agent Escrow',q:'policy',h:'7b04ee2f19'},
  {t:'2026-07-28 12:19:32',ac:'agent_super_001',a:'escrow.lock',tg:'Agent Escrow',q:'policy',h:'1c9a3f80d7'},
- {t:'2026-07-28 09:02:11',ac:'zanele@forgepay.io',a:'withdrawal.execute',tg:'Operating Treasury',q:'2-of-3',h:'44de0187ba'},
- {t:'2026-07-28 09:01:07',ac:'tebogo@forgepay.io',a:'approval.sign',tg:'apr_096',q:'—',h:'a20f7c3e55'},
- {t:'2026-07-28 08:58:40',ac:'zanele@forgepay.io',a:'approval.request',tg:'apr_096',q:'—',h:'5e1b9d02cf'},
+ {t:'2026-07-28 09:02:11',ac:'zanele@myforgepay.com',a:'withdrawal.execute',tg:'Operating Treasury',q:'2-of-3',h:'44de0187ba'},
+ {t:'2026-07-28 09:01:07',ac:'tebogo@myforgepay.com',a:'approval.sign',tg:'apr_096',q:'—',h:'a20f7c3e55'},
+ {t:'2026-07-28 08:58:40',ac:'zanele@myforgepay.com',a:'approval.request',tg:'apr_096',q:'—',h:'5e1b9d02cf'},
  {t:'2026-07-28 08:15:02',ac:'ops-scheduler',a:'payout.batch',tg:'Merchant Float — ZAR',q:'2-of-4',h:'c7714ab063'},
- {t:'2026-07-27 16:44:19',ac:'sipho@forgepay.io',a:'signer.rotate',tg:'Operating Treasury',q:'3-of-3',h:'93f2e5c8d1'},
+ {t:'2026-07-27 16:44:19',ac:'sipho@myforgepay.com',a:'signer.rotate',tg:'Operating Treasury',q:'3-of-3',h:'93f2e5c8d1'},
  {t:'2026-07-27 14:07:55',ac:'policy-engine',a:'escrow.auto_approve',tg:'Agent Escrow',q:'policy',h:'0ab46f7192'},
- {t:'2026-07-22 10:00:00',ac:'zanele@forgepay.io',a:'withdrawal.execute',tg:'Cold Storage',q:'4-of-7',h:'e6c30b94af'},
- {t:'2026-07-20 13:22:31',ac:'sipho@forgepay.io',a:'approval.reject',tg:'apr_095',q:'1-of-7',h:'2d8ff10c76'},
- {t:'2026-07-19 09:41:10',ac:'lerato@forgepay.io',a:'policy.update',tg:'Merchant Float — ZAR',q:'2-of-4',h:'b195a7de40'},
+ {t:'2026-07-22 10:00:00',ac:'zanele@myforgepay.com',a:'withdrawal.execute',tg:'Cold Storage',q:'4-of-7',h:'e6c30b94af'},
+ {t:'2026-07-20 13:22:31',ac:'sipho@myforgepay.com',a:'approval.reject',tg:'apr_095',q:'1-of-7',h:'2d8ff10c76'},
+ {t:'2026-07-19 09:41:10',ac:'lerato@myforgepay.com',a:'policy.update',tg:'Merchant Float — ZAR',q:'2-of-4',h:'b195a7de40'},
  {t:'2026-07-12 08:30:00',ac:'ops-ceremony',a:'key.ceremony',tg:'Cold Storage',q:'4-of-7',h:'f0723c6b8e'}];
 
 const cuFmt=n=>('$'+n.toFixed(2)).replace(/\B(?=(\d{3})+(?!\d))/g,' ').replace('$ ','$');
@@ -3193,11 +3193,11 @@ P.waIdentity=()=>head('WAL·02','Wallet · identity','A passport, <em>not</em> a
   <span class="k">"service"</span>: [{
     <span class="k">"id"</span>: "#x402",
     <span class="k">"type"</span>: "X402PaymentEndpoint",
-    <span class="k">"serviceEndpoint"</span>: "https://pay.forgepay.io/x402/agent_prime_001"
+    <span class="k">"serviceEndpoint"</span>: "https://pay.myforgepay.com/x402/agent_prime_001"
   }, {
     <span class="k">"id"</span>: "#credit",
     <span class="k">"type"</span>: "ForgeCreditProfile",
-    <span class="k">"serviceEndpoint"</span>: "https://api.forgepay.io/v1/agents/agent_prime_001/score"
+    <span class="k">"serviceEndpoint"</span>: "https://api.myforgepay.com/v1/agents/agent_prime_001/score"
   }]
 }<button class="copy" onclick="copyText('did:forge:0x7a3b9c2d1e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b',this)">Copy DID</button></div></div>
  <div class="card mb16" style="border:0;padding:0"><h3 style="margin-bottom:4px">Verifiable credentials</h3>

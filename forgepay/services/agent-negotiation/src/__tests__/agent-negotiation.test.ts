@@ -766,7 +766,7 @@ describe('Production auth fails closed', () => {
     // These tests exercise the API-key boot guard specifically; give CORS_ORIGIN
     // a valid production value up front so its own guard doesn't fire first and
     // mask the auth error under test (see resolveCorsOrigin in ../index).
-    process.env['CORS_ORIGIN'] = 'https://dashboard.forgepay.io';
+    process.env['CORS_ORIGIN'] = 'https://dashboard.myforgepay.com';
   });
 
   afterAll(() => {

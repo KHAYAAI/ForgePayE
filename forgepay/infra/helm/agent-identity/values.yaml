@@ -22,8 +22,8 @@ rateLimitPerMinute: 200
 secretRef: forgepay-agent-identity-secrets
 kyapay:
   keyId: forgepay-agent-identity-1
-  issuerUrl: https://api.forgepay.com
-  trustedIssuers: https://skyfire.xyz,https://api.forgepay.com
+  issuerUrl: https://api.myforgepay.com
+  trustedIssuers: https://skyfire.xyz,https://api.myforgepay.com
 resources:
   requests:
     cpu: 300m

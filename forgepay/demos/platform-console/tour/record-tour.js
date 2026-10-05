@@ -323,7 +323,7 @@ module.exports = {};
   await capOff();
   await sleep(700);
   await card('FORGE', 'Every rail. <em>One</em> log.',
-    'Payments · Treasury · Custody · Wallet · Credit Bureau — forgepay.io', 4200);
+    'Payments · Treasury · Custody · Wallet · Credit Bureau — myforgepay.com', 4200);
 
   await page.waitForTimeout(600);
   const video = page.video();

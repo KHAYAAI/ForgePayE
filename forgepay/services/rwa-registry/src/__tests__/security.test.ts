@@ -49,7 +49,7 @@ describe('Production auth fails closed', () => {
 
   it('refuses to boot in production when VALID_API_KEYS is not configured', async () => {
     process.env['NODE_ENV'] = 'production';
-    process.env['CORS_ORIGIN'] = 'https://dashboard.forgepay.io';
+    process.env['CORS_ORIGIN'] = 'https://dashboard.myforgepay.com';
     delete process.env['VALID_API_KEYS'];
     delete process.env['MERCHANT_API_KEYS'];
 
@@ -58,7 +58,7 @@ describe('Production auth fails closed', () => {
 
   it('refuses to boot in production when VALID_API_KEYS is the dev placeholder', async () => {
     process.env['NODE_ENV'] = 'production';
-    process.env['CORS_ORIGIN'] = 'https://dashboard.forgepay.io';
+    process.env['CORS_ORIGIN'] = 'https://dashboard.myforgepay.com';
     process.env['VALID_API_KEYS'] = 'dev-rwa-registry-key';
 
     await expect(buildApp()).rejects.toThrow(/development placeholder/);
@@ -66,7 +66,7 @@ describe('Production auth fails closed', () => {
 
   it('refuses to boot in production when a configured key is too short', async () => {
     process.env['NODE_ENV'] = 'production';
-    process.env['CORS_ORIGIN'] = 'https://dashboard.forgepay.io';
+    process.env['CORS_ORIGIN'] = 'https://dashboard.myforgepay.com';
     process.env['VALID_API_KEYS'] = 'short-key';
 
     await expect(buildApp()).rejects.toThrow(/at least 32 characters/);
@@ -74,7 +74,7 @@ describe('Production auth fails closed', () => {
 
   it('boots in production with a sufficiently long VALID_API_KEYS and explicit CORS_ORIGIN', async () => {
     process.env['NODE_ENV'] = 'production';
-    process.env['CORS_ORIGIN'] = 'https://dashboard.forgepay.io';
+    process.env['CORS_ORIGIN'] = 'https://dashboard.myforgepay.com';
     process.env['VALID_API_KEYS'] = 'a'.repeat(40);
 
     const prodApp = await buildApp();
@@ -117,7 +117,7 @@ describe('Production CORS fails closed', () => {
 
   it('boots in production with an explicit CORS_ORIGIN', async () => {
     process.env['NODE_ENV'] = 'production';
-    process.env['CORS_ORIGIN'] = 'https://dashboard.forgepay.io,https://app.forgepay.io';
+    process.env['CORS_ORIGIN'] = 'https://dashboard.myforgepay.com,https://app.myforgepay.com';
 
     const prodApp = await buildApp();
     await prodApp.ready();

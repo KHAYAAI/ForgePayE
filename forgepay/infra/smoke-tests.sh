@@ -8,7 +8,7 @@
 #   ./smoke-tests.sh [--base-url URL] [--verbose]
 #
 # Environment variables:
-#   SMOKE_BASE_URL         base URL for API calls (default: https://api.forgepay.io)
+#   SMOKE_BASE_URL         base URL for API calls (default: https://api.myforgepay.com)
 #   SMOKE_API_KEY          API key for authenticated requests
 #   SMOKE_JWT_TOKEN        JWT token for protected endpoints (overrides SMOKE_API_KEY)
 #   SMOKE_TIMEOUT          curl timeout in seconds (default: 15)
@@ -24,7 +24,7 @@ set -euo pipefail
 # Configuration
 # =============================================================================
 
-BASE_URL="${SMOKE_BASE_URL:-https://api.forgepay.io}"
+BASE_URL="${SMOKE_BASE_URL:-https://api.myforgepay.com}"
 API_KEY="${SMOKE_API_KEY:-}"
 JWT_TOKEN="${SMOKE_JWT_TOKEN:-}"
 TIMEOUT="${SMOKE_TIMEOUT:-15}"
@@ -220,7 +220,7 @@ CHECKOUT_PAYLOAD='{
   "amount": 1000,
   "currency": "USD",
   "customer": {
-    "email": "smoke-test@forgepay.io"
+    "email": "smoke-test@myforgepay.com"
   },
   "metadata": {
     "test": "true",

@@ -84,16 +84,16 @@ describe('resolveCorsOrigin', () => {
 
   it('accepts a single explicit origin in production', () => {
     process.env['NODE_ENV'] = 'production';
-    process.env['CORS_ORIGIN'] = 'https://treasury.forgepay.io';
-    expect(resolveCorsOrigin()).toBe('https://treasury.forgepay.io');
+    process.env['CORS_ORIGIN'] = 'https://treasury.myforgepay.com';
+    expect(resolveCorsOrigin()).toBe('https://treasury.myforgepay.com');
   });
 
   it('splits a comma-separated allowlist into an array', () => {
     process.env['NODE_ENV'] = 'production';
-    process.env['CORS_ORIGIN'] = 'https://treasury.forgepay.io, https://app.forgepay.io';
+    process.env['CORS_ORIGIN'] = 'https://treasury.myforgepay.com, https://app.myforgepay.com';
     expect(resolveCorsOrigin()).toEqual([
-      'https://treasury.forgepay.io',
-      'https://app.forgepay.io',
+      'https://treasury.myforgepay.com',
+      'https://app.myforgepay.com',
     ]);
   });
 });
@@ -104,7 +104,7 @@ describe('buildApp production boot refusal', () => {
 
   it('refuses to build in production with no VALID_API_KEYS', async () => {
     process.env['NODE_ENV'] = 'production';
-    process.env['CORS_ORIGIN'] = 'https://treasury.forgepay.io';
+    process.env['CORS_ORIGIN'] = 'https://treasury.myforgepay.com';
     await expect(buildApp()).rejects.toThrow(/refuses to start/);
   });
 
@@ -117,7 +117,7 @@ describe('buildApp production boot refusal', () => {
   it('builds and enforces the allowlist once both are configured', async () => {
     process.env['NODE_ENV'] = 'production';
     process.env['VALID_API_KEYS'] = 'a'.repeat(32);
-    process.env['CORS_ORIGIN'] = 'https://treasury.forgepay.io';
+    process.env['CORS_ORIGIN'] = 'https://treasury.myforgepay.com';
 
     let app: FastifyInstance | undefined;
     try {

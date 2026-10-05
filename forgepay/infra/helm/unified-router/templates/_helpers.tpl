@@ -29,7 +29,7 @@ helm.sh/chart: {{ include "unified-router.name" . }}-{{ .Chart.Version }}
 {{ include "unified-router.selectorLabels" . }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
-app.forgepay.io/component: unified-router
+app.myforgepay.com/component: unified-router
 {{- end }}
 
 {{/*

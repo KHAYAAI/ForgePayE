@@ -135,7 +135,7 @@ export default function SecurityPage() {
           </p>
           <div style={{ background: '#FFF9F0', padding: 16, borderRadius: 8, marginTop: 12, borderLeft: '4px solid #FFA500' }}>
             <p style={{ margin: 0 }}>
-              Email: <strong>security@forgepay.co.za</strong><br />
+              Email: <strong>security@myforgepay.com</strong><br />
               We respond within 48 hours. No legal action for responsible disclosure.
             </p>
           </div>
@@ -156,7 +156,7 @@ export default function SecurityPage() {
 
       {/* Footer */}
       <footer style={{ background: 'var(--navy)', color: 'white', textAlign: 'center', padding: '40px' }}>
-        <p>Security audit reports available on request. <a href="mailto:security@forgepay.co.za" style={{ color: 'var(--cyan)', textDecoration: 'none' }}>Contact security team</a></p>
+        <p>Security audit reports available on request. <a href="mailto:security@myforgepay.com" style={{ color: 'var(--cyan)', textDecoration: 'none' }}>Contact security team</a></p>
       </footer>
     </div>
   );

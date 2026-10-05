@@ -9,7 +9,7 @@
 #   ./smoke-tests.sh [OPTIONS]
 #
 # Options:
-#   --base-url URL     Base API URL (default: https://api.staging.af.forgepay.io)
+#   --base-url URL     Base API URL (default: https://api.staging.af.myforgepay.com)
 #   --api-key KEY      API key for authenticated requests
 #   --verbose          Print response bodies
 #   --timeout N        curl timeout in seconds (default: 15)
@@ -30,7 +30,7 @@ set -euo pipefail
 # Configuration
 # =============================================================================
 
-BASE_URL="${SMOKE_BASE_URL:-https://api.staging.af.forgepay.io}"
+BASE_URL="${SMOKE_BASE_URL:-https://api.staging.af.myforgepay.com}"
 API_KEY="${SMOKE_API_KEY:-}"
 TIMEOUT="${SMOKE_TIMEOUT:-15}"
 VERBOSE="${SMOKE_VERBOSE:-false}"

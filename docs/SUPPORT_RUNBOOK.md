@@ -268,9 +268,9 @@ GET Kill Bill account subscriptions
 
 ## Quick Links
 
-- **CSM Dashboard**: https://dashboard.forgepay.com/admin/csm
-- **Kill Bill UI**: https://killbill.forgepay.com/admin (admin-only)
+- **CSM Dashboard**: https://dashboard.myforgepay.com/admin/csm
+- **Kill Bill UI**: https://killbill.myforgepay.com/admin (admin-only)
 - **On-chain contracts**: https://sepolia.basescan.io (search ForgeReputationRegistry)
-- **API Docs**: https://forgepay.com/docs/api
-- **Status Page**: https://status.forgepay.com
+- **API Docs**: https://myforgepay.com/docs/api
+- **Status Page**: https://status.myforgepay.com
 

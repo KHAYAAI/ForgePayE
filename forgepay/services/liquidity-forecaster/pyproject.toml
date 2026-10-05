@@ -2,7 +2,7 @@
 name = "forgepay-liquidity-forecaster"
 version = "0.1.0"
 description = "ForgePay Liquidity Forecaster — 7/30/90-day cash flow forecasting, runway calculator, and variance alerts"
-authors = ["ForgePay Engineering <eng@forgepay.io>"]
+authors = ["ForgePay Engineering <eng@myforgepay.com>"]
 license = "Apache-2.0"
 readme = "README.md"
 packages = [{ include = "src" }]

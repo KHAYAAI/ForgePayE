@@ -2,7 +2,7 @@
 # 48-hour staging soak test script.
 # Run this against the staging EKS cluster after deployment.
 #
-# Usage: BASE_URL=https://api.staging.forgepay.io ./staging-soak-test.sh
+# Usage: BASE_URL=https://api.staging.myforgepay.com ./staging-soak-test.sh
 #
 # Prerequisites:
 #   - k6 installed

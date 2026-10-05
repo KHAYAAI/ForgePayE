@@ -225,7 +225,7 @@ kubernetes:
   namespace: forgepay
   # Ingress
   ingress_class: nginx
-  domain: forgepay.io
+  domain: myforgepay.com
   # TLS
   tls_enabled: true
   tls_issuer: letsencrypt-prod
@@ -248,7 +248,7 @@ observability:
   # Traces
   trace_sample_rate: 0.1
   # Alerts
-  alert_email: eng@forgepay.io
+  alert_email: eng@myforgepay.com
   alert_slack_webhook: ${SLACK_WEBHOOK_URL}
 
 # API Keys & Secrets (use Vault/Secrets Manager in production)

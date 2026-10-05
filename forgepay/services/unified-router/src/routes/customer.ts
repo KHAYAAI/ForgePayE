@@ -26,7 +26,7 @@ export async function customerRoutes(app: FastifyInstance) {
       return reply.send({
         products,
         subscriptions,
-        upgrade_url: 'https://forgepay.com/checkout',
+        upgrade_url: 'https://myforgepay.com/checkout',
       });
     } catch (err) {
       console.error('GET /products error:', err);

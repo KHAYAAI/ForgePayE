@@ -54,7 +54,7 @@ redis_automatic_failover   = false      # requires >= 2 nodes; disabled for stag
 
 # ── Vault ────────────────────────────────────────────────────────────────────
 vault_namespace = "forgepay-staging"
-vault_addr      = "https://vault.staging.forgepay.io"
+vault_addr      = "https://vault.staging.myforgepay.com"
 
 # ── S3 / State ───────────────────────────────────────────────────────────────
 tf_state_bucket = "forgepay-terraform-state-af-south-1"
@@ -62,16 +62,16 @@ tf_locks_table  = "forgepay-terraform-locks-af-south-1"
 
 # ── CloudFront / ACM ─────────────────────────────────────────────────────────
 # Set acm_certificate_arn after running aws-prerequisites.sh (which requests the cert).
-# For staging, the certificate covers *.staging.af.forgepay.io
+# For staging, the certificate covers *.staging.af.myforgepay.com
 acm_certificate_arn = "arn:aws:acm:us-east-1:ACCOUNT_ID:certificate/CERT_ID"  # CloudFront requires us-east-1 cert
 
 cloudfront_allowed_origins = [
-  "staging.af.forgepay.io",
-  "api.staging.af.forgepay.io",
-  "checkout.staging.af.forgepay.io",
-  "dashboard.staging.af.forgepay.io",
+  "staging.af.myforgepay.com",
+  "api.staging.af.myforgepay.com",
+  "checkout.staging.af.myforgepay.com",
+  "dashboard.staging.af.myforgepay.com",
 ]
 
 # ── Monitoring ────────────────────────────────────────────────────────────────
 log_retention_days = 14     # staging: 14 days (production: 90)
-alert_email        = "devops@forgepay.io"
+alert_email        = "devops@myforgepay.com"

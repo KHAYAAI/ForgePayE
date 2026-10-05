@@ -49,7 +49,7 @@ redis_automatic_failover   = false
 
 # ── Vault ────────────────────────────────────────────────────────────────────
 vault_namespace = "forgepay-staging"
-vault_addr      = "https://vault.staging.forgepay.io"
+vault_addr      = "https://vault.staging.myforgepay.com"
 
 # ── S3 / State ───────────────────────────────────────────────────────────────
 tf_state_bucket = "forgepay-terraform-state-us-east-1"
@@ -60,12 +60,12 @@ tf_locks_table  = "forgepay-terraform-locks-us-east-1"
 acm_certificate_arn = "arn:aws:acm:us-east-1:ACCOUNT_ID:certificate/CERT_ID"
 
 cloudfront_allowed_origins = [
-  "staging.us.forgepay.io",
-  "api.staging.us.forgepay.io",
-  "checkout.staging.us.forgepay.io",
-  "dashboard.staging.us.forgepay.io",
+  "staging.us.myforgepay.com",
+  "api.staging.us.myforgepay.com",
+  "checkout.staging.us.myforgepay.com",
+  "dashboard.staging.us.myforgepay.com",
 ]
 
 # ── Monitoring ────────────────────────────────────────────────────────────────
 log_retention_days = 14
-alert_email        = "devops@forgepay.io"
+alert_email        = "devops@myforgepay.com"

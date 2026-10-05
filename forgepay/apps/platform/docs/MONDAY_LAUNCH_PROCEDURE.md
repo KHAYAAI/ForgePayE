@@ -65,7 +65,7 @@ aws cloudwatch describe-alarms --state-value ALARM
 # Expected: Empty
 
 # 6. Verify API responding
-curl https://api.forgepay.co.za/api/health -v
+curl https://api.myforgepay.com/api/health -v
 # Expected: HTTP 200, <1s latency
 ```
 
@@ -191,21 +191,21 @@ kubectl logs -n forgepay deployment/platform --tail=20
 #### Step 4: Smoke Test (2 min)
 ```bash
 # Test API health
-curl -i https://api.forgepay.co.za/api/health
+curl -i https://api.myforgepay.com/api/health
 # Expected: HTTP 200, response <500ms
 
 # Test auth endpoint
-curl -X POST https://api.forgepay.co.za/api/auth/signup \
+curl -X POST https://api.myforgepay.com/api/auth/signup \
   -H "Content-Type: application/json" \
   -d '{"email":"test@test.com","name":"Test","password":"Test123456"}'
 # Expected: HTTP 201
 
 # Test dashboard
-curl https://api.forgepay.co.za/api/dashboard/payments
+curl https://api.myforgepay.com/api/dashboard/payments
 # Expected: HTTP 200, live metrics
 
 # Test webhooks
-curl https://api.forgepay.co.za/api/health/readiness
+curl https://api.myforgepay.com/api/health/readiness
 # Expected: HTTP 200
 ```
 
@@ -270,7 +270,7 @@ You have exclusive early access to our beta. This is your moment to:
 ✅ Experience 99.7% success rates
 
 Get started in 2 minutes:
-[Link to https://forgepay.co.za/dashboard/payments]
+[Link to https://myforgepay.com/dashboard/payments]
 
 What to do first:
 1. Create a test payment (try R100 ZAR)
@@ -307,7 +307,7 @@ CEO, ForgePay
 #### Every 15 Minutes: Metrics Check
 ```bash
 # Check dashboard metrics
-curl https://api.forgepay.co.za/api/dashboard/payments
+curl https://api.myforgepay.com/api/dashboard/payments
 
 # Expected after 30 min:
 {

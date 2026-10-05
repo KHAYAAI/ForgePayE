@@ -149,28 +149,28 @@ git push origin claude/forgepay-platform-design-gEkgE
 # → CI/CD deploys to staging
 
 # Verify
-curl -H "Authorization: Bearer {jwt}" https://staging-api.forgepay.com/v1/customer/products
+curl -H "Authorization: Bearer {jwt}" https://staging-api.myforgepay.com/v1/customer/products
 # → Should return empty products array
 
 # Test middleware
-curl -H "Authorization: Bearer {jwt}" https://staging-api.forgepay.com/v1/treasury/positions
+curl -H "Authorization: Bearer {jwt}" https://staging-api.myforgepay.com/v1/treasury/positions
 # → Should return 403 (unlicensed)
 ```
 
 ### Step 2: Grant License & Test
 ```bash
 # Admin endpoint: Grant Payments license to test user
-curl -X POST https://staging-api.forgepay.com/v1/customer/products/grant \
+curl -X POST https://staging-api.myforgepay.com/v1/customer/products/grant \
   -H "Authorization: Bearer {admin-jwt}" \
   -H "Content-Type: application/json" \
   -d '{"customerId":"test-user-id","product":"payments","plan":"free-trial"}'
 
 # Verify license
-curl -H "Authorization: Bearer {customer-jwt}" https://staging-api.forgepay.com/v1/customer/products
+curl -H "Authorization: Bearer {customer-jwt}" https://staging-api.myforgepay.com/v1/customer/products
 # → Should include "payments"
 
 # Test access
-curl -H "Authorization: Bearer {customer-jwt}" https://staging-api.forgepay.com/v1/payments/charges
+curl -H "Authorization: Bearer {customer-jwt}" https://staging-api.myforgepay.com/v1/payments/charges
 # → Should work (200)
 ```
 

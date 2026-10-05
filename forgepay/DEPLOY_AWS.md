@@ -154,8 +154,8 @@ kubectl -n forgepay get ingress          # ALB hostname
 
 ## 8. DNS + CDN cutover
 
-- Point Route 53 records (`api.forgepay.io`, `checkout.forgepay.io`,
-  `app.forgepay.io`) at the CloudFront distribution / ALB.
+- Point Route 53 records (`api.myforgepay.com`, `checkout.myforgepay.com`,
+  `app.myforgepay.com`) at the CloudFront distribution / ALB.
 - Re-apply Terraform with the real ALB hostname in `cloudfront.alb_domain_name`
   (it's a placeholder until the LB controller has created the ALB).
 - **Attach the WAF**, or it protects nothing: `web_acl_id`/the association
@@ -171,7 +171,7 @@ kubectl -n forgepay get ingress          # ALB hostname
 ## 9. Smoke test
 
 ```bash
-curl https://api.forgepay.io/health
+curl https://api.myforgepay.com/health
 # console: sign up → should land in /dashboard (middleware guard active)
 # bureau:  GET /v1/grade-scale, GET /v1/agents/:id/score
 ```

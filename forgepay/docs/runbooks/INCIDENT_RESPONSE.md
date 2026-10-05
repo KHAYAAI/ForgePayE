@@ -4,8 +4,8 @@ On-call playbooks for common production incidents.
 
 **On-call contacts:**
 - Primary: #forgepay-oncall Slack channel
-- Secondary: ops-team@forgepay.io
-- Escalation: engineering-lead@forgepay.io
+- Secondary: ops-team@myforgepay.com
+- Escalation: engineering-lead@myforgepay.com
 
 ---
 
@@ -36,8 +36,8 @@ On-call playbooks for common production incidents.
 
 2. **Check health endpoints:**
    ```bash
-   curl https://checkout.forgepay.io/healthz
-   curl https://checkout.forgepay.io/readyz
+   curl https://checkout.myforgepay.com/healthz
+   curl https://checkout.myforgepay.com/readyz
    ```
 
 3. **Check dependencies:**

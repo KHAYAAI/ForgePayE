@@ -193,7 +193,7 @@ the current 26-service fleet before go-live.
 - `letsencrypt-prod` ClusterIssuer pointing to ACME v2 production endpoint
 - `letsencrypt-staging` ClusterIssuer for testing
 - HTTP01 solver using NGINX ingress class
-- Email: `certificates@forgepay.com`
+- Email: `certificates@myforgepay.com`
 
 TLS annotations (`cert-manager.io/cluster-issuer: "letsencrypt-prod"`) are present in at least `compliance-monitor` and other ingress-enabled charts. Cert renewal automation is handled by cert-manager itself.
 
@@ -423,8 +423,8 @@ identified. Of the original 8 blockers, only 1 remains genuinely open:
   still fanned out to merchants a second time. Fixed and directly
   verified with a mock DB/Redis reproducing the exact failure mode.
 - Also fixed along the way, not on the original blocker list: the
-  umbrella chart's `ingress:` values configured `api.forgepay.io`/
-  `checkout.forgepay.io` routing that no template ever consumed (no
+  umbrella chart's `ingress:` values configured `api.myforgepay.com`/
+  `checkout.myforgepay.com` routing that no template ever consumed (no
   Ingress resource was ever created), with wrong ports for both
   services in the mainnet override on top of that; a Helm bug in
   unified-router referencing a `secret.yaml` template that never existed

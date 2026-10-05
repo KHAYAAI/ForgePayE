@@ -58,7 +58,7 @@ def _make_payment_request(**overrides) -> PaymentRequest:
         idempotency_key="idem_test_001",
         metadata={"order_id": "ord_42"},
         description="Test product",
-        return_url="https://forgepay.io/return",
+        return_url="https://myforgepay.com/return",
     )
     defaults.update(overrides)
     return PaymentRequest(**defaults)

@@ -138,7 +138,7 @@ export default function Home() {
             <ul style={{ listStyle: 'none' }}>
               <li><Link href="/about" style={{ color: 'rgba(255, 255, 255, 0.7)', textDecoration: 'none' }}>About</Link></li>
               <li><Link href="/contact" style={{ color: 'rgba(255, 255, 255, 0.7)', textDecoration: 'none' }}>Contact</Link></li>
-              <li><a href="mailto:support@forgepay.co.za" style={{ color: 'rgba(255, 255, 255, 0.7)', textDecoration: 'none' }}>Support</a></li>
+              <li><a href="mailto:support@myforgepay.com" style={{ color: 'rgba(255, 255, 255, 0.7)', textDecoration: 'none' }}>Support</a></li>
             </ul>
           </div>
         </div>

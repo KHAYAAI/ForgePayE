@@ -8,16 +8,16 @@ info:
     smallest currency unit (cents for USD/EUR) unless noted.
   contact:
     name: ForgePay Developer Support
-    url: https://forgepay.io/docs
-    email: api@forgepay.io
+    url: https://myforgepay.com/docs
+    email: api@myforgepay.com
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
 
 servers:
-  - url: https://api.forgepay.io
+  - url: https://api.myforgepay.com
     description: Production
-  - url: https://api.sandbox.forgepay.io
+  - url: https://api.sandbox.myforgepay.com
     description: Sandbox
 
 security:

@@ -209,7 +209,7 @@ export default function CreditBureauProductPage() {
 
       {/* Footer */}
       <footer style={{ background: 'var(--navy)', color: 'white', textAlign: 'center', padding: '40px' }}>
-        <p>Questions? <a href="mailto:support@forgepay.co.za" style={{ color: 'var(--cyan)', textDecoration: 'none' }}>Contact support</a></p>
+        <p>Questions? <a href="mailto:support@myforgepay.com" style={{ color: 'var(--cyan)', textDecoration: 'none' }}>Contact support</a></p>
       </footer>
     </div>
   );

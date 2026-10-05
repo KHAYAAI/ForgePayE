@@ -2,10 +2,10 @@
 name            = "forgepay"
 version         = "0.1.0"
 description     = "ForgePay Python SDK — payments, subscriptions, crypto & stablecoin support"
-authors         = ["ForgePay <sdk@forgepay.io>"]
+authors         = ["ForgePay <sdk@myforgepay.com>"]
 license         = "MIT"
 readme          = "README.md"
-homepage        = "https://forgepay.io"
+homepage        = "https://myforgepay.com"
 repository      = "https://github.com/khayaai/forgepaye"
 keywords        = ["payments", "billing", "hyperswitch", "stablecoin", "crypto"]
 classifiers     = [

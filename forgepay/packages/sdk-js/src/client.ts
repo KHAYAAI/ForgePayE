@@ -37,7 +37,7 @@ import {
 export interface FPClientOptions {
   /** Your secret API key. Keep this on the server — never in browser code. */
   apiKey: string;
-  /** API base URL. Defaults to https://api.forgepay.io */
+  /** API base URL. Defaults to https://api.myforgepay.com */
   baseUrl?: string;
   /** API version header. Defaults to '2026-04'. */
   apiVersion?: string;
@@ -52,7 +52,7 @@ interface RequestOptions {
   extraHeaders?:   Record<string, string>;
 }
 
-const DEFAULT_BASE_URL  = 'https://api.forgepay.io';
+const DEFAULT_BASE_URL  = 'https://api.myforgepay.com';
 const DEFAULT_VERSION   = '2026-04';
 const RETRY_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
 const RETRY_DELAYS_MS    = [500, 1500, 5000];

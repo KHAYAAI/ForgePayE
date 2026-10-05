@@ -10,7 +10,7 @@ sequences:
     subject: "Welcome to FORGE Payments 🎉"
     template: "payments-welcome"
     variables:
-      - transaction_url: "https://forgepay.com/docs/api/payments"
+      - transaction_url: "https://myforgepay.com/docs/api/payments"
       - test_charge: "R10"
 
   payments-day7:
@@ -33,7 +33,7 @@ sequences:
     template: "treasury-upsell-high-volume"
     variables:
       - estimated_savings: "calculated_from_gmv"
-      - checkout_url: "https://forgepay.com/checkout/treasury"
+      - checkout_url: "https://myforgepay.com/checkout/treasury"
 
   treasury-day0:
     trigger: "product_license_granted"
@@ -64,7 +64,7 @@ sequences:
     variables:
       - agent_count: "dynamic"
       - estimated_revenue: "calculated_from_agents"
-      - checkout_url: "https://forgepay.com/checkout/credit-bureau"
+      - checkout_url: "https://myforgepay.com/checkout/credit-bureau"
 
   creditbureau-day0:
     trigger: "product_license_granted"
@@ -91,8 +91,8 @@ templates:
     Welcome to FORGE Payments! Your account is live.
 
     Quick start:
-    1. Generate an API key: https://dashboard.forgepay.com/api-keys
-    2. Send your first charge: https://forgepay.com/docs/api/payments
+    1. Generate an API key: https://dashboard.myforgepay.com/api-keys
+    2. Send your first charge: https://myforgepay.com/docs/api/payments
     3. Settle daily to your bank
 
     You're saving ~40% vs Stripe. Get started: {transaction_url}

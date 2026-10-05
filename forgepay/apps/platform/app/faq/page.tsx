@@ -74,7 +74,7 @@ export default function FAQPage() {
 
       {/* Footer */}
       <footer style={{ background: 'var(--navy)', color: 'white', textAlign: 'center', padding: '40px' }}>
-        <p>Still have questions? <a href="mailto:support@forgepay.co.za" style={{ color: 'var(--cyan)', textDecoration: 'none' }}>Email support</a></p>
+        <p>Still have questions? <a href="mailto:support@myforgepay.com" style={{ color: 'var(--cyan)', textDecoration: 'none' }}>Email support</a></p>
       </footer>
     </div>
   );

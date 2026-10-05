@@ -15,7 +15,7 @@ This guide trains support team members to monitor ForgePay platform health, resp
 ## Part 1: Monitoring Dashboards
 
 ### Access the Ops Dashboard
-- **URL:** https://forgepay.co.za/dashboard/ops
+- **URL:** https://myforgepay.com/dashboard/ops
 - **Credentials:** Support team account (MFA required)
 - **Refresh Rate:** Auto-refresh every 30 seconds
 
@@ -284,7 +284,7 @@ Resolution: [what we did to fix it]
 
 We apologize for any inconvenience. Our team is implementing [preventive measure].
 
-Questions? Reply to this email or contact support@forgepay.co.za
+Questions? Reply to this email or contact support@myforgepay.com
 ```
 
 ---
@@ -302,7 +302,7 @@ Questions? Reply to this email or contact support@forgepay.co.za
 
 **On-Call Channel:** #on-call (Slack)  
 **Escalation Number:** +27-11-XXX-XXXX  
-**On-Call Email:** oncall@forgepay.co.za
+**On-Call Email:** oncall@myforgepay.com
 
 ---
 
@@ -323,9 +323,9 @@ Questions? Reply to this email or contact support@forgepay.co.za
 
 | Role | Name | Phone | Email |
 |------|------|-------|-------|
-| Platform Lead | [Name] | +27-11-XXX | platform@forgepay.co.za |
-| DevOps Lead | [Name] | +27-11-XXX | devops@forgepay.co.za |
-| Founder | [Name] | +27-82-XXX | founder@forgepay.co.za |
+| Platform Lead | [Name] | +27-11-XXX | platform@myforgepay.com |
+| DevOps Lead | [Name] | +27-11-XXX | devops@myforgepay.com |
+| Founder | [Name] | +27-82-XXX | founder@myforgepay.com |
 
 ---
 

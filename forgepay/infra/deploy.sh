@@ -32,7 +32,7 @@ set -euo pipefail
 
 NAMESPACE="${NAMESPACE:-forgepay}"
 HELM_TIMEOUT="${HELM_TIMEOUT:-5m}"
-HEALTH_CHECK_BASE_URL="${HEALTH_CHECK_BASE_URL:-https://api.forgepay.io}"
+HEALTH_CHECK_BASE_URL="${HEALTH_CHECK_BASE_URL:-https://api.myforgepay.com}"
 BACKUP_DIR="${BACKUP_DIR:-/tmp/forgepay-backups}"
 DRY_RUN=false
 SKIP_BACKUP=false

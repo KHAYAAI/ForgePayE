@@ -23,8 +23,8 @@ just need an AWS account with quota. See `DEPLOY_AWS.md`.
 | ElastiCache Redis | 🔴 | `redis` module. `REDIS_URL`. Rate limiting, caches, queues. |
 | S3 | 🔴 | `s3` module — backups/logs/artifacts. |
 | ECR | 🔴 | Container registry for service images. `aws ecr create-repository` per service; push in CI. |
-| ACM certificate | 🔴 | TLS for CloudFront/ALB. Request in ACM for `*.forgepay.io`; put the ARN in `acm_certificate_arn`. Must be **us-east-1** for CloudFront. |
-| Route 53 (or your DNS) | 🔴 | Hosted zone for `forgepay.io`; point records at CloudFront/ALB. |
+| ACM certificate | 🔴 | TLS for CloudFront/ALB. Request in ACM for `*.myforgepay.com`; put the ARN in `acm_certificate_arn`. Must be **us-east-1** for CloudFront. |
+| Route 53 (or your DNS) | 🔴 | Hosted zone for `myforgepay.com`; point records at CloudFront/ALB. |
 | CloudFront | 🟡 | `cloudfront` module — CDN/WAF front door. |
 | KMS | 🔴 | Encryption keys (RDS, S3, Vault auto-unseal) — created by the modules. |
 | Secrets Manager | 🔴 | Store DB password, API keys, webhook secrets. Inject via `TF_VAR_*` and External Secrets Operator / CSI driver into pods. Do **not** hardcode in Helm values (see CLAUDE.md security rules). |

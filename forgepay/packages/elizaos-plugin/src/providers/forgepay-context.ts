@@ -32,7 +32,7 @@ export function createForgePayProvider(config: ForgePayConfig): ElizaProvider {
       return (
         `=== ForgePay Account Context (as of ${now}) ===\n` +
         `Merchant ID   : ${config.merchantId}\n` +
-        `API Endpoint  : ${config.baseUrl ?? 'https://api.forgepay.io'}\n` +
+        `API Endpoint  : ${config.baseUrl ?? 'https://api.myforgepay.com'}\n` +
         `\n` +
         `Wallet Balances:\n` +
         `  USDC          : $${balance.usdc.toFixed(2)}\n` +

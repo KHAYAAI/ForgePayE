@@ -86,7 +86,7 @@ import { ForgePay } from '@forgepay/sdk';
 
 const fp = new ForgePay({
   apiKey: process.env.FORGEPAY_API_KEY,
-  // Optional: endpoint: 'https://api.forgepay.io'
+  // Optional: endpoint: 'https://api.myforgepay.com'
 });
 ```
 
@@ -314,7 +314,7 @@ describe('ProofsResource', () => {
 // Test with testnet contracts
 const fp = new ForgePay({
   apiKey: 'test_key',
-  endpoint: 'https://testnet.forgepay.io',
+  endpoint: 'https://testnet.myforgepay.com',
 });
 
 const session = await fp.shieldedCheckout.create({

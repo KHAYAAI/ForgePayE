@@ -32,7 +32,7 @@ function resolveCorsOrigins(): string[] {
     throw new Error(
       'CORS_ALLOWED_ORIGINS is not set (or contains "*") in production. crypto-gateway refuses ' +
       'to start without an explicit origin allowlist — set it to a comma-separated list of ' +
-      'trusted origins, e.g. CORS_ALLOWED_ORIGINS=https://dashboard.forgepay.io',
+      'trusted origins, e.g. CORS_ALLOWED_ORIGINS=https://dashboard.myforgepay.com',
     );
   }
 

@@ -27,7 +27,7 @@ import axios from 'axios';
 // ---------------------------------------------------------------------------
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY ?? 'sk-ant-demo';
 const FORGEPAY_API_KEY = process.env.FORGEPAY_API_KEY ?? 'fp_demo_key';
-const FORGEPAY_BASE_URL = process.env.FORGEPAY_BASE_URL ?? 'https://api.forgepay.io';
+const FORGEPAY_BASE_URL = process.env.FORGEPAY_BASE_URL ?? 'https://api.myforgepay.com';
 
 /** Minimum idle cash threshold before suggesting a yield sweep ($) */
 const SWEEP_THRESHOLD_USD = parseFloat(process.env.SWEEP_THRESHOLD_USD ?? '10000');

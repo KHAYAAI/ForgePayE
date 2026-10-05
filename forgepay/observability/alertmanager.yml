@@ -99,7 +99,7 @@ receivers:
       - service_key: '${PAGERDUTY_SERVICE_KEY_PAYMENTS}'
         send_resolved: true
         client: 'ForgePay Alertmanager'
-        client_url: 'https://grafana.forgepay.io'
+        client_url: 'https://grafana.myforgepay.com'
         description: >-
           [{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}]
           {{ .GroupLabels.alertname }} — {{ .GroupLabels.service }}
@@ -123,7 +123,7 @@ receivers:
         title: >-
           [{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}]
           {{ .GroupLabels.alertname }}
-        title_link: 'https://grafana.forgepay.io/alerting'
+        title_link: 'https://grafana.myforgepay.com/alerting'
         text: >-
           {{ range .Alerts }}
           *Alert:* {{ .Annotations.summary }}
@@ -145,7 +145,7 @@ receivers:
         color: '{{ if eq .Status "firing" }}#439FE0{{ else }}good{{ end }}'
         title: >-
           [{{ .Status | toUpper }}] {{ .GroupLabels.alertname }}
-        title_link: 'https://grafana.forgepay.io/alerting'
+        title_link: 'https://grafana.myforgepay.com/alerting'
         text: >-
           {{ range .Alerts }}
           *Alert:* {{ .Annotations.summary }}

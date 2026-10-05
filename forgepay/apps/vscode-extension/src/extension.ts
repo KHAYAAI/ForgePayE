@@ -26,7 +26,7 @@ function getDashboardUrl(): string {
   return (
     vscode.workspace
       .getConfiguration("forgepay")
-      .get<string>("dashboardUrl") ?? "https://dashboard.forgepay.io"
+      .get<string>("dashboardUrl") ?? "https://dashboard.myforgepay.com"
   );
 }
 

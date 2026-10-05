@@ -24,7 +24,7 @@ export default function APIReferencePage() {
         {/* Authentication */}
         <APISection title="Authentication">
           <p>All API requests require authentication via API key. Include it in the Authorization header:</p>
-          <CodeBlock>{`curl -H "Authorization: Bearer YOUR_API_KEY" https://api.forgepay.co.za/v1/payments`}</CodeBlock>
+          <CodeBlock>{`curl -H "Authorization: Bearer YOUR_API_KEY" https://api.myforgepay.com/v1/payments`}</CodeBlock>
         </APISection>
 
         {/* Endpoints */}
@@ -190,7 +190,7 @@ const payment = await client.payments.create({
 
       {/* Footer */}
       <footer style={{ background: 'var(--navy)', color: 'white', textAlign: 'center', padding: '40px' }}>
-        <p>Full API docs: <a href="https://docs.forgepay.co.za" style={{ color: 'var(--cyan)', textDecoration: 'none' }}>docs.forgepay.co.za</a></p>
+        <p>Full API docs: <a href="https://docs.myforgepay.com" style={{ color: 'var(--cyan)', textDecoration: 'none' }}>docs.myforgepay.com</a></p>
       </footer>
     </div>
   );

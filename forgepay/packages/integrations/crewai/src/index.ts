@@ -7,7 +7,7 @@
  *
  * Usage:
  *   const delegation = new ForgeTrustDelegation({
- *     bureauUrl: 'https://bureau.forgepay.io',
+ *     bureauUrl: 'https://bureau.myforgepay.com',
  *     apiKey: process.env.FORGE_API_KEY!,
  *     scoreThresholds: { highValue: 800, standard: 650, lowValue: 450 },
  *   });

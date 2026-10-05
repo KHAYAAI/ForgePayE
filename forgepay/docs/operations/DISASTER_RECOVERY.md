@@ -171,7 +171,7 @@ helm install forgepay-stack forgepay/forgepay-stack \
 # 5. Update global DNS (CloudFlare)
 curl -X PUT https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$DNS_RECORD_ID \
   -H "Authorization: Bearer $CLOUDFLARE_TOKEN" \
-  -d '{"content":"api.us-west-2.forgepay.io","type":"CNAME"}'
+  -d '{"content":"api.us-west-2.myforgepay.com","type":"CNAME"}'
 
 # 6. Verify metrics in us-west-2 region
 # DataDog: Filter by region=us-west-2
@@ -374,8 +374,8 @@ aws s3 cp /tmp/dr-drill-report-q3-2026.md s3://forgepay-backups/dr-reports/
 ## Contact Information
 
 **On-Call Engineer:** $ONCALL_EMAIL (Slack: #forgepay-oncall)
-**VP Engineering:** engineering-lead@forgepay.io
-**Incident Commander:** ops-team@forgepay.io
+**VP Engineering:** engineering-lead@myforgepay.com
+**Incident Commander:** ops-team@myforgepay.com
 
 **Escalation:**
 - T+15 min: Page VP Engineering

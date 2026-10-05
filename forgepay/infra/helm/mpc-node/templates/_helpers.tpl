@@ -22,7 +22,7 @@ helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 app.kubernetes.io/part-of: forge-threshold-custody
-app.forgepay.io/component: mpc-node
+app.myforgepay.com/component: mpc-node
 forge.io/mpc-node-id: {{ .Values.node.id | quote }}
 {{- end }}
 

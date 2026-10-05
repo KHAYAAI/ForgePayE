@@ -7,7 +7,7 @@ import respx
 from forgepay import AsyncForgePay, ForgePay
 from forgepay.errors import AuthenticationError, RateLimitError, ServiceUnavailableError
 
-BASE = "https://api.forgepay.io"
+BASE = "https://api.myforgepay.com"
 
 PAYMENT_FIXTURE = {
     "payment_id": "pay_abc123",

@@ -59,7 +59,7 @@ SMTP_HOST=localhost
 SMTP_PORT=1025
 SMTP_USER=user
 SMTP_PASS=pass
-SMTP_FROM=noreply@forgepay.co.za
+SMTP_FROM=noreply@myforgepay.com
 ```
 
 ### 3. Database Setup
@@ -226,4 +226,4 @@ CMD ["npm", "start"]
 
 ## Support
 
-Email: support@forgepay.co.za
+Email: support@myforgepay.com

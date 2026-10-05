@@ -237,7 +237,7 @@ terraform_destroy() {
     -var-file="${TFVARS_FILE}" \
     -var="db_username=placeholder" \
     -var="db_password=placeholder" \
-    -var="alert_email=devops@forgepay.io" \
+    -var="alert_email=devops@myforgepay.com" \
     -out="${TF_DIR}/.tfplan-destroy-${REGION}" \
     -input=false
 

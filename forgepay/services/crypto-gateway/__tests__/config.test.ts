@@ -46,17 +46,17 @@ describe('CORS allowlist — production fails closed', () => {
 
   it('throws in production when "*" is included among other origins', async () => {
     process.env['NODE_ENV'] = 'production';
-    process.env['CORS_ALLOWED_ORIGINS'] = 'https://dashboard.forgepay.io,*';
+    process.env['CORS_ALLOWED_ORIGINS'] = 'https://dashboard.myforgepay.com,*';
 
     await expect(loadConfig()).rejects.toThrow(/CORS_ALLOWED_ORIGINS is not set/);
   });
 
   it('succeeds in production with an explicit allowlist', async () => {
     process.env['NODE_ENV'] = 'production';
-    process.env['CORS_ALLOWED_ORIGINS'] = 'https://dashboard.forgepay.io';
+    process.env['CORS_ALLOWED_ORIGINS'] = 'https://dashboard.myforgepay.com';
 
     const config = await loadConfig();
-    expect(config.corsAllowedOrigins).toEqual(['https://dashboard.forgepay.io']);
+    expect(config.corsAllowedOrigins).toEqual(['https://dashboard.myforgepay.com']);
   });
 
   it('falls back to the localhost dev origin outside production when unset', async () => {

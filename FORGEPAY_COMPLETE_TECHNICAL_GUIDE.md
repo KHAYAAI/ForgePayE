@@ -530,9 +530,9 @@ VPC (10.2.0.0/16)
 Internet
   ↓
 AWS Route53 (DNS, geo-routing)
-  ├─ *.us.forgepay.com → us-east-1 ALB
-  ├─ *.af.forgepay.com → af-south-1 ALB
-  └─ *.eu.forgepay.com → eu-west-2 ALB
+  ├─ *.us.myforgepay.com → us-east-1 ALB
+  ├─ *.af.myforgepay.com → af-south-1 ALB
+  └─ *.eu.myforgepay.com → eu-west-2 ALB
   ↓
 ALB (Application Load Balancer)
   ├─ TLS termination (TLS 1.2+)
@@ -644,7 +644,7 @@ cp forgepay/infra/staging/.env.staging.example .env.prod.us-east-1
 # - STRIPE_API_KEY=sk_live_xxxxx  (from Stripe Dashboard)
 # - AWS_REGION=us-east-1
 # - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
-# - CORS_ORIGIN=https://us.forgepay.com
+# - CORS_ORIGIN=https://us.myforgepay.com
 
 # Create Kubernetes secret
 kubectl create secret generic forgepay-secrets \
@@ -671,7 +671,7 @@ done
 **Step 6: Deploy via Helm**
 ```bash
 # Add Helm chart repo (if external)
-helm repo add forgepay https://charts.forgepay.com
+helm repo add forgepay https://charts.myforgepay.com
 helm repo update
 
 # Create namespace
@@ -735,7 +735,7 @@ aws route53 change-resource-record-sets \
     "Changes": [{
       "Action": "CREATE",
       "ResourceRecordSet": {
-        "Name": "api.us.forgepay.com",
+        "Name": "api.us.myforgepay.com",
         "Type": "CNAME",
         "TTL": 300,
         "ResourceRecords": [{"Value": "'$ALB_DNS'"}]
@@ -767,7 +767,7 @@ aws eks update-kubeconfig \
 # - Namespace: forgepay-staging
 # - Helm values: forgepay/infra/staging/helm/af-south-1-values.yaml
 # - ECR registry: 123456789012.dkr.ecr.af-south-1.amazonaws.com
-# - DNS: api.af.forgepay.com (Route53 in af-south-1 hosted zone)
+# - DNS: api.af.myforgepay.com (Route53 in af-south-1 hosted zone)
 # - S3 POPIA policy: enforce data residency in af-south-1 only
 ```
 
@@ -797,7 +797,7 @@ aws route53 change-resource-record-sets \
     "Changes": [{
       "Action": "CREATE",
       "ResourceRecordSet": {
-        "Name": "api.eu.forgepay.com",
+        "Name": "api.eu.myforgepay.com",
         "Type": "CNAME",
         "TTL": 300,
         "ResourceRecords": [{"Value": "forgepay-eu-alb.eu-west-2.elb.amazonaws.com"}]
@@ -843,9 +843,9 @@ done
 wait
 
 # 5. Done! Check Route53 for DNS
-echo "Staging ready at: https://api.af.forgepay.com"
-echo "Prod US ready at: https://api.us.forgepay.com"
-echo "Prod UK ready at: https://api.eu.forgepay.com"
+echo "Staging ready at: https://api.af.myforgepay.com"
+echo "Prod US ready at: https://api.us.myforgepay.com"
+echo "Prod UK ready at: https://api.eu.myforgepay.com"
 ```
 
 ---
@@ -1546,7 +1546,7 @@ See `forgepay/compliance/pci-dss/` for complete audit prep package.
 - Input validation: Zod schemas on all inputs
 - WAF: CloudFront + AWS WAF rules (SQL injection, XSS, bot detection)
 - Rate limiting: Per-IP, per-agent, per-merchant (Fastify rate-limit)
-- CORS: Restricted to forgepay.com domains only
+- CORS: Restricted to myforgepay.com domains only
 - CSRF: Bearer token-based (no cookies on stateless API)
 
 **Layer 5: Data Protection**

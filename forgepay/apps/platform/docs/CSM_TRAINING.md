@@ -16,12 +16,12 @@ This guide trains CSM team members to identify churn risk, execute retention pla
 
 ### Where to Find Churn Signals
 
-**Admin Dashboard:** https://forgepay.co.za/dashboard/admin
+**Admin Dashboard:** https://myforgepay.com/dashboard/admin
 - **Churn Risk Queue:** Real-time alerts (HIGH, MEDIUM, CRITICAL)
 - **Team Assignment:** Your assigned customers
 - **Upsell Opportunities:** Cross-sell recommendations
 
-**Analytics Dashboard:** https://forgepay.co.za/dashboard/analytics
+**Analytics Dashboard:** https://myforgepay.com/dashboard/analytics
 - **Churn Rate:** Track by product, target <3%
 - **Churn Signals:** MRR decline, API inactivity, cancellation requests
 - **Email CTR:** Track campaign engagement

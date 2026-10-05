@@ -31,7 +31,7 @@ import httpx
 
 from forgepay.errors import raise_for_status
 
-DEFAULT_BASE_URL   = "https://api.forgepay.io"
+DEFAULT_BASE_URL   = "https://api.myforgepay.com"
 DEFAULT_TIMEOUT    = 30.0   # seconds
 MAX_RETRIES        = 3
 _RETRY_STATUS      = {429, 500, 502, 503, 504}

@@ -13,7 +13,7 @@ export class ForgePayClient {
 
   constructor(config: ForgePayConfig) {
     this.config = config;
-    this.baseUrl = config.baseUrl ?? 'https://api.forgepay.io';
+    this.baseUrl = config.baseUrl ?? 'https://api.myforgepay.com';
   }
 
   private get authHeaders(): Record<string, string> {

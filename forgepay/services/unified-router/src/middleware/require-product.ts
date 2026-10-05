@@ -90,7 +90,7 @@ export async function requireProductMiddleware(request: FastifyRequest, reply: F
 
       return reply.status(403).send({
         error: 'unlicensed_product',
-        upgrade_url: `https://forgepay.com/checkout/${requiredProduct}`,
+        upgrade_url: `https://myforgepay.com/checkout/${requiredProduct}`,
         message: `You don't have access to ${requiredProduct}. Upgrade to unlock.`,
       });
     }

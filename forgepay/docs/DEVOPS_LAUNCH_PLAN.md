@@ -200,11 +200,11 @@ vault_addr      = "https://vault.staging.example.com"
 
 # Monitoring
 log_retention_days = 14
-alert_email        = "devops@forgepay.io"
+alert_email        = "devops@myforgepay.com"
 
 # ACM certificate ARN (create via ACM console first)
 acm_certificate_arn = "arn:aws:acm:us-east-1:ACCOUNT_ID:certificate/CERT_ID"
-cloudfront_allowed_origins = ["https://staging.forgepay.io"]
+cloudfront_allowed_origins = ["https://staging.myforgepay.com"]
 EOF
 ```
 
@@ -400,7 +400,7 @@ STAGING_KUBECONFIG     = <base64-encoded kubeconfig for staging cluster>
 PROD_KUBECONFIG        = <base64-encoded kubeconfig for prod cluster>
 
 # Shared
-STAGING_API_URL        = https://api.staging.forgepay.io
+STAGING_API_URL        = https://api.staging.myforgepay.com
 SLACK_WEBHOOK_URL      = https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK
 ```
 
@@ -541,25 +541,25 @@ ingress:
     cert-manager.io/cluster-issuer: letsencrypt-staging
     nginx.ingress.kubernetes.io/proxy-body-size: "16k"
   hosts:
-    - host: api.staging.forgepay.io
+    - host: api.staging.myforgepay.com
       paths:
         - { path: /, pathType: Prefix, service: payment-engine, port: 8080 }
-    - host: hooks.staging.forgepay.io
+    - host: hooks.staging.myforgepay.com
       paths:
         - { path: /, pathType: Prefix, service: unified-router, port: 8000 }
-    - host: staging.forgepay.io
+    - host: staging.myforgepay.com
       paths:
         - { path: /, pathType: Prefix, service: web, port: 3000 }
-    - host: dashboard.staging.forgepay.io
+    - host: dashboard.staging.myforgepay.com
       paths:
         - { path: /, pathType: Prefix, service: dashboard, port: 3001 }
   tls:
     - secretName: forgepay-staging-tls
       hosts:
-        - api.staging.forgepay.io
-        - hooks.staging.forgepay.io
-        - staging.forgepay.io
-        - dashboard.staging.forgepay.io
+        - api.staging.myforgepay.com
+        - hooks.staging.myforgepay.com
+        - staging.myforgepay.com
+        - dashboard.staging.myforgepay.com
 EOF
 ```
 
@@ -572,7 +572,7 @@ kubectl create secret docker-registry ghcr-pull-secret \
   --docker-server=ghcr.io \
   --docker-username=<github_username> \
   --docker-password=<github_pat_with_read_packages> \
-  --docker-email=devops@forgepay.io \
+  --docker-email=devops@myforgepay.com \
   -n forgepay-staging
 ```
 
@@ -689,7 +689,7 @@ aws route53 change-resource-record-sets \
       {
         "Action": "UPSERT",
         "ResourceRecordSet": {
-          "Name": "api.staging.forgepay.io",
+          "Name": "api.staging.myforgepay.com",
           "Type": "CNAME",
           "TTL": 300,
           "ResourceRecords": [{"Value": "<ALB_HOSTNAME>"}]
@@ -698,7 +698,7 @@ aws route53 change-resource-record-sets \
       {
         "Action": "UPSERT",
         "ResourceRecordSet": {
-          "Name": "hooks.staging.forgepay.io",
+          "Name": "hooks.staging.myforgepay.com",
           "Type": "CNAME",
           "TTL": 300,
           "ResourceRecords": [{"Value": "<ALB_HOSTNAME>"}]
@@ -707,7 +707,7 @@ aws route53 change-resource-record-sets \
       {
         "Action": "UPSERT",
         "ResourceRecordSet": {
-          "Name": "staging.forgepay.io",
+          "Name": "staging.myforgepay.com",
           "Type": "CNAME",
           "TTL": 300,
           "ResourceRecords": [{"Value": "<ALB_HOSTNAME>"}]
@@ -716,7 +716,7 @@ aws route53 change-resource-record-sets \
       {
         "Action": "UPSERT",
         "ResourceRecordSet": {
-          "Name": "dashboard.staging.forgepay.io",
+          "Name": "dashboard.staging.myforgepay.com",
           "Type": "CNAME",
           "TTL": 300,
           "ResourceRecords": [{"Value": "<ALB_HOSTNAME>"}]
@@ -737,7 +737,7 @@ metadata:
 spec:
   acme:
     server: https://acme-staging-v02.api.letsencrypt.org/directory
-    email: devops@forgepay.io
+    email: devops@myforgepay.com
     privateKeySecretRef:
       name: letsencrypt-staging-key
     solvers:
@@ -758,7 +758,7 @@ kubectl get certificate -n forgepay-staging -w
 # forgepay-staging-tls    True    forgepay-staging-tls    3m
 
 # Test HTTPS
-curl -sv https://api.staging.forgepay.io/healthz
+curl -sv https://api.staging.myforgepay.com/healthz
 ```
 
 ---
@@ -872,7 +872,7 @@ sudo apt-get install k6
 ### Step 6.2 — Run Load Tests Against Staging
 
 ```bash
-export BASE_URL=https://api.staging.forgepay.io
+export BASE_URL=https://api.staging.myforgepay.com
 
 # Card checkout (primary flow)
 cd forgepay/infra/load-tests
@@ -882,12 +882,12 @@ k6 run checkout-load-test.js \
 
 # Stablecoin gateway
 k6 run stablecoin-load-test.js \
-  -e BASE_URL=https://hooks.staging.forgepay.io \
+  -e BASE_URL=https://hooks.staging.myforgepay.com \
   --out json=results/stablecoin-baseline.json
 
 # Crypto gateway
 k6 run crypto-load-test.js \
-  -e BASE_URL=https://hooks.staging.forgepay.io \
+  -e BASE_URL=https://hooks.staging.myforgepay.com \
   --out json=results/crypto-baseline.json
 ```
 
@@ -994,10 +994,10 @@ vault_namespace = "forgepay"
 vault_addr      = "https://vault.example.com"
 
 log_retention_days = 90
-alert_email        = "oncall@forgepay.io"
+alert_email        = "oncall@myforgepay.com"
 
 acm_certificate_arn = "arn:aws:acm:us-east-1:ACCOUNT_ID:certificate/PROD_CERT_ID"
-cloudfront_allowed_origins = ["https://forgepay.io", "https://www.forgepay.io"]
+cloudfront_allowed_origins = ["https://myforgepay.com", "https://www.myforgepay.com"]
 EOF
 
 export TF_VAR_db_password="$(openssl rand -base64 40)"
@@ -1084,21 +1084,21 @@ ingress:
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-prod
   hosts:
-    - host: api.forgepay.io
+    - host: api.myforgepay.com
       paths:
         - { path: /, pathType: Prefix, service: payment-engine, port: 8080 }
-    - host: hooks.forgepay.io
+    - host: hooks.myforgepay.com
       paths:
         - { path: /, pathType: Prefix, service: unified-router, port: 8000 }
-    - host: forgepay.io
+    - host: myforgepay.com
       paths:
         - { path: /, pathType: Prefix, service: web, port: 3000 }
-    - host: dashboard.forgepay.io
+    - host: dashboard.myforgepay.com
       paths:
         - { path: /, pathType: Prefix, service: dashboard, port: 3001 }
   tls:
     - secretName: forgepay-prod-tls
-      hosts: [api.forgepay.io, hooks.forgepay.io, forgepay.io, dashboard.forgepay.io]
+      hosts: [api.myforgepay.com, hooks.myforgepay.com, myforgepay.com, dashboard.myforgepay.com]
 EOF
 ```
 
@@ -1126,17 +1126,17 @@ gh workflow run forgepay-deploy.yml \
 kubectl get pods -n forgepay --watch
 
 # Health checks on real domain
-curl -sf https://api.forgepay.io/healthz | jq .
-curl -sf https://hooks.forgepay.io/healthz | jq .
+curl -sf https://api.myforgepay.com/healthz | jq .
+curl -sf https://hooks.myforgepay.com/healthz | jq .
 
 # Test payment endpoint (test mode)
-curl -sf -X POST https://api.forgepay.io/payments \
+curl -sf -X POST https://api.myforgepay.com/payments \
   -H "Content-Type: application/json" \
   -H "api-key: YOUR_TEST_API_KEY" \
   -d '{"amount":100,"currency":"USD","customer_id":"cus_smoke_001","idempotency_key":"prod_smoke_001"}' | jq .
 
 # Verify event is flowing through unified-router
-curl -sf "https://hooks.forgepay.io/events?limit=5" \
+curl -sf "https://hooks.myforgepay.com/events?limit=5" \
   -H "Authorization: Bearer YOUR_TEST_API_KEY" | jq '.events[0]'
 ```
 
@@ -1186,7 +1186,7 @@ kubectl annotate externalsecret forgepay-core-secrets \
 kubectl logs -n forgepay deployment/forgepay-payment-engine --tail=200 | grep ERROR
 
 # 3. If processor down → check Hyperswitch processor health
-curl -sf https://api.forgepay.io/health/processors | jq .
+curl -sf https://api.myforgepay.com/health/processors | jq .
 
 # 4. If all processors down → switch to fallback or maintenance mode
 helm upgrade forgepay forgepay/infra/helm/forgepay-stack \
@@ -1256,15 +1256,15 @@ kubectl exec -n forgepay deployment/forgepay-unified-router \
 
 | Service | Internal Port | K8s Service | External |
 |---------|--------------|-------------|----------|
-| payment-engine | 8080 | `forgepay-payment-engine` | `api.forgepay.io` |
-| unified-router | 8000 | `forgepay-unified-router` | `hooks.forgepay.io` |
+| payment-engine | 8080 | `forgepay-payment-engine` | `api.myforgepay.com` |
+| unified-router | 8000 | `forgepay-unified-router` | `hooks.myforgepay.com` |
 | mor-layer | 8010 | `forgepay-mor-layer` | internal only |
 | billing-engine | 8020 | `forgepay-billing-engine` | internal only |
 | stablecoin-gateway | 8030 | `forgepay-stablecoin-gateway` | internal only |
 | crypto-gateway | 8040 | `forgepay-crypto-gateway` | internal only |
 | accounts-service | 8050 | `forgepay-accounts-service` | internal only |
-| web (marketing) | 3000 | `forgepay-web` | `forgepay.io` |
-| dashboard | 3001 | `forgepay-dashboard` | `dashboard.forgepay.io` |
+| web (marketing) | 3000 | `forgepay-web` | `myforgepay.com` |
+| dashboard | 3001 | `forgepay-dashboard` | `dashboard.myforgepay.com` |
 
 ## Reference — Environment Variables Required Per Service
 

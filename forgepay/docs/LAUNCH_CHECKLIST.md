@@ -143,7 +143,7 @@ ForgePay has completed its core infrastructure, integrated all payment gateways,
 - [ ] **Production deployment preparation**
   - Terraform config for production AWS environment
   - Helm values for production (all secrets from Vault)
-  - DNS records ready (api.forgepay.io, dashboard.forgepay.io)
+  - DNS records ready (api.myforgepay.com, dashboard.myforgepay.com)
   - SSL certificates (ACM or Let's Encrypt)
   - Database backups + recovery procedure tested
   - **Owner**: DevOps | **Timeline**: 2 days | **Blocker**: No
@@ -309,8 +309,8 @@ ForgePay has completed its core infrastructure, integrated all payment gateways,
 
 ```bash
 # Verify staging is stable
-curl https://api.staging.forgepay.io/health
-curl https://dashboard.staging.forgepay.io/health
+curl https://api.staging.myforgepay.com/health
+curl https://dashboard.staging.myforgepay.com/health
 
 # Database backup
 pg_dump -h staging-rds.aws.amazon.com -U forgepay -d forgepay | gzip > backup-prelaunch-$(date +%s).sql.gz
@@ -346,7 +346,7 @@ helm install forgepay forgepay-stack \
 # => If all YES: proceed to announcement
 
 # 4. Announce launch (11:00 AM UTC)
-# - Email: customers@forgepay.io
+# - Email: customers@myforgepay.com
 # - Twitter: @ForgePay announcement
 # - Product Hunt: post and comment
 # - Hacker News: Show HN post
@@ -402,6 +402,6 @@ Support Lead: _____________________ Date: _____
 
 ## Questions?
 
-Contact the ForgePay team at #forgepay-launch Slack channel or email product@forgepay.io.
+Contact the ForgePay team at #forgepay-launch Slack channel or email product@myforgepay.com.
 
 **Let's ship! 🚀**

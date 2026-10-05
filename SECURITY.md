@@ -6,7 +6,7 @@ ForgePay takes security seriously. If you discover a vulnerability, please repor
 
 **DO NOT** open a public GitHub issue for security vulnerabilities.
 
-**Contact:** security@forgepay.io  
+**Contact:** security@myforgepay.com  
 **Response SLA:** We acknowledge within 24 hours. Critical vulnerabilities get a fix within 72 hours.  
 **Disclosure timeline:** 90 days after we receive a report, or sooner if a fix is released.
 

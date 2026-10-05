@@ -48,11 +48,11 @@ describe('resolveCorsOrigins', () => {
 
   it('accepts an explicit allowlist in production', async () => {
     process.env['NODE_ENV'] = 'production';
-    process.env['CORS_ALLOWED_ORIGINS'] = 'https://dashboard.forgepay.io,https://app.forgepay.io';
+    process.env['CORS_ALLOWED_ORIGINS'] = 'https://dashboard.myforgepay.com,https://app.myforgepay.com';
     const resolveCorsOrigins = await loadResolveCorsOrigins();
     expect(resolveCorsOrigins()).toEqual([
-      'https://dashboard.forgepay.io',
-      'https://app.forgepay.io',
+      'https://dashboard.myforgepay.com',
+      'https://app.myforgepay.com',
     ]);
   });
 });

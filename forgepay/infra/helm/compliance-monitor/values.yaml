@@ -26,7 +26,7 @@ env:
   LARGE_TRANSACTION_THRESHOLD_USD: '50000.0'
   SAR_AUTO_THRESHOLD_SCORE: '50'
   FUZZY_MATCH_THRESHOLD: '0.85'
-  CORS_ORIGINS: https://dashboard.forgepay.io,https://console.forgepay.io
+  CORS_ORIGINS: https://dashboard.myforgepay.com,https://console.myforgepay.com
 secrets:
   JWT_SECRET: ''
   INTERNAL_SERVICE_SECRET: ''
@@ -93,14 +93,14 @@ ingress:
     cert-manager.io/cluster-issuer: letsencrypt-prod
     nginx.ingress.kubernetes.io/rate-limit: '100'
   hosts:
-  - host: compliance.api.forgepay.io
+  - host: compliance.api.myforgepay.com
     paths:
     - path: /
       pathType: Prefix
   tls:
   - secretName: compliance-monitor-tls
     hosts:
-    - compliance.api.forgepay.io
+    - compliance.api.myforgepay.com
 serviceAccount:
   create: true
   annotations: {}

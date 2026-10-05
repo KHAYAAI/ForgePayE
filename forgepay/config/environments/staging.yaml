@@ -162,7 +162,7 @@ redis:
 kubernetes:
   namespace: forgepay-staging
   ingress_class: nginx
-  domain: staging.forgepay.io
+  domain: staging.myforgepay.com
   tls_enabled: true
   tls_issuer: letsencrypt-staging
   prometheus_enabled: true
@@ -179,4 +179,4 @@ observability:
   log_format: json
   log_level: debug
   trace_sample_rate: 0.5
-  alert_email: staging-alerts@forgepay.io
+  alert_email: staging-alerts@myforgepay.com

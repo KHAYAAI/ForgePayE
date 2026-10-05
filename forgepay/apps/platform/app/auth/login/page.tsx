@@ -130,7 +130,7 @@ export default function LoginPage() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 22 }}>
             <span className="mono">Console access</span>
             <span style={{ width: 24, height: 1, background: 'var(--steel)' }} />
-            <span className="mono">forgepay.io</span>
+            <span className="mono">myforgepay.com</span>
           </div>
 
           <h2 style={{ fontSize: 'clamp(26px, 3vw, 34px)', fontWeight: 500, letterSpacing: -0.8, lineHeight: 1.02, marginBottom: 6 }}>

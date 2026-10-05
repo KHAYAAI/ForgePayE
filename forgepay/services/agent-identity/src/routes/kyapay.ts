@@ -18,7 +18,7 @@ import { getAgent, setAgent, getAgentByKyapaySub } from '../store.js';
 import { agentAccessError } from '../plugins/api-key-auth.js';
 import type { AgentIdentity } from '../types.js';
 
-const FORGEPAY_ISSUER  = process.env['FORGEPAY_ISSUER_URL'] ?? 'https://api.forgepay.com';
+const FORGEPAY_ISSUER  = process.env['FORGEPAY_ISSUER_URL'] ?? 'https://api.myforgepay.com';
 const TOKEN_TTL        = 300; // 5 minutes — short-lived per KYAPay spec
 
 const TRUSTED_ISSUERS: string[] = (

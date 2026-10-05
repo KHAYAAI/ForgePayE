@@ -49,7 +49,7 @@ cp forgepay/infra/staging/.env.staging.example forgepay/infra/staging/.env.stagi
 ./forgepay/infra/staging/deploy-staging.sh af-south-1
 
 # 4. Run smoke tests to verify the deployment
-./forgepay/infra/staging/smoke-tests.sh --base-url https://staging.af.forgepay.io
+./forgepay/infra/staging/smoke-tests.sh --base-url https://staging.af.myforgepay.com
 
 # 5. When done, tear down to stop incurring costs
 ./forgepay/infra/staging/teardown-staging.sh af-south-1

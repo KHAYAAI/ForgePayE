@@ -23,7 +23,7 @@ interface EmailOptions {
 export async function sendEmail(options: EmailOptions): Promise<boolean> {
   try {
     await transporter.sendMail({
-      from: process.env.SMTP_FROM || 'noreply@forgepay.co.za',
+      from: process.env.SMTP_FROM || 'noreply@myforgepay.com',
       ...options,
     });
     return true;

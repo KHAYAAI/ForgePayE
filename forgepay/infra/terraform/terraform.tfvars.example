@@ -6,7 +6,7 @@ db_username         = "forgepay_admin"
 # Secrets Manager (manage_master_user_password). Read it via
 # `terraform output rds_master_user_secret_arn` after apply.
 acm_certificate_arn = "arn:aws:acm:us-east-1:000000000000:certificate/REPLACE"
-alert_email         = "ops@forgepay.io"
+alert_email         = "ops@myforgepay.com"
 
 # Common overrides (defaults shown):
 aws_region              = "us-east-1"      # af-south-1 for the SA deployment
@@ -16,7 +16,7 @@ eks_node_instance_types = ["t3.xlarge"]
 db_instance_class       = "db.r6i.2xlarge" # db.t3.large is fine for staging
 db_multi_az             = true
 redis_node_type         = "cache.r6g.xlarge"
-cloudfront_allowed_origins = ["api.forgepay.io", "checkout.forgepay.io"]
+cloudfront_allowed_origins = ["api.myforgepay.com", "checkout.myforgepay.com"]
 # Defaults to 0.0.0.0/0 (unrestricted) so a first apply succeeds from any
 # laptop. Restrict to your office/VPN/CI egress ranges before production —
 # endpoint_private_access is always on, so the VPC keeps working regardless.

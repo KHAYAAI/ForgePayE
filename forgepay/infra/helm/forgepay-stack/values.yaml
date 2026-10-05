@@ -423,13 +423,13 @@ ingress:
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
     nginx.ingress.kubernetes.io/proxy-body-size: "16k"
   hosts:
-    - host: api.forgepay.io
+    - host: api.myforgepay.com
       paths:
         - path: /
           pathType: Prefix
           service: payment-engine
           port: 8080
-    - host: hooks.forgepay.io
+    - host: hooks.myforgepay.com
       paths:
         - path: /
           pathType: Prefix
@@ -437,4 +437,4 @@ ingress:
           port: 8000
   tls:
     - secretName: forgepay-tls
-      hosts: [api.forgepay.io, hooks.forgepay.io]
+      hosts: [api.myforgepay.com, hooks.myforgepay.com]

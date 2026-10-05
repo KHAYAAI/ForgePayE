@@ -29,7 +29,7 @@ helm.sh/chart: {{ include "crypto-gateway.name" . }}-{{ .Chart.Version }}
 {{ include "crypto-gateway.selectorLabels" . }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
-app.forgepay.io/component: crypto-gateway
+app.myforgepay.com/component: crypto-gateway
 {{- end }}
 
 {{/*

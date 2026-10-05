@@ -17,7 +17,7 @@ env:
   FORECAST_HORIZON_HOURS: '24'
   MODEL_UPDATE_INTERVAL_SECS: '3600'
   MIN_DATA_POINTS: '100'
-  CORS_ORIGINS: https://dashboard.forgepay.io,https://console.forgepay.io
+  CORS_ORIGINS: https://dashboard.myforgepay.com,https://console.myforgepay.com
 secrets:
   JWT_SECRET: ''
   INTERNAL_SERVICE_SECRET: ''

@@ -51,7 +51,7 @@ redis_automatic_failover   = false
 
 # ── Vault ────────────────────────────────────────────────────────────────────
 vault_namespace = "forgepay-staging"
-vault_addr      = "https://vault.staging.forgepay.io"
+vault_addr      = "https://vault.staging.myforgepay.com"
 
 # ── S3 / State ───────────────────────────────────────────────────────────────
 tf_state_bucket = "forgepay-terraform-state-eu-west-2"
@@ -62,13 +62,13 @@ tf_locks_table  = "forgepay-terraform-locks-eu-west-2"
 acm_certificate_arn = "arn:aws:acm:us-east-1:ACCOUNT_ID:certificate/CERT_ID"
 
 cloudfront_allowed_origins = [
-  "staging.eu.forgepay.io",
-  "api.staging.eu.forgepay.io",
-  "checkout.staging.eu.forgepay.io",
-  "dashboard.staging.eu.forgepay.io",
+  "staging.eu.myforgepay.com",
+  "api.staging.eu.myforgepay.com",
+  "checkout.staging.eu.myforgepay.com",
+  "dashboard.staging.eu.myforgepay.com",
 ]
 
 # ── Monitoring ────────────────────────────────────────────────────────────────
 # GDPR: consider 30 days minimum for EU compliance audit trails
 log_retention_days = 30
-alert_email        = "devops@forgepay.io"
+alert_email        = "devops@myforgepay.com"

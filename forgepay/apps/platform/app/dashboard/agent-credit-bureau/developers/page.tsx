@@ -19,7 +19,7 @@ import { INQUIRY_FEE_USD } from '@/lib/credit-grade';
 const SNIPPET = `import { ForgeScoreGate } from "@forge/langgraph";
 
 const gate = new ForgeScoreGate({
-  bureauUrl: "https://bureau.forgepay.io",
+  bureauUrl: "https://bureau.myforgepay.com",
   apiKey: process.env.FORGE_API_KEY,
   minimumScore: 650,          // block agents below BB
 });

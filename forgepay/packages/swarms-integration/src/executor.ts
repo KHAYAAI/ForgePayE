@@ -36,7 +36,7 @@ export class ForgePaySwarmsExecutor {
 
   constructor(config: ForgePaySwarmsConfig) {
     this.config = config;
-    this.baseUrl = config.baseUrl ?? 'https://api.forgepay.io';
+    this.baseUrl = config.baseUrl ?? 'https://api.myforgepay.com';
     this.http = axios.create({
       baseURL: this.baseUrl,
       headers: {

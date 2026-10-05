@@ -6,7 +6,7 @@ version: 0.1.0
 appVersion: "2026.04.15"
 maintainers:
   - name: ForgePay Engineering
-    email: eng@forgepay.io
+    email: eng@myforgepay.com
 
 # Sub-chart dependencies — one helm install deploys everything
 dependencies:

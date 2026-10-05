@@ -136,7 +136,7 @@ The $28/month covers:
 
 - Enterprise tier: custom volume discounts, self-hosting, dedicated support
 - Typical for merchants with $10M+ ARR
-- Contact sales@forgepay.io for discussion
+- Contact sales@myforgepay.com for discussion
 
 ---
 
@@ -251,8 +251,8 @@ The $28/month covers:
 
 ## Resources
 
-- **Pricing page**: https://forgepay.io/pricing
-- **Cost calculator**: https://dashboard.forgepay.io/pricing-calculator
+- **Pricing page**: https://myforgepay.com/pricing
+- **Cost calculator**: https://dashboard.myforgepay.com/pricing-calculator
 - **Strategy doc**: forgepay/docs/PRICING_STRATEGY.md
 - **Implementation guide**: forgepay/docs/PRICING_IMPLEMENTATION_GUIDE.md
 - **Competitor comparison**: [Create at: /pages/compare]
@@ -263,4 +263,4 @@ The $28/month covers:
 
 May 7, 2026
 
-For questions or updates, contact product@forgepay.io or edit this doc.
+For questions or updates, contact product@myforgepay.com or edit this doc.

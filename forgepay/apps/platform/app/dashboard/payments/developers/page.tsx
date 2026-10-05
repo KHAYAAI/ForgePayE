@@ -20,7 +20,7 @@ import {
    merchant id to scope against before that.
    ──────────────────────────────────────────────────────────────── */
 
-const SNIPPET = `curl https://api.forgepay.io/v1/payments \\
+const SNIPPET = `curl https://api.myforgepay.com/v1/payments \\
   -H "Authorization: Bearer sk_live_..." \\
   -d amount=250000 -d currency=ZAR \\
   -d method=card -d customer=cus_8842`;

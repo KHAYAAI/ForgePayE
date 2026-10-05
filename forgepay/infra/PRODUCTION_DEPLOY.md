@@ -317,7 +317,7 @@ kubectl logs job/smoke-tests -n forgepay
 
 ```bash
 # Check current metrics from Prometheus
-# (Connect to Prometheus UI: https://prometheus.forgepay.io)
+# (Connect to Prometheus UI: https://prometheus.myforgepay.com)
 
 # PromQL queries to check:
 # 1. P99 latency per service (should match or improve vs. baseline)
@@ -375,7 +375,7 @@ kubectl logs -n forgepay -f --all-containers=true \
 kubectl get events -n forgepay --sort-by='.lastTimestamp' -w
 
 # Terminal 3: Prometheus dashboard
-# Open: https://grafana.forgepay.io
+# Open: https://grafana.myforgepay.com
 # Check dashboards:
 # - ForgePay Services (P99 latency, error rate, RPS)
 # - Database (connection count, slow queries)
@@ -545,9 +545,9 @@ Notes: [Any issues encountered]
 
 ### Important Dashboards
 
-- Prometheus: https://prometheus.forgepay.io
-- Grafana: https://grafana.forgepay.io
-- Status Page: https://status.forgepay.io
+- Prometheus: https://prometheus.myforgepay.com
+- Grafana: https://grafana.myforgepay.com
+- Status Page: https://status.myforgepay.com
 - PagerDuty: https://forgepay.pagerduty.com
 
 ### Critical Commands

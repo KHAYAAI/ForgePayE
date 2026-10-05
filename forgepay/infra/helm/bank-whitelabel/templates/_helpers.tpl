@@ -29,7 +29,7 @@ helm.sh/chart: {{ include "bank-whitelabel.name" . }}-{{ .Chart.Version }}
 {{ include "bank-whitelabel.selectorLabels" . }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
-app.forgepay.io/component: bank-whitelabel
+app.myforgepay.com/component: bank-whitelabel
 {{- end }}
 
 {{/*

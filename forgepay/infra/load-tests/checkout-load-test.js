@@ -23,7 +23,7 @@ const totalTransactionValue = new Counter('total_transaction_value');
 
 // Test configuration
 const config = {
-  baseUrl: __ENV.FORGEPAY_API_URL || 'https://checkout.staging.forgepay.io',
+  baseUrl: __ENV.FORGEPAY_API_URL || 'https://checkout.staging.myforgepay.com',
   apiKey: __ENV.FORGEPAY_API_KEY || 'test_key_load_test',
   merchants: ['merch_demo_001', 'merch_demo_002', 'merch_demo_003'],
   amounts: [4999, 9999, 49990, 99990],  // $49.99, $99.99, $499.90, $999.90
@@ -56,7 +56,7 @@ function generateTestData() {
   return {
     merchant_id: randomChoice(config.merchants),
     customer_id: `cus_load_test_${randomInt(1, 10000)}`,
-    customer_email: `test${randomInt(1, 100000)}@loadtest.forgepay.io`,
+    customer_email: `test${randomInt(1, 100000)}@loadtest.myforgepay.com`,
     amount: randomChoice(config.amounts),
     currency: 'USD',
     customer_country: randomChoice(config.countries),

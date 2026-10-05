@@ -306,7 +306,7 @@ Nothing below can be built. Each is a signature, an account, or a regulator.
 | **FSCA licence** | Payments / MoR | **6–12 months**, not started. The binding constraint. |
 | **AWS account + quota** | Everything | Request EC2/EKS quota early. |
 | **ACM certificate** | TLS | Must be **us-east-1** for CloudFront. |
-| **Route 53 zone** | DNS | `forgepay.io` |
+| **Route 53 zone** | DNS | `myforgepay.com` |
 | **ECR repositories** | Images | One per service. |
 | **Stripe** | Card acquiring | Configured inside Hyperswitch. |
 | **KYC vendor** | Onboarding | **Not selected** — Smile ID / Sumsub / Onfido. A decision, not a task. |

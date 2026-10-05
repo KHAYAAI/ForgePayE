@@ -379,19 +379,19 @@ ingress:
     nginx.ingress.kubernetes.io/proxy-body-size: "16k"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
   hosts:
-    - host: api.staging.eu.forgepay.io
+    - host: api.staging.eu.myforgepay.com
       paths:
         - path: /
           pathType: Prefix
           service: payment-engine
           port: 80
-    - host: hooks.staging.eu.forgepay.io
+    - host: hooks.staging.eu.myforgepay.com
       paths:
         - path: /
           pathType: Prefix
           service: unified-router
           port: 3000
-    - host: checkout.staging.eu.forgepay.io
+    - host: checkout.staging.eu.myforgepay.com
       paths:
         - path: /
           pathType: Prefix
@@ -400,6 +400,6 @@ ingress:
   tls:
     - secretName: forgepay-staging-tls
       hosts:
-        - api.staging.eu.forgepay.io
-        - hooks.staging.eu.forgepay.io
-        - checkout.staging.eu.forgepay.io
+        - api.staging.eu.myforgepay.com
+        - hooks.staging.eu.myforgepay.com
+        - checkout.staging.eu.myforgepay.com

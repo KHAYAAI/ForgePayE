@@ -39,13 +39,13 @@ describe('resolveCorsOrigin', () => {
 
   it('accepts a single explicit origin in production', () => {
     process.env['NODE_ENV'] = 'production';
-    process.env['CORS_ORIGIN'] = 'https://dashboard.forgepay.io';
-    expect(resolveCorsOrigin()).toBe('https://dashboard.forgepay.io');
+    process.env['CORS_ORIGIN'] = 'https://dashboard.myforgepay.com';
+    expect(resolveCorsOrigin()).toBe('https://dashboard.myforgepay.com');
   });
 
   it('splits a comma-separated allowlist into an array', () => {
     process.env['NODE_ENV'] = 'production';
-    process.env['CORS_ORIGIN'] = 'https://dashboard.forgepay.io, https://app.forgepay.io';
-    expect(resolveCorsOrigin()).toEqual(['https://dashboard.forgepay.io', 'https://app.forgepay.io']);
+    process.env['CORS_ORIGIN'] = 'https://dashboard.myforgepay.com, https://app.myforgepay.com';
+    expect(resolveCorsOrigin()).toEqual(['https://dashboard.myforgepay.com', 'https://app.myforgepay.com']);
   });
 });

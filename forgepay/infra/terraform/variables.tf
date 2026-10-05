@@ -146,7 +146,7 @@ variable "acm_certificate_arn" {
 variable "cloudfront_allowed_origins" {
   description = "Allowed origins for CloudFront"
   type        = list(string)
-  default     = ["api.forgepay.io", "checkout.forgepay.io"]
+  default     = ["api.myforgepay.com", "checkout.myforgepay.com"]
 }
 
 # Monitoring Configuration

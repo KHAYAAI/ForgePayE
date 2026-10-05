@@ -29,7 +29,7 @@ helm.sh/chart: {{ include "mor-layer.name" . }}-{{ .Chart.Version }}
 {{ include "mor-layer.selectorLabels" . }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
-app.forgepay.io/component: mor-layer
+app.myforgepay.com/component: mor-layer
 {{- end }}
 
 {{/*

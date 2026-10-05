@@ -14,7 +14,7 @@
 
 global:
   # Container registry for production images
-  imageRegistry: "registry.forgepay.io"
+  imageRegistry: "registry.myforgepay.com"
 
   postgresql:
     host: "forgepay-prod-postgresql.us-east-1.rds.amazonaws.com"
@@ -196,13 +196,13 @@ ingress:
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
     nginx.ingress.kubernetes.io/rate-limit: "100"  # req/s per IP
   hosts:
-    - host: api.forgepay.io
+    - host: api.myforgepay.com
       paths:
         - path: /
           pathType: Prefix
           service: unified-router
           port: 8000
-    - host: checkout.forgepay.io
+    - host: checkout.myforgepay.com
       paths:
         - path: /
           pathType: Prefix
@@ -211,8 +211,8 @@ ingress:
   tls:
     - secretName: forgepay-tls-prod
       hosts:
-        - api.forgepay.io
-        - checkout.forgepay.io
+        - api.myforgepay.com
+        - checkout.myforgepay.com
 
 # ── Monitoring ─────────────────────────────────────────────────────────────────
 

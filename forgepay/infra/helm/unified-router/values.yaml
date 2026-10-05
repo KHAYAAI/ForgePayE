@@ -12,8 +12,8 @@ env:
   PORT: '8000'
 secretRef: forgepay-unified-router-secrets
 kyapay:
-  trustedIssuers: https://skyfire.xyz,https://api.forgepay.com
-  issuerUrl: https://api.forgepay.com
+  trustedIssuers: https://skyfire.xyz,https://api.myforgepay.com
+  issuerUrl: https://api.myforgepay.com
 resources:
   requests:
     cpu: 600m

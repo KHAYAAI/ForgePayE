@@ -1,6 +1,6 @@
 export interface ForgePayConfig {
   apiKey: string;
-  baseUrl?: string;   // default: https://api.forgepay.io
+  baseUrl?: string;   // default: https://api.myforgepay.com
   merchantId: string;
 }
 

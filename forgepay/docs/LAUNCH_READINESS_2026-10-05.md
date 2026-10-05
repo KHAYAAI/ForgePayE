@@ -121,8 +121,8 @@ fixed in `f9ea918a`.
    `FORGE_OPERATOR_TENANT_ID`, `BUREAU_ADMIN_API_KEY`, `JWT_SECRET`,
    `INTERNAL_WEBHOOK_SECRET`, `FORGE_LAUNCHED_PRODUCTS`.
 5. Fix mor-layer mypy in CI and the JS SDK (missing package, missing build configs).
-6. Confirm domains: the website uses forgepay.io and myforgepay.com; the
-   console FAQ uses forgepay.co.za; `docs.forgepay.io` (14 links) is not in the
+6. Confirm domains: the website uses myforgepay.com and myforgepay.com; the
+   console FAQ uses myforgepay.com; `docs.myforgepay.com` (14 links) is not in the
    repo and could not be reached from here.
 7. External: counsel on POPIA / credit-bureau status, FIC registration, an
    independent review, licences and an acquirer for payments.

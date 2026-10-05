@@ -2,7 +2,7 @@
   "name": "@forgepay/sdk",
   "version": "0.1.0",
   "description": "ForgePay JavaScript / TypeScript SDK",
-  "author": "ForgePay Engineering <eng@forgepay.io>",
+  "author": "ForgePay Engineering <eng@myforgepay.com>",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",

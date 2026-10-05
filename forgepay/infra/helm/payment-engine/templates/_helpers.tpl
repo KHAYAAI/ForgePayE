@@ -29,7 +29,7 @@ helm.sh/chart: {{ include "payment-engine.name" . }}-{{ .Chart.Version }}
 {{ include "payment-engine.selectorLabels" . }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
-app.forgepay.io/component: payment-engine
+app.myforgepay.com/component: payment-engine
 {{- end }}
 
 {{/*
