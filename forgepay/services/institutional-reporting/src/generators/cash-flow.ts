@@ -20,6 +20,8 @@ export interface CashFlowInput {
   periodStart: string;
   periodEnd: string;
   treasuryBaseUrl: string;
+  /** enterprise-treasury requires x-api-key on every route. */
+  treasuryApiKey?: string;
 }
 
 interface CashPositionResponse {
@@ -51,18 +53,20 @@ export async function generateCashFlowReport(
   const period: ReportPeriod = { start: input.periodStart, end: input.periodEnd };
   const errors: string[] = [];
 
-  let endingBalanceUsd = 0;
+  let endingBalanceUsd: number | null = null;
   let deployedInYieldUsd = 0;
+  const headers: Record<string, string> = input.treasuryApiKey ? { 'x-api-key': input.treasuryApiKey } : {};
 
   try {
     const res = await fetch(`${input.treasuryBaseUrl}/v1/cash-position`, {
+      headers,
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     if (!res.ok) {
       errors.push(`cash-position: HTTP ${res.status}`);
     } else {
       const body = (await res.json()) as CashPositionResponse;
-      endingBalanceUsd  = body.data?.totalUsd ?? 0;
+      endingBalanceUsd  = typeof body.data?.totalUsd === 'number' ? body.data.totalUsd : null;
       deployedInYieldUsd = body.data?.deployedInYieldUsd ?? 0;
     }
   } catch (err) {
@@ -73,7 +77,7 @@ export async function generateCashFlowReport(
   try {
     const res = await fetch(
       `${input.treasuryBaseUrl}/v1/rules/execution-log?limit=200`,
-      { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) },
+      { headers, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) },
     );
     if (!res.ok) {
       errors.push(`execution-log: HTTP ${res.status}`);
@@ -90,8 +94,13 @@ export async function generateCashFlowReport(
   let investingFlowsUsd = 0;
   let financingFlowsUsd = 0;
 
+  const startMs = new Date(input.periodStart).getTime();
+  const endMs   = new Date(input.periodEnd).getTime() + 86_400_000; // end date inclusive
   for (const entry of execEntries) {
     if (entry.result !== 'executed') continue;
+    // Only this period's activity; the log is not filtered upstream.
+    const at = entry.timestamp ? new Date(entry.timestamp).getTime() : NaN;
+    if (!(at >= startMs && at < endMs)) continue;
     const amount = entry.amountUsd ?? 0;
     const ts    = entry.timestamp ?? input.periodEnd;
     switch (entry.actionType) {
@@ -129,36 +138,17 @@ export async function generateCashFlowReport(
     }
   }
 
-  // Derive stub operating flows from the period length × heuristic ($50K/day).
-  const days = Math.max(
-    1,
-    Math.ceil(
-      (new Date(input.periodEnd).getTime() - new Date(input.periodStart).getTime())
-        / 86_400_000,
-    ),
-  );
-  const operatingInflowsUsd  = days * 50_000;
-  const operatingOutflowsUsd = days * 35_000;
-
-  const netChangeUsd =
-    operatingInflowsUsd - operatingOutflowsUsd + investingFlowsUsd + financingFlowsUsd;
-  const beginningBalanceUsd = Math.max(0, endingBalanceUsd - netChangeUsd);
-
-  // Synthesize aggregate operating line items (one per category).
-  lineItems.unshift(
-    {
-      date:        input.periodStart,
-      category:    'operating_inflow',
-      description: 'Period payment processing revenue (aggregated)',
-      amountUsd:   operatingInflowsUsd,
-    },
-    {
-      date:        input.periodStart,
-      category:    'operating_outflow',
-      description: 'Period operating expenses (aggregated)',
-      amountUsd:   -operatingOutflowsUsd,
-    },
-  );
+  // No revenue or expense source is connected. These used to be invented
+  // ($50K in / $35K out per day) and the beginning balance was derived from
+  // them, so every figure below the line was fiction. They are unknown.
+  const operatingInflowsUsd: number | null  = null;
+  const operatingOutflowsUsd: number | null = null;
+  const netChangeUsd: number | null = null;
+  const beginningBalanceUsd: number | null = null;
+  const notes = [
+    'Operating inflows and outflows are not available: no revenue or expense source is connected.',
+    'Net change and beginning balance cannot be derived without operating flows.',
+  ];
 
   const report: CashFlowReport = {
     period,
@@ -171,6 +161,8 @@ export async function generateCashFlowReport(
     beginningBalanceUsd,
     endingBalanceUsd,
     lineItems,
+    complete: false,
+    notes,
   };
   if (errors.length > 0) report.data_source_errors = errors;
   // deployedInYieldUsd is captured for parity with treasury snapshot but not in

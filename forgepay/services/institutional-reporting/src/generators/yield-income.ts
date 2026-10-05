@@ -42,50 +42,22 @@ export async function generateYieldIncomeReport(
   const period: ReportPeriod = { start: input.periodStart, end: input.periodEnd };
   const errors: string[] = [];
   const byVault: Record<string, YieldVaultBreakdown> = {};
-  let positions: YieldPosition[] = [];
 
-  try {
-    const res = await fetch(`${input.yieldEngineBaseUrl}/v1/positions/all`, {
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    });
-    if (!res.ok) {
-      errors.push(`positions: HTTP ${res.status}`);
-    } else {
-      const body = (await res.json()) as PositionsResponse;
-      positions = body.data ?? body.positions ?? [];
-    }
-  } catch (err) {
-    errors.push(`positions: ${(err as Error).message}`);
-  }
-
-  for (const pos of positions) {
-    const vault = pos.vaultName ?? pos.vault ?? 'unknown';
-    const principal = pos.principalUsd ?? 0;
-    const yieldUsd  = pos.yieldEarnedUsd ?? pos.yieldUsd ?? 0;
-    const apy       = pos.apy ?? 0;
-    if (!byVault[vault]) {
-      byVault[vault] = { principalUsd: 0, yieldUsd: 0, apyAvg: 0 };
-    }
-    const prev = byVault[vault];
-    // Weighted APY by principal
-    const totalPrincipal = prev.principalUsd + principal;
-    prev.apyAvg = totalPrincipal > 0
-      ? (prev.apyAvg * prev.principalUsd + apy * principal) / totalPrincipal
-      : apy;
-    prev.principalUsd = totalPrincipal;
-    prev.yieldUsd    += yieldUsd;
-  }
-
-  const totalYieldUsd = Object.values(byVault).reduce((s, v) => s + v.yieldUsd, 0);
-  const taxableIncomeUsd      = totalYieldUsd;
-  const federalTaxEstimateUsd = Math.round(taxableIncomeUsd * FEDERAL_CORPORATE_RATE * 100) / 100;
+  // yield-engine has no cross-merchant positions endpoint: its routes are
+  // under /api/v1 and scoped to one merchant's JWT. This called
+  // /v1/positions/all, which does not exist, and on the error reported zero
+  // yield and zero tax as if they were real. Not connected; say so.
+  void input;
+  errors.push('yield-engine: not connected (no positions endpoint this service can read)');
 
   const report: YieldIncomeReport = {
     period,
-    totalYieldUsd,
+    totalYieldUsd:         null,
     byVault,
-    taxableIncomeUsd,
-    federalTaxEstimateUsd,
+    taxableIncomeUsd:      null,
+    federalTaxEstimateUsd: null,
+    complete:              false,
+    notes: ['Yield income is not available: this service cannot read yield positions.'],
   };
   if (errors.length > 0) report.data_source_errors = errors;
   return report;

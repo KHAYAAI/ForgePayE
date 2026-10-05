@@ -16,6 +16,8 @@ export interface NettingInput {
   periodStart: string;
   periodEnd: string;
   treasuryBaseUrl: string;
+  /** enterprise-treasury requires x-api-key on every route. */
+  treasuryApiKey?: string;
 }
 
 interface NettingResult {
@@ -52,6 +54,7 @@ export async function generateNettingReport(
 
   try {
     const res = await fetch(`${input.treasuryBaseUrl}/v1/netting/calculate`, {
+      headers: input.treasuryApiKey ? { 'x-api-key': input.treasuryApiKey } : {},
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     if (!res.ok) {

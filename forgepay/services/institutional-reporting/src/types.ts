@@ -38,14 +38,24 @@ export interface CashFlowLineItem {
 export interface CashFlowReport {
   period: ReportPeriod;
   enterpriseId: string;
-  operatingInflowsUsd: number;
-  operatingOutflowsUsd: number;
+  /**
+   * null: no revenue or expense source is connected. These were invented
+   * ($50K / $35K a day) and drove the beginning balance.
+   */
+  operatingInflowsUsd: number | null;
+  operatingOutflowsUsd: number | null;
   investingFlowsUsd: number;       // Yield sweeps & redemptions
   financingFlowsUsd: number;       // Credit line draws/repayments
-  netChangeUsd: number;
-  beginningBalanceUsd: number;
-  endingBalanceUsd: number;
+  /** null while operating flows are unknown. */
+  netChangeUsd: number | null;
+  /** null while the net change is unknown. */
+  beginningBalanceUsd: number | null;
+  /** null if treasury's cash position could not be read. */
+  endingBalanceUsd: number | null;
   lineItems: CashFlowLineItem[];
+  /** false when any figure is missing; never present partial data as whole. */
+  complete: boolean;
+  notes: string[];
   data_source_errors?: string[];
 }
 
@@ -57,10 +67,14 @@ export interface YieldVaultBreakdown {
 
 export interface YieldIncomeReport {
   period: ReportPeriod;
-  totalYieldUsd: number;
+  /** null when positions could not be read — not zero. */
+  totalYieldUsd: number | null;
   byVault: Record<string, YieldVaultBreakdown>;
-  taxableIncomeUsd: number;
-  federalTaxEstimateUsd: number;
+  taxableIncomeUsd: number | null;
+  /** Illustrative US federal corporate rate (21%) only; not tax advice. */
+  federalTaxEstimateUsd: number | null;
+  complete: boolean;
+  notes: string[];
   data_source_errors?: string[];
 }
 
@@ -109,7 +123,10 @@ export interface TaxFilingLine {
 export interface TaxFilingPacket {
   jurisdiction: Jurisdiction;
   period: ReportPeriod;
+  /** Empty while no source of taxable amounts is connected. */
   lines: TaxFilingLine[];
+  available: boolean;
+  reason?: string;
   generatedAt: string;
 }
 

@@ -14,7 +14,9 @@
  * Port: 3017
  *
  * Env vars:
+ *   VALID_API_KEYS          — required in production; callers send x-api-key
  *   TREASURY_URL            — default http://localhost:3012
+ *   TREASURY_API_KEY        — enterprise-treasury requires x-api-key
  *   YIELD_ENGINE_URL        — default http://localhost:3007
  *   BANK_WHITELABEL_URL     — default http://localhost:3015
  *   CORS_ORIGIN             — default *
@@ -29,6 +31,7 @@ import helmet from '@fastify/helmet';
 import { z } from 'zod';
 
 import { resolveCorsOrigin } from './cors';
+import { resolveApiKeys, keyAccepted, PUBLIC_PATHS } from './auth';
 
 import { generateCashFlowReport }    from './generators/cash-flow';
 import { generateYieldIncomeReport } from './generators/yield-income';
@@ -53,6 +56,7 @@ const TREASURY_URL        = process.env['TREASURY_URL'] ?? 'http://localhost:301
 const YIELD_ENGINE_URL    = process.env['YIELD_ENGINE_URL'] ?? 'http://localhost:3007';
 const BANK_WHITELABEL_URL = process.env['BANK_WHITELABEL_URL'] ?? 'http://localhost:3015';
 const RATE_LIMIT_PER_MIN  = parseInt(process.env['RATE_LIMIT_PER_MIN'] ?? '60', 10);
+const TREASURY_API_KEY    = process.env['TREASURY_API_KEY'];
 
 // ── Zod schemas ───────────────────────────────────────────────────────────────
 
@@ -81,6 +85,15 @@ const app = Fastify({
 await app.register(helmet);
 await app.register(cors, { origin: resolveCorsOrigin() });
 await app.register(rateLimit, { max: RATE_LIMIT_PER_MIN, timeWindow: '1 minute' });
+
+const apiKeys = resolveApiKeys();
+if (apiKeys.size === 0) app.log.warn('VALID_API_KEYS not set: API is unauthenticated (development only)');
+app.addHook('onRequest', async (req, reply) => {
+  if (PUBLIC_PATHS.has(req.url.split('?')[0]!)) return;
+  if (!keyAccepted(req.headers['x-api-key'] as string | undefined, apiKeys)) {
+    return reply.status(401).send({ error: 'Missing or invalid x-api-key' });
+  }
+});
 
 // ── Error handler ─────────────────────────────────────────────────────────────
 
@@ -132,6 +145,7 @@ app.post('/v1/reports', async (req, reply) => {
         periodStart,
         periodEnd,
         treasuryBaseUrl: TREASURY_URL,
+        treasuryApiKey: TREASURY_API_KEY,
       });
       break;
 
@@ -148,6 +162,7 @@ app.post('/v1/reports', async (req, reply) => {
         periodStart,
         periodEnd,
         treasuryBaseUrl: TREASURY_URL,
+        treasuryApiKey: TREASURY_API_KEY,
       });
       break;
 
@@ -163,9 +178,8 @@ app.post('/v1/reports', async (req, reply) => {
       if (!jurisdiction) {
         return reply.status(400).send({ error: 'jurisdiction is required for tax_filing reports' });
       }
-      const packet = generateTaxFilingPacket(jurisdiction, period);
-      const meta = saveReport(type, period, packet, correlationId);
-      return reply.status(201).send({ data: packet, meta });
+      // Not produced (see generators/tax-filing.ts); nothing is saved.
+      return reply.status(501).send({ data: generateTaxFilingPacket(jurisdiction, period) });
     }
 
     default:
@@ -278,8 +292,7 @@ app.get('/v1/tax-filing', async (req, reply) => {
   const start = query.periodStart ?? new Date(Date.now() - 90 * 86_400_000).toISOString().slice(0, 10);
   const end   = query.periodEnd   ?? new Date().toISOString().slice(0, 10);
 
-  const packet = generateTaxFilingPacket(jResult.data, { start, end });
-  reply.send({ data: packet });
+  reply.status(501).send({ data: generateTaxFilingPacket(jResult.data, { start, end }) });
 });
 
 // ── Admin ─────────────────────────────────────────────────────────────────────

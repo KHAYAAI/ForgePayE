@@ -16,6 +16,8 @@ function makeCashFlowPayload(): CashFlowReport {
     beginningBalanceUsd: 5_000_000,
     endingBalanceUsd: 5_200_000,
     lineItems: [],
+    complete: true,
+    notes: [],
   };
 }
 
