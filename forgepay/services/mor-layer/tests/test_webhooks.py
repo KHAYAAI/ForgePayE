@@ -20,8 +20,8 @@ from httpx import AsyncClient
 
 
 def _make_signature(payload: bytes, secret: str) -> str:
-    sig = hmac.new(secret.encode(), payload, hashlib.sha256).hexdigest()
-    return f"sha256={sig}"
+    sig = hmac.new(secret.encode(), payload, hashlib.sha512).hexdigest()
+    return f"sha512={sig}"
 
 
 WEBHOOK_SECRET = "test_webhook_secret"
@@ -58,7 +58,7 @@ async def test_valid_webhook_accepted(client: AsyncClient):
         return_value=httpx.Response(200, json={"received": True})
     )
 
-    payload = json.dumps(_hs_event("payment_intent.succeeded")).encode()
+    payload = json.dumps(_hs_event("payment_succeeded")).encode()
     sig = _make_signature(payload, WEBHOOK_SECRET)
 
     resp = await client.post(
@@ -74,14 +74,14 @@ async def test_valid_webhook_accepted(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_invalid_signature_rejected(client: AsyncClient):
     """Tampered signature → 401."""
-    payload = json.dumps(_hs_event("payment_intent.succeeded")).encode()
+    payload = json.dumps(_hs_event("payment_succeeded")).encode()
 
     resp = await client.post(
         "/v1/webhooks/hyperswitch",
         content=payload,
         headers={
             "Content-Type": "application/json",
-            "x-webhook-signature-512": "sha256=deadbeef",
+            "x-webhook-signature-512": "sha512=deadbeef",
         },
     )
     assert resp.status_code == 401
@@ -90,7 +90,7 @@ async def test_invalid_signature_rejected(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_missing_signature_rejected(client: AsyncClient):
     """No signature header → 401."""
-    payload = json.dumps(_hs_event("payment_intent.succeeded")).encode()
+    payload = json.dumps(_hs_event("payment_succeeded")).encode()
 
     resp = await client.post(
         "/v1/webhooks/hyperswitch",
@@ -125,7 +125,7 @@ async def test_payment_failed_event_handled(client: AsyncClient):
     respx.post("http://unified-router-test.local/webhooks/hyperswitch").mock(
         return_value=httpx.Response(200, json={"received": True})
     )
-    event = _hs_event("payment_intent.payment_failed")
+    event = _hs_event("payment_failed")
     event["content"]["object"]["status"] = "failed"
     event["content"]["object"]["error_message"] = "Insufficient funds"
 

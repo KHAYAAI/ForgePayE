@@ -15,8 +15,10 @@ describe('normalizeHyperswitchEvent', () => {
   const baseEvent = {
     event_id:    'evt_hs_001',
     merchant_id: 'merch_01',
-    created:     '2026-04-15T10:00:00Z',
+    // Hyperswitch serialises a zone-less UTC PrimitiveDateTime.
+    timestamp:   '2026-04-15T10:00:00.000',
     content: {
+      type: 'payment_details',
       object: {
         payment_id:  'pay_01',
         amount:      4900,
@@ -28,8 +30,8 @@ describe('normalizeHyperswitchEvent', () => {
     },
   };
 
-  it('maps payment_intent.succeeded → payment.succeeded', () => {
-    const event = normalizeHyperswitchEvent({ ...baseEvent, event_type: 'payment_intent.succeeded' });
+  it('maps payment_succeeded → payment.succeeded', () => {
+    const event = normalizeHyperswitchEvent({ ...baseEvent, event_type: 'payment_succeeded' });
     expect(event).not.toBeNull();
     expect(event!.type).toBe('payment.succeeded');
     expect(event!.source).toBe('payment-engine');
@@ -37,11 +39,11 @@ describe('normalizeHyperswitchEvent', () => {
     expect(event!.sourceEventId).toBe('evt_hs_001');
   });
 
-  it('maps payment_intent.failed → payment.failed', () => {
+  it('maps payment_failed → payment.failed', () => {
     const event = normalizeHyperswitchEvent({
       ...baseEvent,
-      event_type: 'payment_intent.failed',
-      content: { object: { ...baseEvent.content.object, status: 'failed', error_message: 'Declined' } },
+      event_type: 'payment_failed',
+      content: { type: 'payment_details', object: { ...baseEvent.content.object, status: 'failed', error_message: 'Declined' } },
     });
     expect(event).not.toBeNull();
     expect(event!.type).toBe('payment.failed');
@@ -49,10 +51,45 @@ describe('normalizeHyperswitchEvent', () => {
     expect(data.failureReason).toBe('Declined');
   });
 
-  it('maps refund.succeeded → payment.refunded', () => {
-    const event = normalizeHyperswitchEvent({ ...baseEvent, event_type: 'refund.succeeded' });
+  it('maps refund_succeeded → payment.refunded with the refund amount', () => {
+    const event = normalizeHyperswitchEvent({
+      ...baseEvent,
+      event_type: 'refund_succeeded',
+      content: { type: 'refund_details', object: { refund_id: 'ref_01', payment_id: 'pay_01', amount: 1500, currency: 'USD', status: 'succeeded' } },
+    });
     expect(event).not.toBeNull();
     expect(event!.type).toBe('payment.refunded');
+    const data = event!.data as { status: string; amount: { value: string } };
+    expect(data.status).toBe('refunded');
+    expect(data.amount.value).toBe('15.00');
+  });
+
+  it('maps dispute_opened, whose amount is a string of minor units', () => {
+    const event = normalizeHyperswitchEvent({
+      ...baseEvent,
+      event_type: 'dispute_opened',
+      content: { type: 'dispute_details', object: { dispute_id: 'dp_01', payment_id: 'pay_01', amount: '4900', currency: 'USD' } },
+    });
+    expect(event!.type).toBe('payment.disputed');
+    expect((event!.data as { amount: { value: string } }).amount.value).toBe('49.00');
+  });
+
+  it('ignores the Stripe-style dotted names Hyperswitch never sends', () => {
+    expect(normalizeHyperswitchEvent({ ...baseEvent, event_type: 'payment_intent.succeeded' })).toBeNull();
+  });
+
+  it('reads the zone-less webhook timestamp as UTC', () => {
+    const event = normalizeHyperswitchEvent({ ...baseEvent, event_type: 'payment_succeeded' });
+    expect(event!.occurredAt).toBe('2026-04-15T10:00:00.000Z');
+  });
+
+  it('does not divide zero-decimal currencies by 100', () => {
+    const event = normalizeHyperswitchEvent({
+      ...baseEvent,
+      event_type: 'payment_succeeded',
+      content: { type: 'payment_details', object: { ...baseEvent.content.object, amount: 4900, currency: 'JPY' } },
+    });
+    expect((event!.data as { amount: { value: string } }).amount.value).toBe('4900');
   });
 
   it('returns null for unknown event types', () => {
@@ -61,37 +98,37 @@ describe('normalizeHyperswitchEvent', () => {
   });
 
   it('converts integer cents to decimal string (4900 → "49.00")', () => {
-    const event = normalizeHyperswitchEvent({ ...baseEvent, event_type: 'payment_intent.succeeded' });
+    const event = normalizeHyperswitchEvent({ ...baseEvent, event_type: 'payment_succeeded' });
     const data = event!.data as { amount: { value: string; currency: string } };
     expect(data.amount.value).toBe('49.00');
     expect(data.amount.currency).toBe('USD');
   });
 
   it('sets source to payment-engine', () => {
-    const event = normalizeHyperswitchEvent({ ...baseEvent, event_type: 'payment_intent.succeeded' });
+    const event = normalizeHyperswitchEvent({ ...baseEvent, event_type: 'payment_succeeded' });
     expect(event!.source).toBe('payment-engine');
   });
 
   it('carries through merchant_id and event_id as sourceEventId', () => {
-    const event = normalizeHyperswitchEvent({ ...baseEvent, event_type: 'payment_intent.succeeded' });
+    const event = normalizeHyperswitchEvent({ ...baseEvent, event_type: 'payment_succeeded' });
     expect(event!.merchantId).toBe('merch_01');
     expect(event!.sourceEventId).toBe('evt_hs_001');
   });
 
   it('carries through paymentId from content.object', () => {
-    const event = normalizeHyperswitchEvent({ ...baseEvent, event_type: 'payment_intent.succeeded' });
+    const event = normalizeHyperswitchEvent({ ...baseEvent, event_type: 'payment_succeeded' });
     const data = event!.data as { paymentId: string };
     expect(data.paymentId).toBe('pay_01');
   });
 
   it('generates a UUID v4 id matching /^[0-9a-f-]{36}$/', () => {
-    const event = normalizeHyperswitchEvent({ ...baseEvent, event_type: 'payment_intent.succeeded' });
+    const event = normalizeHyperswitchEvent({ ...baseEvent, event_type: 'payment_succeeded' });
     expect(event!.id).toMatch(/^[0-9a-f-]{36}$/);
   });
 
   it('generates a different id for each call', () => {
-    const e1 = normalizeHyperswitchEvent({ ...baseEvent, event_type: 'payment_intent.succeeded' });
-    const e2 = normalizeHyperswitchEvent({ ...baseEvent, event_type: 'payment_intent.succeeded' });
+    const e1 = normalizeHyperswitchEvent({ ...baseEvent, event_type: 'payment_succeeded' });
+    const e2 = normalizeHyperswitchEvent({ ...baseEvent, event_type: 'payment_succeeded' });
     expect(e1!.id).not.toBe(e2!.id);
   });
 });

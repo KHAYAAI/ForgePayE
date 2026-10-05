@@ -48,3 +48,21 @@ describe('verifyHmacSignature', () => {
     expect(verifyHmacSignature({ payload, signature: '', secret })).toBe(false);
   });
 });
+
+describe('verifyHmacSignature — Hyperswitch (SHA-512)', () => {
+  const secret  = 'test-hash-key';
+  const payload = Buffer.from('{"event_type":"payment_succeeded"}');
+  const sig512  = createHmac('sha512', secret).update(payload).digest('hex');
+
+  it('accepts the hex HMAC-SHA512 Hyperswitch sends in X-Webhook-Signature-512', () => {
+    expect(verifyHmacSignature({ payload, signature: sig512, secret, algorithm: 'sha512' })).toBe(true);
+  });
+
+  it('rejects a SHA-512 signature checked as SHA-256 (the old behaviour)', () => {
+    expect(verifyHmacSignature({ payload, signature: sig512, secret })).toBe(false);
+  });
+
+  it('rejects a tampered body', () => {
+    expect(verifyHmacSignature({ payload: Buffer.from('{"event_type":"payment_failed"}'), signature: sig512, secret, algorithm: 'sha512' })).toBe(false);
+  });
+});

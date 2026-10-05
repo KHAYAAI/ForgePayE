@@ -15,7 +15,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision = '003_auditor_compliance'
-down_revision = '002_add_shielded_transactions'
+down_revision = '002_shielded'  # revision id of 002, not its filename
 branch_labels = None
 depends_on = None
 
@@ -27,7 +27,7 @@ def upgrade() -> None:
     op.create_table(
         'frozen_nullifiers',
         sa.Column('id', sa.Integer(), nullable=False),
-        sa.Column('nullifier', sa.String(256), nullable=False, unique=True, index=True),
+        sa.Column('nullifier', sa.String(256), nullable=False, unique=True),  # indexed below (ix_frozen_nullifiers_nullifier)
         sa.Column('reason', sa.String(256), nullable=False),
         sa.Column('reason_code', sa.Enum(
             'SANCTIONS', 'FRAUD', 'AML_VIOLATION', 'TAX_EVASION', 'CUSTOMER_REQUEST', 'OTHER',
@@ -50,7 +50,7 @@ def upgrade() -> None:
     op.create_table(
         'auditor_keys',
         sa.Column('id', sa.Integer(), nullable=False),
-        sa.Column('key_version', sa.Integer(), nullable=False, unique=True, index=True),
+        sa.Column('key_version', sa.Integer(), nullable=False, unique=True),  # indexed below (ix_auditor_keys_key_version)
         sa.Column('public_key', sa.String(256), nullable=False, unique=True, index=True),
         sa.Column('secret_key_vault_path', sa.String(512), nullable=False),  # Path in Vault
         sa.Column('status', sa.Enum('ACTIVE', 'ROTATING', 'INACTIVE', name='key_status_enum'),

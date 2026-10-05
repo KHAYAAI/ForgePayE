@@ -227,21 +227,24 @@ def verify_hyperswitch_webhook(
     secret: str,
 ) -> bool:
     """
-    Verify a Hyperswitch webhook signature (HMAC-SHA256).
-    Replaces stripe.Webhook.construct_event().
+    Verify a Hyperswitch webhook signature.
+
+    Hyperswitch signs the exact body it sends with HMAC-SHA512, keyed with the
+    business profile's payment_response_hash_key, and sends the hex digest in
+    X-Webhook-Signature-512 (crates/router/src/core/webhooks/types.rs in this
+    repo). This used to check SHA-256, so every real webhook was rejected.
     """
     if not secret:
-        logger.warning("Hyperswitch webhook secret not configured — skipping verification")
+        logger.warning("Hyperswitch webhook secret not configured — rejecting webhook")
         return False
 
     expected = hmac.new(
         secret.encode(),
         payload_bytes,
-        hashlib.sha256,
+        hashlib.sha512,
     ).hexdigest()
 
-    # Hyperswitch sends "sha256=<hex>" format
-    actual = signature_header.removeprefix("sha256=")
+    actual = signature_header.removeprefix("sha512=")
 
     return hmac.compare_digest(expected, actual)
 

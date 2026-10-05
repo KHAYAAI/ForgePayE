@@ -27,13 +27,14 @@ from src.db.session import get_db
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
+# Hyperswitch event_type values are snake_case (EventType in
+# crates/common_enums/src/enums.rs). The Stripe-style names that used to be
+# listed here are never sent, so no payment ever completed a checkout.
 _PAYMENT_SUCCESS_EVENTS = frozenset({
-    "payment_intent.succeeded",
-    "payment.succeeded",
+    "payment_succeeded",
 })
 _PAYMENT_FAILED_EVENTS = frozenset({
-    "payment_intent.payment_failed",
-    "payment.failed",
+    "payment_failed",
 })
 
 

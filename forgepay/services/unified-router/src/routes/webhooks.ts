@@ -5,7 +5,8 @@
  * Every event travels the same 5-step pipeline (see handleIncomingWebhook):
  *
  *   Step 1 — Verify signature
- *     verifyHmacSignature() checks the HMAC-SHA256 header using timingSafeEqual.
+ *     verifyHmacSignature() checks the HMAC header using timingSafeEqual
+ *     (SHA-512 for Hyperswitch, SHA-256 for everything else).
  *     An invalid sig returns HTTP 401 immediately; no further processing.
  *
  *   Step 2 — Normalise
@@ -59,6 +60,7 @@ export async function buildWebhookRoutes(app: FastifyInstance) {
         source: 'payment-engine',
         secret: config.webhookSecrets.hyperswitch,
         signatureHeader: 'x-webhook-signature-512',
+        algorithm:       'sha512',
         normalize: normalizeHyperswitchEvent,
       });
     },
@@ -158,13 +160,15 @@ interface HandleWebhookArgs {
    * FORGE Custody / FORGE Wallet emitters.
    */
   timestampHeader?: string;
+  /** HMAC hash; defaults to SHA-256. */
+  algorithm?:      'sha256' | 'sha512';
   normalize:       (body: WebhookBody) => ForgePayEvent | null | Promise<ForgePayEvent | null>;
 }
 
 const TIMESTAMP_WINDOW_SECONDS = 300;
 
 async function handleIncomingWebhook({
-  req, reply, source, secret, signatureHeader, timestampHeader, normalize,
+  req, reply, source, secret, signatureHeader, timestampHeader, algorithm, normalize,
 }: HandleWebhookArgs): Promise<void> {
   const rawBody = (req as { rawBody?: Buffer }).rawBody;
 
@@ -189,7 +193,7 @@ async function handleIncomingWebhook({
     signedPayload = Buffer.concat([Buffer.from(`${timestamp}.`, 'utf8'), rawBody]);
   }
 
-  const valid = verifyHmacSignature({ payload: signedPayload, signature, secret });
+  const valid = verifyHmacSignature({ payload: signedPayload, signature, secret, algorithm });
   if (!valid) {
     logger.warn({ source }, 'Invalid webhook signature');
     reply.code(401).send({ error: 'invalid_signature' });

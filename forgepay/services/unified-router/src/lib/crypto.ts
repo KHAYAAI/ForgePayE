@@ -18,17 +18,24 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 
 interface VerifyArgs {
   payload:   Buffer;
-  signature: string;   // hex or "sha256=<hex>" format
+  signature: string;   // hex, or "<algorithm>=<hex>"
   secret:    string;
+  /**
+   * Hyperswitch signs with HMAC-SHA512 (header X-Webhook-Signature-512, see
+   * crates/router/src/core/webhooks/types.rs); every other emitter here uses
+   * SHA-256.
+   */
+  algorithm?: 'sha256' | 'sha512';
 }
 
-export function verifyHmacSignature({ payload, signature, secret }: VerifyArgs): boolean {
+export function verifyHmacSignature({ payload, signature, secret, algorithm = 'sha256' }: VerifyArgs): boolean {
   if (!secret) return false;
 
-  const expected = createHmac('sha256', secret).update(payload).digest('hex');
+  const expected = createHmac(algorithm, secret).update(payload).digest('hex');
 
-  // Support both bare hex and "sha256=<hex>" formats
-  const actual = signature.startsWith('sha256=') ? signature.slice(7) : signature;
+  // Support both bare hex and "<algorithm>=<hex>" formats
+  const prefix = `${algorithm}=`;
+  const actual = signature.startsWith(prefix) ? signature.slice(prefix.length) : signature;
 
   try {
     return timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(actual, 'hex'));

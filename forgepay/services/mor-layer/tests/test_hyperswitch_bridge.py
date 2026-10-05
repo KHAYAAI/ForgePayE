@@ -187,31 +187,39 @@ async def test_create_customer(hs_client: HyperswitchClient):
 def test_verify_webhook_valid():
     """HMAC-SHA256 signature verification must pass for valid payloads."""
     secret = "webhook_secret_test"
-    payload = b'{"event_type":"payment_intent.succeeded"}'
-    signature = hmac.new(secret.encode(), payload, hashlib.sha256).hexdigest()
+    payload = b'{"event_type":"payment_succeeded"}'
+    signature = hmac.new(secret.encode(), payload, hashlib.sha512).hexdigest()
 
-    assert verify_hyperswitch_webhook(payload, f"sha256={signature}", secret) is True
+    assert verify_hyperswitch_webhook(payload, f"sha512={signature}", secret) is True
 
 
 def test_verify_webhook_invalid_signature():
     """Tampered payload must fail signature verification."""
     secret = "webhook_secret_test"
-    payload = b'{"event_type":"payment_intent.succeeded"}'
-    tampered_payload = b'{"event_type":"payment_intent.succeeded","extra":"injected"}'
+    payload = b'{"event_type":"payment_succeeded"}'
+    tampered_payload = b'{"event_type":"payment_succeeded","extra":"injected"}'
 
-    real_sig = hmac.new(secret.encode(), payload, hashlib.sha256).hexdigest()
-    assert verify_hyperswitch_webhook(tampered_payload, f"sha256={real_sig}", secret) is False
+    real_sig = hmac.new(secret.encode(), payload, hashlib.sha512).hexdigest()
+    assert verify_hyperswitch_webhook(tampered_payload, f"sha512={real_sig}", secret) is False
 
 
 def test_verify_webhook_empty_secret_returns_false():
     """No secret configured → always reject (fail-secure)."""
-    assert verify_hyperswitch_webhook(b"payload", "sha256=anything", "") is False
+    assert verify_hyperswitch_webhook(b"payload", "sha512=anything", "") is False
 
 
 def test_verify_webhook_bare_hex_format():
-    """Should accept bare hex format (without 'sha256=' prefix)."""
+    """Should accept bare hex format (without 'sha512=' prefix)."""
     secret = "s3cret"
     payload = b"test_payload"
-    signature = hmac.new(secret.encode(), payload, hashlib.sha256).hexdigest()
+    signature = hmac.new(secret.encode(), payload, hashlib.sha512).hexdigest()
 
     assert verify_hyperswitch_webhook(payload, signature, secret) is True
+
+
+def test_verify_webhook_rejects_sha256_signature():
+    """The old SHA-256 check must no longer pass: Hyperswitch sends SHA-512."""
+    secret = "whsec_test"
+    payload = b'{"event_type":"payment_succeeded"}'
+    sig256 = hmac.new(secret.encode(), payload, hashlib.sha256).hexdigest()
+    assert verify_hyperswitch_webhook(payload, sig256, secret) is False
