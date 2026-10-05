@@ -21,8 +21,9 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import type { Escrow } from './types';
-import { getEscrow, setEscrow, getSession, setSession } from './store';
-import { lock as lockLedger, release as releaseLedger, refund as refundLedger } from './ledger';
+import { getEscrow, setEscrow, getSession, setSession, memoryEscrow, putMemoryEscrow, rowToEscrow } from './store';
+import { pool, isLedgerDbReady } from './db';
+import { moveEscrow } from './ledger';
 
 // ── Create Escrow ─────────────────────────────────────────────────────────────
 
@@ -62,105 +63,59 @@ export async function createEscrow(opts: CreateEscrowOptions): Promise<Escrow | 
 // ── Fund Escrow ───────────────────────────────────────────────────────────────
 
 export async function fundEscrow(escrowId: string): Promise<Escrow | { error: string }> {
-  const escrow = await getEscrow(escrowId);
-  if (!escrow) return { error: `Escrow ${escrowId} not found` };
-  if (escrow.status !== 'pending') {
-    return { error: `Escrow cannot be funded — current status: ${escrow.status}` };
-  }
-
-  // Debit the buyer's tracked ledger balance. Rejects cleanly (no mutation,
-  // no negative balance) if the buyer doesn't have enough — see ledger.ts.
-  const lockResult = lockLedger(escrow.id, escrow.buyerAgentId, escrow.amountUsd);
-  if (!lockResult.ok) {
-    return { error: lockResult.error };
-  }
-
-  const updated: Escrow = {
-    ...escrow,
-    status:   'funded',
-    fundedAt: new Date().toISOString(),
-  };
-  await setEscrow(updated);
-  return updated;
+  const r = await moveEscrow(escrowId, 'fund');
+  return r.ok ? r.escrow : { error: r.error };
 }
 
 // ── Release Escrow ────────────────────────────────────────────────────────────
 
 export async function releaseEscrow(escrowId: string, settlementTxId?: string): Promise<Escrow | { error: string }> {
-  const escrow = await getEscrow(escrowId);
-  if (!escrow) return { error: `Escrow ${escrowId} not found` };
-  // This status guard is what makes release idempotent: once an escrow has
-  // moved to 'released' or 'refunded' it is no longer 'funded', so a second
-  // release call (or a release after a refund) is rejected here — before any
-  // ledger credit happens.
-  if (escrow.status !== 'funded') {
-    return { error: `Escrow cannot be released — current status: ${escrow.status}` };
-  }
+  // Status check, seller credit and ledger entry are one atomic step in
+  // ledger.moveEscrow, so a second (or concurrent) release cannot pay twice.
+  const r = await moveEscrow(escrowId, 'release');
+  if (!r.ok) return { error: r.error };
 
-  // Credit the seller's tracked ledger balance from escrow custody.
-  releaseLedger(escrow.id, escrow.sellerAgentId, escrow.amountUsd);
-
-  const now     = new Date().toISOString();
-  const updated: Escrow = {
-    ...escrow,
-    status:     'released',
-    releasedAt: now,
-  };
-  await setEscrow(updated);
-
-  // Update session with settlement tx
-  const session = await getSession(escrow.sessionId);
+  const session = await getSession(r.escrow.sessionId);
   if (session && settlementTxId) {
-    await setSession({ ...session, settlementTxId, status: 'settled', updatedAt: now });
+    await setSession({ ...session, settlementTxId, status: 'settled', updatedAt: new Date().toISOString() });
   }
-
-  return updated;
+  return r.escrow;
 }
 
 // ── Refund Escrow ─────────────────────────────────────────────────────────────
 
-export async function refundEscrow(escrowId: string, reason: string): Promise<Escrow | { error: string }> {
-  const escrow = await getEscrow(escrowId);
-  if (!escrow) return { error: `Escrow ${escrowId} not found` };
-  // Same idempotency guard as releaseEscrow: only a 'funded' escrow can be
-  // refunded, so double-refund and refund-after-release are rejected here.
-  if (escrow.status !== 'funded') {
-    return { error: `Escrow cannot be refunded — current status: ${escrow.status}` };
-  }
-
-  // Credit the original funding agent's (buyer's) balance back from escrow custody.
-  refundLedger(escrow.id, escrow.buyerAgentId, escrow.amountUsd);
-
-  const updated: Escrow = {
-    ...escrow,
-    status:     'refunded',
-    refundedAt: new Date().toISOString(),
-  };
-  await setEscrow(updated);
-  return updated;
+export async function refundEscrow(escrowId: string, _reason: string): Promise<Escrow | { error: string }> {
+  const r = await moveEscrow(escrowId, 'refund');
+  return r.ok ? r.escrow : { error: r.error };
 }
 
 // ── Dispute Escrow ────────────────────────────────────────────────────────────
 
 export async function disputeEscrow(escrowId: string, reason: string): Promise<Escrow | { error: string }> {
-  const escrow = await getEscrow(escrowId);
-  if (!escrow) return { error: `Escrow ${escrowId} not found` };
-  if (escrow.status === 'released' || escrow.status === 'refunded') {
-    return { error: `Escrow cannot be disputed — already in terminal state: ${escrow.status}` };
+  let updated: Escrow | undefined;
+  if (isLedgerDbReady()) {
+    // Conditional, so a dispute cannot land on an escrow that was released
+    // or refunded a moment earlier.
+    const r = await pool.query<Record<string, unknown>>(
+      `UPDATE negotiation_escrows SET status = 'disputed', dispute_reason = $2
+       WHERE id = $1 AND status IN ('pending', 'funded') RETURNING *`, [escrowId, reason]);
+    if (r.rowCount === 1) updated = rowToEscrow(r.rows[0]!);
+  } else {
+    const escrow = memoryEscrow(escrowId);
+    if (escrow && (escrow.status === 'pending' || escrow.status === 'funded')) {
+      updated = { ...escrow, status: 'disputed', disputeReason: reason };
+      putMemoryEscrow(updated);
+    }
+  }
+  if (!updated) {
+    const escrow = await getEscrow(escrowId);
+    if (!escrow) return { error: `Escrow ${escrowId} not found` };
+    return { error: `Escrow cannot be disputed — current status: ${escrow.status}` };
   }
 
-  const updated: Escrow = {
-    ...escrow,
-    status:        'disputed',
-    disputeReason: reason,
-  };
-  await setEscrow(updated);
-
-  // Mark session as disputed too
-  const session = await getSession(escrow.sessionId);
+  const session = await getSession(updated.sessionId);
   if (session) {
     await setSession({ ...session, status: 'disputed', updatedAt: new Date().toISOString() });
   }
-
   return updated;
 }

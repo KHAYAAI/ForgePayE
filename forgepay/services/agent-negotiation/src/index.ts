@@ -505,7 +505,7 @@ async function buildApp() {
       });
     }
 
-    const result = depositAgentBalance(req.params.agentId, parsed.data.amountUsd);
+    const result = await depositAgentBalance(req.params.agentId, parsed.data.amountUsd);
     app.log.info(
       { agentId: req.params.agentId, amountUsd: parsed.data.amountUsd },
       '[agent-negotiation] Agent ledger balance deposit (admin/test/internal — not real on-chain funding)'
@@ -525,8 +525,8 @@ async function buildApp() {
     return reply.send({
       data: {
         agentId:    req.params.agentId,
-        balanceUsd: getBalance(req.params.agentId),
-        ledger:     getLedgerEntries(req.params.agentId),
+        balanceUsd: await getBalance(req.params.agentId),
+        ledger:     await getLedgerEntries(req.params.agentId),
       },
     });
   });

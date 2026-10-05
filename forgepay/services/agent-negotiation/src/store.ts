@@ -210,9 +210,13 @@ export async function initStore(): Promise<void> {
     const { runMigrations } = await import('./db');
     await runMigrations();
     useDb = true;
-    await seedDb();
+    // Demo session/escrow never go into a production database.
+    if (process.env['NODE_ENV'] !== 'production') await seedDb();
   } catch (err) {
-    console.warn('[agent-negotiation] DB unavailable, falling back to in-memory:', (err as Error).message);
+    // Balances and escrow states held only in memory are lost on restart, so
+    // production refuses to run that way.
+    if (process.env['NODE_ENV'] === 'production') throw err;
+    console.warn('[agent-negotiation] DB unavailable, falling back to in-memory (development only):', (err as Error).message);
     useDb = false;
     seedInMemory();
   }
@@ -310,6 +314,17 @@ export async function listSessions(
 }
 
 // ── Escrows ───────────────────────────────────────────────────────────────────
+
+/** In-memory mode only: the escrow map, read synchronously so a transition can check and apply without yielding. */
+export function memoryEscrow(id: string): Escrow | undefined {
+  return escrowMap.get(id);
+}
+
+export function putMemoryEscrow(escrow: Escrow): void {
+  escrowMap.set(escrow.id, escrow);
+}
+
+export { rowToEscrow };
 
 export async function getEscrow(id: string): Promise<Escrow | undefined> {
   if (!useDb) return escrowMap.get(id);
