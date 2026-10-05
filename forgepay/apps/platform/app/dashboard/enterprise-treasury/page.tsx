@@ -63,7 +63,20 @@ export default function EnterpriseTreasury() {
     status: overrides[String(a['id'] ?? '')] ?? (a['status'] === 'approved' ? 'approved' : 'pending'),
   }));
 
-  const approve = (id: string) => setOverrides((o) => ({ ...o, [id]: 'approved' }));
+  const [approvalError, setApprovalError] = useState<string | null>(null);
+  // Resolved in enterprise-treasury; the row only shows approved once the
+  // service has recorded it. (This used to change local state only.)
+  const approve = async (id: string) => {
+    setApprovalError(null);
+    const res = await fetch(`/api/forge/treasury-approvals/${encodeURIComponent(id)}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ approved: true }),
+    }).catch(() => null);
+    const json = res ? ((await res.json().catch(() => null)) as { live?: boolean; error?: string } | null) : null;
+    if (res?.ok && json?.live) setOverrides((o) => ({ ...o, [id]: 'approved' }));
+    else setApprovalError(`Could not approve: ${json?.error ?? 'treasury unreachable'}`);
+  };
 
   return (
     <>
@@ -121,6 +134,7 @@ export default function EnterpriseTreasury() {
       )}
 
       <Panel title="Approval Desk" label="one-click CFO decisions" ink style={{ marginBottom: 20 }}>
+        {approvalError && <p role="alert" style={{ color: 'var(--paper)', marginBottom: 12 }}>{approvalError}</p>}
         <DataTable
           columns={['Request', 'Type', 'Detail', 'Requested by', 'Status', '']}
           emptyMessage="No approvals pending."

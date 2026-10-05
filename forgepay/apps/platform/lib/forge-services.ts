@@ -85,6 +85,26 @@ export async function getTreasurySummary<T = Record<string, unknown>>(): Promise
   };
 }
 
+/** Approve or reject a treasury approval — a write, never polled. */
+export async function resolveTreasuryApproval<T = Record<string, unknown>>(
+  approvalId: string, approved: boolean, resolvedBy: string,
+): Promise<LiveResult<T>> {
+  try {
+    const res = await fetch(`${SERVICE_URLS.treasury}/v1/rules/approvals/${encodeURIComponent(approvalId)}/resolve`, {
+      method: 'POST',
+      headers: { ...treasuryAuthHeaders(), 'content-type': 'application/json' },
+      body: JSON.stringify({ approved, resolvedBy }),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+      cache: 'no-store',
+    });
+    if (!res.ok) return { live: false, data: null, error: `HTTP ${res.status}` };
+    const json = (await res.json()) as { data: T };
+    return { live: true, data: json.data };
+  } catch (err) {
+    return { live: false, data: null, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 export async function getBureauStats<T = Record<string, unknown>>(tenantId: string): Promise<LiveResult<T>> {
   // Bureau endpoints wrap payloads in {data}. Compose stats + agent register,
   // both scoped to this workspace (see lib/bureau-scope.ts).
