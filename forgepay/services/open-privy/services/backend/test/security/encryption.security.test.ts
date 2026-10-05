@@ -93,15 +93,14 @@ describe('Encryption Security', () => {
       const encrypted = await encryptionService.encrypt(plaintext, userId);
       const parts = encrypted.split(':');
 
-      // Format should be: iv:authTag:ciphertext
-      expect(parts.length).toBe(3);
+      // Format: v2:wrappedDataKey:iv:authTag:ciphertext
+      expect(parts.length).toBe(5);
+      expect(parts[0]).toBe('v2');
 
-      const [ivHex, authTagHex] = parts;
+      const [, , ivHex, authTagHex] = parts;
 
-      // IV should be 32 hex chars (16 bytes)
-      expect(ivHex.length).toBe(32);
-
-      // Auth tag should be 32 hex chars (16 bytes)
+      // 96-bit GCM IV, 128-bit auth tag
+      expect(ivHex.length).toBe(24);
       expect(authTagHex.length).toBe(32);
     });
 
@@ -240,9 +239,9 @@ describe('Encryption Security', () => {
       const encrypted2 = await encryptionService.encrypt(plaintext, userId);
       const encrypted3 = await encryptionService.encrypt(plaintext, userId);
 
-      const iv1 = encrypted1.split(':')[0];
-      const iv2 = encrypted2.split(':')[0];
-      const iv3 = encrypted3.split(':')[0];
+      const iv1 = encrypted1.split(':')[2];
+      const iv2 = encrypted2.split(':')[2];
+      const iv3 = encrypted3.split(':')[2];
 
       // All IVs should be different (not predictable)
       expect(iv1).not.toEqual(iv2);

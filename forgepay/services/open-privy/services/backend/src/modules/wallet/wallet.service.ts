@@ -13,6 +13,7 @@ import { SolanaService } from '../blockchain/solana.service';
 import { PolygonService } from '../blockchain/polygon.service';
 import { EncryptionService } from '../../common/encryption/encryption.service';
 import { logger } from '../../common/logger';
+import { evmChainAllowed } from './chain-policy';
 
 @Injectable()
 export class WalletService {
@@ -112,6 +113,24 @@ export class WalletService {
     return wallet;
   }
 
+  /**
+   * Wallets whose key is still in the legacy format: encrypted under a key
+   * derived from the single master key, so anyone who had that key could have
+   * copied them. Re-encrypting does not undo that exposure; these wallets
+   * should be swept to newly created ones (a user-approved transfer — never
+   * done automatically here).
+   */
+  async listLegacyWallets(): Promise<Array<Pick<Wallet, 'id' | 'userId' | 'chain' | 'address'>>> {
+    const rows = await this.walletRepository
+      .createQueryBuilder('wallet')
+      .select(['wallet.id', 'wallet.userId', 'wallet.chain', 'wallet.address'])
+      .where('wallet.encryptedPrivateKey IS NOT NULL')
+      .andWhere("wallet.encryptedPrivateKey NOT LIKE 'v2:%'")
+      .getMany();
+    if (rows.length > 0) logger.warn(`${rows.length} wallet(s) still use legacy master-key encryption; sweep them to new wallets`);
+    return rows;
+  }
+
   async getUserWallets(userId: string): Promise<Wallet[]> {
     return this.walletRepository.find({ where: { userId, isActive: true } });
   }
@@ -201,7 +220,18 @@ export class WalletService {
       );
     }
 
+    // Testnet only unless mainnet is enabled on purpose. Checked against the
+    // chain id the RPC actually reports, not its configured name — Polygon
+    // took whatever ETHEREUM_RPC_POLYGON pointed at, mainnet included.
+    const { chainId } = await provider.getNetwork();
+    if (!evmChainAllowed(chainId)) {
+      throw new ForbiddenException(
+        `Signing refused on chain ${chainId}: the wallet is testnet-only (set WALLET_MAINNET_ENABLED=true to allow mainnet)`,
+      );
+    }
+
     const privateKey = await this.getDecryptedPrivateKey(walletId, userId);
     return new ethers.Wallet(privateKey, provider);
   }
 }
+

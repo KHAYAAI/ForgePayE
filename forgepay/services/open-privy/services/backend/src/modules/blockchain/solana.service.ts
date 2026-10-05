@@ -16,13 +16,21 @@ export class SolanaService {
   private network: string;
 
   constructor() {
-    this.network = process.env.NODE_ENV === 'production' ? 'mainnet-beta' : 'devnet';
+    // Mainnet only by explicit decision, never as a side effect of
+    // NODE_ENV=production (which is how this used to switch to mainnet while
+    // the Ethereum side stayed on Sepolia). The wallet is testnet-only until
+    // WALLET_MAINNET_ENABLED=true is set deliberately.
+    this.network = process.env.WALLET_MAINNET_ENABLED === 'true' ? 'mainnet-beta' : 'devnet';
     const rpcUrl =
       this.network === 'mainnet-beta'
         ? process.env.SOLANA_RPC_MAINNET
-        : process.env.SOLANA_RPC_DEVNET;
+        : process.env.SOLANA_RPC_DEVNET || 'https://api.devnet.solana.com';
+    if (!rpcUrl) {
+      // Used to fall back to the devnet URL while reporting mainnet.
+      throw new Error('WALLET_MAINNET_ENABLED=true but SOLANA_RPC_MAINNET is not set');
+    }
 
-    this.connection = new Connection(rpcUrl || 'https://api.devnet.solana.com');
+    this.connection = new Connection(rpcUrl);
     logger.info(`Solana service initialized (${this.network})`);
   }
 

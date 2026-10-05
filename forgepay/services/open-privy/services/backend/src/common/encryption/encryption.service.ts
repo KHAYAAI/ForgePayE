@@ -1,6 +1,7 @@
 import { Injectable, Optional, Inject } from '@nestjs/common';
 import * as crypto from 'crypto';
 import { logger } from '../logger';
+import { KeyWrapper, resolveKeyWrapper } from './key-wrapper';
 
 /** DI token for the resolved master key material (base64 string). */
 export const MASTER_KEY_MATERIAL = 'ENCRYPTION_MASTER_KEY_MATERIAL';
@@ -8,12 +9,19 @@ export const MASTER_KEY_MATERIAL = 'ENCRYPTION_MASTER_KEY_MATERIAL';
 /**
  * Encryption service for sensitive data (private keys).
  *
- * Security model:
- * - Master key stored in AWS Secrets Manager (rotated quarterly)
- * - Per-user key derived from master key + user ID via PBKDF2
- * - AES-256-GCM for authenticated encryption (includes integrity check)
- * - Nonce (IV) randomly generated per encryption
- * - Auth tag prevents tampering
+ * Current format (v2, envelope encryption):
+ *   v2:<wrapped data key>:<iv>:<auth tag>:<ciphertext>   (base64 / hex)
+ * - each encryption uses a fresh random 256-bit data key, zeroed after use;
+ * - the data key is wrapped by AWS KMS (WALLET_KMS_KEY_ID) with the user id
+ *   as encryption context, so each unwrap is a logged, policy-controlled KMS
+ *   call and cannot be redirected to another user;
+ * - AES-256-GCM with a random 96-bit IV and the user id as associated data.
+ *
+ * Legacy format (iv:authTag:ciphertext): a per-user key derived by PBKDF2
+ * from one master key held in this process. Anyone holding the master key
+ * can derive every user's key, so legacy wallets still decrypt (to sign or to
+ * migrate) but are reported by isLegacy() and should be swept to new wallets.
+ * Nothing new is written in the legacy format.
  */
 @Injectable()
 export class EncryptionService {
@@ -29,10 +37,22 @@ export class EncryptionService {
    * may have resolved it from AWS Secrets Manager). When constructed directly
    * (e.g. in tests) it falls back to the ENCRYPTION_MASTER_KEY env var.
    */
+  private wrapper: KeyWrapper;
+
   constructor(
     @Optional() @Inject(MASTER_KEY_MATERIAL) providedKey?: string,
+    @Optional() @Inject('WALLET_KEY_WRAPPER') wrapper?: KeyWrapper,
   ) {
     this.initializeMasterKey(providedKey ?? process.env.ENCRYPTION_MASTER_KEY);
+    // Local fallback KEK (development only) is derived from, not equal to,
+    // the master key, so the two uses never share a key.
+    const localKek = crypto.createHash('sha256').update(Buffer.concat([Buffer.from('openprivy:local-kek:'), this.masterKey])).digest();
+    this.wrapper = wrapper ?? resolveKeyWrapper(localKek);
+  }
+
+  /** True for data written in the legacy master-key-derived format. */
+  static isLegacy(encrypted: string): boolean {
+    return !encrypted.startsWith('v2:');
   }
 
   /**
@@ -108,24 +128,20 @@ export class EncryptionService {
    * @returns Encrypted data (hex encoded)
    */
   async encrypt(plaintext: string, userId: string): Promise<string> {
+    const dataKey = crypto.randomBytes(this.KEY_LENGTH);
     try {
-      const userKey = await this.deriveUserKey(userId);
-      const iv = crypto.randomBytes(this.IV_LENGTH);
-
-      const cipher = crypto.createCipheriv(this.ALGORITHM, userKey, iv);
-      let ciphertext = cipher.update(plaintext, 'utf8', 'hex');
-      ciphertext += cipher.final('hex');
-
-      const authTag = cipher.getAuthTag();
-
-      // Format: iv:authTag:ciphertext (all hex encoded)
-      const encrypted = `${iv.toString('hex')}:${authTag.toString('hex')}:${ciphertext}`;
-
-      logger.debug(`Encrypted data for user ${userId}`);
-      return encrypted;
+      const context = { purpose: 'wallet-private-key', userId };
+      const wrapped = await this.wrapper.wrap(dataKey, context);
+      const iv = crypto.randomBytes(12);
+      const cipher = crypto.createCipheriv(this.ALGORITHM, dataKey, iv);
+      cipher.setAAD(Buffer.from(userId, 'utf8'));
+      const ciphertext = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+      return ['v2', wrapped.toString('base64'), iv.toString('hex'), cipher.getAuthTag().toString('hex'), ciphertext.toString('hex')].join(':');
     } catch (error) {
       logger.error(`Encryption failed: ${error.message}`);
       throw error;
+    } finally {
+      dataKey.fill(0);
     }
   }
 
@@ -138,6 +154,8 @@ export class EncryptionService {
    * @throws Error if authentication tag verification fails (tampering detected)
    */
   async decrypt(encrypted: string, userId: string): Promise<string> {
+    if (!EncryptionService.isLegacy(encrypted)) return this.decryptV2(encrypted, userId);
+    logger.warn(`Decrypting a legacy (master-key-derived) wallet key for user ${userId}; migrate this wallet`);
     try {
       const parts = encrypted.split(':');
 
@@ -172,6 +190,29 @@ export class EncryptionService {
       // Auth tag verification failure or other decryption error
       logger.error(`Decryption failed: ${error.message}`);
       throw new Error(`Failed to decrypt data (tampering detected or wrong key): ${error.message}`);
+    }
+  }
+
+  private async decryptV2(encrypted: string, userId: string): Promise<string> {
+    const parts = encrypted.split(':');
+    if (parts.length !== 5) throw new Error('Decryption failed (tampering detected or wrong key): invalid v2 format');
+    const [, wrappedB64, ivHex, tagHex, ctHex] = parts;
+    let dataKey: Buffer;
+    try {
+      dataKey = await this.wrapper.unwrap(Buffer.from(wrappedB64, 'base64'), { purpose: 'wallet-private-key', userId });
+    } catch (error) {
+      // Wrong user (context mismatch) or a modified wrapped key.
+      throw new Error(`Decryption failed (tampering detected or wrong key): ${error.message}`);
+    }
+    try {
+      const decipher = crypto.createDecipheriv(this.ALGORITHM, dataKey, Buffer.from(ivHex, 'hex'));
+      decipher.setAAD(Buffer.from(userId, 'utf8'));
+      decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
+      return Buffer.concat([decipher.update(Buffer.from(ctHex, 'hex')), decipher.final()]).toString('utf8');
+    } catch (error) {
+      throw new Error(`Decryption failed (tampering detected or wrong key): ${error.message}`);
+    } finally {
+      dataKey.fill(0);
     }
   }
 
