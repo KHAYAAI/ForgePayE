@@ -113,6 +113,17 @@ export function computeScore(profile: Partial<AgentCreditProfile>): {
       impact: 'negative',
       weight: 35,
     });
+  } else if (!(profile.creditHistory ?? []).some(e => e.eventType.startsWith('payment_'))) {
+    // No payments reported at all. This used to read "100% of payments made
+    // on time" — the default rate, not a record. The lender report's
+    // data-sufficiency check (THIN_FILE / manual review) handles the decision;
+    // the factor must not claim a history that does not exist.
+    factors.push({
+      code: 'THIN_FILE',
+      description: 'No payments reported yet; the score does not reflect repayment behaviour.',
+      impact: 'neutral',
+      weight: 35,
+    });
   } else {
     factors.push({
       code: 'STRONG_PAYMENT_HISTORY',

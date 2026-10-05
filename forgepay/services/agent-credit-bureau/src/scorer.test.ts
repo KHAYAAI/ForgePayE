@@ -418,3 +418,11 @@ describe('generateZKProof — honesty of the stub', () => {
     expect(a.proofHash).not.toBe(b.proofHash);
   });
 });
+
+describe('computeScore — empty file', () => {
+  it('does not claim a payment record that does not exist', () => {
+    const { factors } = computeScore({ creditHistory: [], delinquencies: [], hardInquiries: [], createdAt: new Date().toISOString() });
+    expect(factors.map(f => f.code)).toContain('THIN_FILE');
+    expect(factors.map(f => f.code)).not.toContain('STRONG_PAYMENT_HISTORY');
+  });
+});
