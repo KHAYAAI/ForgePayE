@@ -101,7 +101,7 @@ export default function WalletConsole() {
             Wallets without <em>seed phrases</em>
           </>
         }
-        lede="Keys encrypted with AES-256-GCM, one wallet per chain, recovery through trusted contacts instead of a seed phrase to lose."
+        lede="Testnet only (Sepolia, Amoy, Base Sepolia, Solana devnet). Each key encrypted under its own data key wrapped by AWS KMS, one wallet per chain, recovery through trusted contacts."
         actions={<LivePill live={live} />}
       />
 

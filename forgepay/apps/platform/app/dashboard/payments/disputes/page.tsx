@@ -30,7 +30,7 @@ export default function PaymentsDisputes() {
             Disputes, <em>with deadlines</em>
           </>
         }
-        lede="Chargebacks arrive with an evidence clock. Everything submitted here is countersigned into the Compliance activity stream — a dispute is never handled off the record."
+        lede="Chargebacks will appear here with their evidence deadlines once payments are live. No dispute feed is connected yet."
       />
 
       <StatGrid>

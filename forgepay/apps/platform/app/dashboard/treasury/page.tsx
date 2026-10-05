@@ -36,7 +36,7 @@ export default function TreasuryDashboard() {
             Netting and <em>OFAC screening</em>
           </>
         }
-        lede="Multi-agent payout netting, sanctions screening on every settlement, and FX optimization across settlement currencies."
+        lede="Planned: multi-agent payout netting, sanctions screening on settlements, and FX optimisation. None of it is built or connected yet."
       />
 
       <StatGrid>

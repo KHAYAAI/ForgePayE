@@ -13,9 +13,8 @@ import { useForge } from '@/components/forge/useForge';
 
 /* ────────────────────────────────────────────────────────────────
    FORGE Payments — Overview.
-   Free platform, take-rate pricing: 2.2% + R0.20 fiat,
-   0.8% + gas crypto. Tiered routing: sub-$100K direct,
-   $100K–$1M with fallback chain, >$1M escalates to Custody.
+   Pricing comes from forgepay/config/pricing.yaml. No amount-tiered
+   routing exists (the router module that described it was retired).
    Live-wired to unified-router's customers/revenue_events, scoped
    to this tenant's own email — see /api/forge/payments. A tenant
    who hasn't activated FORGE Payments yet (no checkout completed)
@@ -59,7 +58,7 @@ export default function PaymentsOverview() {
             Every payment, <em>one rail</em>
           </>
         }
-        lede="Card, bank and stablecoin behind a single API. The platform is free — FORGE earns a take rate of 2.2% + R0.20 on fiat and 0.8% + gas on crypto. Every confirmed payment writes one event to the Revenue Ontology."
+        lede="Card, bank and stablecoin behind a single API, opening only after licensing. Indicative pricing: Free tier 2.8% + $0.24 per card payment, Standard ($28/month) 2.4% + $0.24 (forgepay/config/pricing.yaml). Every confirmed payment writes one event to the Revenue Ontology."
         actions={<LivePill live={live} />}
       />
 
@@ -92,20 +91,6 @@ export default function PaymentsOverview() {
         />
       </Panel>
 
-      <Panel title="Tier Routing Contract" label="enforced on every payment" ink style={{ marginTop: 20 }}>
-        <ol style={{ listStyle: 'none' }}>
-          {[
-            ['< $100K', 'Direct via FORGE Wallet — signed server-side, 12-block confirmation.'],
-            ['$100K – $1M', 'FORGE Payments with fallback chain: card → ACH → USDC. No payment dies on a single rail.'],
-            ['> $1M', 'Escalates to FORGE Custody — held until a quorum of signers approves.'],
-          ].map(([tier, desc]) => (
-            <li key={tier} style={{ display: 'flex', gap: 16, padding: '11px 0', borderBottom: '1px solid rgba(244,242,238,0.14)', alignItems: 'baseline' }}>
-              <span className="mono" style={{ minWidth: 92 }}>{tier}</span>
-              <span style={{ fontSize: 13.5, opacity: 0.8 }}>{desc}</span>
-            </li>
-          ))}
-        </ol>
-      </Panel>
     </>
   );
 }

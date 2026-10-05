@@ -16,10 +16,15 @@ import {
 import { useForge } from '@/components/forge/useForge';
 
 /* ────────────────────────────────────────────────────────────────
-   Enterprise Treasury — consolidation, netting, sweeps, and the
-   approval desk for agent credit extensions. Live-wired to
-   enterprise-treasury /v1/cash-position + /v1/rules via the
-   /api/forge/treasury proxy; demo fixtures when offline.
+   Enterprise Treasury — consolidation, intercompany netting, rules
+   and the approval desk. Live-wired to enterprise-treasury
+   (/v1/cash-position, /v1/rules, /v1/rules/approvals,
+   /v1/netting/flows) through /api/forge/treasury. Field names below
+   match those responses (NettingFlow, PendingApproval in
+   services/enterprise-treasury); they used to read fields the service
+   never sends, so every row rendered as dashes.
+   Treasury cannot sweep to or from yield (it is not connected to the
+   yield engine), so nothing here offers that.
    ──────────────────────────────────────────────────────────────── */
 
 interface TreasurySummary {
@@ -32,8 +37,11 @@ interface TreasurySummary {
       bySubsidiary: Record<string, { name: string; totalUsd: number; accountCount: number; currencies: string[]; runwayDays: number }>;
       lastConsolidated: string;
     };
+    /** When the bank balances were last read, and why the last refresh failed (if it did). */
+    balancesAsOf?: string | null;
+    refreshError?: string | null;
   } | null;
-  rules: { data?: Array<{ id: string; name: string; enabled: boolean }> } | null;
+  rules: { data?: Array<{ id: string; name: string; enabled: boolean; action?: { type: string } }> } | null;
   approvals: { data?: Array<Record<string, unknown>> } | null;
   netting_flows: { data?: Array<Record<string, unknown>> } | null;
 }
@@ -53,14 +61,15 @@ export default function EnterpriseTreasury() {
   const nettingFlows = (liveData.netting_flows?.data ?? []) as Array<Record<string, unknown>>;
   const rawApprovals = (liveData.approvals?.data ?? []) as Array<Record<string, unknown>>;
 
-  interface ApprovalRow { id: string; kind: string; detail: string; requestedBy: string; status: 'pending' | 'approved' }
+  interface ApprovalRow { id: string; kind: string; detail: string; requestedBy: string; status: 'pending' | 'approved' | 'rejected' }
   const [overrides, setOverrides] = useState<Record<string, 'approved'>>({});
   const approvals: ApprovalRow[] = rawApprovals.map((a) => ({
     id: String(a['id'] ?? ''),
-    kind: String(a['kind'] ?? a['type'] ?? 'Approval'),
-    detail: String(a['detail'] ?? ''),
-    requestedBy: String(a['requestedBy'] ?? a['requested_by'] ?? ''),
-    status: overrides[String(a['id'] ?? '')] ?? (a['status'] === 'approved' ? 'approved' : 'pending'),
+    kind: String(a['ruleName'] ?? 'Rule'),
+    detail: String(a['reason'] ?? ''),
+    requestedBy: a['ruleId'] ? `rule ${String(a['ruleId'])}` : '—',
+    status: overrides[String(a['id'] ?? '')]
+      ?? (a['approved'] === true ? 'approved' : a['approved'] === false ? 'rejected' : 'pending'),
   }));
 
   const [approvalError, setApprovalError] = useState<string | null>(null);
@@ -87,7 +96,7 @@ export default function EnterpriseTreasury() {
             One <em>cash position</em>, every account
           </>
         }
-        lede="Real-time consolidation across subsidiaries, intercompany netting, rule-driven sweeps — and the approval desk that extends credit to agents against custody funds."
+        lede="Consolidated cash across linked bank accounts, intercompany netting, and an approval desk for rules that need a person's sign-off. Settlement instructions are recorded for an operator to execute; nothing moves on its own."
         actions={<LivePill live={live} />}
       />
 
@@ -96,9 +105,11 @@ export default function EnterpriseTreasury() {
           label="Consolidated cash"
           value={position ? usd(position.totalUsd) : '—'}
           delta={
-            position
-              ? `${Object.values(position.bySubsidiary).reduce((s, x) => s + x.accountCount, 0)} accounts · ${Object.keys(position.bySubsidiary).length} subsidiaries`
-              : 'treasury unreachable'
+            liveData.cash_position?.refreshError
+              ? `balances not refreshed: ${liveData.cash_position.refreshError}`
+              : position
+                ? `${Object.values(position.bySubsidiary).reduce((s, x) => s + x.accountCount, 0)} accounts · as of ${liveData.cash_position?.balancesAsOf ? new Date(liveData.cash_position.balancesAsOf).toLocaleString() : 'never'}`
+                : 'treasury unreachable'
           }
         />
         <Stat
@@ -106,12 +117,6 @@ export default function EnterpriseTreasury() {
           value={position ? usd(position.idleCashUsd) : '—'}
           delta={position ? `${usd(position.opportunityCostUsdPerYear)}/yr opportunity cost` : 'no data yet'}
           deltaTone="down"
-        />
-        <Stat
-          label="Deployed in yield"
-          value={position ? usd(position.deployedInYieldUsd) : '—'}
-          delta="via yield-engine"
-          deltaTone="up"
         />
         <Stat label="Active rules" value={liveRules.filter((r) => r.enabled).length} delta="evaluated every 60s" />
         <Stat label="Pending approvals" value={approvals.filter((a) => a.status === 'pending').length} delta="approval desk" />
@@ -176,13 +181,14 @@ export default function EnterpriseTreasury() {
 
         <Panel title="Intercompany Netting" label="today's cycle">
           <DataTable
-            columns={['Flow', 'Gross', 'Netted', 'Wires']}
-            emptyMessage="No netting flows today."
+            columns={['From', 'To', 'Amount', 'Invoice', 'Due']}
+            emptyMessage="No pending intercompany flows."
             rows={nettingFlows.map((f, i) => [
-              String(f['flow'] ?? f['pair'] ?? '—'),
-              <Mono key={`g${i}`}>{String(f['gross'] ?? '—')}</Mono>,
-              <Mono key={`n${i}`}>{String(f['netted'] ?? '—')}</Mono>,
-              <Mono key={`w${i}`}>{String(f['wires'] ?? '—')}</Mono>,
+              String(f['fromSubsidiary'] ?? '—'),
+              String(f['toSubsidiary'] ?? '—'),
+              <Mono key={`a${i}`}>{typeof f['amount'] === 'number' ? `${usd(f['amount'] as number)} ${String(f['currency'] ?? '')}` : '—'}</Mono>,
+              <Mono key={`r${i}`}>{String(f['invoiceRef'] ?? '—')}</Mono>,
+              String(f['dueDate'] ?? '—'),
             ])}
           />
         </Panel>
@@ -192,31 +198,27 @@ export default function EnterpriseTreasury() {
         <Panel title="Rules Engine" label="evaluated every 60s">
           <DataTable
             columns={['Rule', 'Name', 'Status']}
-            emptyMessage="No sweep rules configured yet."
+            emptyMessage="No rules configured. Treasury starts with none: nothing moves unless someone sets it up."
             rows={liveRules.map((r) => [
               <Mono key="r">{r.id}</Mono>,
               r.name,
-              <Pill key="s" tone={r.enabled ? 'ok' : undefined}>{r.enabled ? 'armed' : 'disabled'}</Pill>,
+              r.action && (r.action.type === 'sweep_to_yield' || r.action.type === 'repatriate_from_yield')
+                ? <Pill key="s" tone="warn">not available</Pill>
+                : <Pill key="s" tone={r.enabled ? 'ok' : undefined}>{r.enabled ? 'armed' : 'disabled'}</Pill>,
             ])}
           />
         </Panel>
 
-        <Panel title="Agent Credit Flow" label="closed loop with bureau + custody">
-          <ol style={{ listStyle: 'none' }}>
+        <Panel title="What treasury does not do yet" label="so nothing here is mistaken for it">
+          <ul style={{ listStyle: 'none' }}>
             {[
-              ['01', 'Bureau requests extension for a scored agent.'],
-              ['02', 'Treasury manager approves — line updated, custody authorized.'],
-              ['03', 'FORGE Custody threshold-signs the draw from the enterprise account.'],
-              ['04', 'Ontology records the draw; bureau tracks the receivable.'],
-              ['05', 'On term, rule R-021 auto-sweeps principal + fee back.'],
-              ['06', 'Bureau lifts the agent score; the line grows for next time.'],
-            ].map(([n, desc]) => (
-              <li key={n} style={{ display: 'flex', gap: 16, padding: '11px 0', borderBottom: '1px solid var(--hair)', alignItems: 'baseline' }}>
-                <span className="mono" style={{ minWidth: 24 }}>{n}</span>
-                <span style={{ color: 'var(--steel)', fontSize: 13.5 }}>{desc}</span>
-              </li>
+              'Move money: settlement instructions are recorded for an operator to execute at the bank.',
+              'Sweep idle cash into yield, or bring it back: not connected to the yield engine.',
+              'Extend credit to agents: credit lines are bookkeeping only.',
+            ].map((t) => (
+              <li key={t} style={{ padding: '11px 0', borderBottom: '1px solid var(--hair)', color: 'var(--steel)', fontSize: 13.5 }}>{t}</li>
             ))}
-          </ol>
+          </ul>
         </Panel>
       </Grid2>
     </>

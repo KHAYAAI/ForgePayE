@@ -29,11 +29,11 @@ export default function PaymentsRouting() {
             Routes that <em>heal themselves</em>
           </>
         }
-        lede="The router scores every connector continuously. When a rail degrades, traffic shifts down the fallback chain automatically — merchants never see it."
+        lede="The routing policy below is configuration, not live measurement: no connector scoring or automatic failover runs today. Payments open only after licensing."
       />
 
       <Grid2>
-        <Panel title="Fallback Chains" label="ordered per method">
+        <Panel title="Fallback Chains" label="planned policy · not enforced yet">
           <DataTable
             columns={['Method', 'Chain', 'Max retries']}
             rows={[
@@ -45,7 +45,7 @@ export default function PaymentsRouting() {
           />
         </Panel>
 
-        <Panel title="Tier Thresholds" label="who signs, which rail" ink>
+        <Panel title="Tier Thresholds" label="planned policy · not enforced yet" ink>
           <DataTable
             columns={['Tier', 'Rail', 'Signing']}
             rows={[
