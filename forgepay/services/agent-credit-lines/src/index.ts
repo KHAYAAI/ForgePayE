@@ -1,9 +1,14 @@
 /**
  * ForgePay Agent Credit Lines
  * ──────────────────────────────────────────────────────────────────────────────
- * Role: Issues credit lines to AI agents with net-30/60/90 payment terms,
- *       auto-settles repayments, and tracks defaults. Pulls agent reputation
- *       from agent-identity to gate approvals.
+ * Role: Records credit lines for AI agents with net-30/60/90 payment terms,
+ *       tracks draws, repayments and defaults. Pulls agent reputation from
+ *       agent-identity to gate approvals.
+ *
+ * Bookkeeping only: no funds are disbursed and no repayment is collected.
+ * A draw records an obligation; nothing is paid to the agent, and a
+ * "repayment" records a figure someone reports. Every draw and repayment
+ * response says so (fundsMoved: false).
  *
  * Features:
  *   1. Credit Assessment            — reputation-driven tiered approval
@@ -26,6 +31,13 @@
  */
 
 import Fastify, { FastifyError } from 'fastify';
+
+/** Attached to every draw / repayment response. */
+const BOOKKEEPING_ONLY = {
+  fundsMoved:   false,
+  disbursement: 'not_supported',
+  note:         'Recorded only. No funds were disbursed or collected; credit lines are bookkeeping until a funding source is connected.',
+} as const;
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import helmet from '@fastify/helmet';
@@ -318,7 +330,7 @@ async function buildApp() {
         purpose:      parse.data.purpose,
         ...(parse.data.counterpartyAgentId ? { counterpartyAgentId: parse.data.counterpartyAgentId } : {}),
       });
-      return reply.status(201).send({ data: draw });
+      return reply.status(201).send({ data: draw, ...BOOKKEEPING_ONLY });
     } catch (err) {
       if (err instanceof DrawError) {
         const status = err.code === 'line_not_found' ? 404 : 409;
@@ -353,7 +365,7 @@ async function buildApp() {
     }
     try {
       const result = repayDraw(req.params.id, parse.data.amountUsd);
-      return reply.send({ data: result });
+      return reply.send({ data: result, ...BOOKKEEPING_ONLY });
     } catch (err) {
       if (err instanceof DrawError) {
         const status = err.code === 'draw_not_found' ? 404 : 409;
