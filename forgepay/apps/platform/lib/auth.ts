@@ -20,7 +20,12 @@ export interface TokenPayload {
 import { sealSecret } from './secret-box';
 import { getJwtSecret } from './jwt-secret';
 
-const JWT_SECRET = getJwtSecret();
+// Resolved on use, not at import: `next build` imports server modules with
+// NODE_ENV=production to collect page data, and a module-level call made the
+// console unbuildable without the production signing secret present at build
+// time. The production checks in getJwtSecret() are unchanged — they now run
+// on the first request instead.
+const jwtSecret = (): string => getJwtSecret();
 const JWT_EXPIRY = '7d';
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const MFA_PENDING_EXPIRY = '5m';
@@ -45,7 +50,7 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
  */
 export function verifyToken(token: string): TokenPayload | null {
   try {
-    return jwt.verify(token, JWT_SECRET) as TokenPayload;
+    return jwt.verify(token, jwtSecret()) as TokenPayload;
   } catch {
     return null;
   }
@@ -87,7 +92,7 @@ export async function createSession(
     [sessionId, payload.userId, expiresAt, ctx.ipAddress ?? null, ctx.userAgent ?? null],
   );
 
-  const token = jwt.sign({ ...payload, jti: sessionId }, JWT_SECRET, { expiresIn: JWT_EXPIRY });
+  const token = jwt.sign({ ...payload, jti: sessionId }, jwtSecret(), { expiresIn: JWT_EXPIRY });
   return { token, sessionId };
 }
 
@@ -178,12 +183,12 @@ interface MfaPendingPayload {
 }
 
 export function generateMfaPendingToken(userId: string): string {
-  return jwt.sign({ userId, mfaPending: true }, JWT_SECRET, { expiresIn: MFA_PENDING_EXPIRY });
+  return jwt.sign({ userId, mfaPending: true }, jwtSecret(), { expiresIn: MFA_PENDING_EXPIRY });
 }
 
 export function verifyMfaPendingToken(token: string): { userId: string } | null {
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as MfaPendingPayload;
+    const decoded = jwt.verify(token, jwtSecret()) as MfaPendingPayload;
     if (decoded.mfaPending !== true) return null;
     return { userId: decoded.userId };
   } catch {

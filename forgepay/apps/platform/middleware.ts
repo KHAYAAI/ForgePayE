@@ -15,13 +15,16 @@ import { getJwtSecret } from '@/lib/jwt-secret';
  * `jsonwebtoken` used server-side) — both verify the same HS256 signature.
  */
 
-const secret = new TextEncoder().encode(getJwtSecret());
+// Resolved per request (see lib/auth.ts): not at import, so `next build` works
+// without the production secret, while production still refuses to verify
+// anything without one.
+const signingKey = () => new TextEncoder().encode(getJwtSecret());
 
 async function readSession(req: NextRequest): Promise<{ role?: string } | null> {
   const token = req.cookies.get('auth-token')?.value;
   if (!token) return null;
   try {
-    const { payload } = await jwtVerify(token, secret);
+    const { payload } = await jwtVerify(token, signingKey());
     return { role: typeof payload.role === 'string' ? payload.role : undefined };
   } catch {
     return null;

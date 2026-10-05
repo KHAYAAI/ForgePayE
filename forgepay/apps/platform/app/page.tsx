@@ -1,3 +1,4 @@
+import { PlatformShowcase } from '@/components/forge/PlatformShowcase';
 import Link from 'next/link';
 
 export default function Home() {
@@ -69,13 +70,17 @@ export default function Home() {
       </section>
 
       {/* Products Preview */}
+      <section aria-label="Platform walkthrough" style={{ padding: '80px 40px 0', maxWidth: 1200, margin: '0 auto' }}>
+        <PlatformShowcase />
+      </section>
+
       <section style={{ padding: '100px 40px', maxWidth: 1400, margin: '0 auto' }}>
         <h2 style={{ fontSize: 42, fontWeight: 700, textAlign: 'center', marginBottom: 60, color: 'var(--navy)' }}>
           Three Products, One Platform
         </h2>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 32 }}>
-          <ProductCard icon="💳" title="Forge Payments" price="R15,000/mo" description="Card and bank transfer processing with intelligent fallback routing." href="/products/payments" />
-          <ProductCard icon="💰" title="Forge Treasury" price="R40,000/mo" description="Multi-agent payout netting, OFAC screening, and FX optimization." href="/products/treasury" />
+          <ProductCard icon="💳" title="Forge Payments" price="After licensing" description="Card, bank and stablecoin checkout on Hyperswitch, with subscription billing. Opens once licensed." href="/products/payments" />
+          <ProductCard icon="💰" title="Forge Treasury" price="After licensing" description="Consolidated cash across linked bank accounts, intercompany netting and an approval desk." href="/products/treasury" />
           {/*
             $4,000/mo is the Institutional tier — the plan the named buyers
             (banks, underwriters, white-label partners) actually land on, and the
