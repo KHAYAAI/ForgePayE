@@ -66,6 +66,10 @@ model InternalTransfer {
   description String?
   status      String   @default("pending")
   externalRef String?
+  method      String?  // "wire" | "stablecoin"
+  invoiceRefs Json     @default("[]")
+  executedBy  String?
+  executedAt  DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

@@ -287,9 +287,11 @@ export async function disconnectAccount(
     logger.warn({ err, accountId }, 'Token revocation failed during disconnect');
   }
 
+  // Erase the stored credential: a disconnected account must not be usable to
+  // move money. It used to stay readable through getAccessToken.
   await prisma.linkedAccount.update({
     where: { id: accountId },
-    data:  { disconnected: true },
+    data:  { disconnected: true, encryptedToken: '' },
   });
 
   logger.info({ accountId, merchantId }, 'Account disconnected');
@@ -301,7 +303,7 @@ export async function disconnectAccount(
  */
 export async function getAccessToken(accountId: string): Promise<string> {
   const row = await prisma.linkedAccount.findUnique({ where: { id: accountId } });
-  if (!row) {
+  if (!row || row.disconnected || !row.encryptedToken) {
     throw new Error(`No credentials for account ${accountId}`);
   }
   return decrypt(row.encryptedToken);

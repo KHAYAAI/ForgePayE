@@ -1,162 +1,88 @@
 /**
- * Tests for internal settlement routes (wire + stablecoin).
- * These routes are called service-to-service by enterprise-treasury.
+ * Internal settlement routes (wire + stablecoin), called by enterprise-treasury.
+ *
+ * No payment rail is connected, so a settlement is an instruction for an
+ * operator. These used to return `submitted` with a made-up SWIFT UETR or
+ * transaction hash; the tests below make sure nothing claims money moved.
  */
-
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Fastify from 'fastify';
-import { buildInternalRoutes, settlementStore } from '../routes/internal';
+import { buildInternalRoutes, MemorySettlementStore } from '../routes/internal';
 
 let app: ReturnType<typeof Fastify>;
+let store: MemorySettlementStore;
 
-beforeAll(async () => {
+beforeEach(async () => {
+  store = new MemorySettlementStore();
   app = Fastify({ logger: false });
-  await app.register(buildInternalRoutes);
+  await app.register(buildInternalRoutes, { store });
   await app.ready();
-  settlementStore.clear();
 });
 
-afterAll(async () => {
+afterEach(async () => {
   await app.close();
 });
 
-const HEADERS = {
-  'Content-Type': 'application/json',
-  'x-source': 'enterprise-treasury',
-};
+const HEADERS = { 'Content-Type': 'application/json', 'x-source': 'enterprise-treasury' };
+const OPS = { 'Content-Type': 'application/json', 'x-source': 'operations-console' };
+const wire = { from: 'HQ', to: 'EMEA', amountUsd: 200_000, currency: 'USD', reference: 'NET-HQ-EMEA-2026-05-16', invoiceRefs: ['INV-001'] };
 
-describe('POST /v1/transfers/wire', () => {
-  it('creates a wire settlement and returns transferId', async () => {
-    const resp = await app.inject({
-      method: 'POST',
-      url: '/v1/transfers/wire',
-      headers: HEADERS,
-      payload: {
-        from: 'HQ',
-        to: 'EMEA',
-        amountUsd: 200_000,
-        currency: 'USD',
-        reference: 'NET-HQ-EMEA-2026-05-16',
-        invoiceRefs: ['INV-001', 'INV-002'],
-      },
-    });
-
-    expect(resp.statusCode).toBe(201);
-    const body = resp.json();
-    expect(body.transferId).toBeDefined();
-    expect(body.status).toBe('submitted');
-    expect(body.swiftRef).toMatch(/^UETR-/);
-    expect(body.reference).toBe('NET-HQ-EMEA-2026-05-16');
+describe('POST /v1/transfers/wire and /stablecoin', () => {
+  it('records an instruction awaiting execution, with no invented bank or chain reference', async () => {
+    for (const url of ['/v1/transfers/wire', '/v1/transfers/stablecoin']) {
+      const resp = await app.inject({ method: 'POST', url, headers: HEADERS, payload: wire });
+      expect(resp.statusCode).toBe(202);
+      const body = resp.json();
+      expect(body.status).toBe('awaiting_execution');
+      expect(body.executed).toBe(false);
+      expect(body.swiftRef).toBeUndefined();
+      expect(body.txHash).toBeUndefined();
+      expect(body.note).toMatch(/nothing has been sent/);
+    }
+    expect(store.records.size).toBe(2);
   });
 
-  it('returns 400 for missing required fields', async () => {
-    const resp = await app.inject({
-      method: 'POST',
-      url: '/v1/transfers/wire',
-      headers: HEADERS,
-      payload: { from: 'HQ' }, // missing to, amountUsd, reference
-    });
-    expect(resp.statusCode).toBe(400);
-  });
-
-  it('returns 401 for missing x-source header', async () => {
-    const resp = await app.inject({
-      method: 'POST',
-      url: '/v1/transfers/wire',
-      headers: { 'Content-Type': 'application/json' },
-      payload: { from: 'HQ', to: 'EMEA', amountUsd: 100, currency: 'USD', reference: 'R1' },
-    });
-    expect(resp.statusCode).toBe(401);
-  });
-
-  it('returns 401 for unrecognized x-source', async () => {
-    const resp = await app.inject({
-      method: 'POST',
-      url: '/v1/transfers/wire',
-      headers: { 'Content-Type': 'application/json', 'x-source': 'malicious-service' },
-      payload: { from: 'HQ', to: 'EMEA', amountUsd: 100, currency: 'USD', reference: 'R1' },
-    });
-    expect(resp.statusCode).toBe(401);
+  it('rejects bad input and unknown callers', async () => {
+    expect((await app.inject({ method: 'POST', url: '/v1/transfers/wire', headers: HEADERS, payload: { from: 'HQ' } })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'POST', url: '/v1/transfers/wire', headers: { 'Content-Type': 'application/json' }, payload: wire })).statusCode).toBe(401);
+    expect((await app.inject({ method: 'POST', url: '/v1/transfers/wire', headers: { ...HEADERS, 'x-source': 'nobody' }, payload: wire })).statusCode).toBe(401);
+    expect((await app.inject({ method: 'POST', url: '/v1/transfers/stablecoin', headers: HEADERS, payload: { ...wire, amountUsd: -5 } })).statusCode).toBe(400);
   });
 });
 
-describe('POST /v1/transfers/stablecoin', () => {
-  it('creates a stablecoin settlement and returns txHash', async () => {
-    const resp = await app.inject({
-      method: 'POST',
-      url: '/v1/transfers/stablecoin',
-      headers: HEADERS,
-      payload: {
-        from: 'HQ',
-        to: 'APAC',
-        amountUsd: 1_500_000,
-        currency: 'USDC',
-        reference: 'NET-HQ-APAC-2026-05-16',
-        invoiceRefs: ['INV-100'],
-      },
-    });
-
-    expect(resp.statusCode).toBe(201);
-    const body = resp.json();
-    expect(body.transferId).toBeDefined();
-    expect(body.status).toBe('submitted');
-    expect(body.txHash).toMatch(/^0x/);
-  });
-
-  it('returns 400 for negative amountUsd', async () => {
-    const resp = await app.inject({
-      method: 'POST',
-      url: '/v1/transfers/stablecoin',
-      headers: HEADERS,
-      payload: { from: 'HQ', to: 'EMEA', amountUsd: -1, currency: 'USDC', reference: 'R1' },
-    });
-    expect(resp.statusCode).toBe(400);
+describe('GET /v1/transfers/internal[/:id]', () => {
+  it('reads an instruction back and lists recent ones', async () => {
+    const created = (await app.inject({ method: 'POST', url: '/v1/transfers/wire', headers: HEADERS, payload: wire })).json();
+    const one = await app.inject({ method: 'GET', url: `/v1/transfers/internal/${created.transferId}`, headers: HEADERS });
+    expect(one.json().data.status).toBe('awaiting_execution');
+    expect(one.json().data.invoiceRefs).toEqual(['INV-001']);
+    const list = await app.inject({ method: 'GET', url: '/v1/transfers/internal', headers: HEADERS });
+    expect(list.json().total).toBe(1);
+    expect((await app.inject({ method: 'GET', url: '/v1/transfers/internal/nope', headers: HEADERS })).statusCode).toBe(404);
   });
 });
 
-describe('GET /v1/transfers/internal/:id', () => {
-  it('retrieves a settlement by id', async () => {
-    const create = await app.inject({
-      method: 'POST',
-      url: '/v1/transfers/wire',
-      headers: HEADERS,
-      payload: { from: 'HQ', to: 'LATAM', amountUsd: 50_000, currency: 'USD', reference: 'REF-1' },
-    });
-    const { transferId } = create.json() as { transferId: string };
+describe('POST /v1/transfers/internal/:id/executed', () => {
+  it('lets only the operations console record the real reference, once', async () => {
+    const { transferId } = (await app.inject({ method: 'POST', url: '/v1/transfers/wire', headers: HEADERS, payload: wire })).json();
+    const payload = { externalRef: 'UETR-REAL-FROM-BANK', executedBy: 'ops@forge' };
 
-    const resp = await app.inject({
-      method: 'GET',
-      url: `/v1/transfers/internal/${transferId}`,
-      headers: HEADERS,
-    });
+    expect((await app.inject({ method: 'POST', url: `/v1/transfers/internal/${transferId}/executed`, headers: HEADERS, payload })).statusCode).toBe(403);
 
-    expect(resp.statusCode).toBe(200);
-    const body = resp.json();
-    expect(body.data.transferId).toBe(transferId);
-    expect(body.data.from).toBe('HQ');
-    expect(body.data.method).toBe('wire');
-  });
+    const ok = await app.inject({ method: 'POST', url: `/v1/transfers/internal/${transferId}/executed`, headers: OPS, payload });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json().data.status).toBe('executed');
+    expect(ok.json().data.externalRef).toBe('UETR-REAL-FROM-BANK');
 
-  it('returns 404 for unknown id', async () => {
-    const resp = await app.inject({
-      method: 'GET',
-      url: '/v1/transfers/internal/does-not-exist',
-      headers: HEADERS,
-    });
-    expect(resp.statusCode).toBe(404);
+    const again = await app.inject({ method: 'POST', url: `/v1/transfers/internal/${transferId}/executed`, headers: OPS, payload: { ...payload, externalRef: 'OTHER-REF' } });
+    expect(again.statusCode).toBe(409);
   });
 });
 
-describe('GET /v1/transfers/internal', () => {
-  it('lists all settlements', async () => {
-    const resp = await app.inject({
-      method: 'GET',
-      url: '/v1/transfers/internal',
-      headers: HEADERS,
-    });
-    expect(resp.statusCode).toBe(200);
-    const body = resp.json();
-    expect(Array.isArray(body.data)).toBe(true);
-    expect(body.total).toBeGreaterThanOrEqual(0);
+describe('virtual accounts', () => {
+  it('are no longer open to unauthenticated callers', async () => {
+    const res = await app.inject({ method: 'POST', url: '/v1/transfers/internal/accounts', payload: { id: 'va1', accountName: 'x', accountType: 'y', currency: 'USD' } });
+    expect(res.statusCode).toBe(401);
+    expect((await app.inject({ method: 'GET', url: '/v1/transfers/internal/accounts/va1' })).statusCode).toBe(401);
   });
 });
