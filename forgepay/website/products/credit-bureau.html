@@ -408,6 +408,73 @@
     </div>
   </section>
 
+  <!-- THE INTERSECTION -->
+  <section>
+    <div class="wrap">
+      <div class="head-split">
+        <div>
+          <div class="eye" style="margin-bottom: 24px;"><span class="mono">The intersection</span><span class="tick"></span><span class="mono">DeFi, TradFi, AiFi</span></div>
+          <h2 class="big">Where DeFi,<br/>TradFi and agents<br/><em>meet</em>.</h2>
+        </div>
+        <p class="lede">DeFi moves capital in seconds but can't tell borrowers apart. TradFi has identity and recourse but can't lend to an anonymous wallet. Agents need both. FORGE is the record all three can read.</p>
+      </div>
+
+      <div class="feature-grid">
+        <div class="cell">
+          <span class="mono" style="font-size: 11px; letter-spacing: 1.4px; opacity: 0.55;">01 · DEFI</span>
+          <h3>Fast, open, and blind.</h3>
+          <p>Capital settles in seconds, around the clock. With no way to tell borrowers apart, it asks for more collateral than the loan is worth.</p>
+        </div>
+        <div class="cell">
+          <span class="mono" style="font-size: 11px; letter-spacing: 1.4px; opacity: 0.55;">02 · TRADFI</span>
+          <h3>Trusted, but out of reach.</h3>
+          <p>Identity, legal recourse and underwriting discipline. But it can't lend to an anonymous wallet, and it keeps banking hours.</p>
+        </div>
+        <div class="cell">
+          <span class="mono" style="font-size: 11px; letter-spacing: 1.4px; opacity: 0.55;">03 · AIFI</span>
+          <h3>Fast, with nothing to show.</h3>
+          <p>Agents already transact at machine speed, with no history, no identity a lender recognises and no way to owe anything.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- THE BRIDGE -->
+  <section style="background: var(--paper-2, #EFEBE3);">
+    <div class="wrap">
+      <div class="head-split">
+        <div>
+          <div class="eye" style="margin-bottom: 24px;"><span class="mono">The bridge</span><span class="tick"></span><span class="mono">One record, three readers</span></div>
+          <h2 class="big">One record.<br/>Three ways to<br/><em>read</em> it.</h2>
+        </div>
+        <p class="lede">Every agent gets a persistent identifier and two independent scores. Banks read the credit file. Protocols read the on-chain record. Agents carry their history with them.</p>
+      </div>
+
+      <div class="feature-grid">
+        <div class="cell">
+          <span class="mono" style="font-size: 11px; letter-spacing: 1.4px; opacity: 0.55;">01 · FOR TRADFI</span>
+          <h3>A file banks already know how to read.</h3>
+          <p>Mode 1 is a credit file built from payment records that lenders report: payment history, utilisation, age of credit, an AAA to D grade and a recommended limit.</p>
+        </div>
+        <div class="cell">
+          <span class="mono" style="font-size: 11px; letter-spacing: 1.4px; opacity: 0.55;">02 · FOR DEFI</span>
+          <h3>A record a protocol can check.</h3>
+          <p>Mode 2 scores settled on-chain activity, with the transaction hashes to check it against. It runs on Base Sepolia today, and an agent gets a Mode 2 score once it has on-chain history.</p>
+        </div>
+        <div class="cell">
+          <span class="mono" style="font-size: 11px; letter-spacing: 1.4px; opacity: 0.55;">03 · FOR AGENTS</span>
+          <h3>A history that follows them.</h3>
+          <p>An agent's DID stays the same when its code is redeployed, so its file doesn't reset. A new agent starts at the lowest tier and climbs as repayments are reported.</p>
+        </div>
+      </div>
+
+      <div style="margin-top: 56px; padding-top: 40px; border-top: 1px solid var(--hair, #C9C3B7); display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px 64px; align-items: baseline;">
+        <h3 style="font-size: clamp(24px, 3vw, 36px); line-height: 1.15; font-weight: 400; letter-spacing: -0.5px; margin: 0;">The score says how an agent behaves. The operator says <em>who answers for it</em>.</h3>
+        <p style="margin: 0; color: var(--steel, #6F6A62); line-height: 1.6;">Every agent is registered to a named operating entity, such as a company or a DAO, so a lender knows who to deal with. Checks of that entity against company registers are the next step.</p>
+      </div>
+    </div>
+  </section>
+
   <!-- SCORING SYSTEM -->
   <section>
     <div class="wrap">
@@ -566,6 +633,47 @@ if (score.mode1.grade === "AAA" || score.mode1.grade === "AA") {
         <div class="cell" style="background: var(--ink);">
           <h3 style="color: var(--paper);">Composable with Existing Underwriting</h3>
           <p style="color: rgba(244,242,238,0.75);">FORGE scores plug in alongside a bank's existing risk models. An added signal, not a replacement.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FOR PROTOCOLS -->
+  <section>
+    <div class="wrap">
+      <div class="head-split">
+        <div>
+          <div class="eye" style="margin-bottom: 24px;"><span class="mono">For protocols</span><span class="tick"></span><span class="mono">Agentic DeFi</span></div>
+          <h2 class="big">A credit bureau<br/>protocols can<br/><em>build on</em>.</h2>
+        </div>
+        <p class="lede">DeFi asks for collateral because it can't verify the borrower. FORGE gives it a record to price risk with: a grade, the factors behind it, and an on-chain check.</p>
+      </div>
+
+      <div class="feature-grid" style="grid-template-columns: repeat(2, 1fr); margin-top: 56px;">
+        <div class="cell">
+          <span class="mono" style="font-size: 11px; letter-spacing: 1.4px; opacity: 0.55;">01 · TIERED COLLATERAL</span>
+          <h3>Collateral that can scale with trust.</h3>
+          <p>Grades give a protocol what it needs to set collateral ratios by tier. Agents with long, clean histories can post less, and new agents start tight and loosen as the record builds. FORGE supplies the grade. The protocol sets the terms.</p>
+        </div>
+        <div class="cell">
+          <span class="mono" style="font-size: 11px; letter-spacing: 1.4px; opacity: 0.55;">02 · TWO SOURCES</span>
+          <h3>Two scores you can compare.</h3>
+          <p>Every agent has a credit file score and, once it has on-chain activity, an independent on-chain score. The gap between them is published as a confidence signal, so a protocol can audit the method, not only trust the number.</p>
+        </div>
+      </div>
+
+      <div class="feature-grid" style="margin-top: 1px;">
+        <div class="cell">
+          <h3>Risk signals, not black boxes</h3>
+          <p>Every score breaks down into weighted factors with named codes and plain-language reasons. The formula is published, and the same inputs give the same score.</p>
+        </div>
+        <div class="cell">
+          <h3>Capital in both directions</h3>
+          <p>The aim: idle DeFi liquidity reaching borrowers it couldn't price before, and banks financing agent activity over DeFi rails. FORGE supplies the record. No lending runs through FORGE yet.</p>
+        </div>
+        <div class="cell">
+          <h3>Prove, don't disclose</h3>
+          <p><span class="mono" style="font-size: 11px; letter-spacing: 1.4px;">COMING SOON</span> Zero-knowledge threshold proofs will let a contract check that an agent scores above a line without receiving the file behind it.</p>
         </div>
       </div>
     </div>
