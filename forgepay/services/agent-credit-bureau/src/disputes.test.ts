@@ -22,6 +22,14 @@ import type { AgentCreditProfile, Dispute } from './types';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+// Twelve earlier on-time payments, so the new-agent history ceiling does not
+// hide what a resolution does to the score. (Length assertions below count them.)
+const earlierPayments = Array.from({ length: 12 }, (_, i) => ({
+  id: `evt_early_${i}`, agentId: 'agent_test', eventType: 'payment_on_time' as const, amount: 100,
+  creditorId: 'furnisher_a', contributorId: 'furnisher_a', description: 'On time',
+  timestamp: new Date(Date.UTC(2023, i, 1)).toISOString(),
+}));
+
 function profile(over: Partial<AgentCreditProfile> = {}): AgentCreditProfile {
   const base = {
     agentId: 'agent_test',
@@ -29,6 +37,7 @@ function profile(over: Partial<AgentCreditProfile> = {}): AgentCreditProfile {
     operatorEntityId: 'EIN-1',
     operatorEntityType: 'llc',
     creditHistory: [
+      ...earlierPayments,
       { id: 'evt_default', agentId: 'agent_test', eventType: 'default', amount: 1000,
         creditorId: 'furnisher_a', contributorId: 'furnisher_a',
         description: 'Failed to repay', timestamp: '2024-01-01T00:00:00Z' },
@@ -77,7 +86,7 @@ describe('resolveDispute — resolved_deleted', () => {
 
     expect(result.historyChanged).toBe(true);
     expect(result.profile.creditHistory.find(e => e.id === 'evt_default')).toBeUndefined();
-    expect(result.profile.creditHistory).toHaveLength(1);
+    expect(result.profile.creditHistory).toHaveLength(1 + earlierPayments.length);
     // The score genuinely moved — not just the factor list.
     expect(result.profile.currentScore).not.toBe(before);
     expect(result.profile.scoreFactors.some(f => f.code === 'RECENT_DEFAULT')).toBe(false);
@@ -124,7 +133,7 @@ describe('resolveDispute — resolved_corrected', () => {
 
     expect(result.historyChanged).toBe(true);
     // Corrected in place — not removed, and the event id is unchanged.
-    expect(result.profile.creditHistory).toHaveLength(2);
+    expect(result.profile.creditHistory).toHaveLength(2 + earlierPayments.length);
     const corrected = result.profile.creditHistory.find(e => e.id === 'evt_default')!;
     expect(corrected.eventType).toBe('payment_on_time');
     expect(corrected.description).toBe('Was actually paid on time');

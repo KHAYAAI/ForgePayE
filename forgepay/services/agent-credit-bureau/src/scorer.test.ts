@@ -20,7 +20,15 @@ import {
 import { profiles } from './store';
 import type { AgentCreditProfile, Mode2Inputs } from './types';
 
-/** A well-established, well-behaved baseline: old account, low use, all paid. */
+/** `n` on-time payments, enough (12) to lift the new-agent score ceiling entirely. */
+export function onTimePayments(n: number): AgentCreditProfile['creditHistory'] {
+  return Array.from({ length: n }, (_, i) => ({
+    id: `pay${i}`, agentId: 'agent_test', eventType: 'payment_on_time' as const, amount: 100,
+    creditorId: 'c', contributorId: 'c', description: '', timestamp: new Date(Date.UTC(2020, 1 + i, 1)).toISOString(),
+  })) as AgentCreditProfile['creditHistory'];
+}
+
+/** A well-established, well-behaved baseline: old account, low use, 12 payments, all on time. */
 function baseProfile(over: Partial<AgentCreditProfile> = {}): Partial<AgentCreditProfile> {
   return {
     agentId: 'agent_test',
@@ -30,7 +38,7 @@ function baseProfile(over: Partial<AgentCreditProfile> = {}): Partial<AgentCredi
     hardInquiries: [],
     creditHistory: [
       { id: 'e1', agentId: 'agent_test', eventType: 'credit_opened', amount: 1000, creditorId: 'c', description: '', timestamp: '2020-01-01T00:00:00Z' },
-      { id: 'e2', agentId: 'agent_test', eventType: 'payment_on_time', amount: 100, creditorId: 'c', description: '', timestamp: '2020-02-01T00:00:00Z' },
+      ...onTimePayments(12),
     ],
     createdAt: '2020-01-01T00:00:00Z',
     ...over,
@@ -59,7 +67,7 @@ describe('computeScore — invariants', () => {
     const best = computeScore(baseProfile({
       creditHistory: [
         { id: 'e1', agentId: 'a', eventType: 'credit_opened', amount: 1, creditorId: 'c', description: '', timestamp: '2020-01-01T00:00:00Z' },
-        { id: 'e2', agentId: 'a', eventType: 'payment_on_time', amount: 1, creditorId: 'c', description: '', timestamp: '2020-02-01T00:00:00Z' },
+        ...onTimePayments(12),
         { id: 'e3', agentId: 'a', eventType: 'hard_inquiry', creditorId: 'c', description: '', timestamp: '2020-03-01T00:00:00Z' },
       ],
     } as Partial<AgentCreditProfile>));
@@ -132,8 +140,8 @@ describe('computeScore — component behaviour', () => {
       id: `def${i}`, agentId: 'a', eventType: 'default' as const, amount: 500,
       creditorId: 'c', description: '', timestamp: '2024-06-01T00:00:00Z',
     }));
-    const one   = computeScore(baseProfile({ creditHistory: mk(1) })).score;
-    const three = computeScore(baseProfile({ creditHistory: mk(3) })).score;
+    const one   = computeScore(baseProfile({ creditHistory: [...onTimePayments(12), ...mk(1)] })).score;
+    const three = computeScore(baseProfile({ creditHistory: [...onTimePayments(12), ...mk(3)] })).score;
     expect(three).toBeLessThan(one);
   });
 
@@ -424,5 +432,51 @@ describe('computeScore — empty file', () => {
     const { factors } = computeScore({ creditHistory: [], delinquencies: [], hardInquiries: [], createdAt: new Date().toISOString() });
     expect(factors.map(f => f.code)).toContain('THIN_FILE');
     expect(factors.map(f => f.code)).not.toContain('STRONG_PAYMENT_HISTORY');
+  });
+});
+
+describe('computeScore — a new agent starts at the bottom and earns its way up', () => {
+  const none = { creditHistory: [], delinquencies: [], hardInquiries: [], utilizationRate: 0, paymentHistoryRate: 1, createdAt: '2020-01-01T00:00:00Z' } as Partial<AgentCreditProfile>;
+
+  it('scores the 300 floor, in the riskiest tier, with no repayment history', () => {
+    const { score, factors } = computeScore(none);
+    expect(score).toBe(300);
+    expect(scoreTier(score)).toBe('DEEP_SUBPRIME');
+    expect(factors.map(f => f.code)).toContain('THIN_FILE');
+  });
+
+  it('rises with every on-time payment and reaches the full range at 12', () => {
+    const at = (n: number) => computeScore({ ...none, creditHistory: onTimePayments(n) }).score;
+    // Strictly rising while the history ceiling is what binds; the formula's own
+    // cap (~933 for this fixture) is reached a little before 12.
+    for (let n = 1; n <= 8; n++) expect(at(n)).toBeGreaterThan(at(n - 1));
+    for (let n = 9; n <= 12; n++) expect(at(n)).toBeGreaterThanOrEqual(at(n - 1));
+    expect(scoreTier(at(3))).toBe('DEEP_SUBPRIME');
+    expect(at(12)).toBeGreaterThan(900); // established, clean, old account
+  });
+
+  it('is capped by history, not just by the formula', () => {
+    const { score, factors } = computeScore({ ...none, creditHistory: onTimePayments(4) });
+    expect(score).toBeLessThan(1000);
+    expect(factors.map(f => f.code)).toContain('LIMITED_REPAYMENT_HISTORY');
+  });
+
+  it('never lets a default or a very late payment build history', () => {
+    const def = Array.from({ length: 5 }, (_, i) => ({
+      id: `d${i}`, agentId: 'a', eventType: 'default' as const, amount: 1, creditorId: 'c', description: '', timestamp: '2024-01-01T00:00:00Z',
+    })) as AgentCreditProfile['creditHistory'];
+    const late90 = Array.from({ length: 5 }, (_, i) => ({
+      id: `l${i}`, agentId: 'a', eventType: 'payment_late_90' as const, amount: 1, creditorId: 'c', description: '', timestamp: '2024-01-01T00:00:00Z',
+    })) as AgentCreditProfile['creditHistory'];
+    expect(computeScore({ ...none, creditHistory: def }).score).toBe(300);
+    expect(computeScore({ ...none, creditHistory: late90 }).score).toBe(300);
+  });
+
+  it('counts a payment 30 days late for less than an on-time payment', () => {
+    const late = Array.from({ length: 4 }, (_, i) => ({
+      id: `l${i}`, agentId: 'a', eventType: 'payment_late_30' as const, amount: 1, creditorId: 'c', description: '', timestamp: '2024-01-01T00:00:00Z',
+    })) as AgentCreditProfile['creditHistory'];
+    expect(computeScore({ ...none, creditHistory: late }).score)
+      .toBeLessThan(computeScore({ ...none, creditHistory: onTimePayments(4) }).score);
   });
 });

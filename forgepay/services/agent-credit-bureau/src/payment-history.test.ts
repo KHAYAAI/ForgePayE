@@ -68,7 +68,11 @@ describe('POST /v1/agents/:agentId/events — payment history rate', () => {
 
     const after = await profile(agentId);
     expect(after.paymentHistoryRate).toBe(0); // all six obligations defaulted
-    expect(after.currentScore).toBeLessThan(before.currentScore);
+    // A new agent already starts at the floor, so defaults cannot score below
+    // it, but they must never leave it better placed than no history at all.
+    expect(before.currentScore).toBe(300);
+    expect(after.currentScore).toBe(300);
+    expect(after.tier).toBe('DEEP_SUBPRIME');
     expect(after.scoreFactors.some((f: { code: string }) => f.code === 'RECENT_DEFAULT')).toBe(true);
   });
 
@@ -147,6 +151,6 @@ describe('POST /v1/contributors/:id/ingest — payment history rate', () => {
     const after = await profile(agentId);
     // Before the fix this was still exactly 1.0 — ingest never touched it.
     expect(after.paymentHistoryRate).toBe(0);
-    expect(after.currentScore).toBeLessThan(before.currentScore);
+    expect(after.currentScore).toBeLessThanOrEqual(before.currentScore); // already at the 300 floor
   });
 });

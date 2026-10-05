@@ -312,6 +312,21 @@ export function deriveScoreFields(
   };
 }
 
+/** Monthly on-time repayments for a demo agent, starting the month after `from`. */
+function monthlyOnTime(agentId: string, idBase: string, from: string, months: number, amount: number): CreditEvent[] {
+  const start = new Date(from);
+  return Array.from({ length: months }, (_, i) => ({
+    id: `${idBase}_m${i + 1}`,
+    agentId,
+    eventType: 'payment_on_time' as const,
+    amount,
+    creditorId: 'fp_internal',
+    contributorId: 'fp_internal',
+    description: 'Monthly repayment — on time',
+    timestamp: new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1 + i, 1)).toISOString(),
+  }));
+}
+
 function seed() {
   const now = new Date().toISOString();
 
@@ -330,6 +345,7 @@ function seed() {
         { id: 'evt_002', agentId: 'agent_prime_001', eventType: 'payment_on_time', amount: 1200, creditorId: 'fp_internal', contributorId: 'fp_internal', description: 'Monthly repayment — on time', timestamp: '2024-02-01T00:00:00Z' },
         { id: 'evt_003', agentId: 'agent_prime_001', eventType: 'payment_on_time', amount: 1200, creditorId: 'fp_internal', contributorId: 'fp_internal', description: 'Monthly repayment — on time', timestamp: '2024-03-01T00:00:00Z' },
         { id: 'evt_004', agentId: 'agent_prime_001', eventType: 'identity_verified', description: 'EIN verified with IRS', timestamp: '2024-01-14T00:00:00Z' },
+        ...monthlyOnTime('agent_prime_001', 'evt_p1', '2024-03-01', 6, 1200),
       ],
       totalDebt: 2400,
       totalCreditLimit: 10000,
@@ -353,6 +369,7 @@ function seed() {
         { id: 'evt_011', agentId: 'agent_prime_002', eventType: 'payment_on_time', amount: 800, creditorId: 'fp_internal', contributorId: 'fp_internal', description: 'On-time payment', timestamp: '2024-04-01T00:00:00Z' },
         { id: 'evt_012', agentId: 'agent_prime_002', eventType: 'payment_late_30', amount: 800, creditorId: 'fp_internal', contributorId: 'fp_internal', description: '32 days late', timestamp: '2024-05-03T00:00:00Z' },
         { id: 'evt_013', agentId: 'agent_prime_002', eventType: 'payment_on_time', amount: 800, creditorId: 'fp_internal', contributorId: 'fp_internal', description: 'On-time payment', timestamp: '2024-06-01T00:00:00Z' },
+        ...monthlyOnTime('agent_prime_002', 'evt_p2', '2024-06-01', 8, 800),
       ],
       totalDebt: 3200,
       totalCreditLimit: 5000,
@@ -375,6 +392,7 @@ function seed() {
         { id: 'evt_022', agentId: 'agent_subprime_001', eventType: 'payment_late_30', amount: 300, creditorId: 'fp_internal', contributorId: 'fp_internal', description: '35 days late', timestamp: '2024-06-10T00:00:00Z' },
         { id: 'evt_023', agentId: 'agent_subprime_001', eventType: 'payment_on_time', amount: 300, creditorId: 'fp_internal', contributorId: 'fp_internal', description: 'Recovered — on-time payment', timestamp: '2024-07-08T00:00:00Z' },
         { id: 'evt_024', agentId: 'agent_subprime_001', eventType: 'payment_on_time', amount: 300, creditorId: 'fp_internal', contributorId: 'fp_internal', description: 'Recovered — on-time payment', timestamp: '2024-08-06T00:00:00Z' },
+        ...monthlyOnTime('agent_subprime_001', 'evt_sp1', '2024-08-06', 4, 300),
       ],
       totalDebt: 1800,
       totalCreditLimit: 2000,
@@ -403,6 +421,7 @@ function seed() {
         { id: 'evt_031', agentId: 'agent_super_001', eventType: 'payment_on_time', amount: 5000, creditorId: 'fp_internal', contributorId: 'fp_internal', description: 'Monthly repayment', timestamp: '2023-07-01T00:00:00Z' },
         { id: 'evt_032', agentId: 'agent_super_001', eventType: 'payment_on_time', amount: 5000, creditorId: 'fp_internal', contributorId: 'fp_internal', description: 'Monthly repayment', timestamp: '2023-08-01T00:00:00Z' },
         { id: 'evt_033', agentId: 'agent_super_001', eventType: 'identity_verified', description: 'On-chain DAO vote verified', timestamp: '2023-05-28T00:00:00Z', onChainTxHash: '0xabc123def456' },
+        ...monthlyOnTime('agent_super_001', 'evt_s1', '2023-08-01', 10, 5000),
       ],
       // Draws 10% of a 50k enterprise line — the disciplined-treasury profile
       // that separates this agent from agent_prime_001 on utilisation alone.

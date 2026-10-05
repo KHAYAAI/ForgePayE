@@ -83,6 +83,44 @@ export function scoreRecommendation(score: number) {
 
 // ── Main scoring function ─────────────────────────────────────────────────────
 
+/**
+ * A new agent starts at the bottom and earns its way up.
+ *
+ * Every input to the formula defaults to its best value (no delinquencies, no
+ * utilisation, 100% on time), so an agent with no history at all used to score
+ * about 780 and sit in the PRIME tier, an empty file looking like a strong one.
+ * Now the score is capped by how much repayment history there is: 300 with none
+ * (DEEP_SUBPRIME, the riskiest tier), rising evenly to the full 1000 once
+ * FULL_HISTORY_PAYMENTS payments have been reported. The formula still decides
+ * the score below the cap, so a thin file with late payments scores lower still.
+ *
+ * Only repayments that build trust lift the ceiling: an on-time payment counts
+ * 1, a payment 30 days late 0.5, 60 days late 0.25, 90 days late and a default
+ * 0. (A default must never leave an agent better placed than one with no
+ * history.) Opening credit, inquiries and identity checks are not repayment
+ * history.
+ */
+export const FULL_HISTORY_PAYMENTS = 12;
+
+const HISTORY_CREDIT: Record<string, number> = {
+  payment_on_time: 1,
+  payment_late_30: 0.5,
+  payment_late_60: 0.25,
+  payment_late_90: 0,
+  default: 0,
+};
+
+/** Reported repayments, weighted by how much trust they build. */
+export function repaymentEvents(profile: Partial<AgentCreditProfile>): number {
+  return (profile.creditHistory ?? []).reduce((n, e) => n + (HISTORY_CREDIT[e.eventType] ?? 0), 0);
+}
+
+/** Highest score an agent with this many reported payments can hold. */
+export function historyCeiling(paymentEvents: number): number {
+  const progress = Math.min(1, Math.max(0, paymentEvents) / FULL_HISTORY_PAYMENTS);
+  return Math.round(300 + 700 * progress);
+}
+
 export function computeScore(profile: Partial<AgentCreditProfile>): {
   score: number;
   factors: ScoreFactor[];
@@ -115,13 +153,12 @@ export function computeScore(profile: Partial<AgentCreditProfile>): {
     });
   } else if (!(profile.creditHistory ?? []).some(e => e.eventType.startsWith('payment_'))) {
     // No payments reported at all. This used to read "100% of payments made
-    // on time" — the default rate, not a record. The lender report's
-    // data-sufficiency check (THIN_FILE / manual review) handles the decision;
-    // the factor must not claim a history that does not exist.
+    // on time", the default rate, not a record. The score is held at the
+    // floor until payments are reported (see historyCeiling).
     factors.push({
       code: 'THIN_FILE',
-      description: 'No payments reported yet; the score does not reflect repayment behaviour.',
-      impact: 'neutral',
+      description: `No payments reported yet, so the score starts at the minimum and rises as repayments are reported (full weight after ${FULL_HISTORY_PAYMENTS}).`,
+      impact: 'negative',
       weight: 35,
     });
   } else {
@@ -225,7 +262,16 @@ export function computeScore(profile: Partial<AgentCreditProfile>): {
 
   // ── Final score (0–1000) ──────────────────────────────────────────────────
   const raw = payScore + utilScore + ageScore + mixScore + velocityScore;
-  const score = Math.round(Math.max(300, Math.min(1000, raw)));
+  const ceiling = historyCeiling(repaymentEvents(profile));
+  const score = Math.round(Math.max(300, Math.min(ceiling, 1000, raw)));
+  if (ceiling < 1000 && raw > ceiling && !factors.some(f => f.code === 'THIN_FILE')) {
+    factors.push({
+      code: 'LIMITED_REPAYMENT_HISTORY',
+      description: `Limited repayment history: the score is capped at ${ceiling} until the equivalent of ${FULL_HISTORY_PAYMENTS} on-time payments are on file.`,
+      impact: 'negative',
+      weight: 30,
+    });
+  }
 
   // Return top 4 factors sorted by weight desc
   const topFactors = factors.sort((a, b) => b.weight - a.weight).slice(0, 4);

@@ -137,6 +137,7 @@ export const REASON_CODE_CATALOG: ReasonCodeDefinition[] = [
 
   // Utilisation (30%)
   { code: 'LOW_UTILIZATION',  meaning: 'Credit utilisation is within a healthy range.',                  polarity: 'positive', adverseAction: false, source: 'score_factor' },
+  { code: 'LIMITED_REPAYMENT_HISTORY', meaning: 'Not enough reported repayment history yet; the score is capped until more on-time payments are on file.', polarity: 'negative', adverseAction: false, source: 'score_factor' },
   { code: 'HIGH_UTILIZATION', meaning: 'Credit utilisation exceeds 50% of the available limit.',         polarity: 'negative', adverseAction: true,  source: 'score_factor' },
 
   // Age of file (15%)

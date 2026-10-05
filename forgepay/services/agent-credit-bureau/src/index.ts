@@ -475,8 +475,8 @@ async function buildApp() {
       operatorLegalName:   parse.data.operatorLegalName,
       operatorCountry:     parse.data.operatorCountry,
       operatorRegistrationNumber: parse.data.operatorRegistrationNumber,
-      currentScore:        650, // initial neutral score
-      tier:                'PRIME',
+      currentScore:        300, // new agents start at the floor, in the riskiest tier
+      tier:                'DEEP_SUBPRIME',
       scoreFactors:        [],
       creditHistory:       [],
       totalDebt:           0,

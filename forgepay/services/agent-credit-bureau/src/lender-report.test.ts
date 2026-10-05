@@ -268,8 +268,24 @@ describe('buildLenderReport — decision', () => {
     expect(build(p).decision.score).toBe(p.currentScore);
   });
 
+  it('declines a brand-new agent at the floor and says why, in a form usable for an adverse-action notice', () => {
+    const p = profile({ creditHistory: [] });
+    expect(p.currentScore).toBe(300);
+    const r = build(p);
+    expect(r.decision.outcome).toBe('decline');
+    const codes = r.decision.reasonCodes.map(c => c.code);
+    expect(codes).toContain('THIN_FILE');
+    // At least one reason the lender can cite is flagged as adverse-action eligible.
+    const cited = r.decision.reasonCodes.filter(c => reasonCodeDefinition(c.code)?.adverseAction);
+    expect(cited.length).toBeGreaterThan(0);
+  });
+
   it('downgrades an automated approval on an insufficient file, and shows its work', () => {
+    // The scorer now holds a thin file at the floor, so this safeguard is
+    // defence in depth: a stale or hand-edited stored score that would approve
+    // must still not auto-approve a file this thin.
     const p = profile({ creditHistory: [event()] });
+    p.currentScore = 800;
     const r = build(p);
     expect(r.decision.outcome).toBe('manual_review');
     // The point of the pair: the adjustment is auditable, not hidden.
