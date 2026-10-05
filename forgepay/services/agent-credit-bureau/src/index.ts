@@ -38,7 +38,7 @@
 import { config as loadEnv } from 'dotenv';
 loadEnv({ override: false });
 
-import Fastify, { FastifyError } from 'fastify';
+import Fastify, { FastifyError, type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import helmet from '@fastify/helmet';
@@ -346,10 +346,21 @@ const SimulateSchema = z.object({
 
 // ── App builder ───────────────────────────────────────────────────────────────
 
+/**
+ * TRUST_PROXY_HOPS=N → trust the N proxies nearest the server, so req.ip is the
+ * real client (used as the rate-limit key). Passed as a function because
+ * fastify 5.12.5 stopped honouring a bare number: it behaved like `false`,
+ * and every client then shared the load balancer's address.
+ */
+export function trustProxyHops(raw: string | undefined): false | ((address: string, hop: number) => boolean) {
+  const n = Number(raw ?? 0);
+  return Number.isInteger(n) && n > 0 ? (_address, hop) => hop < n : false;
+}
+
 async function buildApp() {
-  const app = Fastify({
+  const app: FastifyInstance = Fastify({
     logger:     { level: process.env['LOG_LEVEL'] ?? 'info' },
-    trustProxy: (() => { const n = Number(process.env['TRUST_PROXY_HOPS'] ?? 0); return Number.isInteger(n) && n > 0 ? n : false; })(),
+    trustProxy: trustProxyHops(process.env['TRUST_PROXY_HOPS']),
   });
 
   await app.register(helmet, { contentSecurityPolicy: false });
