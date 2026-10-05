@@ -48,7 +48,13 @@ export interface RWAAsset {
   status: RWAStatus;
   totalAumUsd: number;        // total assets under management
   nav: number;                // net asset value per token (USD)
-  navUpdatedAt: string;
+  /**
+   * `seed`: typed into the catalogue, never read from a market — not usable
+   * to value anything. `market`: a price read from the source at navUpdatedAt.
+   */
+  navSource: 'seed' | 'market';
+  /** When the market price was read; null while the NAV is a seed figure. */
+  navUpdatedAt: string | null;
 
   createdAt: string;
   updatedAt: string;

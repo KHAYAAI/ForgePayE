@@ -39,6 +39,7 @@ function makeAsset(overrides: Partial<RWAAsset> = {}): RWAAsset {
     status: 'active',
     totalAumUsd: 1_000_000,
     nav: 1.0,
+    navSource: 'market',
     navUpdatedAt: now,
     createdAt: now,
     updatedAt: now,

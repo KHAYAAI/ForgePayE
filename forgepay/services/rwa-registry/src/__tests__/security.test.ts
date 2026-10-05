@@ -13,8 +13,22 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { buildApp } from '../index';
+import { rwaAssets } from '../store';
 
 type FastifyApp = Awaited<ReturnType<typeof buildApp>>;
+
+/** What a real deployment needs before a position can open: a market price and a verified merchant. */
+async function makeInvestable(app: { inject: (o: object) => Promise<unknown> }, headers: Record<string, string>, merchants: string[]) {
+  const now = new Date().toISOString();
+  for (const a of rwaAssets.values()) { a.navSource = 'market'; a.navUpdatedAt = now; }
+  for (const m of merchants) {
+    await app.inject({
+      method: 'PUT', url: `/v1/eligibility/${m}`, headers,
+      payload: { kycVerified: true, accredited: true, jurisdiction: 'US', verifiedBy: 'test' },
+    });
+  }
+}
+
 
 // ── Production auth: fail closed, not open ───────────────────────────────────
 
@@ -142,6 +156,7 @@ describe('Per-merchant ownership', () => {
 
     ownershipApp = await buildApp();
     await ownershipApp.ready();
+    await makeInvestable(ownershipApp, AUTH_ADMIN, ['merchant-a', 'merchant-b']);
 
     const assetsRes = await ownershipApp.inject({ method: 'GET', url: '/v1/assets', headers: AUTH_ADMIN });
     const assets = assetsRes.json<{ data: Array<{ id: string; minimumInvestmentUsd: number; nav: number }> }>().data;

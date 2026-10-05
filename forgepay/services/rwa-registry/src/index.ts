@@ -45,6 +45,7 @@ import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import { v4 as uuidv4 } from 'uuid';
 import { registerApiKeyAuth, merchantAccessError } from './plugins/api-key-auth';
+import { eligibility, eligibilityError } from './eligibility';
 
 import {
   rwaAssets,
@@ -65,7 +66,7 @@ import {
   processRedemption,
   cancelRedemption,
 } from './redemption';
-import { refreshAllNAVs, getYieldComparison } from './nav';
+import { refreshAllNAVs, getYieldComparison, navUsable } from './nav';
 import { runMigrations, getAllCachedNAVs, pool } from './db';
 import type { MerchantRWAPosition, RedemptionSpeed } from './types';
 
@@ -246,6 +247,17 @@ async function buildApp() {
     if (asset.status !== 'active') {
       return reply.status(409).send({ error: 'AssetNotActive', message: `Asset ${asset.symbol} is not currently accepting investments` });
     }
+    // Value only on a recent market price, never on a seed or stale NAV.
+    if (!navUsable(asset)) {
+      return reply.status(409).send({
+        error: 'NavUnavailable',
+        message: `${asset.symbol} has no recent market price (NAV ${asset.navSource}, as of ${asset.navUpdatedAt ?? 'never'})`,
+      });
+    }
+    const notEligible = eligibilityError(eligibility.get(merchantId), asset);
+    if (notEligible) {
+      return reply.status(403).send({ error: 'NotEligible', message: notEligible });
+    }
 
     const currentValueUsd = units * asset.nav;
     if (currentValueUsd < asset.minimumInvestmentUsd) {
@@ -324,6 +336,12 @@ async function buildApp() {
       return reply.status(404).send({ error: 'NotFound', message: `Asset ${position.assetId} not found` });
     }
 
+    if (!navUsable(asset)) {
+      return reply.status(409).send({
+        error: 'NavUnavailable',
+        message: `${asset.symbol} has no recent market price (NAV ${asset.navSource}, as of ${asset.navUpdatedAt ?? 'never'}); value not changed`,
+      });
+    }
     position.currentValueUsd = position.units * asset.nav;
     position.unrealizedGainUsd = position.currentValueUsd - position.costBasisUsd;
     position.lastUpdatedAt = new Date().toISOString();
@@ -544,6 +562,38 @@ async function buildApp() {
    * POST /v1/nav/refresh
    * Manually trigger a NAV refresh for all assets.
    */
+  /**
+   * PUT /v1/eligibility/:merchantId — admin only.
+   * Record that a merchant has passed KYC (and accreditation / jurisdiction
+   * checks) elsewhere. Positions in assets that require these are refused
+   * until this exists.
+   */
+  app.put<{ Params: { merchantId: string }; Body: { kycVerified?: boolean; accredited?: boolean; jurisdiction?: string; verifiedBy?: string } }>(
+    '/v1/eligibility/:merchantId',
+    async (req, reply) => {
+      if (req.auth?.kind !== 'admin') return reply.status(403).send({ error: 'Forbidden', message: 'Admin only' });
+      const b = req.body ?? {};
+      if (typeof b.kycVerified !== 'boolean' || typeof b.accredited !== 'boolean'
+        || !/^[A-Za-z]{2}$/.test(b.jurisdiction ?? '') || !b.verifiedBy) {
+        return reply.status(400).send({ error: 'ValidationError', message: 'kycVerified, accredited, jurisdiction (ISO alpha-2) and verifiedBy are required' });
+      }
+      const record = {
+        merchantId: req.params.merchantId, kycVerified: b.kycVerified, accredited: b.accredited,
+        jurisdiction: b.jurisdiction!.toUpperCase(), verifiedBy: b.verifiedBy, verifiedAt: new Date().toISOString(),
+      };
+      eligibility.set(record.merchantId, record);
+      return reply.send({ data: record });
+    },
+  );
+
+  app.get<{ Params: { merchantId: string } }>('/v1/eligibility/:merchantId', async (req, reply) => {
+    const denied = merchantAccessError(req.auth, req.params.merchantId);
+    if (denied) return reply.status(403).send(denied);
+    const record = eligibility.get(req.params.merchantId);
+    if (!record) return reply.status(404).send({ error: 'NotFound', message: 'No eligibility on record' });
+    return reply.send({ data: record });
+  });
+
   app.post('/v1/nav/refresh', async (_req, reply) => {
     await refreshAllNAVs();
     return reply.send({

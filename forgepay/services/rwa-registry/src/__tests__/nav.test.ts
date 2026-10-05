@@ -276,7 +276,7 @@ describe('RWA Registry NAV Pricing — PostgreSQL Persistence', () => {
       ok: true,
       status: 200,
       json: async () => ({
-        'ondo-governance-token': { usd: 1.0045 }, // USDY
+        'ondo-us-dollar-yield': { usd: 1.0045 }, // USDY
       }),
     });
 
@@ -299,7 +299,7 @@ describe('RWA Registry NAV Pricing — PostgreSQL Persistence', () => {
       ok: true,
       status: 200,
       json: async () => ({
-        'ondo-governance-token': { usd: 1.0046 },
+        'ondo-us-dollar-yield': { usd: 1.0046 },
       }),
     });
 

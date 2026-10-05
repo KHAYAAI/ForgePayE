@@ -18,7 +18,7 @@ export const redemptionRequests = new Map<string, RedemptionRequest>();   // key
 
 const NOW = new Date().toISOString();
 
-const seedAssets: Omit<RWAAsset, 'id' | 'createdAt' | 'updatedAt' | 'navUpdatedAt'>[] = [
+const seedAssets: Omit<RWAAsset, 'id' | 'createdAt' | 'updatedAt' | 'navUpdatedAt' | 'navSource'>[] = [
   {
     name: 'Ondo US Dollar Yield',
     symbol: 'USDY',
@@ -182,7 +182,10 @@ for (const asset of seedAssets) {
   rwaAssets.set(id, {
     ...asset,
     id,
-    navUpdatedAt: NOW,
+    // The catalogue's NAVs were typed in; they used to be stamped "updated
+    // now" and valued positions. Seed until a market price is read.
+    navSource: 'seed',
+    navUpdatedAt: null,
     createdAt: NOW,
     updatedAt: NOW,
   });

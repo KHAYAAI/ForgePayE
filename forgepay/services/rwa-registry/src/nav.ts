@@ -8,9 +8,16 @@ const COINGECKO_API_URL = 'https://api.coingecko.com/api/v3/simple/price';
 /**
  * Map RWA asset symbols to CoinGecko coin IDs.
  * Uses free tier — no authentication required.
+ *
+ * USDY was mapped to 'ondo-governance-token' — ONDO, Ondo's governance token,
+ * not USDY — so USDY positions were valued at the governance token's price.
+ * None of these ids could be checked against CoinGecko from where this was
+ * written; override any of them with RWA_PRICE_IDS='{"USDY":"..."}' once
+ * confirmed. Once an asset has a market price, the jump guard below rejects
+ * a new price that moves implausibly far from it.
  */
-const SYMBOL_TO_COINGECKO_ID: Record<string, string> = {
-  USDY: 'ondo-governance-token',      // Ondo Finance
+const DEFAULT_PRICE_IDS: Record<string, string> = {
+  USDY: 'ondo-us-dollar-yield',       // Ondo US Dollar Yield (to confirm)
   FOBXX: 'franklin-templeton-onchain-fund', // Franklin OnChain
   TBILL: 'openedentoken',              // OpenEden T-Bill Vault
   BUIDL: 'blackrock-usd-institutional-digital-liquidity-fund', // BlackRock BUIDL
@@ -21,6 +28,36 @@ const SYMBOL_TO_COINGECKO_ID: Record<string, string> = {
 /**
  * Fetch price from CoinGecko API for a given coin ID.
  */
+function priceIds(): Record<string, string> {
+  try {
+    return { ...DEFAULT_PRICE_IDS, ...(JSON.parse(process.env['RWA_PRICE_IDS'] ?? '{}') as Record<string, string>) };
+  } catch {
+    return DEFAULT_PRICE_IDS;
+  }
+}
+
+/**
+ * Tokenised T-bill and money-market funds move by fractions of a percent a
+ * day. A new price further than this from the last *market* price is far
+ * more likely to be the wrong instrument or a bad feed than a real move, and
+ * is rejected. Not applied against a seed NAV: seeds were typed in (USDY's is
+ * $1.00, though USDY accrues above $1) and are not a reference.
+ */
+export const MAX_NAV_DEVIATION = Number(process.env['RWA_MAX_NAV_DEVIATION'] ?? '0.05');
+
+export function plausibleNav(current: number, next: number, maxDeviation = MAX_NAV_DEVIATION): boolean {
+  if (!(next > 0) || !(current > 0)) return false;
+  return Math.abs(next - current) / current <= maxDeviation;
+}
+
+/** A NAV older than this is stale: shown with its age, never used to value. */
+export const NAV_MAX_AGE_HOURS = Number(process.env['RWA_NAV_MAX_AGE_HOURS'] ?? '24');
+
+export function navUsable(asset: { navSource: string; navUpdatedAt: string | null }, now = Date.now()): boolean {
+  if (asset.navSource !== 'market' || !asset.navUpdatedAt) return false;
+  return now - new Date(asset.navUpdatedAt).getTime() <= NAV_MAX_AGE_HOURS * 3600_000;
+}
+
 async function fetchPriceFromCoinGecko(coinId: string): Promise<number | null> {
   try {
     const params = new URLSearchParams({
@@ -52,7 +89,7 @@ async function fetchPriceFromCoinGecko(coinId: string): Promise<number | null> {
  * Try CoinGecko API first, fall back to cached price if API fails.
  */
 export async function getNAVPrice(symbol: string): Promise<number | null> {
-  const coinId = SYMBOL_TO_COINGECKO_ID[symbol];
+  const coinId = priceIds()[symbol];
   if (!coinId) {
     console.debug(`[nav] No CoinGecko mapping for ${symbol}`);
     return null;
@@ -102,26 +139,24 @@ export async function refreshAllNAVs(): Promise<void> {
     try {
       const price = await getNAVPrice(asset.symbol);
 
-      if (price !== null && price > 0) {
+      if (price !== null && price > 0 && (asset.navSource !== 'market' || plausibleNav(asset.nav, price))) {
         asset.nav = price;
+        asset.navSource = 'market';
         asset.navUpdatedAt = now;
         asset.updatedAt = now;
         results.push({ symbol: asset.symbol, success: true, price });
         console.debug(`[nav] ${asset.symbol}: $${price.toFixed(8)}`);
       } else {
-        results.push({ symbol: asset.symbol, success: false, error: 'Price fetch returned null or invalid' });
-        console.debug(`[nav] ${asset.symbol}: Failed to fetch price`);
-        // Keep existing NAV on failure
-        asset.navUpdatedAt = now;
-        asset.updatedAt = now;
+        // Keep the existing NAV *and its timestamp*. This used to stamp
+        // navUpdatedAt = now on failure, so a stale price looked fresh.
+        const why = price === null ? 'no price' : `implausible price ${price} vs NAV ${asset.nav}`;
+        results.push({ symbol: asset.symbol, success: false, error: why });
+        console.warn(`[nav] ${asset.symbol}: not updated (${why})`);
       }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       results.push({ symbol: asset.symbol, success: false, error: errorMsg });
-      console.debug(`[nav] ${asset.symbol}: Exception during fetch:`, errorMsg);
-      // Keep existing NAV on error
-      asset.navUpdatedAt = now;
-      asset.updatedAt = now;
+      console.warn(`[nav] ${asset.symbol}: not updated (${errorMsg})`);
     }
   }
 
