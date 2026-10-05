@@ -12,7 +12,7 @@ the GitHub API. Problems found along the way were fixed and pushed (commits
 
 | Product | Launch | Why |
 |---|---|---|
-| Credit Bureau | **Closest. Not yet.** | Code, tests and console wiring are ready. Open: ZA sanctions list URL, Trivy finding in its image, thin-file scoring decision, external sign-offs. |
+| Credit Bureau | **Closest. Not yet.** | Code, tests and console wiring are ready. Open: ZA sanctions list URL, confirm the security scan now passes, AWS and domain setup, external sign-offs. |
 | Custody | Later | Engineering is deep and tested; needs separate hosts, a real officer drill and an independent review. |
 | Wallet | No (testnet) | Key scheme rebuilt today (per-key KMS); KMS key and legacy-wallet sweep still to do. |
 | Payments | No | Path now works end to end in code; needs licensing, an acquirer, real Hyperswitch/Kill Bill deployment, settlement payouts. |
@@ -94,7 +94,7 @@ All counts from runs today. "PG" means run against Postgres 16.
 | billing-engine | n/a | 11 config + 10 plugin | plus live Kill Bill 0.24.10 run |
 | open-privy backend | ok | 41, 1 skipped | workspace-root typecheck fails (mobile app) |
 | custody api-gateway | ok | 120, 5 skipped | |
-| custody Go services | see appendix | | |
+| custody Go services | build ok | all pass | mpc-signer's threshold-signing package takes ~21 minutes; an earlier "failure" was a timeout |
 | mor-layer | ruff ok, mypy ok locally | 107 (PG + Redis) | mypy fails in CI (log not readable here) |
 | compliance-monitor | n/a | 154 | |
 | console (apps/platform) | ok | 15, 3 skipped | **production build failed** without secrets at build time; fixed |
@@ -112,17 +112,19 @@ fixed in `f9ea918a`.
 1. **Set `ZA_TFS_URL`** (FIC Targeted Financial Sanctions list) and confirm its
    CSV columns; until then production screening refuses to clear anyone,
    including the bureau's.
-2. **Read the Trivy findings** on the bureau, custody and stablecoin images
-   (GitHub Security tab) and patch the base images or dependencies.
-3. **Decide thin-file scoring.** A file with no payments now says THIN_FILE
-   and lender reports route it to manual review, but its raw score is still
-   ~780. Options: leave it, cap it, or return no score below a minimum history.
+2. **Confirm the security scan passes.** The bureau's four high-severity
+   dependency findings were fixed (`npm audit` reports 0). Custody and
+   stablecoin images still need their findings read in GitHub's Security tab.
+3. **Done: new agents start at the bottom.** Mode 1 is capped by reported
+   repayment history: 300 (DEEP_SUBPRIME) with none, rising to the full range
+   at 12 on-time payments; defaults and 90-day-late payments never build history.
 4. **Configure production env** for the console and bureau:
    `FORGE_OPERATOR_TENANT_ID`, `BUREAU_ADMIN_API_KEY`, `JWT_SECRET`,
    `INTERNAL_WEBHOOK_SECRET`, `FORGE_LAUNCHED_PRODUCTS`.
 5. Fix mor-layer mypy in CI and the JS SDK (missing package, missing build configs).
-6. Confirm domains: the website uses myforgepay.com and myforgepay.com; the
-   console FAQ uses myforgepay.com; `docs.myforgepay.com` (14 links) is not in the
-   repo and could not be reached from here.
+6. **Add myforgepay.com on AWS** (the single domain across the repo now):
+   hosted zone, `*.myforgepay.com` certificate (us-east-1 for CloudFront),
+   CloudFront aliases, and mailboxes for the addresses in the code.
+   `docs.myforgepay.com` (14 links) has no site behind it yet.
 7. External: counsel on POPIA / credit-bureau status, FIC registration, an
    independent review, licences and an acquirer for payments.
