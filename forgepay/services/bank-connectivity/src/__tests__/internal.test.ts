@@ -86,3 +86,21 @@ describe('virtual accounts', () => {
     expect((await app.inject({ method: 'GET', url: '/v1/transfers/internal/accounts/va1' })).statusCode).toBe(401);
   });
 });
+
+describe('GET /v1/transfers/internal/balances', () => {
+  it('returns one merchant\'s stored balances to an internal caller', async () => {
+    const local = Fastify({ logger: false });
+    const seen: string[] = [];
+    await local.register(buildInternalRoutes, {
+      store: new MemorySettlementStore(),
+      balances: async (m: string) => { seen.push(m); return [{ id: 'a1', bankName: 'Bank', accountName: 'Ops', accountType: 'checking', currency: 'ZAR', balanceAvailable: 10, balanceCurrent: 12, lastRefreshed: '2026-10-05T00:00:00.000Z' }]; },
+    });
+    await local.ready();
+    const res = await local.inject({ method: 'GET', url: '/v1/transfers/internal/balances?merchantId=m1', headers: HEADERS });
+    expect(res.json().data[0].balanceCurrent).toBe(12);
+    expect(seen).toEqual(['m1']);
+    expect((await local.inject({ method: 'GET', url: '/v1/transfers/internal/balances', headers: HEADERS })).statusCode).toBe(400);
+    expect((await local.inject({ method: 'GET', url: '/v1/transfers/internal/balances?merchantId=m1' })).statusCode).toBe(401);
+    await local.close();
+  });
+});

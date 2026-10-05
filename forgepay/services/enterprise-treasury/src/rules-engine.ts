@@ -19,35 +19,21 @@ import { pool } from './db';
 
 // ── In-memory stores ──────────────────────────────────────────────────────────
 
-const DEFAULT_RULES: TreasuryRule[] = [
-  {
-    id:      'default_sweep_hq',
-    name:    'HQ Operating Account Sweep',
-    enabled: true,
-    condition: { type: 'balance_above', subsidiary: 'HQ', threshold: 5_000_000, currency: 'USDC' },
-    action: { type: 'sweep_to_yield', targetVault: 'aave', minApy: 4.5, keepLiquidUsd: 2_000_000 },
-    approvalRequired: false,
-    executionCount:   0,
-  },
-  {
-    id:      'default_tax_escrow',
-    name:    'Tax Escrow Allocation',
-    enabled: true,
-    condition: { type: 'yield_earned_above', threshold: 100_000 },
-    action: { type: 'allocate_tax_escrow', taxEscrowPercent: 0.28 },
-    approvalRequired: false,
-    executionCount:   0,
-  },
-  {
-    id:      'default_low_runway_alert',
-    name:    'Low Cash Runway Alert',
-    enabled: true,
-    condition: { type: 'runway_below_days', daysAhead: 30 },
-    action: { type: 'notify_cfo', notifyEmails: ['cfo@company.com'] },
-    approvalRequired: false,
-    executionCount:   0,
-  },
-];
+// No default rules. These used to include an automatic sweep of everything
+// above $2M into Aave, a 28% tax escrow and alerts to cfo@company.com, all
+// active without anyone asking. No money moves unless a person configures it.
+const DEFAULT_RULES: TreasuryRule[] = [];
+
+/**
+ * Treasury cannot move money into or out of yield. yield-engine only accepts a
+ * merchant's own JWT, treasury has no way to act as the merchant, the routes
+ * treasury called (/v1/sweep/trigger, /v1/sweep/withdraw) never existed, and
+ * yield-engine cannot execute withdrawals. Rules with these actions are
+ * refused at creation and fail visibly if any already exist.
+ */
+export const UNSUPPORTED_ACTIONS = new Set<TreasuryRule['action']['type']>(['sweep_to_yield', 'repatriate_from_yield']);
+export const YIELD_UNAVAILABLE =
+  'Not available: treasury is not connected to the yield engine, so it cannot sweep to or repatriate from yield.';
 
 const rulesMap = new Map<string, TreasuryRule>(
   DEFAULT_RULES.map(r => [r.id, r]),
@@ -431,52 +417,18 @@ async function executeAction(
 }
 
 async function executeSweepToYield(
-  rule: TreasuryRule,
-  action: TreasuryRule['action'],
-  position: CashPosition,
+  _rule: TreasuryRule,
+  _action: TreasuryRule['action'],
+  _position: CashPosition,
 ): Promise<{ success: boolean; message: string }> {
-  const keepLiquid = action.keepLiquidUsd ?? 0;
-  const available  = position.totalUsd - keepLiquid;
-
-  if (available <= 0) {
-    return { success: false, message: `Insufficient balance above keep_liquid threshold of $${keepLiquid.toLocaleString()}` };
-  }
-
-  const YIELD_ENGINE_URL = process.env['YIELD_ENGINE_URL'] ?? 'http://localhost:3007';
-  try {
-    const resp = await fetch(`${YIELD_ENGINE_URL}/v1/sweep/trigger`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-source': 'enterprise-treasury' },
-      body: JSON.stringify({ vault: action.targetVault ?? 'aave', amountUsd: available, minApy: action.minApy ?? 0, keepLiquidUsd: keepLiquid, ruleId: rule.id }),
-      signal: AbortSignal.timeout(15_000),
-    });
-    if (resp.ok) {
-      const data = (await resp.json()) as { sweepId?: string };
-      return { success: true, message: `Swept $${available.toLocaleString(undefined, { maximumFractionDigits: 0 })} to ${action.targetVault ?? 'best vault'} (sweepId: ${data.sweepId ?? 'n/a'})` };
-    }
-    return { success: false, message: `Yield-engine rejected sweep [${resp.status}]` };
-  } catch (err) {
-    return { success: false, message: `Yield-engine unreachable: ${(err as Error).message}` };
-  }
+  return { success: false, message: YIELD_UNAVAILABLE };
 }
 
 async function executeRepatriateFromYield(
-  rule: TreasuryRule,
-  action: TreasuryRule['action'],
+  _rule: TreasuryRule,
+  _action: TreasuryRule['action'],
 ): Promise<{ success: boolean; message: string }> {
-  const YIELD_ENGINE_URL = process.env['YIELD_ENGINE_URL'] ?? 'http://localhost:3007';
-  try {
-    const resp = await fetch(`${YIELD_ENGINE_URL}/v1/sweep/withdraw`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-source': 'enterprise-treasury' },
-      body: JSON.stringify({ ruleId: rule.id, vault: action.targetVault }),
-      signal: AbortSignal.timeout(15_000),
-    });
-    if (resp.ok) return { success: true, message: 'Repatriation initiated — funds will arrive within 1 business day' };
-    return { success: false, message: `Yield-engine repatriation failed [${resp.status}]` };
-  } catch (err) {
-    return { success: false, message: `Yield-engine unreachable: ${(err as Error).message}` };
-  }
+  return { success: false, message: YIELD_UNAVAILABLE };
 }
 
 async function fireAlertWebhook(text: string, meta: Record<string, unknown>): Promise<void> {

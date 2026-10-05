@@ -15,6 +15,8 @@
  * GET  /v1/transfers/internal/:id            — status polling by enterprise-treasury
  * GET  /v1/transfers/internal                — recent instructions
  * POST /v1/transfers/internal/:id/executed   — operator records the real reference
+ * GET  /v1/transfers/internal/balances       — one merchant's linked accounts and
+ *                                              their last fetched balances
  */
 
 import { randomUUID, timingSafeEqual } from 'node:crypto';
@@ -204,11 +206,41 @@ const NOT_EXECUTED_NOTE =
 
 export const virtualAccounts = new Map<string, Record<string, unknown>>();
 
+/** A linked bank account as treasury sees it: stored balances, never invented. */
+export interface LinkedBalance {
+  id: string; bankName: string; accountName: string; accountType: string; currency: string;
+  balanceAvailable: number; balanceCurrent: number; lastRefreshed: string;
+}
+
+export type BalanceLister = (merchantId: string) => Promise<LinkedBalance[]>;
+
+export function prismaBalanceLister(prisma: PrismaClient): BalanceLister {
+  return async (merchantId) => {
+    const rows = await prisma.linkedAccount.findMany({ where: { merchantId, disconnected: false } });
+    return rows.map((r) => ({
+      id: r.id, bankName: r.bankName, accountName: r.accountName, accountType: r.accountType, currency: r.currency,
+      balanceAvailable: r.balanceAvail, balanceCurrent: r.balanceCurrent, lastRefreshed: r.lastRefreshed.toISOString(),
+    }));
+  };
+}
+
 export async function buildInternalRoutes(
   app: FastifyInstance,
-  opts: { store?: SettlementStore } = {},
+  opts: { store?: SettlementStore; balances?: BalanceLister } = {},
 ): Promise<void> {
   const store = opts.store ?? defaultStore();
+  const balances = opts.balances;
+
+  // Balances as last fetched from the bank (Plaid / Open Banking), with when.
+  // Treasury used to call /v1/accounts/balances, which never existed, and
+  // silently showed no accounts.
+  app.get<{ Querystring: { merchantId?: string } }>('/v1/transfers/internal/balances', async (req, reply) => {
+    if (!verifyInternalRequest(req, reply)) return;
+    const merchantId = (req.query as { merchantId?: string }).merchantId;
+    if (!merchantId) return reply.code(400).send({ statusCode: 400, error: 'Bad Request', message: 'merchantId is required' });
+    if (!balances) return reply.code(503).send({ statusCode: 503, error: 'Unavailable', message: 'No account database configured' });
+    return reply.send({ data: await balances(merchantId) });
+  });
 
   async function record(method: 'wire' | 'stablecoin', req: FastifyRequest, reply: FastifyReply) {
     if (!verifyInternalRequest(req, reply)) return;

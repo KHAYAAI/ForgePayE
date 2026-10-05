@@ -15,6 +15,7 @@
  * and completed settlement batches are recorded in netting_settlements.
  */
 
+import { internalHeaders } from './consolidator';
 import { NettingFlow, NettingResult } from './types';
 import { pool } from './db';
 
@@ -226,7 +227,10 @@ export interface SettlementInstruction {
   reference:      string;
   invoiceRefs:    string[];
   dueDate:        string;
-  status:         'pending' | 'dispatched' | 'confirmed' | 'failed';
+  // awaiting_execution: bank-connectivity recorded it for an operator; no
+  // rail is connected, so nothing has moved yet.
+  status:         'pending' | 'awaiting_execution' | 'dispatched' | 'confirmed' | 'failed';
+  failureReason?: string;
   dispatchedAt?:  string;
   bankConnectivityRef?: string;
 }
@@ -289,7 +293,7 @@ export async function dispatchSettlementInstructions(
 
       const resp = await fetch(endpoint, {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json', 'x-source': 'enterprise-treasury' },
+        headers: { 'Content-Type': 'application/json', ...internalHeaders() },
         body:    JSON.stringify({
           from:        instr.fromSubsidiary,
           to:          instr.toSubsidiary,
@@ -302,15 +306,17 @@ export async function dispatchSettlementInstructions(
       });
 
       if (resp.ok) {
-        const body = (await resp.json()) as { transferId?: string };
-        instr.status               = 'dispatched';
+        const body = (await resp.json()) as { transferId?: string; status?: string };
+        instr.status               = body.status === 'awaiting_execution' ? 'awaiting_execution' : 'dispatched';
         instr.dispatchedAt         = new Date().toISOString();
         instr.bankConnectivityRef  = body.transferId;
       } else {
-        instr.status = 'failed';
+        instr.status        = 'failed';
+        instr.failureReason = `bank-connectivity returned ${resp.status}`;
       }
-    } catch {
-      instr.status = 'failed';
+    } catch (err) {
+      instr.status        = 'failed';
+      instr.failureReason = (err as Error).message;
     }
 
     settlementHistory.push(instr);

@@ -118,45 +118,60 @@ function toUsd(amount: number, currency: string): number {
 
 let connectedAccounts: AccountBalance[] = [];
 let lastRefreshAttempt: string | null = null;
+let lastRefreshError: string | null = null;
 
+/** Headers bank-connectivity's internal routes require (x-source + shared secret). */
+export function internalHeaders(): Record<string, string> {
+  const secret = process.env['INTERNAL_SECRET'] ?? '';
+  return { 'x-source': 'enterprise-treasury', ...(secret ? { 'x-internal-secret': secret } : {}) };
+}
+
+/**
+ * Pull this deployment's linked bank accounts and their last fetched balances
+ * from bank-connectivity (GET /v1/transfers/internal/balances).
+ *
+ * Treasury is single-tenant: one deployment per customer, named by
+ * TREASURY_MERCHANT_ID. This used to call /v1/accounts/balances, which
+ * bank-connectivity never served, swallow the error and show no accounts; it
+ * also sent no internal secret. A failure now throws and is recorded, and
+ * each account's lastUpdated is when the bank was actually last read.
+ */
 export async function refreshAccountBalances(bankConnectivityUrl: string): Promise<AccountBalance[]> {
   lastRefreshAttempt = new Date().toISOString();
-
+  const merchantId = process.env['TREASURY_MERCHANT_ID'];
   try {
-    const resp = await fetch(`${bankConnectivityUrl}/v1/accounts/balances`, {
+    if (!merchantId) throw new Error('TREASURY_MERCHANT_ID is not set; no accounts to load');
+    const q = new URLSearchParams({ merchantId });
+    const resp = await fetch(`${bankConnectivityUrl}/v1/transfers/internal/balances?${q}`, {
       signal: AbortSignal.timeout(10_000),
-      headers: { 'x-source': 'enterprise-treasury' },
+      headers: internalHeaders(),
     });
-
     if (!resp.ok) throw new Error(`bank-connectivity returned ${resp.status}`);
 
-    const body = (await resp.json()) as { accounts?: unknown[] };
-    const raw: unknown[] = body?.accounts ?? [];
-
+    const body = (await resp.json()) as { data?: Array<Record<string, unknown>> };
+    const raw = Array.isArray(body?.data) ? body.data : [];
     connectedAccounts = raw.map((a) => {
-      const account = a as Record<string, unknown>;
-      const balance  = typeof account['balance']  === 'number' ? account['balance']  : 0;
-      const currency = typeof account['currency'] === 'string' ? account['currency'] : 'USD';
+      const balance  = typeof a['balanceCurrent'] === 'number' ? a['balanceCurrent'] : 0;
+      const currency = typeof a['currency'] === 'string' ? a['currency'] : 'USD';
+      const type     = String(a['accountType'] ?? '');
       return {
-        accountId:    typeof account['account_id'] === 'string' ? account['account_id'] : String(account['id'] ?? ''),
-        bankName:     typeof account['institution'] === 'string' ? account['institution'] : 'Unknown Bank',
-        accountName:  typeof account['name'] === 'string' ? account['name'] : 'Unnamed Account',
-        accountType:  (['checking', 'savings', 'money_market', 'crypto'].includes(String(account['account_type'])))
-                        ? account['account_type'] as AccountBalance['accountType']
-                        : 'checking',
+        accountId:     String(a['id'] ?? ''),
+        bankName:      typeof a['bankName'] === 'string' ? a['bankName'] : 'Unknown Bank',
+        accountName:   typeof a['accountName'] === 'string' ? a['accountName'] : 'Unnamed Account',
+        accountType:   (['checking', 'savings', 'money_market', 'crypto'].includes(type) ? type : 'checking') as AccountBalance['accountType'],
         currency,
         balanceNative: balance,
         balanceUsd:    toUsd(balance, currency),
-        subsidiary:    typeof account['subsidiary'] === 'string' ? account['subsidiary'] : 'HQ',
-        plaidItemId:   typeof account['plaid_item_id'] === 'string' ? account['plaid_item_id'] : undefined,
-        lastUpdated:   new Date().toISOString(),
+        // Subsidiaries are not modelled in bank-connectivity yet.
+        subsidiary:    'HQ',
+        lastUpdated:   typeof a['lastRefreshed'] === 'string' ? a['lastRefreshed'] : lastRefreshAttempt!,
       };
     });
+    lastRefreshError = null;
   } catch (err) {
-    // Serve stale cache so callers can detect age via lastUpdated fields
-    console.warn('[enterprise-treasury] bank-connectivity unavailable, serving cached data:', (err as Error).message);
+    lastRefreshError = (err as Error).message;
+    throw err;
   }
-
   return connectedAccounts;
 }
 
@@ -238,6 +253,11 @@ export function getAccounts(): AccountBalance[] {
 
 export function getLastRefreshAttempt(): string | null {
   return lastRefreshAttempt;
+}
+
+/** Why the last balance refresh failed, or null if it succeeded. */
+export function getLastRefreshError(): string | null {
+  return lastRefreshError;
 }
 
 export function getFxRateSnapshot(): {

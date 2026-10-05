@@ -19,9 +19,14 @@
  *   Every 15 minutes  — bank account balance refresh
  *   Every 60 minutes  — FX rate refresh
  *
+ * Single-tenant: one deployment per customer.
+ *
  * Env vars:
+ *   TREASURY_MERCHANT_ID   — the customer whose linked bank accounts this
+ *                            deployment reads (required for balances)
+ *   INTERNAL_SECRET        — shared with bank-connectivity's internal routes
  *   BANK_CONNECTIVITY_URL  — default http://localhost:3006
- *   YIELD_ENGINE_URL       — default http://localhost:3007
+ *   YIELD_ENGINE_URL       — unused: treasury cannot sweep to or from yield
  *   FX_RATES_URL           — optional; ECB or Open Exchange Rates endpoint
  *   ALERT_WEBHOOK_URL      — optional; Slack/PagerDuty for CFO alerts
  *   CORS_ORIGIN            — default *
@@ -43,6 +48,7 @@ import {
   consolidateCashPosition,
   getAccounts,
   getLastRefreshAttempt,
+  getLastRefreshError,
   refreshFxRates,
   getFxRateSnapshot,
 } from './consolidator';
@@ -55,6 +61,8 @@ import {
   getExecutionLog,
   listPendingApprovals,
   resolveApproval,
+  UNSUPPORTED_ACTIONS,
+  YIELD_UNAVAILABLE,
 } from './rules-engine';
 import {
   addFlow,
@@ -271,7 +279,13 @@ export async function buildApp() {
   app.get('/v1/cash-position', async (_req, reply) => {
     const accounts  = getAccounts();
     const position: CashPosition = consolidateCashPosition(accounts);
-    return reply.send({ data: position });
+    // Say when the numbers are from and whether the last refresh worked,
+    // rather than presenting an empty or stale position as current.
+    return reply.send({
+      data: position,
+      balancesAsOf: getLastRefreshAttempt(),
+      refreshError: getLastRefreshError(),
+    });
   });
 
   app.post('/v1/refresh', async (_req, reply) => {
@@ -287,7 +301,7 @@ export async function buildApp() {
       app.log.error({ err }, 'Balance refresh failed');
       return reply.status(502).send({
         error:   'RefreshFailed',
-        message: 'Could not reach bank-connectivity service',
+        message: (err as Error).message,
       });
     }
   });
@@ -315,6 +329,9 @@ export async function buildApp() {
     if (!parse.success) {
       return reply.status(400).send({ error: 'ValidationError', details: parse.error.flatten() });
     }
+    if (UNSUPPORTED_ACTIONS.has(parse.data.action.type)) {
+      return reply.status(422).send({ error: 'UnsupportedAction', message: YIELD_UNAVAILABLE });
+    }
     const rule = addRule(parse.data as Omit<TreasuryRule, 'executionCount'>);
     return reply.status(201).send({ data: rule });
   });
@@ -323,6 +340,10 @@ export async function buildApp() {
     const parse = TreasuryRuleUpdateSchema.safeParse(req.body);
     if (!parse.success) {
       return reply.status(400).send({ error: 'ValidationError', details: parse.error.flatten() });
+    }
+    const nextAction = (parse.data as Partial<TreasuryRule>).action;
+    if (nextAction && UNSUPPORTED_ACTIONS.has(nextAction.type)) {
+      return reply.status(422).send({ error: 'UnsupportedAction', message: YIELD_UNAVAILABLE });
     }
     const updated = updateRule(req.params.id, parse.data as Partial<TreasuryRule>);
     if (!updated) {
@@ -415,8 +436,10 @@ export async function buildApp() {
 
   /**
    * POST /v1/netting/settle?execute=true
-   * Generates settlement instructions and (when execute=true) dispatches them
-   * to bank-connectivity. Always clears the netting queue afterward.
+   * Generates settlement instructions and (when execute=true) hands them to
+   * bank-connectivity. The netting queue is cleared only when every
+   * instruction was accepted. It used to be cleared always — on a dry run,
+   * and after failed dispatches — so the obligations were simply lost.
    */
   app.post<{ Querystring: { execute?: string } }>('/v1/netting/settle', async (req, reply) => {
     const execute   = req.query.execute === 'true';
@@ -424,21 +447,30 @@ export async function buildApp() {
     const flowCount = listFlows().length;
     const instructions = generateSettlementInstructions();
 
-    let dispatchResult: typeof instructions = instructions;
-    if (execute && instructions.length > 0) {
-      dispatchResult = await dispatchSettlementInstructions(instructions, BANK_CONNECTIVITY_URL);
+    if (!execute || instructions.length === 0) {
+      return reply.send({
+        message:      'Settlement instructions generated (dry-run); nothing dispatched, queue unchanged',
+        settled:      0,
+        pendingFlows: flowCount,
+        summary,
+        instructions,
+      });
     }
 
-    clearSettledFlows();
+    const dispatchResult = await dispatchSettlementInstructions(instructions, BANK_CONNECTIVITY_URL);
+    const failed = dispatchResult.filter(i => i.status === 'failed');
+    if (failed.length === 0) clearSettledFlows();
 
-    return reply.send({
-      message:      execute ? 'Settlement instructions dispatched' : 'Settlement instructions generated (dry-run)',
-      settled:      flowCount,
+    return reply.status(failed.length === 0 ? 200 : 502).send({
+      message: failed.length === 0
+        ? 'Settlement instructions recorded with bank-connectivity for execution'
+        : `${failed.length} of ${dispatchResult.length} instructions failed; the netting queue was kept so nothing is lost`,
+      settled:            failed.length === 0 ? flowCount : 0,
       summary,
-      instructions: dispatchResult,
-      dispatched:   dispatchResult.filter(i => i.status === 'dispatched').length,
-      failed:       dispatchResult.filter(i => i.status === 'failed').length,
-      settledAt:    new Date().toISOString(),
+      instructions:       dispatchResult,
+      awaitingExecution:  dispatchResult.filter(i => i.status === 'awaiting_execution').length,
+      failed:             failed.length,
+      settledAt:          new Date().toISOString(),
     });
   });
 
