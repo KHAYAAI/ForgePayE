@@ -104,6 +104,17 @@ export const config = {
     ofacScreeningEnabled: process.env['NODE_ENV'] === 'production'
       ? opt('OFAC_SCREENING_ENABLED', 'true') === 'true'
       : opt('OFAC_SCREENING_ENABLED', 'false') === 'true',
+    // Onfido webhook token (signs X-SHA2-Signature). Without it every Onfido
+    // webhook is rejected, so checks stay in review rather than approving.
+    onfidoWebhookToken: optSecret('ONFIDO_WEBHOOK_TOKEN'),
+    // Screening goes through compliance-monitor (OFAC SDN + EU lists today).
+    screening: {
+      baseUrl:         optSecret('COMPLIANCE_MONITOR_URL'),
+      apiKey:          optSecret('COMPLIANCE_MONITOR_API_KEY'),
+      maxAgeHours:     Number(opt('SANCTIONS_MAX_AGE_HOURS', '48')),
+      matchScore:      Number(opt('SANCTIONS_MATCH_SCORE', '0.95')),
+      searchThreshold: Number(opt('SANCTIONS_SEARCH_THRESHOLD', '0.85')),
+    },
   },
 
   // EVM RPC endpoints

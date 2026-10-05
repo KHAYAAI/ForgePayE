@@ -2,6 +2,8 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { getDb } from '../lib/db.js';
 import { config } from '../config.js';
+import { KycAmlManager } from '../lib/kyc-aml-manager.js';
+import { verifyOnfidoSignature } from '../lib/onfido.js';
 
 interface CircleWebhookBody {
   id?:    string;
@@ -23,6 +25,32 @@ function verifyCircleSignature(raw: Buffer, header: string): boolean {
 
 export async function buildWebhookRoutes(app: FastifyInstance) {
   const db = getDb();
+  const kyc = new KycAmlManager(db, config.kyc.onfidoApiKey, config.kyc.ofacScreeningEnabled, config.kyc.screening);
+
+  // ── Onfido: identity check finished ────────────────────────────────────────
+  // Was never routed, so no Onfido check could ever complete an applicant.
+  app.post(
+    '/onfido',
+    { config: { rawBody: true } },
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const rawBody = (req as unknown as { rawBody?: Buffer }).rawBody;
+      const sig = req.headers['x-sha2-signature'] as string | undefined;
+      if (!rawBody || !verifyOnfidoSignature(rawBody, sig, config.kyc.onfidoWebhookToken)) {
+        req.log.warn('Rejected Onfido webhook: missing or invalid X-SHA2-Signature');
+        reply.code(401).send({ error: 'invalid_signature' });
+        return;
+      }
+      try {
+        await kyc.handleOnfidoWebhook(req.body as Record<string, unknown>);
+      } catch (err) {
+        // Non-2xx makes Onfido retry; the applicant stays in review meanwhile.
+        req.log.error({ err }, 'Onfido webhook processing failed');
+        reply.code(500).send({ error: 'processing_failed' });
+        return;
+      }
+      reply.send({ received: true });
+    },
+  );
 
   app.post<{ Body: CircleWebhookBody }>(
     '/circle',

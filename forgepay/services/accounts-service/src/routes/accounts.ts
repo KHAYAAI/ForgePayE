@@ -38,7 +38,7 @@ export async function buildAccountRoutes(app: FastifyInstance) {
   const wallets    = new WalletManager();
   const blockchain = new BlockchainManager(wallets);
   const db         = getDb();
-  const kyc        = new KycAmlManager(db, config.kyc.onfidoApiKey, config.kyc.ofacScreeningEnabled);
+  const kyc        = new KycAmlManager(db, config.kyc.onfidoApiKey, config.kyc.ofacScreeningEnabled, config.kyc.screening);
 
   // ── POST /v1/accounts ──────────────────────────────────────────────────────
   app.post<{ Body: CreateAccountBody }>('/', {

@@ -1,5 +1,7 @@
 import type { Pool } from 'pg';
 import { randomUUID } from 'node:crypto';
+import { screenName, type ScreeningConfig, type ScreeningResult } from './sanctions-screen.js';
+import { decisionForCheckResult, fetchCheckResult } from './onfido.js';
 
 export type KycStatus = 'not_started' | 'pending' | 'approved' | 'rejected' | 'requires_review';
 
@@ -56,15 +58,17 @@ export class KycAmlManager {
     private readonly db: Pool,
     private readonly onfidoApiKey: string | undefined,
     private readonly ofacEnabled: boolean,
+    private readonly screening: ScreeningConfig = {
+      baseUrl: undefined, apiKey: undefined, maxAgeHours: 48, matchScore: 0.95, searchThreshold: 0.85,
+    },
+    private readonly fetchImpl: typeof fetch = fetch,
   ) {}
 
   async submitKyc(req: KycSubmissionRequest): Promise<KycVerification> {
-    // OFAC/PEP screening first
-    const { ofacMatch, pepMatch } = await this.screenForSanctions(
-      req.firstName,
-      req.lastName,
-      req.address.country,
-    );
+    // Sanctions screening first.
+    const screen = await this.screenForSanctions(req.firstName, req.lastName, req.address.country);
+    const ofacMatch = screen.outcome === 'match';
+    const pepMatch = false; // no PEP source is integrated; see sanctions-screen.ts
 
     if (ofacMatch) {
       const verificationId = randomUUID();
@@ -72,10 +76,11 @@ export class KycAmlManager {
         `INSERT INTO fp_kyc_verifications
            (id, account_id, status, risk_score, ofac_match, pep_match, rejection_reason,
             first_name, last_name, date_of_birth, country, completed_at)
-         VALUES ($1,$2,'rejected',1.0,$3,$4,'OFAC sanctions match',$5,$6,$7,$8,now())`,
+         VALUES ($1,$2,'rejected',1.0,$3,$4,'Sanctions match',$5,$6,$7,$8,now())`,
         [verificationId, req.accountId, ofacMatch, pepMatch,
          req.firstName, req.lastName, req.dateOfBirth, req.address.country],
       );
+      await this.recordScreening(verificationId, screen);
       await this.db.query(
         `UPDATE fp_accounts SET kyc_status='rejected', risk_score=1.0 WHERE id=$1`, [req.accountId],
       );
@@ -85,6 +90,10 @@ export class KycAmlManager {
 
     let riskScore = this.computeRiskScore(req.address.country, ofacMatch, pepMatch);
     let status: KycStatus = 'pending';
+    // Anything short of a clear screen is for a person to decide. Identity
+    // verification still runs, but nothing below may approve this applicant.
+    const screenedClear = screen.outcome === 'clear'
+      || (screen.outcome === 'not_screened' && process.env['NODE_ENV'] !== 'production');
     let onfidoApplicantId: string | undefined;
     let onfidoCheckId: string | undefined;
     let completedAt: string | undefined;
@@ -107,7 +116,7 @@ export class KycAmlManager {
       // Development only: no verification provider, so approve and say so
       // loudly. Never reachable in production because of the throw above.
       console.warn('[kyc] ONFIDO_API_KEY not set — auto-approving KYC in dev mode');
-      status      = 'approved';
+      status      = screenedClear ? 'approved' : 'requires_review';
       completedAt = new Date().toISOString();
     } else {
       // Create Onfido applicant
@@ -121,6 +130,7 @@ export class KycAmlManager {
         console.error('[kyc] Onfido API error:', err);
         status = 'requires_review';
       }
+      if (!screenedClear) status = 'requires_review';
     }
 
     const verificationId = randomUUID();
@@ -137,6 +147,8 @@ export class KycAmlManager {
         completedAt ?? null,
       ],
     );
+
+    await this.recordScreening(verificationId, screen);
 
     await this.db.query(
       `UPDATE fp_accounts SET kyc_status=$1, risk_score=$2, updated_at=now() WHERE id=$3`,
@@ -159,46 +171,56 @@ export class KycAmlManager {
   async screenForSanctions(
     firstName: string,
     lastName:  string,
-    country:   string,
-  ): Promise<{ ofacMatch: boolean; pepMatch: boolean }> {
+    _country:  string,
+  ): Promise<ScreeningResult> {
     if (!this.ofacEnabled) {
-      return { ofacMatch: false, pepMatch: false };
+      // Allowed in development only; in production this is unavailable and
+      // nobody is approved on it.
+      return process.env['NODE_ENV'] === 'production'
+        ? { outcome: 'unavailable', detail: 'sanctions screening is disabled', matches: [] }
+        : { outcome: 'not_screened', detail: 'sanctions screening disabled (development)', matches: [] };
     }
-    // TODO: integrate with a real OFAC/PEP screening provider (e.g. Comply Advantage, Chainalysis)
-    // For now: flag only explicitly sanctioned countries as a heuristic
-    console.warn(`[kyc] OFAC screening stub: ${firstName} ${lastName} from ${country}`);
-    return { ofacMatch: false, pepMatch: false };
+    return screenName(`${firstName} ${lastName}`.trim(), this.screening, this.fetchImpl);
   }
 
-  async handleOnfidoWebhook(payload: Record<string, unknown>): Promise<void> {
-    const resourceType = payload['resource_type'] as string;
-    if (resourceType !== 'check') return;
+  private async recordScreening(verificationId: string, screen: ScreeningResult): Promise<void> {
+    await this.db.query(
+      `UPDATE fp_kyc_verifications SET sanctions_outcome=$1, sanctions_detail=$2 WHERE id=$3`,
+      [screen.outcome, screen.detail, verificationId],
+    );
+  }
 
-    const checkId = (payload['object'] as Record<string, unknown>)?.['id'] as string;
-    const result  = (payload['object'] as Record<string, unknown>)?.['status'] as string;
-    if (!checkId || !result) return;
+  /**
+   * Onfido `check.completed`. The body says the check finished, not how; the
+   * result is read from Onfido. Only a `clear` check on an applicant whose
+   * sanctions screen was clear approves. The caller verifies the signature.
+   */
+  async handleOnfidoWebhook(body: Record<string, unknown>): Promise<void> {
+    const payload = (body['payload'] ?? body) as Record<string, unknown>;
+    if (payload['resource_type'] !== 'check' || payload['action'] !== 'check.completed') return;
+    const checkId = (payload['object'] as Record<string, unknown> | undefined)?.['id'] as string | undefined;
+    if (!checkId || !this.onfidoApiKey) return;
 
-    const approved = result === 'complete';
-    const status: KycStatus = approved ? 'approved' : 'rejected';
+    const row = await this.db.query(
+      `SELECT id, account_id, sanctions_outcome FROM fp_kyc_verifications WHERE onfido_check_id=$1`, [checkId],
+    );
+    if (row.rows.length === 0) return;
+    const { id, account_id, sanctions_outcome } = row.rows[0] as Record<string, unknown>;
+
+    const check = await fetchCheckResult(checkId, this.onfidoApiKey, undefined, this.fetchImpl);
+    let status: KycStatus = decisionForCheckResult(check.result);
+    const screenedClear = sanctions_outcome === 'clear'
+      || (sanctions_outcome === 'not_screened' && process.env['NODE_ENV'] !== 'production');
+    if (status === 'approved' && !screenedClear) status = 'requires_review';
 
     await this.db.query(
-      `UPDATE fp_kyc_verifications
-       SET status=$1, completed_at=now()
-       WHERE onfido_check_id=$2`,
-      [status, checkId],
+      `UPDATE fp_kyc_verifications SET status=$1, completed_at=now(), raw_response=$2 WHERE id=$3`,
+      [status, JSON.stringify({ onfido_check: check }), id],
     );
-
-    // Reflect on account
-    const kycResult = await this.db.query(
-      `SELECT account_id FROM fp_kyc_verifications WHERE onfido_check_id=$1`, [checkId],
+    await this.db.query(
+      `UPDATE fp_accounts SET kyc_status=$1, updated_at=now() WHERE id=$2`,
+      [status, account_id],
     );
-    if (kycResult.rows.length > 0) {
-      const accountId = (kycResult.rows[0] as Record<string, unknown>)['account_id'];
-      await this.db.query(
-        `UPDATE fp_accounts SET kyc_status=$1, updated_at=now() WHERE id=$2`,
-        [status, accountId],
-      );
-    }
   }
 
   private computeRiskScore(country: string, ofacMatch: boolean, pepMatch: boolean): number {
@@ -244,8 +266,10 @@ export class KycAmlManager {
       },
       body: JSON.stringify({
         applicant_id: applicantId,
-        report_names: ['document', 'facial_similarity_photo', 'right_to_work'],
-        document_ids: [],
+        // Documents and the selfie are uploaded by the applicant through
+        // Onfido's SDK; Onfido uses whatever has been uploaded. (The UK-only
+        // right_to_work report and an empty document_ids list were removed.)
+        report_names: ['document', 'facial_similarity_photo'],
       }),
       signal: AbortSignal.timeout(10_000),
     });
