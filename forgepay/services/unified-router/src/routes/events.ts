@@ -69,11 +69,15 @@ export async function buildEventRoutes(app: FastifyInstance) {
       const db = (req.server as { db: DbPool }).db;
 
       const limitNum = Math.min(parseInt(limit, 10), 200);
-      const params: unknown[] = [merchant_id, limitNum];
+      // merchant_id=all is the FORGE operator's cross-merchant view (the
+      // console's events feed); only the internal secret may ask for it. A
+      // merchant key can only ever read its own merchant_id.
+      const everyMerchant = isInternal && merchant_id === 'all';
+      const params: unknown[] = [merchant_id, limitNum, everyMerchant];
       let sql = `
         SELECT id, type, source, occurred_at, data
         FROM forgepay_events
-        WHERE merchant_id = $1
+        WHERE ($3::boolean OR merchant_id = $1)
       `;
 
       if (type) {
@@ -105,7 +109,10 @@ export async function buildEventRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const authHeader = req.headers.authorization ?? '';
       const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
-      if (token !== config.internalWebhookSecret && token !== req.headers['x-internal-auth']) {
+      // Only the internal secret. This also accepted any token equal to the
+      // caller's own x-internal-auth header — i.e. any value at all, if the
+      // caller sent it twice.
+      if (!config.internalWebhookSecret || token !== config.internalWebhookSecret) {
         reply.code(401).send({ error: 'Unauthorized' });
         return;
       }

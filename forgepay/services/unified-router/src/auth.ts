@@ -192,6 +192,13 @@ const PUBLIC_ROUTES = new Set<string>([
   // Genuinely public — the product catalog (names, taglines, availability),
   // no customer data. See routes/merchant.ts.
   'GET /v1/products/catalog',
+  // Same arrangement as /v1/merchant/summary: routes/events.ts checks the
+  // internal secret (or, for the feed, a merchant's own signing secret)
+  // itself. Without these the console's events feed and webhook settings
+  // page got 401 from this gate on every call.
+  'GET /events/',
+  'GET /events/webhook-endpoints',
+  'POST /events/webhook-endpoints',
 ]);
 
 /**
