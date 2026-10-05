@@ -66,3 +66,47 @@ Persistence tests run against a temp-file sqlite database via `aiosqlite`
 (see `tests/conftest.py`) rather than a real Postgres instance — the ORM
 models are written to be Postgres/sqlite-portable specifically so the suite
 needs no external services. The production path is always Postgres/asyncpg.
+
+## Sanctions lists and South African reporting (added 2026-10-05)
+
+### Lists screened
+
+| List | Source | Format status |
+|---|---|---|
+| OFAC SDN | treasury.gov XML | in use before this change |
+| EU consolidated | EU FSF XML | in use before this change |
+| UN Security Council consolidated | `UN_SANCTIONS_URL` (default: scsanctions.un.org XML) | parser follows the published layout; tested on a hand-written fixture only |
+| UK sanctions list | `UK_SANCTIONS_URL` (no default) | **format to confirm**: CSV with configurable columns (`UK_SANCTIONS_*`). The UK list moved from OFSI's consolidated list to the FCDO UK Sanctions List |
+| South Africa TFS (FIC) | `ZA_TFS_URL` (no default) | **format to confirm**: CSV with configurable columns (`ZA_TFS_*`) |
+
+Screening fails closed: every list in use must be loaded and younger than
+`SANCTIONS_MAX_AGE_HOURS`, or screening answers `error` (never `clear`). This
+now includes the EU list, which was not checked before. In production the
+South African TFS list is required (`REQUIRE_ZA_TFS`, default true there): until
+`ZA_TFS_URL` is set and loads, nobody can be cleared — including the credit
+bureau's sanctions screen.
+
+A downloaded file that parses to zero entries is rejected and the previous
+copy kept: an empty parse is a format problem, not an empty list.
+
+### goAML report drafts (FIC)
+
+`POST /api/v1/reporting/goaml/str/{sar_id}` and `/goaml/ctr/{ctr_id}` (admin
+only) build a goAML-style XML draft from an existing SAR or CTR and record the
+approving officer (`goaml_exports`, listed at `GET /api/v1/reporting/goaml/exports`).
+
+- **Nothing is submitted to the FIC.** Filing is a compliance officer's action
+  in the goAML portal under the institution's own registration
+  (`FIC_RENTITY_ID`).
+- **Not validated against the FIC goAML XSD.** Validate every export first.
+- **CTR threshold** is `ZA_CTR_THRESHOLD_ZAR` (default R49,999.99). Confirm the
+  current figure under s28 of the FIC Act and its regulations.
+
+### To confirm with counsel / the FIC
+
+- Whether FORGE (or each product) is an accountable or reporting institution
+  under the FIC Act, and its registration with the FIC.
+- Which reports apply (STR/SAR under s29, CTR under s28, TPR under s28A,
+  IFTR) and their deadlines.
+- Current UK and TFS list URLs and file formats.
+- No PEP source is integrated.

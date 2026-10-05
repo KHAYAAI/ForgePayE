@@ -110,9 +110,14 @@ class ScreeningEngine:
         redis_client: redis.Redis,
         threshold: float = 0.85,
         cache_ttl_seconds: int = _DEFAULT_CACHE_TTL_SECONDS,
+        additional_lists: list | None = None,
     ) -> None:
         self._ofac = ofac
         self._eu = eu
+        # UN / UK / ZA (src/sanctions/more_lists.py). Configured ones must be
+        # loaded and fresh, like OFAC; unconfigured ones are skipped.
+        self._more = [m for m in (additional_lists or []) if getattr(m, "configured", True)]
+        self._all_more = list(additional_lists or [])
         self._threshold = threshold
         self._redis = redis_client
         self._cache_ttl_seconds = cache_ttl_seconds
@@ -134,6 +139,20 @@ class ScreeningEngine:
             age = self._ofac.get_list_age_hours()
             if age > settings.sanctions_max_age_hours:
                 return f"the OFAC sanctions list is {age:.0f}h old (limit {settings.sanctions_max_age_hours:.0f}h)"
+            # Every other list in use is held to the same standard. Only OFAC
+            # used to be checked, so an EU list that never loaded still
+            # produced "clear".
+            others = [("EU_CONSOLIDATED", self._eu)] if hasattr(self._eu, "entry_count") else []
+            others += [(m.list_name, m) for m in self._more]
+            for list_name, mgr in others:
+                if mgr.entry_count() <= 0:
+                    return f"the {list_name} sanctions list has not loaded"
+                list_age = mgr.get_list_age_hours()
+                if list_age > settings.sanctions_max_age_hours:
+                    return f"the {list_name} sanctions list is {list_age:.0f}h old (limit {settings.sanctions_max_age_hours:.0f}h)"
+            from src.sanctions.more_lists import za_tfs_required
+            if za_tfs_required(settings) and not any(m.list_name == "ZA_TFS" for m in self._more):
+                return "the South African TFS list is required but ZA_TFS_URL is not configured"
         except Exception as exc:  # a manager that cannot say how fresh it is cannot be relied on to clear anyone
             return f"the sanctions list state could not be read: {exc}"
         return None
@@ -172,9 +191,14 @@ class ScreeningEngine:
             eu_task = asyncio.get_event_loop().run_in_executor(
                 None, self._eu.search, name, self._threshold
             )
-            ofac_matches, eu_matches = await asyncio.gather(ofac_task, eu_task)
+            more_tasks = [
+                asyncio.get_event_loop().run_in_executor(None, m.search, name, self._threshold) for m in self._more
+            ]
+            ofac_matches, eu_matches, *more_matches = await asyncio.gather(ofac_task, eu_task, *more_tasks)
 
             all_matches: list[SanctionsMatch] = list(ofac_matches) + list(eu_matches)
+            for found in more_matches:
+                all_matches.extend(found)
 
             # Additionally check any supplied crypto addresses
             for addr in (crypto_addresses or []):
@@ -311,3 +335,19 @@ class ScreeningEngine:
         except Exception as exc:
             logger.warning("screening.cache_decode_failed", entity_id=entity_id, error=str(exc))
             return None
+
+
+def list_status(engine: "ScreeningEngine") -> list[dict]:
+    """Name, entries and age of every list this engine screens against."""
+    rows = [("OFAC_SDN", engine._ofac), ("EU_CONSOLIDATED", engine._eu)] + [(m.list_name, m) for m in engine._all_more]
+    out = []
+    for name, mgr in rows:
+        configured = getattr(mgr, "configured", True)
+        out.append({
+            "list_name": name,
+            "configured": configured,
+            "entry_count": mgr.entry_count() if configured else 0,
+            "age_hours": round(mgr.get_list_age_hours(), 2) if configured else None,
+        })
+    return out
+

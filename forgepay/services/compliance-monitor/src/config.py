@@ -89,6 +89,38 @@ class Settings(BaseSettings):
         alias="EU_SANCTIONS_URL",
     )
 
+    # UN Security Council consolidated list (official XML).
+    un_sanctions_url: str = Field(
+        default="https://scsanctions.un.org/resources/xml/en/consolidated.xml",
+        alias="UN_SANCTIONS_URL",
+    )
+    # UK sanctions list (CSV). No default URL: the UK list moved from OFSI's
+    # consolidated list to the FCDO UK Sanctions List; set the current CSV URL
+    # and confirm the column names below against a live file.
+    uk_sanctions_url: str | None = Field(default=None, alias="UK_SANCTIONS_URL")
+    uk_sanctions_name_columns: str = Field(default="Name 1,Name 2,Name 3,Name 4,Name 5,Name 6", alias="UK_SANCTIONS_NAME_COLUMNS")
+    uk_sanctions_id_column: str = Field(default="Group ID", alias="UK_SANCTIONS_ID_COLUMN")
+    uk_sanctions_type_column: str = Field(default="Group Type", alias="UK_SANCTIONS_TYPE_COLUMN")
+    uk_sanctions_program_column: str = Field(default="Regime", alias="UK_SANCTIONS_PROGRAM_COLUMN")
+    uk_sanctions_skip_rows: int = Field(default=1, alias="UK_SANCTIONS_SKIP_ROWS")
+    # South Africa: the FIC's Targeted Financial Sanctions list (CSV). No
+    # default URL; set it and confirm the columns against a live file.
+    za_tfs_url: str | None = Field(default=None, alias="ZA_TFS_URL")
+    za_tfs_name_columns: str = Field(default="Full Name", alias="ZA_TFS_NAME_COLUMNS")
+    za_tfs_id_column: str = Field(default="Reference Number", alias="ZA_TFS_ID_COLUMN")
+    za_tfs_type_column: str | None = Field(default=None, alias="ZA_TFS_TYPE_COLUMN")
+    za_tfs_skip_rows: int = Field(default=0, alias="ZA_TFS_SKIP_ROWS")
+    # A South African accountable institution must screen against the TFS
+    # list. When required (default: in production), screening refuses until
+    # ZA_TFS_URL is set and the list has loaded.
+    require_za_tfs: bool | None = Field(default=None, alias="REQUIRE_ZA_TFS")
+
+    # goAML (FIC) report drafts. The reporting entity id is assigned when the
+    # institution registers with the FIC. CTR threshold: confirm against the
+    # current regulations under s28 of the FIC Act before relying on it.
+    fic_rentity_id: str = Field(default="", alias="FIC_RENTITY_ID")
+    za_ctr_threshold_zar: float = Field(default=49_999.99, alias="ZA_CTR_THRESHOLD_ZAR")
+
     # ── Refresh schedules ─────────────────────────────────────────────────────
     ofac_refresh_cron: str = Field(default="0 2 * * *", alias="OFAC_REFRESH_CRON")
     eu_sanctions_refresh_cron: str = Field(

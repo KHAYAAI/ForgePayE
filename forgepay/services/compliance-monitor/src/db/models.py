@@ -64,6 +64,20 @@ class CtrRow(Base):
     created_at:            Mapped[str]   = mapped_column(String(64), nullable=False)
 
 
+class GoamlExportRow(Base):
+    """A goAML report draft a compliance officer approved for export. Not a filing: see src/reporting/goaml.py."""
+
+    __tablename__ = "goaml_exports"
+
+    id:            Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_id)
+    report_code:   Mapped[str] = mapped_column(String(10), nullable=False)          # STR | CTR
+    source_id:     Mapped[str] = mapped_column(String(36), nullable=False, index=True)  # SAR or CTR id
+    xml:           Mapped[str] = mapped_column(Text, nullable=False)
+    approved_by:   Mapped[str] = mapped_column(String(255), nullable=False)
+    approved_by_principal: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at:    Mapped[str] = mapped_column(String(64), nullable=False)
+
+
 class KycRecordRow(Base):
     """A KYC/CDD record for a merchant or end-customer entity. Mirrors src.models.KycRecord."""
 

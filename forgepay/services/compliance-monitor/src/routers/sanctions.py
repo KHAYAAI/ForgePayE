@@ -29,26 +29,10 @@ async def list_status(
     request: Request,
     caller: Annotated[dict, Depends(require_auth)],
 ) -> list[dict]:
-    ofac = request.app.state.ofac_manager
-    eu = request.app.state.eu_manager
+    """Every list screening uses: whether configured, entries, and age in hours."""
+    from src.screening.engine import list_status as engine_list_status
 
-    return [
-        {
-            "list_name": "OFAC_SDN",
-            "age_hours": round(ofac.get_list_age_hours(), 2),
-            "entry_count": ofac.entry_count(),
-            "source_url": "https://www.treasury.gov/ofac/downloads/sdn.xml",
-        },
-        {
-            "list_name": "EU_CONSOLIDATED",
-            "age_hours": round(eu.get_list_age_hours(), 2),
-            "entry_count": eu.entry_count(),
-            "source_url": (
-                "https://webgate.ec.europa.eu/fsd/fsf/public/files/"
-                "xmlFullSanctionsList_1_1/content"
-            ),
-        },
-    ]
+    return engine_list_status(request.app.state.screening_engine)
 
 
 @router.post(
@@ -63,8 +47,8 @@ async def refresh_lists(
     ofac = request.app.state.ofac_manager
     eu = request.app.state.eu_manager
 
-    # Refresh both lists concurrently
-    await asyncio.gather(ofac.refresh_list(), eu.refresh_list())
+    extras = [m for m in getattr(request.app.state, "additional_lists", []) if m.configured]
+    await asyncio.gather(ofac.refresh_list(), eu.refresh_list(), *(m.refresh_list() for m in extras))
 
     return {
         "status": "refreshed",
@@ -105,8 +89,12 @@ async def search_sanctions(
     with concurrent.futures.ThreadPoolExecutor() as pool:
         ofac_fut = loop.run_in_executor(pool, ofac.search, q, threshold)
         eu_fut = loop.run_in_executor(pool, eu.search, q, threshold)
-        ofac_matches, eu_matches = await asyncio.gather(ofac_fut, eu_fut)
+        extras = [m for m in getattr(request.app.state, "additional_lists", []) if m.configured]
+        extra_futs = [loop.run_in_executor(pool, m.search, q, threshold) for m in extras]
+        ofac_matches, eu_matches, *extra_matches = await asyncio.gather(ofac_fut, eu_fut, *extra_futs)
 
     combined = list(ofac_matches) + list(eu_matches)
+    for found in extra_matches:
+        combined.extend(found)
     combined.sort(key=lambda m: m.similarity_score, reverse=True)
     return combined

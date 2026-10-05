@@ -55,6 +55,7 @@ from src.ofac.feed import OfacFeedManager
 from src.reporting.sar import SarManager
 from src.routers import monitoring, ofac_screening, reporting, sanctions, screening, webhooks
 from src.sanctions.eu_list import EuSanctionsManager
+from src.sanctions.more_lists import build_additional_lists
 from src.sanctions.ofac import OfacListManager
 from src.sanctions.screening import TransactionScreeningEngine
 from src.screening.engine import ScreeningEngine
@@ -156,6 +157,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # ── Singletons ────────────────────────────────────────────────────────────
     ofac_manager = OfacListManager(sdn_url=settings.ofac_sdn_url)
     eu_manager = EuSanctionsManager(list_url=settings.eu_sanctions_url)
+    additional_lists = build_additional_lists(settings)  # UN, UK, ZA TFS
     # The screening result cache is just that -- a cache, not a regulatory
     # record -- so unlike the DB-backed managers below it tolerates a
     # not-yet-connected Redis client: real calls are attempted lazily and
@@ -169,6 +171,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         redis_client=screening_redis_client,
         threshold=settings.fuzzy_match_threshold,
         cache_ttl_seconds=settings.screening_cache_ttl,
+        additional_lists=additional_lists,
     )
     monitoring_engine = TransactionMonitoringEngine(session_factory=session_factory)
     kyc_manager = KycManager(session_factory=session_factory)
@@ -212,6 +215,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # attribute name, it no longer collides; it is otherwise unused today.
     app.state.ofac_manager = ofac_manager
     app.state.eu_manager = eu_manager
+    app.state.additional_lists = additional_lists
     app.state.screening_engine = screening_engine
     app.state.monitoring_engine = monitoring_engine
     app.state.kyc_manager = kyc_manager
@@ -230,6 +234,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await eu_manager.refresh_list()
     except Exception as exc:
         logger.warning("startup.eu_initial_load_failed", error=str(exc))
+
+    for extra in additional_lists:
+        if not extra.configured:
+            logger.warning("startup.sanctions_list_not_configured", list=extra.list_name)
+            continue
+        try:
+            await extra.refresh_list()
+        except Exception as exc:
+            logger.warning("startup.sanctions_list_initial_load_failed", list=extra.list_name, error=str(exc))
 
     # Refresh OFAC CSV feeds if available
     if ofac_feed_manager:
@@ -252,6 +265,19 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         max_instances=1,
         coalesce=True,
     )
+
+    # UN / UK / ZA refresh — daily from 03:30 UTC
+    for i, extra in enumerate(m for m in additional_lists if m.configured):
+        scheduler.add_job(
+            extra.refresh_list,
+            trigger="cron",
+            hour=3,
+            minute=30 + 5 * i,
+            id=f"{extra.list_name.lower()}_refresh",
+            name=f"{extra.list_name} Refresh",
+            max_instances=1,
+            coalesce=True,
+        )
 
     # EU refresh — daily at 03:00 UTC
     scheduler.add_job(

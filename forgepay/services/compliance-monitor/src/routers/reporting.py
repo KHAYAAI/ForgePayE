@@ -160,3 +160,97 @@ async def dashboard(
         "eu_age_hours": round(eu.get_list_age_hours(), 2),
     }
     return stats
+
+
+# ---------------------------------------------------------------------------
+# goAML (South Africa FIC) report drafts — exported for an officer, never filed
+# ---------------------------------------------------------------------------
+
+from datetime import UTC, datetime  # noqa: E402
+
+from fastapi.responses import Response  # noqa: E402
+from pydantic import BaseModel, Field  # noqa: E402
+from sqlalchemy import select  # noqa: E402
+
+from src.config import get_settings  # noqa: E402
+from src.db.models import CtrRow, GoamlExportRow, SarRow  # noqa: E402
+from src.reporting.goaml import build_ctr, build_str  # noqa: E402
+from src.reporting.sar import _ctr_from_row, _sar_from_row  # noqa: E402
+
+
+class GoamlExportRequest(BaseModel):
+    approved_by: str = Field(min_length=2, max_length=255, description="Full name of the compliance officer approving this export")
+
+
+async def _record_export(request: Request, code: str, source_id: str, xml: str, approved_by: str, principal: str) -> None:
+    async with request.app.state.sar_manager._session_factory() as session:
+        session.add(GoamlExportRow(
+            report_code=code, source_id=source_id, xml=xml, approved_by=approved_by,
+            approved_by_principal=principal, created_at=datetime.now(UTC).isoformat(),
+        ))
+        await session.commit()
+
+
+@router.post(
+    "/goaml/str/{sar_id}",
+    summary="Export a goAML STR draft from a SAR (admin; not submitted to the FIC)",
+)
+async def export_goaml_str(
+    sar_id: str,
+    body: GoamlExportRequest,
+    request: Request,
+    caller: Annotated[dict, Depends(require_admin)],
+) -> Response:
+    settings = get_settings()
+    async with request.app.state.sar_manager._session_factory() as session:
+        row = await session.get(SarRow, sar_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail=f"SAR {sar_id} not found")
+        sar = _sar_from_row(row)
+    xml = build_str(sar, rentity_id=settings.fic_rentity_id, approved_by=body.approved_by)
+    await _record_export(request, "STR", sar_id, xml, body.approved_by, str(caller.get("merchant_id", "")))
+    return Response(content=xml, media_type="application/xml",
+                    headers={"X-Filing-Status": "not-submitted; upload via goAML after XSD validation"})
+
+
+@router.post(
+    "/goaml/ctr/{ctr_id}",
+    summary="Export a goAML CTR draft (admin; not submitted to the FIC)",
+)
+async def export_goaml_ctr(
+    ctr_id: str,
+    body: GoamlExportRequest,
+    request: Request,
+    caller: Annotated[dict, Depends(require_admin)],
+) -> Response:
+    settings = get_settings()
+    async with request.app.state.sar_manager._session_factory() as session:
+        row = await session.get(CtrRow, ctr_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail=f"CTR {ctr_id} not found")
+        ctr = _ctr_from_row(row)
+    try:
+        xml = build_ctr(ctr, rentity_id=settings.fic_rentity_id, approved_by=body.approved_by,
+                        threshold_zar=settings.za_ctr_threshold_zar)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    await _record_export(request, "CTR", ctr_id, xml, body.approved_by, str(caller.get("merchant_id", "")))
+    return Response(content=xml, media_type="application/xml",
+                    headers={"X-Filing-Status": "not-submitted; upload via goAML after XSD validation"})
+
+
+@router.get(
+    "/goaml/exports",
+    summary="Who exported which goAML draft, and when (admin)",
+)
+async def list_goaml_exports(
+    request: Request,
+    caller: Annotated[dict, Depends(require_admin)],
+) -> list[dict]:
+    async with request.app.state.sar_manager._session_factory() as session:
+        rows = (await session.execute(select(GoamlExportRow).order_by(GoamlExportRow.created_at.desc()))).scalars().all()
+    return [
+        {"id": r.id, "report_code": r.report_code, "source_id": r.source_id, "approved_by": r.approved_by,
+         "approved_by_principal": r.approved_by_principal, "created_at": r.created_at, "submitted": False}
+        for r in rows
+    ]
