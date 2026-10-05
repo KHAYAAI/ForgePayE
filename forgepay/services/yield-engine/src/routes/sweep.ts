@@ -104,7 +104,7 @@ export async function buildSweepRoutes(app: FastifyInstance): Promise<void> {
     sweepConfigStore.set(merchantId, { ...cfg, enabled: true });
 
     try {
-      const result = await sweepIdleBalances();
+      const result = await sweepIdleBalances(merchantId);
       return reply.send({
         message: 'Sweep run complete',
         ...result,

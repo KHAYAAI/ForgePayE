@@ -48,14 +48,16 @@ async function fetchApyForVault(vault: YieldVault): Promise<number> {
       vaultsStore.set(vault.id, {
         ...existing,
         apy,
+        apySource:    'live',
         apyUpdatedAt: new Date().toISOString(),
       });
     }
 
     return apy;
   } catch (err) {
-    logger.warn({ vaultId: vault.id, err }, 'Failed to fetch APY; using cached/seed value');
-    // Return last known value so a single RPC failure doesn't break everything
+    logger.warn({ vaultId: vault.id, err }, 'Failed to fetch APY; vault keeps its previous (labelled) value');
+    // The vault keeps its previous figure and its apySource / apyUpdatedAt, so
+    // a seed figure stays labelled seed and a live one shows how old it is.
     return vault.apy;
   }
 }
@@ -119,9 +121,11 @@ export async function getBestVault(
   // Fetch fresh APYs for all candidates in parallel
   await Promise.allSettled(candidates.map(fetchApyForVault));
 
-  // Re-read from vault store (which was updated by fetchApyForVault)
+  // Re-read from vault store (which was updated by fetchApyForVault). Only a
+  // live APY can choose where money goes, never a seed figure.
   const ranked = candidates
     .map((v) => vaultsStore.get(v.id) ?? v)
+    .filter((v) => v.apySource === 'live')
     .filter((v) => v.apy >= minApy)
     .sort((a, b) => b.apy - a.apy);
 

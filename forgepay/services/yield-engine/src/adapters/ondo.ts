@@ -66,6 +66,13 @@ interface OndoRedemptionResponse {
   txHash?:   string;
 }
 
+export class OndoNotIntegratedError extends Error {
+  constructor(what: string) {
+    super(`Ondo USDY ${what}: not integrated. FORGE has no confirmed Ondo API access or KYC onboarding.`);
+    this.name = 'OndoNotIntegratedError';
+  }
+}
+
 // ── Adapter ───────────────────────────────────────────────────────────────────
 
 export class OndoAdapter implements BaseYieldAdapter {
@@ -86,108 +93,39 @@ export class OndoAdapter implements BaseYieldAdapter {
     private readonly chain: string = 'ethereum',
   ) {}
 
-  /**
-   * Fetch the current USDY APY from the Ondo API.
-   * Returns a decimal — e.g. 0.052 for 5.2 %.
-   */
+  // Every method refuses. The REST endpoints this adapter called
+  // (/rates/usdy, /deposits, /positions, /redemptions, /orders on
+  // api.ondo.finance/v1) were never confirmed against any Ondo API, USDY
+  // minting and redemption are gated by Ondo's own KYC onboarding, which
+  // FORGE has not done, and the old balance fallback priced USDY at $1 when it
+  // is an accruing token worth more. Until a real integration exists, nothing
+  // here may report a rate, a balance or an order.
+
   async getCurrentApy(): Promise<number> {
-    const resp = await this.http.get<OndoRatesResponse>('/rates/usdy');
-    return resp.data.apy;
+    throw new OndoNotIntegratedError('APY');
   }
 
-  /**
-   * Initiate a USDY minting order via the Ondo institutional API.
-   * The caller's wallet must be KYC-approved in the Ondo system.
-   *
-   * @param params.walletAddress  Destination wallet for minted USDY
-   * @param params.amountUsd      USD amount to exchange for USDY
-   * @param params.paymentMethod  'wire' | 'usdc' | 'usdt'
-   * @returns Ondo order ID (use `getRedemptionStatus` to poll)
-   */
-  async deposit(params: {
+  async deposit(_params: {
     walletAddress: string;
     amountUsd: number;
     paymentMethod: 'wire' | 'usdc' | 'usdt';
   }): Promise<string> {
-    try {
-      const resp = await this.http.post<OndoDepositResponse>('/deposits', {
-        asset:         'USDY',
-        walletAddress: params.walletAddress,
-        amountUsd:     params.amountUsd,
-        paymentMethod: params.paymentMethod,
-      });
-      return resp.data.orderId;
-    } catch (err) {
-      if (err instanceof AxiosError && err.response) {
-        throw new Error(
-          `Ondo deposit failed: ${err.response.status} — ${JSON.stringify(err.response.data)}`,
-        );
-      }
-      throw err;
-    }
+    throw new OndoNotIntegratedError('deposits');
   }
 
-  /**
-   * Get the USDY balance for `address`.
-   *
-   * First tries the Ondo API (returns USD-denominated balance).
-   * Falls back to a direct ERC-20 `balanceOf` call if the API fails.
-   *
-   * USDY has 18 decimals on Ethereum.
-   */
-  async getBalance(address: string): Promise<number> {
-    try {
-      const resp = await this.http.get<OndoPositionResponse>(`/positions/${address}`);
-      return resp.data.balanceUsd;
-    } catch (_apiErr) {
-      // Fall back to on-chain read
-      const usdyAddress = USDY_ADDRESSES[this.chain];
-      if (!usdyAddress) {
-        throw new Error(`No USDY token address for chain: ${this.chain}`);
-      }
-      const token = new ethers.Contract(usdyAddress, USDY_ABI, this.provider);
-      const raw   = await token['balanceOf'](address) as bigint;
-      // USDY is pegged ~$1 and has 18 decimals; no oracle needed for a rough estimate
-      return Number(raw) / 1e18;
-    }
+  async getBalance(_address: string): Promise<number> {
+    throw new OndoNotIntegratedError('balances');
   }
 
-  /**
-   * Initiate a USDY redemption order.
-   *
-   * @param params.walletAddress  Source wallet holding USDY
-   * @param params.amountUsdy     Amount of USDY to redeem
-   * @param params.settlementRail 'wire' | 'usdc'
-   * @returns Ondo redemption order ID
-   */
-  async redeem(params: {
+  async redeem(_params: {
     walletAddress: string;
     amountUsdy: number;
     settlementRail: 'wire' | 'usdc';
   }): Promise<string> {
-    try {
-      const resp = await this.http.post<OndoDepositResponse>('/redemptions', {
-        asset:          'USDY',
-        walletAddress:  params.walletAddress,
-        amountUsdy:     params.amountUsdy,
-        settlementRail: params.settlementRail,
-      });
-      return resp.data.orderId;
-    } catch (err) {
-      if (err instanceof AxiosError && err.response) {
-        throw new Error(
-          `Ondo redemption failed: ${err.response.status} — ${JSON.stringify(err.response.data)}`,
-        );
-      }
-      throw err;
-    }
+    throw new OndoNotIntegratedError('redemptions');
   }
 
-  /**
-   * Poll the status of a mint or redemption order.
-   */
-  async getRedemptionStatus(orderId: string): Promise<string> {
-    const resp = await this.http.get<OndoRedemptionResponse>(`/orders/${orderId}`);
-    return resp.data.status;
+  async getRedemptionStatus(_orderId: string): Promise<string> {
+    throw new OndoNotIntegratedError('order status');
   }
 }

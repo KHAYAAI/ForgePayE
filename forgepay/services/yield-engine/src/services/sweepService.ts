@@ -62,6 +62,16 @@ async function fetchMerchantBalance(merchantId: string): Promise<MerchantBalance
 }
 
 /**
+ * Whether real on-chain deposits may be sent. Off in production and off by
+ * default elsewhere: withdrawals are not implemented, and every deposit is
+ * signed by one shared key (SIGNER_PRIVATE_KEY) holding all merchants' funds.
+ * YIELD_ONCHAIN_DEPOSITS=true enables them outside production, for testnets.
+ */
+export function onChainDepositsAllowed(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env['NODE_ENV'] !== 'production' && env['YIELD_ONCHAIN_DEPOSITS'] === 'true';
+}
+
+/**
  * Submit an on-chain deposit into the target vault.
  * Returns the transaction hash on success, or null if the call fails.
  */
@@ -71,6 +81,14 @@ async function executeOnChainDeposit(
 ): Promise<string | null> {
   const vault = vaultsStore.get(vaultId);
   if (!vault) return null;
+
+  // Withdrawals cannot be executed (see scheduleWithdrawal), so a deposit
+  // would strand the money in the vault. Real deposits are refused unless
+  // explicitly enabled, and never in production, until withdrawals work.
+  if (!onChainDepositsAllowed()) {
+    logger.warn({ vaultId, amountUsd }, 'On-chain deposit refused: withdrawals are not implemented');
+    return null;
+  }
 
   if (!config.signerPrivateKey) {
     refuseSimulationInProduction(
@@ -95,9 +113,11 @@ async function executeOnChainDeposit(
       const adapter = new CompoundAdapter(provider, vault.chain as any);
       return await adapter.deposit(signer, amountUnits);
     } else {
-      // Ondo / manual — handled via API, no direct on-chain tx here
-      logger.info({ vaultId, protocol: vault.protocol }, 'Off-chain deposit initiated');
-      return `0xoffchain_${uuidv4().replace(/-/g, '')}`;
+      // Ondo has no integration (adapters/ondo.ts). This used to return a
+      // made-up "0xoffchain_…" hash, recording a confirmed deposit for money
+      // that never moved.
+      logger.warn({ vaultId, protocol: vault.protocol }, 'Deposit refused: protocol not integrated');
+      return null;
     }
   } catch (err) {
     logger.error({ vaultId, amountUsd, err }, 'On-chain deposit failed');
@@ -246,8 +266,13 @@ async function sweepMerchant(sweepCfg: SweepConfig): Promise<boolean> {
  * Main cron job function — sweeps all merchants with sweep enabled.
  * Invoked every SWEEP_INTERVAL_MINUTES by node-cron.
  */
-export async function sweepIdleBalances(): Promise<{ swept: number; skipped: number; failed: number }> {
-  const enabledConfigs = [...sweepConfigStore.values()].filter((c) => c.enabled);
+export async function sweepIdleBalances(
+  onlyMerchantId?: string,
+): Promise<{ swept: number; skipped: number; failed: number }> {
+  // A merchant's manual run used to sweep every merchant with sweeps enabled.
+  const enabledConfigs = [...sweepConfigStore.values()]
+    .filter((c) => c.enabled)
+    .filter((c) => !onlyMerchantId || c.merchantId === onlyMerchantId);
 
   if (enabledConfigs.length === 0) {
     logger.debug('No merchants with sweep enabled; nothing to do');

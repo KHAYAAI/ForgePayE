@@ -32,11 +32,19 @@ export interface YieldVault {
   asset: AssetSymbol;
   chain: ChainName;
   contractAddress: string;
-  /** Current supply APY as a decimal — 0.045 means 4.5 % */
+  /** Supply APY as a decimal — 0.045 means 4.5 %. See apySource. */
   apy: number;
-  apyUpdatedAt: string; // ISO-8601
-  /** Total value locked in USD */
+  /**
+   * `seed`: a figure typed into the catalogue, never read from the chain —
+   * illustrative only, and never used to choose a vault. `live`: read by the
+   * protocol adapter at apyUpdatedAt.
+   */
+  apySource: 'seed' | 'live';
+  /** When the live APY was read; null while it is a seed figure. */
+  apyUpdatedAt: string | null;
+  /** Total value locked in USD — a seed figure (not refreshed). */
   tvl: number;
+  tvlSource: 'seed';
   /** Minimum deposit in USD */
   minDeposit: number;
   /** Human-readable withdrawal delay: "instant" | "24h" | "7d" */

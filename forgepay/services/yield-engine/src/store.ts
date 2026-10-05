@@ -19,8 +19,10 @@ import type {
 } from './types';
 
 // ── Seed vault definitions ────────────────────────────────────────────────────
-// These represent the initial vault catalogue.  APYs are refreshed by the
-// cron job; everything else is semi-static configuration.
+// The vault catalogue. The apy and tvl figures here were typed in, not read
+// from any chain; they used to be stamped apyUpdatedAt = boot time, so they
+// looked current. They are now labelled seed (apyUpdatedAt null) until the
+// protocol adapter reads a live APY, and a seed APY never selects a vault.
 
 export const vaultsStore = new Map<string, YieldVault>([
   [
@@ -33,8 +35,10 @@ export const vaultsStore = new Map<string, YieldVault>([
       chain:           'ethereum',
       contractAddress: '0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2',
       apy:             0.048,
-      apyUpdatedAt:    new Date().toISOString(),
+      apySource:       'seed',
+      apyUpdatedAt:    null,
       tvl:             820_000_000,
+      tvlSource:       'seed',
       minDeposit:      100,
       withdrawalDelay: 'instant',
       riskLevel:       'low',
@@ -51,8 +55,10 @@ export const vaultsStore = new Map<string, YieldVault>([
       chain:           'polygon',
       contractAddress: '0x794a61358D6845594F94dc1DB02A252b5b4814aD',
       apy:             0.052,
-      apyUpdatedAt:    new Date().toISOString(),
+      apySource:       'seed',
+      apyUpdatedAt:    null,
       tvl:             240_000_000,
+      tvlSource:       'seed',
       minDeposit:      10,
       withdrawalDelay: 'instant',
       riskLevel:       'low',
@@ -69,8 +75,10 @@ export const vaultsStore = new Map<string, YieldVault>([
       chain:           'arbitrum',
       contractAddress: '0x794a61358D6845594F94dc1DB02A252b5b4814aD',
       apy:             0.055,
-      apyUpdatedAt:    new Date().toISOString(),
+      apySource:       'seed',
+      apyUpdatedAt:    null,
       tvl:             310_000_000,
+      tvlSource:       'seed',
       minDeposit:      10,
       withdrawalDelay: 'instant',
       riskLevel:       'low',
@@ -87,8 +95,10 @@ export const vaultsStore = new Map<string, YieldVault>([
       chain:           'ethereum',
       contractAddress: '0xc3d688B66703497DAA19211EEdff47f25384cdc3',
       apy:             0.043,
-      apyUpdatedAt:    new Date().toISOString(),
+      apySource:       'seed',
+      apyUpdatedAt:    null,
       tvl:             540_000_000,
+      tvlSource:       'seed',
       minDeposit:      50,
       withdrawalDelay: 'instant',
       riskLevel:       'low',
@@ -105,8 +115,10 @@ export const vaultsStore = new Map<string, YieldVault>([
       chain:           'polygon',
       contractAddress: '0xF25212E676D1F7F89Cd72fFEe66158f541246445',
       apy:             0.045,
-      apyUpdatedAt:    new Date().toISOString(),
+      apySource:       'seed',
+      apyUpdatedAt:    null,
       tvl:             85_000_000,
+      tvlSource:       'seed',
       minDeposit:      10,
       withdrawalDelay: 'instant',
       riskLevel:       'low',
@@ -123,8 +135,10 @@ export const vaultsStore = new Map<string, YieldVault>([
       chain:           'ethereum',
       contractAddress: '0x96F6eF951840721AdBF46Ac996b59E0235CB985C',
       apy:             0.051,
-      apyUpdatedAt:    new Date().toISOString(),
+      apySource:       'seed',
+      apyUpdatedAt:    null,
       tvl:             290_000_000,
+      tvlSource:       'seed',
       minDeposit:      1_000,
       withdrawalDelay: '24h',
       riskLevel:       'low',

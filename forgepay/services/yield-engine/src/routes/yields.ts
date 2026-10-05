@@ -20,7 +20,7 @@ export async function buildYieldRoutes(app: FastifyInstance): Promise<void> {
   app.get('/apys', async (_req, reply) => {
     // fetchAllApys returns the per-protocol maximums.
     // We also return per-vault so the caller can see chain-level granularity.
-    const byProtocol = await fetchAllApys();
+    await fetchAllApys();
 
     const vaultApys = [...vaultsStore.values()].map((v) => ({
       vaultId:     v.id,
@@ -30,16 +30,21 @@ export async function buildYieldRoutes(app: FastifyInstance): Promise<void> {
       chain:       v.chain,
       apy:         v.apy,
       apyPct:      +(v.apy * 100).toFixed(2),
+      // seed = typed into the catalogue, never read on-chain (illustrative)
+      source:      v.apySource,
       updatedAt:   v.apyUpdatedAt,
       riskLevel:   v.riskLevel,
       withdrawalDelay: v.withdrawalDelay,
     }));
 
+    // Best live APY per protocol; a protocol with no live reading is absent.
+    const best = new Map<string, number>();
+    for (const v of vaultsStore.values()) {
+      if (v.apySource !== 'live') continue;
+      best.set(v.protocol, Math.max(best.get(v.protocol) ?? -Infinity, v.apy));
+    }
     const protocolSummary = Object.fromEntries(
-      [...byProtocol.entries()].map(([proto, apy]) => [
-        proto,
-        { apy, apyPct: +(apy * 100).toFixed(2) },
-      ]),
+      [...best.entries()].map(([proto, apy]) => [proto, { apy, apyPct: +(apy * 100).toFixed(2) }]),
     );
 
     return reply.send({

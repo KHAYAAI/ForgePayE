@@ -12,7 +12,6 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { v4 as uuidv4 } from 'uuid';
 import { positionsStore, txStore, vaultsStore, getPositionsByMerchant, getTxsByMerchant } from '../store';
-import { scheduleWithdrawal } from '../services/sweepService';
 import { getPortfolioSummary, refreshPosition } from '../services/positionTracker';
 import { getMerchantId } from '../lib/auth';
 import type { YieldPosition, YieldTransaction } from '../types';
@@ -163,21 +162,13 @@ export async function buildPositionRoutes(app: FastifyInstance): Promise<void> {
       return reply.status(403).send({ error: 'Forbidden' });
     }
 
-    let amountUsd: number | undefined;
-    if (req.body && typeof req.body === 'object') {
-      const parsed = WithdrawSchema.safeParse(req.body);
-      if (!parsed.success) {
-        return reply.status(400).send({ error: 'Invalid body', details: parsed.error.flatten() });
-      }
-      amountUsd = parsed.data?.amountUsd;
-    }
-
-    try {
-      const tx = await scheduleWithdrawal(merchantId, req.params.id, amountUsd);
-      return reply.send({ message: 'Withdrawal initiated', transaction: tx });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unknown error';
-      return reply.status(422).send({ error: message });
-    }
+    // Withdrawals cannot be executed: scheduleWithdrawal only recorded a
+    // pending transaction and moved the position to 'withdrawing', and
+    // nothing ever carried it out. Say so instead.
+    return reply.status(501).send({
+      error:   'WithdrawalsNotSupported',
+      message: 'Withdrawals from yield positions are not implemented yet. Nothing has been changed; contact FORGE operations.',
+      position: { id: position.id, status: position.status },
+    });
   });
 }
