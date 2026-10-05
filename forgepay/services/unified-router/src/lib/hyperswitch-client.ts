@@ -17,8 +17,20 @@
  * own key model, same as Stripe's).
  */
 
+import { createHash } from 'node:crypto';
 import { config } from '../config.js';
 import { logger } from './logger.js';
+
+/**
+ * The Hyperswitch customer for a checkout email. Deterministic, so a returning
+ * customer is the same Hyperswitch customer and their saved card stays
+ * attached; Hyperswitch creates the customer on first use
+ * (create_customer_if_not_exist in crates/router). Hashed so the email itself
+ * isn't the id.
+ */
+export function hyperswitchCustomerIdFor(email: string): string {
+  return 'fp_' + createHash('sha256').update(email.trim().toLowerCase()).digest('hex').slice(0, 32);
+}
 
 export interface CreatePaymentIntentInput {
   amountCents: number; // smallest currency unit, matching Hyperswitch's own convention
@@ -53,7 +65,13 @@ export async function createPaymentIntent(
         confirm:       false,
         capture_method: 'automatic',
         description:   input.description,
-        customer_email: input.customerEmail,
+        customer_id:   hyperswitchCustomerIdFor(input.customerEmail),
+        email:         input.customerEmail,
+        // Save the card for merchant-initiated renewals: Kill Bill charges
+        // month two onwards off-session through the forgepay-hyperswitch
+        // plugin (billing-engine/forgepay-plugin). Without this there is no
+        // card to charge and every renewal fails.
+        setup_future_usage: 'off_session',
         metadata:      { forgepay_checkout_session_id: input.sessionId },
       }),
       signal: AbortSignal.timeout(10_000),
@@ -78,7 +96,7 @@ export async function createPaymentIntent(
 }
 
 export type GetPaymentResult =
-  | { ok: true; status: string; amountCents: number; currency: string }
+  | { ok: true; status: string; amountCents: number; currency: string; customerId?: string; paymentMethodId?: string }
   | { ok: false; reason: 'not_configured' | 'call_failed'; message: string };
 
 /**
@@ -103,8 +121,14 @@ export async function getPayment(paymentId: string): Promise<GetPaymentResult> {
       return { ok: false, reason: 'call_failed', message: `payment-engine GET /payments/${paymentId} returned ${res.status}: ${body}` };
     }
 
-    const data = (await res.json()) as { status: string; amount: number; currency: string };
-    return { ok: true, status: data.status, amountCents: data.amount, currency: data.currency };
+    const data = (await res.json()) as {
+      status: string; amount: number; currency: string; customer_id?: string | null; payment_method_id?: string | null;
+    };
+    return {
+      ok: true, status: data.status, amountCents: data.amount, currency: data.currency,
+      ...(data.customer_id ? { customerId: data.customer_id } : {}),
+      ...(data.payment_method_id ? { paymentMethodId: data.payment_method_id } : {}),
+    };
   } catch (err) {
     return {
       ok: false,

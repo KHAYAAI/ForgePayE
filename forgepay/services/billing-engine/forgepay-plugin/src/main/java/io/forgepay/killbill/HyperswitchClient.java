@@ -3,326 +3,141 @@ package io.forgepay.killbill;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import okhttp3.MediaType;
-import okhttp3.OkHttpClient;
-import okhttp3.Request;
-import okhttp3.RequestBody;
-import okhttp3.Response;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.util.concurrent.TimeUnit;
+import java.net.URI;
+import java.net.URLEncoder;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 
 /**
- * HTTP client for communicating with Hyperswitch payment router.
- * Handles payment initiation, capture, refund, and status checks.
+ * Minimal client for the Hyperswitch payments API.
+ *
+ * Routes and fields are taken from this repo's own Hyperswitch source
+ * (crates/router/src/routes/app.rs, crates/api_models/src/payments.rs):
+ *   POST /payments                    create (and confirm) a payment
+ *   GET  /payments/{payment_id}       retrieve
+ *   POST /payments/{id}/capture       capture an authorisation
+ *   POST /payments/{id}/cancel        void an authorisation
+ *   POST /refunds                     create a refund
+ *   GET  /refunds/{refund_id}         retrieve a refund
+ * Authentication is the merchant's secret key in the `api-key` header.
+ *
+ * The previous client posted to Stripe-style /v1/charges routes with a Bearer
+ * token; Hyperswitch serves neither.
  */
 public class HyperswitchClient {
 
-    private static final Logger logger = LoggerFactory.getLogger(HyperswitchClient.class);
-    private static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
+    /** A non-2xx response from Hyperswitch, with its body. */
+    public static final class ApiError extends Exception {
+        public final int status;
+        public final JsonObject body;
 
-    private final OkHttpClient httpClient;
+        ApiError(final int status, final JsonObject body) {
+            super("Hyperswitch returned HTTP " + status);
+            this.status = status;
+            this.body = body;
+        }
+
+        /** Hyperswitch's error code, e.g. "IR_01", or null. */
+        public String code() {
+            final JsonObject err = body != null && body.has("error") && body.get("error").isJsonObject()
+                    ? body.getAsJsonObject("error") : null;
+            return err != null && err.has("code") ? err.get("code").getAsString() : null;
+        }
+
+        public String message() {
+            final JsonObject err = body != null && body.has("error") && body.get("error").isJsonObject()
+                    ? body.getAsJsonObject("error") : null;
+            return err != null && err.has("message") ? err.get("message").getAsString() : getMessage();
+        }
+    }
+
     private final String baseUrl;
     private final String apiKey;
+    private final HttpClient http;
+    private final Duration timeout;
 
-    public HyperswitchClient(ForgepayPluginConfig config) {
-        this.baseUrl = config.getHyperswitchUrl();
-        this.apiKey = config.getHyperswitchApiKey();
-
-        this.httpClient = new OkHttpClient.Builder()
-                .connectTimeout(config.getConnectionTimeoutMs(), TimeUnit.MILLISECONDS)
-                .readTimeout(config.getReadTimeoutMs(), TimeUnit.MILLISECONDS)
-                .writeTimeout(config.getReadTimeoutMs(), TimeUnit.MILLISECONDS)
-                .build();
-
-        logger.info("HyperswitchClient initialized: url={}", baseUrl);
+    public HyperswitchClient(final String baseUrl, final String apiKey) {
+        this(baseUrl, apiKey, Duration.ofSeconds(30));
     }
 
-    /**
-     * Initiates a payment via Hyperswitch.
-     * Creates a POST request to /v1/charges with payment details.
-     *
-     * @param customerId Customer ID for payment method lookup
-     * @param amountCents Amount in cents (or currency's smallest unit)
-     * @param currency Currency code (USD, EUR, GBP)
-     * @param orderId Order/invoice ID for idempotency
-     * @param idempotencyKey Unique key to ensure idempotent payment
-     * @return HyperswitchPaymentResponse with payment ID and status
-     * @throws ForgepayPaymentException if payment initiation fails
-     */
-    public HyperswitchPaymentResponse initiatePayment(
-            String customerId,
-            long amountCents,
-            String currency,
-            String orderId,
-            String idempotencyKey) throws ForgepayPaymentException {
+    public HyperswitchClient(final String baseUrl, final String apiKey, final Duration timeout) {
+        this.baseUrl = baseUrl.replaceAll("/+$", "");
+        this.apiKey = apiKey;
+        this.timeout = timeout;
+        this.http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
+    }
 
+    public JsonObject createPayment(final JsonObject request) throws IOException, ApiError {
+        return send("POST", "/payments", request);
+    }
+
+    public JsonObject retrievePayment(final String paymentId) throws IOException, ApiError {
+        return send("GET", "/payments/" + enc(paymentId), null);
+    }
+
+    public JsonObject capturePayment(final String paymentId, final long amountMinor) throws IOException, ApiError {
+        final JsonObject body = new JsonObject();
+        body.addProperty("amount_to_capture", amountMinor);
+        return send("POST", "/payments/" + enc(paymentId) + "/capture", body);
+    }
+
+    public JsonObject cancelPayment(final String paymentId) throws IOException, ApiError {
+        final JsonObject body = new JsonObject();
+        body.addProperty("cancellation_reason", "voided_in_kill_bill");
+        return send("POST", "/payments/" + enc(paymentId) + "/cancel", body);
+    }
+
+    public JsonObject createRefund(final JsonObject request) throws IOException, ApiError {
+        return send("POST", "/refunds", request);
+    }
+
+    public JsonObject retrieveRefund(final String refundId) throws IOException, ApiError {
+        return send("GET", "/refunds/" + enc(refundId), null);
+    }
+
+    private JsonObject send(final String method, final String path, final JsonObject body) throws IOException, ApiError {
+        final HttpRequest.Builder req = HttpRequest.newBuilder(URI.create(baseUrl + path))
+                .timeout(timeout)
+                .header("api-key", apiKey)
+                .header("Accept", "application/json");
+        if (body != null) {
+            req.header("Content-Type", "application/json")
+               .method(method, HttpRequest.BodyPublishers.ofString(body.toString(), StandardCharsets.UTF_8));
+        } else {
+            req.method(method, HttpRequest.BodyPublishers.noBody());
+        }
+
+        final HttpResponse<String> res;
         try {
-            JsonObject payload = new JsonObject();
-            payload.addProperty("amount", amountCents);
-            payload.addProperty("currency", currency);
-            payload.addProperty("customer_id", customerId);
-            payload.addProperty("order_id", orderId);
-            payload.addProperty("confirm", true);
-            payload.addProperty("off_session", true); // Recurring payment
-
-            logger.debug("Initiating payment to Hyperswitch: customerId={}, amount={}, orderId={}",
-                    customerId, amountCents, orderId);
-
-            HyperswitchPaymentResponse response = post(
-                    "/v1/charges",
-                    payload.toString(),
-                    idempotencyKey);
-
-            logger.info("Payment initiated successfully: paymentId={}, status={}",
-                    response.getPaymentId(), response.getStatus());
-
-            return response;
-
-        } catch (IOException e) {
-            logger.error("Network error initiating payment", e);
-            throw new ForgepayPaymentException("NETWORK_ERROR",
-                    "Failed to initiate payment: " + e.getMessage(), e);
+            res = http.send(req.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        } catch (final InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("interrupted", e);
         }
+
+        final JsonObject json = parse(res.body());
+        if (res.statusCode() < 200 || res.statusCode() >= 300) {
+            throw new ApiError(res.statusCode(), json);
+        }
+        return json != null ? json : new JsonObject();
     }
 
-    /**
-     * Captures a previously authorized payment.
-     *
-     * @param paymentId Payment ID from Hyperswitch
-     * @param amountCents Amount to capture (should match authorized amount)
-     * @param idempotencyKey Unique key for idempotency
-     * @return Updated HyperswitchPaymentResponse
-     * @throws ForgepayPaymentException if capture fails
-     */
-    public HyperswitchPaymentResponse capturePayment(
-            String paymentId,
-            long amountCents,
-            String idempotencyKey) throws ForgepayPaymentException {
-
+    private static JsonObject parse(final String text) {
+        if (text == null || text.isBlank()) return null;
         try {
-            JsonObject payload = new JsonObject();
-            payload.addProperty("amount_to_capture", amountCents);
-
-            logger.debug("Capturing payment: paymentId={}, amount={}", paymentId, amountCents);
-
-            HyperswitchPaymentResponse response = post(
-                    "/v1/charges/" + paymentId + "/capture",
-                    payload.toString(),
-                    idempotencyKey);
-
-            logger.info("Payment captured successfully: paymentId={}, status={}",
-                    response.getPaymentId(), response.getStatus());
-
-            return response;
-
-        } catch (IOException e) {
-            logger.error("Network error capturing payment", e);
-            throw new ForgepayPaymentException("CAPTURE_FAILED",
-                    "Failed to capture payment: " + e.getMessage(), e);
+            final JsonElement el = JsonParser.parseString(text);
+            return el.isJsonObject() ? el.getAsJsonObject() : null;
+        } catch (final RuntimeException e) {
+            return null;
         }
     }
 
-    /**
-     * Refunds a previously captured payment.
-     *
-     * @param paymentId Payment ID from Hyperswitch
-     * @param amountCents Amount to refund (partial or full)
-     * @param reason Reason for refund
-     * @param idempotencyKey Unique key for idempotency
-     * @return HyperswitchPaymentResponse with refund status
-     * @throws ForgepayPaymentException if refund fails
-     */
-    public HyperswitchPaymentResponse refundPayment(
-            String paymentId,
-            long amountCents,
-            String reason,
-            String idempotencyKey) throws ForgepayPaymentException {
-
-        try {
-            JsonObject payload = new JsonObject();
-            payload.addProperty("amount", amountCents);
-            payload.addProperty("reason", reason);
-
-            logger.debug("Refunding payment: paymentId={}, amount={}, reason={}",
-                    paymentId, amountCents, reason);
-
-            HyperswitchPaymentResponse response = post(
-                    "/v1/charges/" + paymentId + "/refunds",
-                    payload.toString(),
-                    idempotencyKey);
-
-            logger.info("Payment refunded successfully: paymentId={}, refundId={}",
-                    response.getPaymentId(), response.getRefundId());
-
-            return response;
-
-        } catch (IOException e) {
-            logger.error("Network error refunding payment", e);
-            throw new ForgepayPaymentException("REFUND_FAILED",
-                    "Failed to refund payment: " + e.getMessage(), e);
-        }
-    }
-
-    /**
-     * Retrieves payment information from Hyperswitch.
-     *
-     * @param paymentId Payment ID from Hyperswitch
-     * @return HyperswitchPaymentResponse with current status
-     * @throws ForgepayPaymentException if retrieval fails
-     */
-    public HyperswitchPaymentResponse getPaymentInfo(String paymentId)
-            throws ForgepayPaymentException {
-
-        try {
-            logger.debug("Retrieving payment info: paymentId={}", paymentId);
-
-            Request request = new Request.Builder()
-                    .url(baseUrl + "/v1/charges/" + paymentId)
-                    .addHeader("Authorization", "Bearer " + apiKey)
-                    .addHeader("Content-Type", "application/json")
-                    .get()
-                    .build();
-
-            try (Response response = httpClient.newCall(request).execute()) {
-                if (!response.isSuccessful()) {
-                    throw new ForgepayPaymentException("PAYMENT_INFO_FAILED",
-                            "Failed to retrieve payment info: " + response.code());
-                }
-
-                String body = response.body().string();
-                JsonObject json = JsonParser.parseString(body).getAsJsonObject();
-
-                HyperswitchPaymentResponse paymentResponse = parsePaymentResponse(json);
-                logger.info("Payment info retrieved: paymentId={}, status={}",
-                        paymentResponse.getPaymentId(), paymentResponse.getStatus());
-
-                return paymentResponse;
-            }
-
-        } catch (IOException e) {
-            logger.error("Network error retrieving payment info", e);
-            throw new ForgepayPaymentException("NETWORK_ERROR",
-                    "Failed to retrieve payment info: " + e.getMessage(), e);
-        }
-    }
-
-    /**
-     * Makes a POST request to Hyperswitch with idempotency support.
-     *
-     * @param endpoint API endpoint (e.g., /v1/charges)
-     * @param body JSON request body
-     * @param idempotencyKey Unique key for idempotency
-     * @return Parsed payment response
-     * @throws IOException if request fails
-     * @throws ForgepayPaymentException if response indicates error
-     */
-    private HyperswitchPaymentResponse post(String endpoint, String body, String idempotencyKey)
-            throws IOException, ForgepayPaymentException {
-
-        Request request = new Request.Builder()
-                .url(baseUrl + endpoint)
-                .addHeader("Authorization", "Bearer " + apiKey)
-                .addHeader("Content-Type", "application/json")
-                .addHeader("Idempotency-Key", idempotencyKey)
-                .post(RequestBody.create(body, JSON))
-                .build();
-
-        try (Response response = httpClient.newCall(request).execute()) {
-            String responseBody = response.body().string();
-
-            if (!response.isSuccessful()) {
-                logger.error("Hyperswitch API error: status={}, body={}", response.code(), responseBody);
-                throw new ForgepayPaymentException("API_ERROR",
-                        "Hyperswitch API returned " + response.code() + ": " + responseBody);
-            }
-
-            JsonObject json = JsonParser.parseString(responseBody).getAsJsonObject();
-
-            // Check for error in response body
-            if (json.has("error")) {
-                String errorMsg = json.get("error").getAsString();
-                throw new ForgepayPaymentException("PAYMENT_ERROR", errorMsg);
-            }
-
-            return parsePaymentResponse(json);
-        }
-    }
-
-    /**
-     * Parses Hyperswitch payment response JSON into typed object.
-     *
-     * @param json Response JSON from Hyperswitch
-     * @return HyperswitchPaymentResponse
-     */
-    private HyperswitchPaymentResponse parsePaymentResponse(JsonObject json) {
-        String paymentId = json.has("id") ? json.get("id").getAsString() : null;
-        String status = json.has("status") ? json.get("status").getAsString() : null;
-        String errorMsg = json.has("error_message") ? json.get("error_message").getAsString() : null;
-        String refundId = null;
-
-        if (json.has("refunds") && json.getAsJsonArray("refunds").size() > 0) {
-            JsonElement firstRefund = json.getAsJsonArray("refunds").get(0);
-            if (firstRefund.isJsonObject()) {
-                refundId = firstRefund.getAsJsonObject().get("id").getAsString();
-            }
-        }
-
-        return new HyperswitchPaymentResponse(paymentId, status, errorMsg, refundId);
-    }
-
-    /**
-     * Closes the HTTP client and releases resources.
-     */
-    public void close() {
-        httpClient.dispatcher().executorService().shutdown();
-    }
-
-    /**
-     * Immutable response object from Hyperswitch.
-     */
-    public static class HyperswitchPaymentResponse {
-        private final String paymentId;
-        private final String status;
-        private final String errorMessage;
-        private final String refundId;
-
-        public HyperswitchPaymentResponse(String paymentId, String status,
-                String errorMessage, String refundId) {
-            this.paymentId = paymentId;
-            this.status = status;
-            this.errorMessage = errorMessage;
-            this.refundId = refundId;
-        }
-
-        public String getPaymentId() {
-            return paymentId;
-        }
-
-        public String getStatus() {
-            return status;
-        }
-
-        public String getErrorMessage() {
-            return errorMessage;
-        }
-
-        public String getRefundId() {
-            return refundId;
-        }
-
-        public boolean isSuccessful() {
-            return "succeeded".equalsIgnoreCase(status);
-        }
-
-        public boolean isFailed() {
-            return "failed".equalsIgnoreCase(status);
-        }
-
-        public boolean isPending() {
-            return "pending".equalsIgnoreCase(status);
-        }
+    private static String enc(final String s) {
+        return URLEncoder.encode(s, StandardCharsets.UTF_8);
     }
 }

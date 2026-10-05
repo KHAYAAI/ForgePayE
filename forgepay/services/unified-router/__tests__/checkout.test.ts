@@ -18,6 +18,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 vi.mock('../src/lib/killbill-client.js', () => ({
   createAccount: vi.fn(async () => ({ accountId: 'kb_acct_test' })),
   createSubscription: vi.fn(async () => ({ subscriptionId: 'kb_sub_test' })),
+  addHyperswitchPaymentMethod: vi.fn(async () => ({ paymentMethodId: 'kb_pm_test' })),
 }));
 vi.mock('../src/lib/hyperswitch-client.js', async () => {
   const actual = await vi.importActual<typeof import('../src/lib/hyperswitch-client.js')>('../src/lib/hyperswitch-client.js');
@@ -100,6 +101,7 @@ function inferMarkSessionFields(sql: string, params: unknown[]): Record<string, 
 import { buildCheckoutRoutes } from '../src/routes/checkout.js';
 import * as hyperswitch from '../src/lib/hyperswitch-client.js';
 import * as stablecoin from '../src/lib/stablecoin-client.js';
+import * as killbill from '../src/lib/killbill-client.js';
 
 let app: FastifyInstance;
 
@@ -212,6 +214,28 @@ describe('POST /v1/checkout/sessions/:id/confirm', () => {
     expect(body.customerId).toBe('cust_test_1');
   });
 
+  it('registers the card saved at checkout with Kill Bill, before subscribing, so renewals can be charged', async () => {
+    const sessionId = await createCardSession();
+    vi.mocked(hyperswitch.getPayment).mockResolvedValue({
+      ok: true, status: 'succeeded', amountCents: 2800, currency: 'USD', customerId: 'fp_abc', paymentMethodId: 'pm_saved',
+    });
+
+    const res = await app.inject({ method: 'POST', url: `/v1/checkout/sessions/${sessionId}/confirm` });
+    expect(res.json().status).toBe('succeeded');
+    expect(killbill.addHyperswitchPaymentMethod).toHaveBeenCalledWith('kb_acct_test', 'fp_abc', 'pm_saved');
+    expect(vi.mocked(killbill.addHyperswitchPaymentMethod).mock.invocationCallOrder[0])
+      .toBeLessThan(vi.mocked(killbill.createSubscription).mock.invocationCallOrder[0]!);
+    expect(killbill.createSubscription).toHaveBeenCalledWith(expect.objectContaining({ planName: 'payments-standard' }));
+  });
+
+  it('still provisions a paid customer when Hyperswitch saved no card, without inventing one', async () => {
+    const sessionId = await createCardSession();
+    vi.mocked(hyperswitch.getPayment).mockResolvedValue({ ok: true, status: 'succeeded', amountCents: 2800, currency: 'USD' });
+    const res = await app.inject({ method: 'POST', url: `/v1/checkout/sessions/${sessionId}/confirm` });
+    expect(res.json().status).toBe('succeeded');
+    expect(killbill.addHyperswitchPaymentMethod).not.toHaveBeenCalled();
+  });
+
   it('a declined card is reported as declined, not hidden or retried silently', async () => {
     const sessionId = await createCardSession();
     vi.mocked(hyperswitch.getPayment).mockResolvedValue({ ok: true, status: 'failed', amountCents: 2800, currency: 'USD' });
@@ -249,5 +273,14 @@ describe('POST /v1/checkout/sessions/:id/confirm', () => {
   it('confirming an unknown session id 404s rather than crashing', async () => {
     const res = await app.inject({ method: 'POST', url: '/v1/checkout/sessions/does-not-exist/confirm' });
     expect(res.statusCode).toBe(404);
+  });
+});
+
+describe('hyperswitchCustomerIdFor', () => {
+  it('is stable per email, case-insensitive, and not the email itself', () => {
+    const a = hyperswitch.hyperswitchCustomerIdFor('Owner@Example.com');
+    expect(a).toBe(hyperswitch.hyperswitchCustomerIdFor(' owner@example.com '));
+    expect(a).toMatch(/^fp_[0-9a-f]{32}$/);
+    expect(a).not.toContain('example');
   });
 });

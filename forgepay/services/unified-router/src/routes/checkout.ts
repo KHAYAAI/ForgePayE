@@ -34,6 +34,7 @@ import {
 } from '../lib/hyperswitch-client.js';
 import { requestX402Payment, verifyX402Payment } from '../lib/stablecoin-client.js';
 import * as killbill from '../lib/killbill-client.js';
+import { paymentsPlanForTier } from '../lib/plans.js';
 
 const CreateSessionSchema = z.object({
   email: z.string().email(),
@@ -91,11 +92,20 @@ async function markSession(
  * account and subscription. Shared by the free-tier immediate path and the
  * card/usdc confirm path so both create identical state.
  */
-async function provision(session: CheckoutSessionRow): Promise<{ customerId: string }> {
+/** The card saved at checkout, to register with Kill Bill for renewals. */
+interface SavedCard { customerId: string; paymentMethodId: string }
+
+async function provision(session: CheckoutSessionRow, card?: SavedCard): Promise<{ customerId: string }> {
+  // Checked again here (not only at session creation) because a session can
+  // outlive a catalog change.
+  const planName = paymentsPlanForTier(session.tier_id);
+  if (!planName) throw new Error(`No Kill Bill plan for tier "${session.tier_id}"`);
   const kb = await killbill.createAccount(session.email, session.business_name ?? session.email, 'USD');
+  // Before the subscription, so the first renewal invoice already has a card.
+  if (card) await killbill.addHyperswitchPaymentMethod(kb.accountId, card.customerId, card.paymentMethodId);
   await killbill.createSubscription({
     accountId:   kb.accountId,
-    planName:    `payments-${session.tier_id}`,
+    planName,
     externalKey: `payments-${session.email}`,
   });
 
@@ -112,7 +122,7 @@ async function provision(session: CheckoutSessionRow): Promise<{ customerId: str
        kb_account_id = EXCLUDED.kb_account_id,
        updated_at = NOW()
      RETURNING id`,
-    [session.email, session.business_name ?? session.email, `payments-${session.tier_id}`, kb.accountId],
+    [session.email, session.business_name ?? session.email, planName, kb.accountId],
   );
 
   const customerId = customer.rows[0]!.id;
@@ -164,6 +174,11 @@ export async function buildCheckoutRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: 'UnknownTier', message: `No such tier "${tierId}".`, knownTiers: lookup.knownTiers });
     }
     const tier = lookup.tier;
+    // Refuse before taking money: a tier with no billing plan could be
+    // charged but never provisioned.
+    if (!paymentsPlanForTier(tierId)) {
+      return reply.status(503).send({ error: 'TierNotBillable', message: `${tier.name} cannot be provisioned yet.` });
+    }
     const monthlyFeeCents = Math.round(tier.monthlyFee * 100);
 
     if (monthlyFeeCents > 0 && !paymentMethod) {
@@ -260,6 +275,7 @@ export async function buildCheckoutRoutes(app: FastifyInstance) {
 
     let paid = false;
     let declineReason: string | undefined;
+    let card: SavedCard | undefined;
 
     if (session.payment_method === 'card' && session.hyperswitch_payment_id) {
       const result = await getPayment(session.hyperswitch_payment_id);
@@ -267,7 +283,16 @@ export async function buildCheckoutRoutes(app: FastifyInstance) {
         // Upstream unreachable — visibly pending, never a silent hang or a false success.
         return reply.send({ sessionId: session.id, status: 'pending_card' satisfies CheckoutStatus, message: 'Still checking with the card processor — try again in a moment.' });
       }
-      if (SUCCEEDED_STATUSES.has(result.status)) paid = true;
+      if (SUCCEEDED_STATUSES.has(result.status)) {
+        paid = true;
+        if (result.customerId && result.paymentMethodId) {
+          card = { customerId: result.customerId, paymentMethodId: result.paymentMethodId };
+        } else {
+          // Paid, but no reusable card: month one is covered; renewals will
+          // fail until a card is added. Visible, not silent.
+          logger.warn({ sessionId: session.id }, '[checkout] card payment succeeded without a saved payment method; renewals need a card');
+        }
+      }
       else if (FAILED_STATUSES.has(result.status)) declineReason = `Card ${result.status}.`;
       else return reply.send({ sessionId: session.id, status: 'pending_card' satisfies CheckoutStatus, message: `Payment is ${result.status} — try again shortly.` });
     } else if (session.payment_method === 'usdc' && session.x402_receipt_id) {
@@ -287,7 +312,7 @@ export async function buildCheckoutRoutes(app: FastifyInstance) {
     }
 
     try {
-      const { customerId } = await provision(session);
+      const { customerId } = await provision(session, card);
       await markSession(session.id, { status: 'succeeded', customer_id: customerId });
       return reply.send({ sessionId: session.id, status: 'succeeded' satisfies CheckoutStatus, customerId });
     } catch (err) {

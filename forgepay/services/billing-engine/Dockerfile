@@ -1,45 +1,31 @@
 # syntax=docker/dockerfile:1
 #
-# ForgePay Billing Engine — multi-stage build
-# Stage 1: build the ForgePay Kill Bill payment plugin JAR
-# Stage 2: Kill Bill runtime with the plugin pre-installed
-#
+# FORGE billing engine: stock Kill Bill 0.24.10 plus the forgepay-hyperswitch
+# payment plugin and FORGE's catalog. Uses the image's own entrypoint
+# (killbill.sh → Tomcat); configuration is via KB_* environment variables, see
+# config/killbill.properties.
 
-# ── Stage 1: Maven build ───────────────────────────────────────────────────────
+# ── Stage 1: build the payment plugin bundle ──────────────────────────────────
 FROM maven:3.9-eclipse-temurin-11 AS builder
-
-COPY forgepay-plugin/ /build/
 WORKDIR /build
-RUN mvn package -DskipTests --no-transfer-progress
+COPY forgepay-plugin/pom.xml ./
+RUN mvn -B -q dependency:go-offline
+COPY forgepay-plugin/src ./src
+RUN mvn -B -q package
 
-# ── Stage 2: Kill Bill runtime ─────────────────────────────────────────────────
+# ── Stage 2: Kill Bill ────────────────────────────────────────────────────────
 FROM killbill/killbill:0.24.10
 
-LABEL maintainer="ForgePay Engineering <eng@forgepay.io>"
-LABEL description="Kill Bill billing engine with ForgePay payment plugin"
+LABEL description="FORGE billing engine: Kill Bill with the forgepay-hyperswitch payment plugin"
 
-ENV KILLBILL_PLUGINS_DIR=/var/lib/killbill/bundles
+# Kill Bill loads Java plugins from bundles/plugins/java/<name>/<version>/.
+COPY --from=builder --chown=tomcat:tomcat /build/target/forgepay-hyperswitch-plugin-0.2.0.jar \
+     /var/lib/killbill/bundles/plugins/java/forgepay-hyperswitch/0.2.0/forgepay-hyperswitch-plugin-0.2.0.jar
 
-# Create plugin directories
-RUN mkdir -p ${KILLBILL_PLUGINS_DIR}/platform \
-             ${KILLBILL_PLUGINS_DIR}/forgepay-plugin
-
-# Copy built plugin JAR from builder stage
-COPY --from=builder /build/target/forgepay-payment-plugin-*-jar-with-dependencies.jar \
-     ${KILLBILL_PLUGINS_DIR}/forgepay-plugin/forgepay-payment-plugin.jar
-
-# Copy ForgePay config
-COPY config/killbill.properties /etc/killbill/killbill.properties
-COPY config/shiro.ini            /etc/killbill/shiro.ini
-COPY config/catalog/             /etc/killbill/catalog/
-
-# Copy and set up the entrypoint
-COPY docker-entrypoint.sh /docker-entrypoint.sh
-RUN chmod +x /docker-entrypoint.sh
+COPY --chown=tomcat:tomcat config/killbill.properties /var/lib/killbill/killbill.properties
+COPY --chown=tomcat:tomcat config/catalog/            /var/lib/killbill/config/catalog/
 
 EXPOSE 8080
 
-HEALTHCHECK --interval=30s --timeout=10s --retries=5 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=5 \
   CMD curl -f http://localhost:8080/1.0/healthcheck || exit 1
-
-ENTRYPOINT ["/docker-entrypoint.sh"]

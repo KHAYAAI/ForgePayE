@@ -10,14 +10,20 @@ services:
       context: .
       dockerfile: Dockerfile
     environment:
-      POSTGRES_HOST:     postgres
-      POSTGRES_PORT:     "5432"
-      POSTGRES_DB:       killbill
-      POSTGRES_USER:     killbill
-      POSTGRES_PASSWORD: killbillpassword
-      KILLBILL_ADMIN_PASSWORD: admin
-      HYPERSWITCH_API_KEY: dev_hyperswitch_key_replace_me
-      KILLBILL_HYPERSWITCH_WEBHOOK_SECRET: dev_kb_hs_secret
+      # Kill Bill reads settings from KB_* variables (dots → underscores);
+      # see config/killbill.properties. Local-only values; real ones come
+      # from Vault / AWS Secrets Manager.
+      KB_org_killbill_dao_url:                 jdbc:postgresql://postgres:5432/killbill
+      KB_org_killbill_dao_user:                killbill
+      KB_org_killbill_dao_password:            killbillpassword
+      KB_org_killbill_billing_osgi_dao_url:    jdbc:postgresql://postgres:5432/killbill
+      KB_org_killbill_billing_osgi_dao_user:   killbill
+      KB_org_killbill_billing_osgi_dao_password: killbillpassword
+      KB_ADMIN_PASSWORD:                       admin
+      # forgepay-hyperswitch payment plugin. With no key the plugin is not
+      # registered and Kill Bill payments fail visibly.
+      HYPERSWITCH_BASE_URL:                    http://payment-engine:8080
+      HYPERSWITCH_API_KEY:                     ""
     ports:
       - "8020:8080"   # Kill Bill API
       - "8021:8081"   # Kill Bill admin UI (Kaui)

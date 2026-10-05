@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { db } from '../db';
 import * as killbill from '../lib/killbill-client';
+import { isCatalogPlan } from '../lib/plans';
 import { v4 as uuidv4 } from 'uuid';
 
 export async function customerRoutes(app: FastifyInstance) {
@@ -68,8 +69,11 @@ export async function customerRoutes(app: FastifyInstance) {
           return reply.status(400).send({ error: 'product_already_licensed' });
         }
 
-        // Create Kill Bill subscription
+        // Create Kill Bill subscription — only for a plan the catalog has.
         const planName = `${product}-${plan}`;
+        if (!isCatalogPlan(planName)) {
+          return reply.status(422).send({ error: 'plan_not_in_catalog', plan: planName });
+        }
         const subscription = await killbill.createSubscription({
           accountId: kbAccountId,
           planName,
@@ -82,7 +86,8 @@ export async function customerRoutes(app: FastifyInstance) {
           kb_subscription_id: subscription.subscriptionId,
           plan_name: planName,
           granted_at: new Date().toISOString(),
-          trial_ends_at: subscription.billingPeriodStartDate || null,
+          // Kill Bill's subscription JSON has no trial end date; the phase does.
+          phase: subscription.phaseType,
         };
 
         await db.query(
@@ -149,6 +154,9 @@ export async function customerRoutes(app: FastifyInstance) {
 
         const kbSubscriptionId = currentSub.kb_subscription_id;
         const newPlanName = `${product}-${newPlan}`;
+        if (!isCatalogPlan(newPlanName)) {
+          return reply.status(422).send({ error: 'plan_not_in_catalog', plan: newPlanName });
+        }
 
         // Change plan in Kill Bill (proration happens automatically)
         const updated = await killbill.changeSubscriptionPlan(kbSubscriptionId, newPlanName);

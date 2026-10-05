@@ -1,6 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import { db } from '../db';
 import * as killbill from '../lib/killbill-client';
+import { isCatalogPlan } from '../lib/plans';
+
+const BUNDLE_PLAN = 'bundle-treasury-creditbureau';
 
 export async function bundleRoutes(app: FastifyInstance) {
   // POST /v1/bundle/upgrade-to-bundle — Convert Treasury + Credit Bureau to bundle
@@ -33,23 +36,30 @@ export async function bundleRoutes(app: FastifyInstance) {
             .send({ error: 'both_products_required', message: 'Bundle requires both Treasury and Credit Bureau' });
         }
 
-        // Cancel individual subscriptions
+        // The bundle plan is not in the Kill Bill catalog yet. Without this
+        // check the route cancelled both subscriptions and then failed to
+        // create the bundle, leaving the customer with neither.
+        if (!isCatalogPlan(BUNDLE_PLAN)) {
+          return reply.status(422).send({ error: 'plan_not_in_catalog', plan: BUNDLE_PLAN });
+        }
+
+        // Create the bundle first; cancel the individual subscriptions only
+        // once it exists, so a failure never leaves the customer with nothing.
+        const bundleSubscription = await killbill.createSubscription({
+          accountId: kbAccountId,
+          planName: BUNDLE_PLAN,
+          externalKey: `bundle-${customerId}`,
+        });
+
         await Promise.all([
           killbill.cancelSubscription(subscriptions.treasury.kb_subscription_id),
           killbill.cancelSubscription(subscriptions['credit-bureau'].kb_subscription_id),
         ]);
 
-        // Create bundle subscription
-        const bundleSubscription = await killbill.createSubscription({
-          accountId: kbAccountId,
-          planName: 'bundle-treasury-creditbureau',
-          externalKey: `bundle-${customerId}`,
-        });
-
         // Update Postgres
         subscriptions.bundle = {
           kb_subscription_id: bundleSubscription.subscriptionId,
-          plan_name: 'bundle-treasury-creditbureau',
+          plan_name: BUNDLE_PLAN,
           created_at: new Date().toISOString(),
           savings: 3500,
         };

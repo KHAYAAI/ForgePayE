@@ -51,8 +51,12 @@ export const config = {
   // Kill Bill API for enriching subscription/invoice data in webhook normalizer
   killbill: {
     baseUrl:   optional('KILLBILL_BASE_URL', 'http://billing-engine:8020'),
+    // Tenant (X-Killbill-ApiKey / ApiSecret) and user (HTTP Basic) — Kill
+    // Bill needs both on every call.
     apiKey:    optional('KILLBILL_API_KEY', 'forgepay'),
     apiSecret: optional('KILLBILL_API_SECRET', ''),
+    username:  optional('KILLBILL_USERNAME', 'admin'),
+    password:  optional('KILLBILL_PASSWORD', ''),
   },
 
   // Hyperswitch payment-engine — outbound calls to create/read a payment
