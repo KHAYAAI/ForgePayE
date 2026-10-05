@@ -1,0 +1,128 @@
+# FORGE launch readiness — 5 October 2026
+
+How this was checked: every service was typechecked and its test suite run;
+the bureau, treasury and unified-router were started locally (with Postgres 16
+and Redis) and the console's own client code (`apps/platform/lib/forge-services.ts`)
+was called against them; the console was production-built; the website's
+links and checkout calls were traced; CI runs on this branch were read through
+the GitHub API. Problems found along the way were fixed and pushed (commits
+`de7426f5` to `f9ea918a`); what could not be fixed is listed as open.
+
+## Verdict
+
+| Product | Launch | Why |
+|---|---|---|
+| Credit Bureau | **Closest. Not yet.** | Code, tests and console wiring are ready. Open: ZA sanctions list URL, Trivy finding in its image, thin-file scoring decision, external sign-offs. |
+| Custody | Later | Engineering is deep and tested; needs separate hosts, a real officer drill and an independent review. |
+| Wallet | No (testnet) | Key scheme rebuilt today (per-key KMS); KMS key and legacy-wallet sweep still to do. |
+| Payments | No | Path now works end to end in code; needs licensing, an acquirer, real Hyperswitch/Kill Bill deployment, settlement payouts. |
+| Treasury, yield, tokenised assets | No | Faked data paths removed; real execution (settlement rail, yield withdrawals, Ondo) not built. |
+| Agent stack | No | Escrow now durable; credit lines and liquidity moves are bookkeeping. |
+| Compliance monitor | Internal only | Fails closed on every list; ZA/UK list formats unconfirmed; goAML drafts only. |
+| Console | Yes, for the bureau | Builds, wired, scoped per workspace. Needs production env configured. |
+| Website | Yes, as a waitlist site | Claims corrected; checkout closed by default. |
+
+## Is the frontend connected to the backend?
+
+The console talks to five services. Every call was checked against the
+service's routes, and the bureau, treasury and router calls were run live.
+
+| Console call | Service route | Status |
+|---|---|---|
+| Bureau stats, agents, dual scores, disputes, detail, verify, register | `agent-credit-bureau /v1/...` | **Works** (live): scoped to the workspace; another workspace gets "not found" |
+| Dispute resolution | `PUT /v1/disputes/:id` | Works; operator workspace only |
+| Treasury summary, approve | `enterprise-treasury /v1/cash-position, /v1/rules, /v1/rules/approvals, /v1/netting/flows` | **Works** (live). Page read the wrong field names for netting and approvals; **fixed** |
+| Merchant summary, product catalog | `unified-router /v1/merchant/summary, /v1/products/catalog` | **Works** (live) |
+| Events feed, webhook endpoints | `unified-router /events/...` | **Was broken (401 on every call); fixed.** Also closed an auth bypass on that route |
+| Custody console and actions | `openfireblocks api-gateway /admin/customers/:id/custody/...` | Routes match (static check; gateway not started) |
+| Wallet list, create, balance, history, recovery | `open-privy /wallet/..., /transactions/history, /recovery/...` | Routes match (static check; not started) |
+| Service health | each service's health path | Works; now needs sign-in |
+
+Website: the only backend calls are on `checkout/` (`/v1/pricing`,
+`/v1/checkout/sessions`, `/confirm`), which match unified-router. The payments
+page sent visitors into that live checkout although payments are not open;
+those buttons now go to the waitlist and the checkout stays closed unless
+`window.FORGE_CHECKOUT_OPEN = true`.
+
+Products with no console page at all: tokenised assets (rwa-registry), yield,
+credit lines, negotiation, liquidity manager, institutional reporting,
+compliance (goAML exports), billing, and the operations step for recording an
+executed bank settlement. None is launching, but an operator UI for settlement
+execution and goAML export is needed before treasury or reporting go live.
+
+## Is the frontend up to date?
+
+It was not; these were fixed today:
+
+- Treasury page: wrong field names (every netting and approval row was blank),
+  claims of yield sweeps and an "agent credit flow" that do not exist; now
+  shows balance age and refresh errors.
+- Payments pages: a 2.2% + R0.20 take rate matching no tier, "the platform is
+  free", a "tier routing contract enforced on every payment" for routing code
+  that was retired, connector scoring and a dispute feed that do not exist.
+- Merchant treasury: "sanctions screening on every settlement" (not connected).
+- Wallet: did not say testnet-only.
+- Landing page: Payments R15,000/mo and Treasury R40,000/mo with features that
+  do not exist; now "After licensing".
+- Bureau scores: Mode 2 shown from Mode 1 (fixed earlier), "FICO" wording.
+
+Still stale: the console has no pages for the products listed above.
+
+## Build, tests and CI per service
+
+All counts from runs today. "PG" means run against Postgres 16.
+
+| Service | Typecheck | Tests | Notes |
+|---|---|---|---|
+| agent-credit-bureau | ok | 398 pass, 6 skipped | |
+| unified-router | ok, lint ok | 100 | lint was never runnable (no eslint); fixed |
+| enterprise-treasury | ok | 66 | |
+| bank-connectivity | ok | 21 (PG) | 10 need a database |
+| rwa-registry | ok | 76 (PG) | 6 broken tests fixed |
+| accounts-service | ok | 20 | |
+| agent-identity | ok | 83, 17 skipped | |
+| agent-credit-lines | ok | 29 | |
+| agent-decision-framework | ok | 42 | |
+| agent-liquidity-manager | ok | 70 | |
+| agent-negotiation | ok | 49; 53 (PG) | |
+| bank-whitelabel | ok | 14 | |
+| chain-sync | ok | 9 | |
+| crypto-gateway | ok | 40 | |
+| stablecoin-gateway | ok | 176, 2 skipped | nightly e2e (ganache) failing in CI |
+| institutional-reporting | ok | 36 | |
+| yield-engine | ok | 35, 14 skipped | |
+| billing-engine | n/a | 11 config + 10 plugin | plus live Kill Bill 0.24.10 run |
+| open-privy backend | ok | 41, 1 skipped | workspace-root typecheck fails (mobile app) |
+| custody api-gateway | ok | 120, 5 skipped | |
+| custody Go services | see appendix | | |
+| mor-layer | ruff ok, mypy ok locally | 107 (PG + Redis) | mypy fails in CI (log not readable here) |
+| compliance-monitor | n/a | 154 | |
+| console (apps/platform) | ok | 15, 3 skipped | **production build failed** without secrets at build time; fixed |
+| sdk-python | ruff, mypy ok | 27 | could not be imported (syntax error); fixed |
+| sdk-js | **fails** | 74 / 75 | imports a nonexistent wasm package; build configs missing |
+
+CI on this branch, after today's fixes: Docker Build & Push green; Smoke green;
+ForgePay CI still failing on mor-layer mypy and sdk-js; bureau/custody images
+failing on a Trivy CRITICAL scan (findings not readable from this session);
+Deploy Platform and console image were failing on the build-secret problem,
+fixed in `f9ea918a`.
+
+## Open items, in launch order (bureau first)
+
+1. **Set `ZA_TFS_URL`** (FIC Targeted Financial Sanctions list) and confirm its
+   CSV columns; until then production screening refuses to clear anyone,
+   including the bureau's.
+2. **Read the Trivy findings** on the bureau, custody and stablecoin images
+   (GitHub Security tab) and patch the base images or dependencies.
+3. **Decide thin-file scoring.** A file with no payments now says THIN_FILE
+   and lender reports route it to manual review, but its raw score is still
+   ~780. Options: leave it, cap it, or return no score below a minimum history.
+4. **Configure production env** for the console and bureau:
+   `FORGE_OPERATOR_TENANT_ID`, `BUREAU_ADMIN_API_KEY`, `JWT_SECRET`,
+   `INTERNAL_WEBHOOK_SECRET`, `FORGE_LAUNCHED_PRODUCTS`.
+5. Fix mor-layer mypy in CI and the JS SDK (missing package, missing build configs).
+6. Confirm domains: the website uses forgepay.io and myforgepay.com; the
+   console FAQ uses forgepay.co.za; `docs.forgepay.io` (14 links) is not in the
+   repo and could not be reached from here.
+7. External: counsel on POPIA / credit-bureau status, FIC registration, an
+   independent review, licences and an acquirer for payments.
