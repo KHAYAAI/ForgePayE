@@ -15,10 +15,17 @@ Formats:
                    publication has changed hands (OFSI consolidated list ->
                    FCDO UK Sanctions List); FORMAT TO CONFIRM against a live
                    file before relying on it.
-  ZA_TFS           CSV. The Financial Intelligence Centre publishes the TFS
-                   list (under s26A of the FIC Act it reflects UN Security
-                   Council designations); FORMAT TO CONFIRM against a live
-                   file before relying on it. Columns are configurable.
+  ZA_TFS           The Financial Intelligence Centre's TFS list (under s26A of
+                   the FIC Act it reflects UN Security Council designations).
+                   The file the FIC list is distributed as is an XML dataset:
+                   <NewDataSet> with <Table> rows for individuals (FullName,
+                   IndividualAlias) and <Table1> rows for entities (FirstName
+                   holds the name, EntityAlias), each with a ReferenceNumber.
+                   Parsed by parse_un_dataset, checked against a full copy of
+                   the file (1,002 entries). A CSV is still accepted, with
+                   configurable columns, and the format is detected from the
+                   file. The download ADDRESS is not established in this repo:
+                   set ZA_TFS_URL from the FIC.
 
 None of these files is downloaded in tests or at build time; parsers are
 tested against small hand-written fixtures.
@@ -32,6 +39,7 @@ import time
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 import httpx
 import structlog
@@ -88,6 +96,52 @@ def parse_un_consolidated(data: bytes) -> list[ListEntry]:
             aliases=[a for a in aliases if a],
         ))
     return out
+
+
+def _clean(value: str) -> str:
+    return " ".join(value.split())
+
+
+def _alias(value: str) -> str:
+    """Dataset aliases carry a quality label in front ("Good, Jang Chang Ha", "Low, ..."); the label is not part of the name."""
+    value = _clean(value)
+    for label in ("Good,", "Low,", "good,", "low,"):
+        if value.startswith(label):
+            return value[len(label):].strip()
+    return value
+
+
+def parse_un_dataset(data: bytes) -> list[ListEntry]:
+    """
+    The XML dataset layout: <Table> rows are individuals (FullName, IndividualAlias), <Table1> rows are entities (FirstName
+    is the entity's name, EntityAlias). A row with no name is not an entry.
+    """
+    root = ET.fromstring(data)
+    out: list[ListEntry] = []
+    for row in root:
+        if row.tag == "Table":
+            name, alias_tag, kind = _clean(_text(row.find("FullName"))), "IndividualAlias", "individual"
+        elif row.tag == "Table1":
+            name, alias_tag, kind = _clean(_text(row.find("FirstName"))), "EntityAlias", "entity"
+        else:
+            continue
+        ref = _clean(_text(row.find("ReferenceNumber")))
+        if not name or not ref:
+            continue
+        aliases = [a for a in (_alias(_text(el)) for el in row.findall(alias_tag)) if a and a != name]
+        out.append(ListEntry(
+            entry_id=ref, primary_name=name, entry_type=kind,
+            programs=[ref[:2]] if len(ref) >= 2 else [], aliases=aliases,
+        ))
+    return out
+
+
+def detecting_parser(csv_parse: Parser) -> Parser:
+    """XML files go to the dataset parser, anything else to the CSV parser."""
+    def parse(data: bytes) -> list[ListEntry]:
+        head = data.lstrip(b"\xef\xbb\xbf \t\r\n")[:1]
+        return parse_un_dataset(data) if head == b"<" else csv_parse(data)
+    return parse
 
 
 def csv_parser(name_columns: list[str], id_column: str, type_column: str | None = None,
@@ -189,21 +243,25 @@ class NamedListManager:
         return matches
 
 
-def build_additional_lists(settings) -> list[NamedListManager]:  # type: ignore[no-untyped-def]
+def _cols(value: str) -> list[str]:
+    return [c.strip() for c in value.split(",") if c.strip()]
+
+
+def build_additional_lists(settings: Any) -> list[NamedListManager]:
     """The UN, UK and ZA list managers as configured (unconfigured ones have url None)."""
-    cols = lambda s: [c.strip() for c in s.split(",") if c.strip()]  # noqa: E731
+    cols = _cols
     return [
         NamedListManager("UN_CONSOLIDATED", settings.un_sanctions_url, parse_un_consolidated),
         NamedListManager("UK_SANCTIONS", settings.uk_sanctions_url, csv_parser(
             cols(settings.uk_sanctions_name_columns), settings.uk_sanctions_id_column,
             settings.uk_sanctions_type_column, settings.uk_sanctions_program_column, settings.uk_sanctions_skip_rows)),
-        NamedListManager("ZA_TFS", settings.za_tfs_url, csv_parser(
+        NamedListManager("ZA_TFS", settings.za_tfs_url, detecting_parser(csv_parser(
             cols(settings.za_tfs_name_columns), settings.za_tfs_id_column,
-            settings.za_tfs_type_column, None, settings.za_tfs_skip_rows)),
+            settings.za_tfs_type_column, None, settings.za_tfs_skip_rows))),
     ]
 
 
-def za_tfs_required(settings) -> bool:  # type: ignore[no-untyped-def]
+def za_tfs_required(settings: Any) -> bool:
     if settings.require_za_tfs is not None:
         return bool(settings.require_za_tfs)
-    return settings.environment == "production"
+    return bool(settings.environment == "production")

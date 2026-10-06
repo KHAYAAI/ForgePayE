@@ -1,0 +1,46 @@
+<?xml version='1.0' encoding='utf-8'?>
+<NewDataSet>
+  <Table>
+    <IndividualID>1</IndividualID>
+    <ReferenceNumber>KPi.033</ReferenceNumber>
+    <FullName> RI  WON HO  </FullName>
+    <ListedOn>2016-11-30</ListedOn>
+    <Designation>DPRK Ministry of State Security Official</Designation>
+    <IndividualDateOfBirth>1964-07-17</IndividualDateOfBirth>
+    <Nationality>Democratic Peoples Republic of Korea</Nationality>
+    <IndividualDocument>Passport, 381310014</IndividualDocument>
+  </Table>
+  <Table>
+    <IndividualID>2</IndividualID>
+    <ReferenceNumber>KPi.037</ReferenceNumber>
+    <FullName>CHANG CHANG HA  </FullName>
+    <ListedOn>2016-11-30</ListedOn>
+    <Designation>President of the Second Academy of Natural Sciences (SANS)</Designation>
+    <IndividualDateOfBirth>1964-01-10</IndividualDateOfBirth>
+    <IndividualAlias>Good, Jang Chang Ha</IndividualAlias>
+    <Nationality>Democratic Peoples Republic of Korea</Nationality>
+  </Table>
+  <Table>
+    <IndividualID>3</IndividualID>
+    <ReferenceNumber>KPi.038</ReferenceNumber>
+    <FullName>CHO  CHUN RYONG   </FullName>
+    <ListedOn>2016-11-30</ListedOn>
+    <Designation>Chairman of the Second Economic Committee (SEC)</Designation>
+    <IndividualDateOfBirth>1960-04-04</IndividualDateOfBirth>
+    <IndividualAlias>Good, Jo Chun Ryong</IndividualAlias>
+    <Nationality>Democratic Peoples Republic of Korea</Nationality>
+  </Table>
+  <Table1>
+    <EntityID>1</EntityID>
+    <ReferenceNumber>KPe.053 </ReferenceNumber>
+    <FirstName> PROPAGANDA AND AGITATION DEPARTMENT (PAD)</FirstName>
+    <ListedOn>11-09-2017</ListedOn>
+    <EntityAddress>Pyongyang   Democratic Peoples Republic of Korea</EntityAddress>
+  </Table1>
+  <Table1>
+    <EntityID>2</EntityID>
+    <ReferenceNumber>IRe.001</ReferenceNumber>
+    <FirstName>7TH OF TIR</FirstName>
+    <ListedOn>23-12-2006</ListedOn>
+  </Table1>
+</NewDataSet>

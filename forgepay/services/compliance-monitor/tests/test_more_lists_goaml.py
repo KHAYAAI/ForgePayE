@@ -16,7 +16,12 @@ import pytest
 from src.config import get_settings
 from src.models import CtrReport, SarReport
 from src.reporting.goaml import build_ctr, build_str
-from src.sanctions.more_lists import NamedListManager, csv_parser, parse_un_consolidated, za_tfs_required
+from src.sanctions.more_lists import (
+    NamedListManager,
+    csv_parser,
+    parse_un_consolidated,
+    za_tfs_required,
+)
 from src.screening.engine import ScreeningEngine
 
 UN_XML = b"""<?xml version="1.0" encoding="UTF-8"?>
@@ -149,3 +154,50 @@ def test_ctr_draft_respects_the_configured_threshold() -> None:
     assert root.findtext("report_code") == "CTR" and root.find("transaction").findtext("amount_local") == "60000.00"
     with pytest.raises(ValueError):
         build_ctr(ctr.model_copy(update={"amount": 1000.0}), rentity_id="1", approved_by="O", threshold_zar=49_999.99)
+
+
+# ── South Africa TFS: the XML dataset the FIC list is distributed as ──────────
+# tests/fixtures/fic_tfs_dataset_sample.xml is five rows trimmed from a full copy of the file (1,002 entries when parsed in
+# full): <Table> rows are individuals, <Table1> rows are entities whose name is in FirstName.
+
+def _sample() -> bytes:
+    from pathlib import Path
+
+    return (Path(__file__).parent / "fixtures" / "fic_tfs_dataset_sample.xml").read_bytes()
+
+
+def test_za_dataset_parses_individuals_entities_and_aliases():
+    from src.sanctions.more_lists import parse_un_dataset
+
+    entries = parse_un_dataset(_sample())
+    assert [e.entry_type for e in entries] == ["individual"] * 3 + ["entity"] * 2
+    ri = next(e for e in entries if e.entry_id == "KPi.033")
+    assert ri.primary_name == "RI WON HO"
+    assert ri.programs == ["KP"]
+    chang = next(e for e in entries if e.entry_id == "KPi.037")
+    assert "Jang Chang Ha" in chang.aliases and not any(a.startswith("Good") for a in chang.aliases)  # quality label dropped
+
+
+def test_za_list_detects_xml_and_still_accepts_csv():
+    from src.sanctions.more_lists import NamedListManager, csv_parser, detecting_parser
+
+    parser = detecting_parser(csv_parser(["Full Name"], "Reference Number"))
+    xml_list = NamedListManager("ZA_TFS", "x", parser)
+    xml_list.load(_sample())
+    assert xml_list.entry_count() == 5
+    assert [m.entry_id for m in xml_list.search("Ri Won Ho")] == ["KPi.033"]
+    assert xml_list.search("Entirely Unrelated Person") == []
+
+    csv_list = NamedListManager("ZA_TFS", "x", parser)
+    csv_list.load(b"Full Name,Reference Number\nJane Doe,ZA.1\n")
+    assert csv_list.entry_count() == 1
+
+
+def test_za_dataset_with_no_named_rows_is_refused_not_treated_as_empty_list():
+    import pytest
+
+    from src.sanctions.more_lists import NamedListManager, csv_parser, detecting_parser
+
+    m = NamedListManager("ZA_TFS", "x", detecting_parser(csv_parser(["Full Name"], "Reference Number")))
+    with pytest.raises(ValueError):
+        m.load(b"<NewDataSet><Table><ReferenceNumber>X</ReferenceNumber></Table></NewDataSet>")
