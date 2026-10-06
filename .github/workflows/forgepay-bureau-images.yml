@@ -92,6 +92,8 @@ jobs:
           format: sarif
           output: trivy-${{ matrix.name }}.sarif
           severity: CRITICAL
+          # Without this the action ignores `severity` for SARIF output and fails on any fixable finding.
+          limit-severities-for-sarif: true
           ignore-unfixed: true
           exit-code: "1"
 

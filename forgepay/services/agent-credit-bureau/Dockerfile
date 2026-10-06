@@ -9,7 +9,10 @@ RUN npm run build
 FROM node:22-alpine
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci --omit=dev
+RUN npm ci --omit=dev \
+ # The bureau never runs npm. The copy bundled in the base image carries its own
+ # vulnerable dependencies (brace-expansion, ip-address, pacote and others), so remove it.
+ && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx /root/.npm
 COPY --from=builder /app/dist ./dist
 # Must be set explicitly. config defaults NODE_ENV to 'development', so without
 # this the shipped container ran as a development build in two ways that both
