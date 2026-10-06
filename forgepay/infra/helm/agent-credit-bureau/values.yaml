@@ -25,9 +25,18 @@ env:
   LOG_LEVEL: info
   NODE_ENV: production
   RATE_LIMIT_PER_MIN: '200'
-  CORS_ORIGIN: '*'
+  # The bureau refuses to start in production with CORS_ORIGIN unset or '*'. Set the console's real origin(s), comma-separated.
+  CORS_ORIGIN: 'https://console.myforgepay.com'
   AGENT_IDENTITY_URL: http://agent-identity:3010
   AGENT_DECISION_URL: http://agent-decision-framework:3013
+  # Sanctions screening fails closed without this. The monitor itself must have loaded its lists.
+  COMPLIANCE_MONITOR_URL: http://compliance-monitor:8003
+  # Proxies in front of the bureau (ingress = 1; CloudFront plus a load balancer in front of ingress = 2 or 3).
+  TRUST_PROXY_HOPS: '1'
+# Secrets are NOT set here. Create a Kubernetes Secret named <release>-agent-credit-bureau-secrets (from AWS Secrets Manager
+# or Vault) holding at least: DATABASE_URL, BUREAU_ADMIN_API_KEY, CONSENT_SIGNING_SECRET (each key 32+ random characters),
+# REDIS_URL, and COMPLIANCE_MONITOR_API_KEY. The bureau stops at startup in production if any required one is missing.
+# Check the full set with forgepay/infra/launch/bureau/preflight.mjs before installing.
 livenessProbe:
   httpGet:
     path: /health
