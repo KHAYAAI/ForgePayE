@@ -39,6 +39,8 @@ import time
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -176,10 +178,16 @@ def csv_parser(name_columns: list[str], id_column: str, type_column: str | None 
 class NamedListManager:
     """In-memory copy of one sanctions list, refreshed from its URL."""
 
-    def __init__(self, list_name: str, url: str | None, parser: Parser) -> None:
+    def __init__(self, list_name: str, url: str | None, parser: Parser, *, snapshot_at: str | None = None,
+                 max_age_hours: float | None = None) -> None:
         self.list_name = list_name
         self.url = url
         self._parser = parser
+        # A file:// source is a recorded copy, not a download. Its age is measured from when the copy was taken
+        # (snapshot_at), never from when the service loaded it, so a copy cannot look fresh just because it was reloaded.
+        self.snapshot_at = snapshot_at
+        # Optional limit for this list alone; None means the global SANCTIONS_MAX_AGE_HOURS.
+        self.max_age_hours = max_age_hours
         self._entries: list[ListEntry] = []
         self._token_index: dict[str, list[int]] = {}
         self._last_updated = 0.0
@@ -201,8 +209,22 @@ class NamedListManager:
             raise ValueError(f"{self.list_name}: parsed 0 entries; refusing to replace the list")
         self._entries, self._token_index, self._last_updated = entries, index, time.time()
 
+    def _load_file(self) -> None:
+        assert self.url is not None
+        if not self.snapshot_at:
+            raise ValueError(f"{self.list_name}: a file source needs its snapshot date (the date the copy was taken)")
+        taken = datetime.fromisoformat(self.snapshot_at.replace("Z", "+00:00"))
+        if taken.tzinfo is None:
+            raise ValueError(f"{self.list_name}: the snapshot date needs a timezone, e.g. 2026-10-06T00:00:00Z")
+        self.load(Path(self.url.removeprefix("file://")).read_bytes())
+        self._last_updated = taken.timestamp()  # load() stamped "now"; the list is only as fresh as the copy
+        logger.info("sanctions_list.loaded_from_file", list=self.list_name, entries=len(self._entries), snapshot_at=self.snapshot_at)
+
     async def refresh_list(self) -> None:
         if not self.url:
+            return
+        if self.url.startswith("file://"):
+            self._load_file()
             return
         async with httpx.AsyncClient(timeout=120.0, follow_redirects=True) as client:
             resp = await client.get(self.url)
@@ -257,7 +279,8 @@ def build_additional_lists(settings: Any) -> list[NamedListManager]:
             settings.uk_sanctions_type_column, settings.uk_sanctions_program_column, settings.uk_sanctions_skip_rows)),
         NamedListManager("ZA_TFS", settings.za_tfs_url, detecting_parser(csv_parser(
             cols(settings.za_tfs_name_columns), settings.za_tfs_id_column,
-            settings.za_tfs_type_column, None, settings.za_tfs_skip_rows))),
+            settings.za_tfs_type_column, None, settings.za_tfs_skip_rows)),
+            snapshot_at=settings.za_tfs_snapshot_at, max_age_hours=settings.za_tfs_max_age_hours),
     ]
 
 

@@ -37,6 +37,16 @@ const cors = need('CORS_ORIGIN', 'must be an explicit allowlist');
 if (cors === '*') problems.push('CORS_ORIGIN must not be *');
 if (!env.REDIS_URL) warnings.push('REDIS_URL is not set: rate limits are per replica');
 if (!env.ZA_TFS_URL) problems.push('ZA_TFS_URL is not set: production screening will refuse to clear anyone');
+if (env.ZA_TFS_URL?.startsWith('file://')) {
+  if (!env.ZA_TFS_SNAPSHOT_AT) problems.push('ZA_TFS_URL is a file but ZA_TFS_SNAPSHOT_AT (when the copy was taken) is not set');
+  else {
+    const ageHours = (Date.now() - Date.parse(env.ZA_TFS_SNAPSHOT_AT)) / 3.6e6;
+    const limit = Number(env.ZA_TFS_MAX_AGE_HOURS || env.SANCTIONS_MAX_AGE_HOURS || 72);
+    if (!Number.isFinite(ageHours)) problems.push('ZA_TFS_SNAPSHOT_AT is not a valid date with a timezone');
+    else if (ageHours > limit) problems.push(`the South African list copy is ${Math.round(ageHours)}h old, over its ${limit}h limit: screening would refuse`);
+    else warnings.push(`the South African list is a recorded copy, ${Math.round(ageHours)}h old (limit ${limit}h): replace it or switch to a download address`);
+  }
+}
 if ((env.FORGE_LAUNCHED_PRODUCTS ?? 'credit-bureau') !== 'credit-bureau') {
   problems.push(`FORGE_LAUNCHED_PRODUCTS is "${env.FORGE_LAUNCHED_PRODUCTS}": only credit-bureau is cleared to launch`);
 }

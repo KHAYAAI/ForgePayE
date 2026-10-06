@@ -77,7 +77,7 @@ needs no external services. The production path is always Postgres/asyncpg.
 | EU consolidated | EU FSF XML | in use before this change |
 | UN Security Council consolidated | `UN_SANCTIONS_URL` (default: scsanctions.un.org XML) | parser follows the published layout; tested on a hand-written fixture only |
 | UK sanctions list | `UK_SANCTIONS_URL` (no default) | **format to confirm**: CSV with configurable columns (`UK_SANCTIONS_*`). The UK list moved from OFSI's consolidated list to the FCDO UK Sanctions List |
-| South Africa TFS (FIC) | `ZA_TFS_URL` (no default) | XML dataset (`<NewDataSet>`, `<Table>` individuals, `<Table1>` entities), parsed and checked against a full copy of the file (1,002 entries, 713 aliases); a CSV is still accepted. **The download address still has to be set from the FIC.** |
+| South Africa TFS (FIC) | `ZA_TFS_URL` (no default) | XML dataset (`<NewDataSet>`, `<Table>` individuals, `<Table1>` entities), parsed and checked against a full copy of the file (1,002 entries, 713 aliases); a CSV is still accepted. A `file://` source is accepted for a recorded copy (`ZA_TFS_SNAPSHOT_AT` required; age counts from it; `ZA_TFS_MAX_AGE_HOURS` sets this list's own limit). A copy is bundled in `src/data/`. |
 
 Screening fails closed: every list in use must be loaded and younger than
 `SANCTIONS_MAX_AGE_HOURS`, or screening answers `error` (never `clear`). This

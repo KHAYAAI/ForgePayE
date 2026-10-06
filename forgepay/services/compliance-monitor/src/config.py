@@ -110,6 +110,11 @@ class Settings(BaseSettings):
     za_tfs_id_column: str = Field(default="Reference Number", alias="ZA_TFS_ID_COLUMN")
     za_tfs_type_column: str | None = Field(default=None, alias="ZA_TFS_TYPE_COLUMN")
     za_tfs_skip_rows: int = Field(default=0, alias="ZA_TFS_SKIP_ROWS")
+    # A recorded copy instead of a download: ZA_TFS_URL=file:///app/src/data/za_tfs_snapshot.xml. The copy's age is measured
+    # from ZA_TFS_SNAPSHOT_AT (ISO time with timezone, when the copy was taken), so it goes stale on schedule and screening
+    # refuses once it is older than the limit. ZA_TFS_MAX_AGE_HOURS sets that limit for this list alone (default: the global one).
+    za_tfs_snapshot_at: str | None = Field(default=None, alias="ZA_TFS_SNAPSHOT_AT")
+    za_tfs_max_age_hours: float | None = Field(default=None, alias="ZA_TFS_MAX_AGE_HOURS")
     # A South African accountable institution must screen against the TFS
     # list. When required (default: in production), screening refuses until
     # ZA_TFS_URL is set and the list has loaded.

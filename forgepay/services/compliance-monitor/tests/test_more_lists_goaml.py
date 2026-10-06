@@ -201,3 +201,50 @@ def test_za_dataset_with_no_named_rows_is_refused_not_treated_as_empty_list():
     m = NamedListManager("ZA_TFS", "x", detecting_parser(csv_parser(["Full Name"], "Reference Number")))
     with pytest.raises(ValueError):
         m.load(b"<NewDataSet><Table><ReferenceNumber>X</ReferenceNumber></Table></NewDataSet>")
+
+
+# ── A recorded copy (file://) is only as fresh as the day it was taken ───────
+
+def _file_list(tmp_path, snapshot_at):
+    from src.sanctions.more_lists import NamedListManager, csv_parser, detecting_parser
+
+    f = tmp_path / "za.xml"
+    f.write_bytes(_sample())
+    return NamedListManager("ZA_TFS", f"file://{f}", detecting_parser(csv_parser(["Full Name"], "Reference Number")),
+                            snapshot_at=snapshot_at)
+
+
+def test_file_source_age_comes_from_snapshot_date_not_load_time(tmp_path) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    taken = datetime.now(UTC) - timedelta(hours=100)
+    m = _file_list(tmp_path, taken.isoformat())
+    asyncio.run(m.refresh_list())
+    assert m.entry_count() == 5
+    assert 99 < m.get_list_age_hours() < 101  # reloading did not make it look new
+
+
+def test_file_source_refuses_without_a_snapshot_date(tmp_path) -> None:
+    m = _file_list(tmp_path, None)
+    with pytest.raises(ValueError, match="snapshot date"):
+        asyncio.run(m.refresh_list())
+    assert m.entry_count() == 0
+
+
+def test_a_list_older_than_its_own_limit_blocks_screening(tmp_path) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    taken = datetime.now(UTC) - timedelta(hours=100)
+    m = _file_list(tmp_path, taken.isoformat())
+    asyncio.run(m.refresh_list())
+
+    class _Fresh:  # stands in for OFAC and EU: loaded just now
+        def entry_count(self) -> int: return 1
+        def get_list_age_hours(self) -> float: return 0.0
+
+    engine = ScreeningEngine(_Fresh(), _Fresh(), None, additional_lists=[m])  # type: ignore[arg-type]
+    get_settings.cache_clear()
+    m.max_age_hours = 72.0
+    assert "ZA_TFS" in (engine._lists_not_ready() or "")
+    m.max_age_hours = 240.0  # the owner accepted an older copy for this list
+    assert "ZA_TFS" not in (engine._lists_not_ready() or "")

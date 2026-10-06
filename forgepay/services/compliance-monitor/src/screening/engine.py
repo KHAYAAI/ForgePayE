@@ -148,8 +148,9 @@ class ScreeningEngine:
                 if mgr.entry_count() <= 0:
                     return f"the {list_name} sanctions list has not loaded"
                 list_age = mgr.get_list_age_hours()
-                if list_age > settings.sanctions_max_age_hours:
-                    return f"the {list_name} sanctions list is {list_age:.0f}h old (limit {settings.sanctions_max_age_hours:.0f}h)"
+                limit = getattr(mgr, "max_age_hours", None) or settings.sanctions_max_age_hours
+                if list_age > limit:
+                    return f"the {list_name} sanctions list is {list_age:.0f}h old (limit {limit:.0f}h)"
             from src.sanctions.more_lists import za_tfs_required
             if za_tfs_required(settings) and not any(m.list_name == "ZA_TFS" for m in self._more):
                 return "the South African TFS list is required but ZA_TFS_URL is not configured"
