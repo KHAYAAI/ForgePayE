@@ -54,6 +54,8 @@ backup store, scope B findings are fixed and re-checked, and a pilot with named 
 
 ## Wallet (per-user wallets, `open-privy`)
 
+> **Updated by decision 1:** non-custodial for now. The migration and KMS items below apply to the **custodial** wallet that comes later. Now: bring your own wallet (`08`).
+
 **Today:** testnet only (a chain allowlist enforces it). Each wallet's key is now wrapped by its own data key, itself wrapped by KMS;
 41 backend tests pass. The in-repo workspace root does not typecheck (the mobile app), and the old key scheme still exists for legacy wallets.
 
@@ -101,6 +103,8 @@ amounts, approved by two people, and reconciled to the chain or the bank stateme
 
 ## Agent stack (identity, negotiation and escrow, credit lines, liquidity)
 
+> **Updated by decision 2:** FORGE is only a bureau and lenders fund credit lines. The money-moving rows below are **not planned** for FORGE; the work is the MFI integration (`08`).
+
 **Today:** escrow in `agent-negotiation` is durable; real prices feed the liquidity manager. Credit lines and liquidity moves are
 bookkeeping: no money moves. The screens say so.
 
@@ -127,17 +131,20 @@ Hyperswitch + Kill Bill + bank partner ──> payments ──> treasury settlem
 Custody is the common dependency: do not start money movement on treasury, yield or credit lines until its signing path has run
 across separate hosts.
 
-## Decisions I need from you
+## Decisions (answered 6 October; detail and shortlists in `08`)
 
-1. Custodial or non-custodial wallets.
-2. Who funds agent credit lines.
-3. Which yield protocol and tokenised-asset issuer, if either, comes first.
-4. Which payment model (own licence, or a partner's) and which acquirer.
-5. Which bank partner for settlement.
-6. Which independent review firm, and who the custody officers are.
-7. Which AWS region and account structure (see `07`).
+1. **Wallets:** non-custodial for now, custodial later. The wallet as built is not non-custodial (FORGE's service can decrypt the keys), so the
+   near-term product is "bring your own wallet" and `open-privy` stays off until the custodial licence.
+2. **Agent credit lines:** microfinance institutions fund them through the API; FORGE is only a bureau. Credit lines, liquidity moves and
+   lender-style escrow leave the launch path. The product to harden is the MFI integration. This also makes the National Credit Act bureau
+   registration question central (see `08`).
+3. **Tokenised assets:** the user chooses the issuer; no default; no yield protocol first.
+4. **Payments:** a partner's licence now, an own licence later.
+5. **Bank partner and review firm:** shortlists in `08`; the owner is to approach them.
+6. **AWS region and accounts:** still to confirm (recommendation in `08`).
 
-## What I can start without those decisions
+## What I can start now
 
-The console items, wallet migration tooling, the settlement ledger and its reconciliation, SDK and CI fixes, soak tests for custody,
-operator screens, and the repayment-to-bureau feed. Each is code and tests; none of them moves money until you switch it on.
+See the end of `08`: take unoffered lending off every surface, harden the MFI integration, build the bring-your-own-wallet flow, an issuer adapter for
+tokenised assets, and a payments-partner adapter once one is chosen. Also the console items, soak tests for custody, SDK and CI fixes. Each is code and tests;
+none of them moves money until you switch it on.
