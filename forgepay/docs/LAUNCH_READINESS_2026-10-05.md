@@ -128,3 +128,14 @@ fixed in `f9ea918a`.
    `docs.myforgepay.com` (14 links) has no site behind it yet.
 7. External: counsel on POPIA / credit-bureau status, FIC registration, an
    independent review, licences and an acquirer for payments.
+
+## Update, 6 October 2026: bureau launch items
+
+| Item | Result |
+|---|---|
+| 1. South African sanctions list URL | **Not done.** No FIC download address could be verified: tfs.fic.gov.za, fic.gov.za, the UN, OFAC, EU and UK list hosts are all blocked from the build environment. Public sources describe the FIC list as an exact copy of the UN Security Council consolidated list, updated within 24 hours; whether the FIC offers a file download, and in what format, needs confirming with the FIC. Until `ZA_TFS_URL` is set and loads, production screening refuses to clear anyone. |
+| 2. Production settings | **Tooling done, values not set.** `infra/launch/bureau/` holds a template (no secrets), `generate-secrets.sh` (writes the four secrets outside the repo, mode 0600, never prints them) and `preflight.mjs` (checks an env file; refuses placeholders, short or shared secrets, `CORS_ORIGIN=*`, a missing ZA list, and any launched product other than the bureau). The real values must be created and stored in AWS Secrets Manager by the owner. |
+| 3. myforgepay.com on AWS | With the owner. |
+| 4. Security scan on the bureau image | **Cause found and fixed, passing in CI not yet seen.** The scan failed on HIGH and MEDIUM findings in the npm bundled with the Node base image, because the scan action ignores its severity setting for SARIF output. The workflow now sets `limit-severities-for-sarif`, and the bureau's runtime stage removes npm, which it never runs. An equivalent image built locally scans clean at every severity (0 findings). Custody and stablecoin images were not changed. |
+| 5. Staging run and Base Sepolia test | **Partly done.** Run locally in production mode against Postgres and Redis: boots only with the required settings (refuses without the admin key), a new agent registers at 300 / DEEP_SUBPRIME with THIN_FILE cited, state survives a restart, calls without a key are refused with 401, and sanctions screening reports not clear when the compliance monitor is unreachable. **Not done:** the real compliance monitor with live lists, any Base Sepolia transaction (the RPC and faucets are unreachable from here, and a funded test key is needed), and the console in production mode against this bureau. |
+| 6. External sign-offs | With outside parties. |
