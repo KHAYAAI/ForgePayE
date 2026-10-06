@@ -94,6 +94,7 @@ jobs:
           severity: CRITICAL
           # Without this the action ignores `severity` for SARIF output and fails on any fixable finding.
           limit-severities-for-sarif: true
+          trivyignores: forgepay/services/openfireblocks/.trivyignore
           ignore-unfixed: true
           exit-code: "1"
 

@@ -3,11 +3,11 @@ import { getCurrentUser, getSessionById, revokeSession } from '@/lib/auth';
 import { logAuditEvent, clientIp } from '@/lib/audit';
 
 /** Revoke a single session by id — signing that one device/browser out remotely. */
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getCurrentUser();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const target = await getSessionById(params.id);
+  const target = await getSessionById((await params).id);
   if (!target || target.user_id !== session.userId) {
     // Same response whether the session doesn't exist or belongs to someone
     // else — a 404 on a session ID that does exist would confirm the ID is

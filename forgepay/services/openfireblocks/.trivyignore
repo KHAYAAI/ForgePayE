@@ -1,0 +1,8 @@
+# Accepted findings for the custody images. Each needs a reason and is re-examined when its dependency changes.
+#
+# CVE-2022-44797 (btcd before 0.23.2: BIP 68/112 consensus-rule bug). The signer takes btcd only through the threshold
+# signing library, which imports github.com/btcsuite/btcd/btcec and nothing else of btcd's consensus code. Checked with
+# `go list -deps ./...` in services/mpc-signer: the only btcd packages compiled in are btcec, chaincfg, chaincfg/chainhash
+# and wire, none of which holds the affected consensus or script code. btcd cannot be raised to 0.23.2 because that
+# release no longer ships the btcec package the library imports (go build fails).
+CVE-2022-44797

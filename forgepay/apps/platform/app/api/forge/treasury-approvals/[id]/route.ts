@@ -13,13 +13,13 @@ import { resolveTreasuryApproval } from '@/lib/forge-services';
 
 export const dynamic = 'force-dynamic';
 
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const g = await guardRoute({ product: 'treasury', permission: 'manage:billing' });
   if ('response' in g) return g.response;
   const body = (await req.json().catch(() => null)) as { approved?: boolean } | null;
   if (typeof body?.approved !== 'boolean') {
     return NextResponse.json({ live: false, data: null, error: 'approved (boolean) is required' }, { status: 400 });
   }
-  const result = await resolveTreasuryApproval(params.id, body.approved, g.user.email);
+  const result = await resolveTreasuryApproval((await params).id, body.approved, g.user.email);
   return NextResponse.json(result, { status: result.live ? 200 : 502 });
 }

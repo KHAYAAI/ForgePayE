@@ -28,9 +28,9 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(
   req: Request,
-  { params }: { params: { section: string } },
+  { params }: { params: Promise<{ section: string }> },
 ) {
-  switch (params.section) {
+  switch ((await params).section) {
     case 'custody': {
       const g = await guardRoute({ product: 'custody' });
       if ('response' in g) return g.response;
