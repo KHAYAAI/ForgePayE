@@ -32,7 +32,12 @@ export type AuditAction =
   | 'team.invite_accepted'
   | 'bureau.consent.issued'
   | 'bureau.consent.revoked'
-  | 'wallet.bound';
+  | 'wallet.bound'
+  | 'institution.applied'
+  | 'institution.approved'
+  | 'institution.rejected'
+  | 'institution.key_issued'
+  | 'institution.key_revoked';
 
 export interface AuditEventInput {
   tenantId?: string | null;

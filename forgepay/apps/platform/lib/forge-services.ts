@@ -325,6 +325,32 @@ export interface RegisterAgentInput {
   operatorRegistrationNumber?: string;
 }
 
+/**
+ * A call to the bureau with the console's admin key, for the institution onboarding steps (register, activate, limits, keys).
+ * Returns the bureau's own status and body so the caller can tell "already done" from "failed".
+ */
+export async function bureauAdminCall<T = unknown>(
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE',
+  path: string,
+  body?: unknown,
+): Promise<{ ok: boolean; status: number; data: T | null; error?: unknown }> {
+  try {
+    const res = await fetch(`${SERVICE_URLS.bureau}${path}`, {
+      method,
+      headers: { ...bureauAuthHeaders(), ...(body !== undefined ? { 'content-type': 'application/json' } : {}) },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+      cache: 'no-store',
+    });
+    const json = (await res.json().catch(() => null)) as { data?: T } | null;
+    return res.ok
+      ? { ok: true, status: res.status, data: (json?.data ?? null) as T | null }
+      : { ok: false, status: res.status, data: null, error: json };
+  } catch (err) {
+    return { ok: false, status: 0, data: null, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 export interface IssuedConsent {
   consentToken: string;
   jti: string;

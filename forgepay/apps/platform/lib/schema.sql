@@ -163,3 +163,27 @@ CREATE TABLE IF NOT EXISTS wallet_bindings (
   UNIQUE (tenant_id, address, agent_id)
 );
 
+-- Institutions (lenders, furnishers such as microfinance institutions) applying for access to the bureau API. A workspace applies,
+-- FORGE's operator workspace reviews, and approval registers and activates the institution on the bureau. At most one live
+-- application per workspace; a rejected one can be followed by a new application.
+CREATE TABLE IF NOT EXISTS institution_applications (
+  id                TEXT PRIMARY KEY,
+  tenant_id         TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name              TEXT NOT NULL,
+  institution_type  TEXT NOT NULL,
+  country           TEXT NOT NULL,
+  registration_no   TEXT,
+  contact_email     TEXT NOT NULL,
+  intended_use      TEXT NOT NULL,
+  requested_scopes  TEXT[] NOT NULL,
+  status            TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'provisioning', 'approved', 'rejected')),
+  contributor_id    TEXT,
+  granted_scopes    TEXT[],
+  decided_by        TEXT,
+  decided_at        TIMESTAMPTZ,
+  decision_reason   TEXT,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_institution_applications_live ON institution_applications(tenant_id) WHERE status IN ('pending', 'provisioning', 'approved');
+CREATE INDEX IF NOT EXISTS idx_institution_applications_status ON institution_applications(status, created_at);
+

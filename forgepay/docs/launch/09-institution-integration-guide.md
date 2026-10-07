@@ -198,3 +198,19 @@ Exit code 0 means every check passed. Run it before going live and after any cha
 - **Zero-knowledge proofs.** Not offered.
 - **Company-register verification of operators.** The check exists as a seam; no register provider is connected yet, so an operator's registration is as submitted.
 - **Regulatory registration.** The bureau's position under the National Credit Act is with counsel; do not treat this guide as a statement that the bureau is, or is not, registered.
+
+## Onboarding an institution through the console (added 7 October)
+
+An institution no longer needs the operator to call the bureau by hand. In the console (*Agent Credit Bureau > Institution*):
+
+1. **Apply.** A workspace owner or admin gives the institution's name, type, country, contact, intended use and the access it wants
+   (`ingest_events`, `pull_scores`, `read_profile`; `manage_disputes` and `admin` are not available to institutions). One live
+   application per workspace; a rejected one can be re-submitted.
+2. **Decide.** Only the operator workspace (`FORGE_OPERATOR_TENANT_ID`) with `admin:all` sees the queue. Approving registers the
+   institution at the bureau, activates it, applies the chosen limits, then retires the one-time registration key, in that order. The
+   bureau id is saved first, so a failure part way can be retried without registering a second institution. Rejection needs a reason.
+3. **Keys.** After approval the workspace issues and revokes its own API keys (shown once). The last active key cannot be revoked, and a
+   workspace can only act on its own institution.
+
+Not yet in the console: webhook endpoints and quota views (the API exists), and KYB verification of the applicant (no provider wired).
+Checked by unit tests with a scripted bureau; **not yet run end to end against a live bureau and Postgres.**
