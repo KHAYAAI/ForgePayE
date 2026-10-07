@@ -14,7 +14,9 @@ uvicorn      = { version = "^0.30.1", extras = ["standard"] }
 httpx        = "^0.27.0"         # Async HTTP client — replaces Stripe SDK calls
 pydantic     = "^2.7.4"
 pydantic-settings = "^2.3.3"
-sqlalchemy   = "^2.0.31"
+# The asyncio extra brings in greenlet. Newer SQLAlchemy releases no longer install it implicitly, so without the extra the
+# service fails on import (src/api/checkout.py) in CI and in the production image.
+sqlalchemy   = { version = "^2.0.31", extras = ["asyncio"] }
 alembic      = "^1.13.2"
 asyncpg      = "^0.29.0"
 redis        = "^5.0.7"
