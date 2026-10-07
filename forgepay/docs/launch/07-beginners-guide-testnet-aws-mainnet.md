@@ -144,7 +144,7 @@ Order matters, because the bureau depends on the others:
 2. **compliance-monitor** (`infra/helm/compliance-monitor`). Check its `/health` and logs: it must show the sanctions lists **loaded**.
    Until they load, the bureau's sanctions screen refuses everyone. In the launch settings the South African list is read from the
    bundled copy (see the template); OFAC, EU and UN download from their sites.
-3. **agent-identity** (`infra/helm/agent-identity`), which the bureau asks to confirm agent identities.
+3. **agent-identity** (`infra/helm/agent-identity`), optional for the soft launch: the bureau asks it to confirm registry-form agent identities, and falls back to a local check (and says so) if it is unreachable.
 4. **The bureau**, using the image the **`forgepay-bureau-images`** workflow builds and scans (deploy by the digest in its run summary):
 
 ```bash
