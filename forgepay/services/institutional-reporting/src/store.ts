@@ -1,9 +1,8 @@
 /**
- * In-memory report store.
+ * Report store.
  *
- * Keyed by UUIDv4. Holds both metadata (for list views) and the full payload.
- * In production: PostgreSQL with retention policies + S3 archival of large CSV
- * exports. Auditor read-only role enforced at the DB level.
+ * Keyed by UUIDv4. Holds both metadata (for list views) and the full payload, in memory, and written through to Postgres by
+ * persistence.ts so a restart does not lose them. Retention and S3 archival of large exports are still to do.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -14,12 +13,25 @@ import type {
   ReportPeriod,
 } from './types';
 
-interface StoredReport {
+export interface StoredReport {
   metadata: ReportMetadata;
   payload: ReportPayload;
 }
 
 const reports = new Map<string, StoredReport>();
+
+/** Where reports are made durable. Set by persistence.ts when a database is configured. */
+export interface ReportSink {
+  save(id: string, metadata: ReportMetadata, payload: ReportPayload): void;
+}
+let sink: ReportSink | null = null;
+export function setReportSink(s: ReportSink | null): void { sink = s; }
+
+/** Load stored reports (the most recent ones) into memory, replacing what is there. */
+export function hydrateReports(stored: StoredReport[]): void {
+  reports.clear();
+  for (const r of stored) reports.set(r.metadata.id, r);
+}
 
 export function saveReport(
   type: ReportType,
@@ -39,6 +51,7 @@ export function saveReport(
     ...(generatedByCorrelationId ? { generatedByCorrelationId } : {}),
   };
   reports.set(id, { metadata, payload });
+  sink?.save(id, metadata, payload);
   return metadata;
 }
 
@@ -53,6 +66,7 @@ export function listReports(): ReportMetadata[] {
 }
 
 export function deleteReport(id: string): boolean {
+  // Memory only. Durable removal (including a report older than what was loaded at start) is removeStoredReport in persistence.ts.
   return reports.delete(id);
 }
 

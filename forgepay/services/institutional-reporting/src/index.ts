@@ -47,6 +47,7 @@ import {
   clearReports,
   reportCount,
 } from './store';
+import { clearStoredReports, fetchStoredReport, initPersistence, persistenceFailures, removeStoredReport } from './persistence';
 import type { Jurisdiction, ReportType, CashFlowReport, NettingReport, AuditTrailReport, YieldIncomeReport } from './types';
 
 // ── Configuration ─────────────────────────────────────────────────────────────
@@ -78,6 +79,8 @@ const GenerateReportSchema = z.object({
 // ── App ───────────────────────────────────────────────────────────────────────
 
 async function start(): Promise<void> {
+// Load stored reports before taking traffic (refuses to start in production without a database).
+await initPersistence();
 const app = Fastify({
   logger: { level: process.env['LOG_LEVEL'] ?? 'info' },
 });
@@ -111,6 +114,7 @@ app.get('/health', async (_req, reply) => {
     service: 'institutional-reporting',
     version: '0.1.0',
     reportCount: reportCount(),
+    persistenceFailures: persistenceFailures(),
     upstreams: {
       treasury: TREASURY_URL,
       yieldEngine: YIELD_ENGINE_URL,
@@ -198,15 +202,16 @@ app.get('/v1/reports', async (_req, reply) => {
 
 app.get('/v1/reports/:id', async (req, reply) => {
   const { id } = req.params as { id: string };
-  const stored = getReport(id);
+  const stored = getReport(id) ?? (await fetchStoredReport(id));
   if (!stored) return reply.status(404).send({ error: 'Report not found' });
   reply.send({ data: stored.payload, meta: stored.metadata });
 });
 
 app.delete('/v1/reports/:id', async (req, reply) => {
   const { id } = req.params as { id: string };
-  const deleted = deleteReport(id);
-  if (!deleted) return reply.status(404).send({ error: 'Report not found' });
+  const inMemory = deleteReport(id);
+  const inStorage = await removeStoredReport(id);
+  if (!inMemory && !inStorage) return reply.status(404).send({ error: 'Report not found' });
   reply.status(204).send();
 });
 
@@ -214,7 +219,7 @@ app.delete('/v1/reports/:id', async (req, reply) => {
 
 app.get('/v1/reports/:id/csv', async (req, reply) => {
   const { id } = req.params as { id: string };
-  const stored = getReport(id);
+  const stored = getReport(id) ?? (await fetchStoredReport(id));
   if (!stored) return reply.status(404).send({ error: 'Report not found' });
 
   const { metadata, payload } = stored;
@@ -298,7 +303,13 @@ app.get('/v1/tax-filing', async (req, reply) => {
 // ── Admin ─────────────────────────────────────────────────────────────────────
 
 app.delete('/v1/reports', async (_req, reply) => {
+  // Wiping every report is a development convenience. On a store of what was produced for filers and auditors it must not
+  // be one request away in production.
+  if (process.env['NODE_ENV'] === 'production') {
+    return reply.status(403).send({ error: 'Forbidden', message: 'Clearing all reports is not available in production.' });
+  }
   clearReports();
+  await clearStoredReports();
   reply.send({ cleared: true });
 });
 
