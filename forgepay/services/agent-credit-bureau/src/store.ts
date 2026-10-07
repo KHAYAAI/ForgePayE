@@ -600,11 +600,16 @@ export async function initPersistence(): Promise<void> {
     loadAllCreditBalances(),
   ]);
 
-  if (ps.length === 0 && !demoSeedAllowed()) {
+  // "Fresh" means nothing at all has been stored. It used to mean only "no agent profiles", so a production database that
+  // held institutions (and their keys) but no agents yet skipped hydration entirely and, on restart, lost every institution
+  // registered before its first agent.
+  const fresh = ps.length === 0 && ds.length === 0 && rs.length === 0 && cs.length === 0 && ls.length === 0;
+
+  if (fresh && !demoSeedAllowed()) {
     // Production never seeds: the demo agents would appear in real lenders' results, and the demo contributors are
     // ACTIVE furnishers whose API keys are published in .env.example, so anyone could submit credit history under them.
     console.log('[credit-bureau] fresh production database: starting empty (no demo agents or demo furnishers)');
-  } else if (ps.length === 0) {
+  } else if (fresh) {
     // Fresh database — seed in memory, then persist the seed. Billing starts
     // empty on a fresh database — there is nothing to seed there, accounts
     // are created lazily on first credit/debit.
