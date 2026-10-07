@@ -203,6 +203,9 @@ const ROUTE_SCOPES: Record<string, Scope> = {
   'POST /v1/contributors/:id/keys':          SCOPES.SELF_SERVICE,
   'DELETE /v1/contributors/:id/keys/:keyId': SCOPES.SELF_SERVICE,
 
+  // Sandbox only (the route exists only when BUREAU_SANDBOX=true): a partner issues itself a consent token for a test agent.
+  'POST /v1/sandbox/consent':                SCOPES.PULL_SCORES,
+
   // Reports — a hard inquiry, lender-facing.
   'POST /v1/reports':                        SCOPES.PULL_SCORES,
   'GET /v1/reports/:reportId':               SCOPES.PULL_SCORES,

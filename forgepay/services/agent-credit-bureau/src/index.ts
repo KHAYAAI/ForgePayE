@@ -46,6 +46,7 @@ import { z } from 'zod';
 import { randomUUID, randomBytes } from 'crypto';
 import { registerAuth, hashApiKey, redactContributor, contributorAccessError } from './auth';
 import { issueKey, listKeys, revokeKey, MAX_ACTIVE_KEYS } from './contributor-keys';
+import { isSandbox, assertSandboxSafe, environmentName, SANDBOX_CHARGE, registerSandboxHeader } from './sandbox';
 import { isValidDid, isAddressBody, addressFromDid, toChecksumAddress, sameAddress } from './did';
 import { issueConsent, verifyConsent, revokeConsent, consumeConsent, type ConsentPurpose } from './consent';
 import { resolveDispute, withEscalationCheck, furnisherForEvent, type DisputeCorrection } from './disputes';
@@ -394,10 +395,15 @@ async function buildApp() {
   // Deny-by-default: a route absent from the scope table requires `admin`.
   registerAuth(app);
 
+  // Sandbox: refuses to build if it could touch real money, and labels every response (see sandbox.ts).
+  assertSandboxSafe();
+  registerSandboxHeader(app);
+
   // ── Health probe ───────────────────────────────────────────────────────────
   app.get('/health', async () => ({
     status:          'ok',
     service:         'agent-credit-bureau',
+    environment:     environmentName(),
     version:         '0.1.0',
     port:            PORT,
     agentIdentityUrl: AGENT_IDENTITY_URL,
@@ -695,6 +701,34 @@ async function buildApp() {
   // agent-authentication path yet — the wallet/DID auth that would let an
   // operator authenticate directly lands in a later phase. Until then the
   // bureau issues on an operator's behalf, and the audit trail records that.
+  // POST /v1/sandbox/consent: SANDBOX ONLY. A partner issues itself a single-use consent token for a test agent, so it can run
+  // the whole lender flow alone. In the live service consent is an operator action and this route does not exist.
+  if (isSandbox()) {
+    app.post('/v1/sandbox/consent', async (req, reply) => {
+      const parse = z.object({
+        agentId: z.string().min(1),
+        purpose: z.enum(['credit_application', 'account_review', 'employment', 'insurance']).default('credit_application'),
+      }).safeParse(req.body);
+      if (!parse.success) return reply.status(400).send({ error: 'ValidationError', details: parse.error.flatten() });
+      if (!req.auth || req.auth.kind !== 'contributor') {
+        return reply.status(403).send({ error: 'Forbidden', message: 'Use an institution key. The requestor is the key\'s own institution.' });
+      }
+      if (!getProfile(parse.data.agentId)) {
+        return reply.status(404).send({ error: 'NotFound', message: `Agent ${parse.data.agentId} not found` });
+      }
+      const { token, payload } = issueConsent({
+        agentId: parse.data.agentId, requestorId: req.auth.principalId, purpose: parse.data.purpose as ConsentPurpose, ttlSeconds: 900,
+      });
+      return reply.status(201).send({
+        data: {
+          consentToken: token, jti: payload.jti, expiresAt: new Date(payload.exp * 1000).toISOString(),
+          scope: { agentId: payload.sub, requestorId: payload.aud, purpose: payload.purpose },
+          note: 'Sandbox only. Single-use, bound to this agent, this institution and this purpose.',
+        },
+      });
+    });
+  }
+
   app.post('/v1/consent', async (req, reply) => {
     const parse = IssueConsentSchema.safeParse(req.body);
     if (!parse.success) return reply.status(400).send({ error: 'ValidationError', details: parse.error.flatten() });
@@ -807,7 +841,7 @@ async function buildApp() {
     // Entitlement-aware: a subscriber's bundled allocation is spent before
     // their prepaid balance, and cash pulls are priced by volume band rather
     // than at a flat list rate. See billing.ts/chargeForPull.
-    const charge = chargeForPull(requestorId, `inquiry_fee:${agentId}:${purpose}`);
+    const charge = isSandbox() ? SANDBOX_CHARGE : chargeForPull(requestorId, `inquiry_fee:${agentId}:${purpose}`);
     if (!charge.ok) {
       if (charge.reason === 'plan_forbids_hard_pulls') {
         input.log.warn(

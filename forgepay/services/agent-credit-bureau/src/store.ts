@@ -31,6 +31,7 @@ import {
   upsertAttribution, upsertSubscription, upsertCreditBalance,
   loadAllAttributions, loadAllSubscriptions, loadAllCreditBalances,
 } from './db';
+import { isSandbox } from './sandbox';
 
 /** Fire-and-forget persistence error logger — keeps mutators synchronous. */
 const persistErr = (what: string) => (e: unknown) =>
@@ -584,7 +585,8 @@ if (!isDbEnabled() && demoSeedAllowed()) seed();
  */
 /** Demo data is for development only. In production it is never seeded, whatever else is set. */
 export function demoSeedAllowed(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env['NODE_ENV'] !== 'production';
+  // A sandbox runs with production's guards but needs demo agents to test against; it can touch no real money (see sandbox.ts).
+  return env['NODE_ENV'] !== 'production' || isSandbox(env);
 }
 
 export async function initPersistence(): Promise<void> {
