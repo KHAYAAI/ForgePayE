@@ -43,7 +43,7 @@ THIN_FILE cited, state survives a restart, unauthenticated calls get 401, per-wo
 - The money path on Base Sepolia (billing and payouts through the gateway): never run against a real chain.
 - **Mode 2 has almost nothing to read:** it scores on-chain activity, which is thin on testnet. No lender should rely on it yet.
 - **Zero-knowledge proofs are a stub** (`stub-sha256-commitment`, not cryptographically verifiable). Disabled in production unless explicitly acknowledged. Must stay "coming soon".
-- **Controller verification:** agents are bound to a *named* operating entity, but no company-register (KYB) check exists.
+- **Controller verification:** agents are bound to a *named* operating entity. The check exists as a provider seam and an eligibility policy (`kyb.ts`, `POST /v1/agents/:id/operator-verification`), but **no register provider is connected** (the default says `registry_unavailable`), so an operator's registration is as submitted.
 - **A lender-facing sandbox and per-lender quotas** for the microfinance institutions (the lender and furnisher APIs exist; the partner experience around them does not).
 - Several in-memory working sets (17 maps) are hydrated from Postgres at start with write-through; that design has been tested only on a single replica. Multi-replica behaviour is untested.
 - Independent review of billing, payouts and consent. Counsel's answer on National Credit Act bureau registration.

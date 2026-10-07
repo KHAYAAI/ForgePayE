@@ -46,6 +46,7 @@ import { z } from 'zod';
 import { randomUUID, randomBytes } from 'crypto';
 import { registerAuth, hashApiKey, redactContributor, contributorAccessError } from './auth';
 import { issueKey, listKeys, revokeKey, MAX_ACTIVE_KEYS } from './contributor-keys';
+import { openApiDocument } from './openapi';
 import { isSandbox, assertSandboxSafe, environmentName, SANDBOX_CHARGE, registerSandboxHeader } from './sandbox';
 import { isValidDid, isAddressBody, addressFromDid, toChecksumAddress, sameAddress } from './did';
 import { issueConsent, verifyConsent, revokeConsent, consumeConsent, type ConsentPurpose } from './consent';
@@ -398,6 +399,9 @@ async function buildApp() {
   // Sandbox: refuses to build if it could touch real money, and labels every response (see sandbox.ts).
   assertSandboxSafe();
   registerSandboxHeader(app);
+
+  // GET /v1/openapi.json: the institution API contract (public)
+  app.get('/v1/openapi.json', async (_req, reply) => reply.send(openApiDocument));
 
   // ── Health probe ───────────────────────────────────────────────────────────
   app.get('/health', async () => ({

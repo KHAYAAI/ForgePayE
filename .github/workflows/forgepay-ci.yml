@@ -501,6 +501,23 @@ jobs:
           DATABASE_URL: postgres://forgepay:forgepay@localhost:5432/bureau_test
         run: npx vitest run --no-file-parallelism src/persistence.test.ts src/contributors-restart.test.ts
 
+      # The partner script is the contract in executable form: boot the service as a sandbox and run it end to end.
+      - name: Partner conformance against a local sandbox
+        env:
+          BUREAU_SANDBOX: "true"
+          PORT: "3920"
+        run: |
+          npm run build
+          node dist/index.js > sandbox.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf http://localhost:3920/health >/dev/null && break; sleep 1; done
+          reg=$(curl -sf -X POST http://localhost:3920/v1/contributors -H 'x-api-key: dev-bureau-admin-key' -H 'content-type: application/json' \
+            -d '{"name":"CI Institution","type":"cefi_lender","permissions":["ingest_events","pull_scores","read_profile"]}')
+          id=$(echo "$reg" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(JSON.parse(d).data.id))")
+          key=$(echo "$reg" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(JSON.parse(d).data.apiKey))")
+          curl -sf -X PUT "http://localhost:3920/v1/contributors/$id/status" -H 'x-api-key: dev-bureau-admin-key' -H 'content-type: application/json' \
+            -d '{"status":"active","reason":"ci"}' >/dev/null
+          node scripts/partner-conformance.mjs --base-url http://localhost:3920 --key "$key" --institution-id "$id"
+
   # ── Helm lint ────────────────────────────────────────────────────────────────
   helm-lint:
     name: "helm — lint all charts"

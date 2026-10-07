@@ -35,7 +35,7 @@ Goal: real design partners (microfinance institutions, lenders) using the Credit
 | 3 | **Compliance live**: OFAC, EU, UN and UK lists loading in production, the FIC address confirmed (or a daily refresh job), an operator screen for goAML export | 2 | Needs the compliance officer |
 | 4 | **Money path on testnet then a $1 mainnet test**: Base Sepolia smoke tests twice, KMS check against the real account, reconciliation, failure rehearsals | 2 to 3 | Needs funded test wallets generated offline, an RPC provider |
 | 5 | **Lender and furnisher experience for the microfinance institutions**: sandbox environment, per-institution keys and quotas, onboarding flow, API documentation, webhooks for report and dispute events | 3 to 4 | The core of the product for your customers |
-| 6 | **Controller verification**: company-register (KYB) check on each agent's operating entity, wired into registration | 2 to 3 | Needs a KYB data provider or the national company register; choose one |
+| 6 | **Controller verification**: connect a company-register (KYB) provider to the existing seam in `kyb.ts` (the interface, policy and route exist; only the provider is missing) | 1 to 2 | Needs a KYB data provider or the national company register; choose one |
 | 7 | **Mode 2 with real data**: an indexer for on-chain activity on Base so Mode 2 has something to score, with caching | 3 to 4 | Needs mainnet history to exist; thin for a new agent anyway |
 | 8 | **Console**: per-workspace treasury data, email verification, shared rate limiting, operator screens, Next 16 for the postcss findings | 3 to 4 | Needs SMTP and mailboxes |
 | 9 | **Resilience**: multi-replica tests of the bureau's write-through state, load test, a restore drill from a real backup | 1 to 2 | |

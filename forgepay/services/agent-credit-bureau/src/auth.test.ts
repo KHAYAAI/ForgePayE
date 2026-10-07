@@ -215,7 +215,8 @@ describe('every route has an explicit access decision', () => {
     // being public, so the invariant is simply: nothing resolves to a scope
     // that no principal could ever hold, and public routes are deliberate.
     const unexpectedlyPublic = routes.filter(
-      r => isPublicRoute(r.method, r.url) && !['/health', '/metrics', '/v1/plans'].includes(r.url),
+      // /v1/openapi.json is public on purpose: a prospect reads the API contract before they hold a key (it holds no data).
+      r => isPublicRoute(r.method, r.url) && !['/health', '/metrics', '/v1/plans', '/v1/openapi.json'].includes(r.url),
     );
     expect(unexpectedlyPublic, `unexpected public routes: ${JSON.stringify(unexpectedlyPublic)}`).toEqual([]);
 

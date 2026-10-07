@@ -172,6 +172,8 @@ const PUBLIC_ROUTES = new Set<string>([
   // this set is the only thing that actually exempts a route. A prospect
   // has to be able to see pricing before they have an API key at all.
   'GET /v1/plans',
+  // The institution API contract, for the same reason: read it before you hold a key.
+  'GET /v1/openapi.json',
 ]);
 
 /**
@@ -251,6 +253,9 @@ function routeKey(method: string, pattern: string): string {
 export function requiredScopeFor(method: string, pattern: string): Scope {
   return ROUTE_SCOPES[routeKey(method, pattern)] ?? SCOPES.ADMIN;
 }
+
+/** Every route pattern the scope table names, so a test can check each is documented or consciously left out. */
+export const SCOPED_ROUTES: string[] = Object.keys(ROUTE_SCOPES);
 
 export function isPublicRoute(method: string, pattern: string): boolean {
   return PUBLIC_ROUTES.has(routeKey(method, pattern));
