@@ -11,8 +11,20 @@ import { Decision } from './types';
 const MAX_ENTRIES = 500;
 const log: Decision[] = [];
 
+/** Where decisions are made durable. Set by persistence.ts when a database is configured. */
+export interface DecisionSink { record(d: Decision): void }
+let sink: DecisionSink | null = null;
+export function setDecisionSink(s: DecisionSink | null): void { sink = s; }
+
+/** Load the stored recent decisions, oldest first. */
+export function hydrateDecisions(decisions: Decision[]): void {
+  log.length = 0;
+  log.push(...decisions.slice(-MAX_ENTRIES));
+}
+
 export function recordDecision(decision: Decision): void {
   log.push(decision);
+  sink?.record(decision);
   if (log.length > MAX_ENTRIES) {
     log.splice(0, log.length - MAX_ENTRIES);
   }

@@ -40,6 +40,7 @@ import {
 } from './policies';
 import { decide, fetchReputation } from './risk-scorer';
 import { recordDecision, getDecisionHistory } from './decision-log';
+import { initPersistence, persistenceFailures } from './persistence';
 import { recordTransaction, getVelocity } from './velocity';
 import { registerAuth } from './auth';
 import { instrumentationPlugin } from './lib/instrumentation';
@@ -166,6 +167,7 @@ async function buildApp() {
     port:             PORT,
     agentIdentityUrl: AGENT_IDENTITY_URL,
     policyCount:      listPolicies().length,
+    persistenceFailures: persistenceFailures(),
     timestamp:        new Date().toISOString(),
   }));
 
@@ -292,6 +294,8 @@ async function buildApp() {
 // ── Startup ───────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
+  // Load policies, limits, spend windows and history before taking traffic (refuses to start in production without a database).
+  await initPersistence();
   const app = await buildApp();
 
   const shutdown = async () => {

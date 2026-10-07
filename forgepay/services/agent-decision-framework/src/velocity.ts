@@ -2,9 +2,8 @@
  * Agent Velocity Tracker
  *
  * Per-agent rolling spend windows used by the risk scorer to detect bursts
- * of activity that exceed daily limits. In production this would be backed
- * by Redis sorted sets or a time-series store. Here we keep an in-memory
- * ring buffer per agent, pruned lazily on read.
+ * of activity that exceed daily limits. Held in memory per agent (pruned on write) and written
+ * through to Postgres by persistence.ts, so a restart does not reset anyone's window.
  */
 
 import { VelocityEntry, VelocityWindow } from './types';
@@ -15,12 +14,28 @@ const WINDOW_1H_MS  =           60 * 60 * 1000;
 
 const ledger: Map<string, VelocityEntry[]> = new Map();
 
+/** Where entries are made durable. Set by persistence.ts when a database is configured. */
+export interface VelocitySink { record(agentId: string, timestamp: number, amountUsd: number): void }
+let sink: VelocitySink | null = null;
+export function setVelocitySink(s: VelocitySink | null): void { sink = s; }
+
+/** Load stored entries (inside the longest window) so a restart does not reset anyone's spend window. */
+export function hydrateVelocity(entries: Array<{ agentId: string; timestamp: number; amountUsd: number }>): void {
+  ledger.clear();
+  for (const e of entries) {
+    const list = ledger.get(e.agentId) ?? [];
+    list.push({ timestamp: e.timestamp, amountUsd: e.amountUsd });
+    ledger.set(e.agentId, list);
+  }
+}
+
 export function recordTransaction(agentId: string, amountUsd: number, timestamp?: number): void {
   const ts      = timestamp ?? Date.now();
   const entries = ledger.get(agentId) ?? [];
   entries.push({ timestamp: ts, amountUsd });
   ledger.set(agentId, entries);
   prune(agentId, ts);
+  sink?.record(agentId, ts, amountUsd);
 }
 
 export function getVelocity(agentId: string, now?: number): VelocityWindow {

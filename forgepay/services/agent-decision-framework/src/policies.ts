@@ -16,6 +16,27 @@ import { AgentPolicy, DecisionPolicy } from './types';
 
 const policies: Map<string, DecisionPolicy> = new Map();
 
+/** Where changes are made durable. Set by persistence.ts when a database is configured. */
+export interface PolicySink {
+  upsertPolicy(p: DecisionPolicy): void;
+  removePolicy(id: string): void;
+  upsertAgentPolicy(p: AgentPolicy): void;
+}
+let sink: PolicySink | null = null;
+export function setPolicySink(s: PolicySink | null): void { sink = s; }
+
+/** Replace in-memory policies with what was stored (even if empty: an operator may have deleted them all). */
+export function hydratePolicies(globals: DecisionPolicy[], agents: AgentPolicy[]): void {
+  policies.clear();
+  agentPolicies.clear();
+  for (const g of globals) policies.set(g.id, g);
+  for (const a of agents) agentPolicies.set(a.agentId, a);
+}
+
+export function listDefaultPolicies(): DecisionPolicy[] {
+  return DEFAULT_POLICIES.map((p) => ({ ...p, params: { ...p.params } }));
+}
+
 const DEFAULT_POLICIES: DecisionPolicy[] = [
   { id: 'p1', name: 'Block sub-30 reputation', type: 'block_low_reputation',    params: { minReputation: 30 },     enabled: true },
   { id: 'p2', name: 'Approval over $50k',      type: 'require_approval_above',  params: { thresholdUsd: 50_000 },  enabled: true },
@@ -39,6 +60,7 @@ export function getPolicy(id: string): DecisionPolicy | undefined {
 
 export function addPolicy(policy: DecisionPolicy): DecisionPolicy {
   policies.set(policy.id, policy);
+  sink?.upsertPolicy(policy);
   return policy;
 }
 
@@ -52,11 +74,14 @@ export function updatePolicy(id: string, patch: Partial<DecisionPolicy>): Decisi
     params: { ...existing.params, ...(patch.params ?? {}) },
   };
   policies.set(id, merged);
+  sink?.upsertPolicy(merged);
   return merged;
 }
 
 export function deletePolicy(id: string): boolean {
-  return policies.delete(id);
+  const removed = policies.delete(id);
+  if (removed) sink?.removePolicy(id);
+  return removed;
 }
 
 export function resetPolicies(): void {
@@ -90,6 +115,7 @@ export function setAgentPolicy(agentId: string, patch: Partial<Omit<AgentPolicy,
     blockedCounterparties: patch.blockedCounterparties ?? current.blockedCounterparties,
   };
   agentPolicies.set(agentId, merged);
+  sink?.upsertAgentPolicy(merged);
   return merged;
 }
 
