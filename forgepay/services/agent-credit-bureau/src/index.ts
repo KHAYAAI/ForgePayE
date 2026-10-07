@@ -38,16 +38,20 @@
 import { config as loadEnv } from 'dotenv';
 loadEnv({ override: false });
 
-import Fastify, { FastifyError, type FastifyInstance } from 'fastify';
+import Fastify, { FastifyError, type FastifyInstance, type FastifyReply } from 'fastify';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import helmet from '@fastify/helmet';
 import { z } from 'zod';
 import { randomUUID, randomBytes } from 'crypto';
-import { registerAuth, hashApiKey, redactContributor, contributorAccessError } from './auth';
+import { registerAuth, hashApiKey, redactContributor, contributorAccessError, type AuthContext } from './auth';
 import { issueKey, listKeys, revokeKey, MAX_ACTIVE_KEYS } from './contributor-keys';
 import { openApiDocument } from './openapi';
 import { checkPullCap, parseLimits, recordPull } from './institution-limits';
+import {
+  assertWebhookConfig, emitEvent, enableEndpoint, endpointView, getDelivery, getEndpoint, listDeliveries, listEndpoints, redeliver,
+  registerEndpoint, removeEndpoint, rotateSecret, startWebhookWorker, stopWebhookWorker, WEBHOOK_EVENTS,
+} from './webhooks';
 import { isSandbox, assertSandboxSafe, environmentName, SANDBOX_CHARGE, registerSandboxHeader } from './sandbox';
 import { isValidDid, isAddressBody, addressFromDid, toChecksumAddress, sameAddress } from './did';
 import { issueConsent, verifyConsent, revokeConsentDurable, consumeConsentDurable, isSpent, isRevoked, type ConsentPurpose } from './consent';
@@ -366,6 +370,18 @@ export function trustProxyHops(raw: string | undefined): false | ((address: stri
   return Number.isInteger(n) && n > 0 ? (_address, hop) => hop < n : false;
 }
 
+/**
+ * Tell every institution that furnished for this agent when its tier moved. Queued, never awaited for delivery.
+ */
+function notifyTierChange(profile: AgentCreditProfile, tierBefore: string): void {
+  if (profile.tier === tierBefore) return;
+  const furnishers = new Set(profile.creditHistory.map((e) => e.contributorId).filter((c): c is string => !!c));
+  for (const contributorId of furnishers) {
+    emitEvent(contributorId, 'agent.tier_changed', { agentId: profile.agentId, from: tierBefore, to: profile.tier, score: profile.currentScore })
+      .catch((e) => console.error('[credit-bureau] could not queue agent.tier_changed', e));
+  }
+}
+
 async function buildApp() {
   const app: FastifyInstance = Fastify({
     logger:     { level: process.env['LOG_LEVEL'] ?? 'info' },
@@ -404,6 +420,7 @@ async function buildApp() {
   // Sandbox: refuses to build if it could touch real money, and labels every response (see sandbox.ts).
   assertSandboxSafe();
   registerSandboxHeader(app);
+  assertWebhookConfig(); // production needs WEBHOOK_SIGNING_MASTER, so a missing one stops the boot rather than the first delivery
 
   // GET /v1/openapi.json: the institution API contract (public)
   app.get('/v1/openapi.json', async (_req, reply) => reply.send(openApiDocument));
@@ -1797,6 +1814,13 @@ async function buildApp() {
     };
 
     setDispute(dispute);
+    // Tell the furnisher whose data is disputed. Queued, never awaited for delivery: the filer's request is not held up by a receiver.
+    if (dispute.furnisherId) {
+      emitEvent(dispute.furnisherId, 'dispute.opened', {
+        disputeId: dispute.id, agentId: dispute.agentId, eventId: dispute.eventId, externalId: disputedEvent.externalId ?? null,
+        description: dispute.description, filedAt: dispute.filedAt,
+      }).catch((e) => req.log.error({ err: e }, 'could not queue dispute.opened'));
+    }
     return reply.status(201).send({ data: dispute });
   });
 
@@ -1833,9 +1857,18 @@ async function buildApp() {
       return reply.status(statusCode).send({ error: 'DisputeResolutionError', reason: result.error, message: result.message });
     }
 
+    const tierBefore = profile.tier;
     setDispute(result.dispute);
+    // Only a real resolution is announced; moving a dispute to 'investigating' is not one.
+    if (dispute.furnisherId && result.dispute.status.startsWith('resolved_')) {
+      emitEvent(dispute.furnisherId, 'dispute.resolved', {
+        disputeId: dispute.id, agentId: dispute.agentId, eventId: dispute.eventId, outcome: result.dispute.status,
+        resolution: result.dispute.resolution ?? null, dataChanged: result.historyChanged,
+      }).catch((e) => req.log.error({ err: e }, 'could not queue dispute.resolved'));
+    }
     if (result.historyChanged) {
       setProfile(result.profile);
+      notifyTierChange(result.profile, tierBefore);
 
       // The information a furnisher notification needs — no delivery
       // transport exists yet, so this is the audit trail for when one does.
@@ -1936,6 +1969,86 @@ async function buildApp() {
     return reply.send({
       data: { ...redactContributor(contributor), previousStatus: previous },
     });
+  });
+
+  // ── Webhooks ──────────────────────────────────────────────────────────────
+  // An institution registers HTTPS endpoints and the bureau pushes signed events to them (see webhooks.ts). It manages only its
+  // own; an operator may act for any institution.
+  const ownedEndpoint = (contributorId: string, webhookId: string) => {
+    const e = getEndpoint(webhookId);
+    return e && e.contributorId === contributorId ? e : undefined;
+  };
+  const guardOwner = (req: { auth?: AuthContext }, reply: FastifyReply, id: string): boolean => {
+    const denied = contributorAccessError(req.auth, id);
+    if (denied) { reply.status(403).send(denied); return false; }
+    if (!getContributor(id)) { reply.status(404).send({ error: 'NotFound', message: 'Contributor not found' }); return false; }
+    return true;
+  };
+
+  app.get<{ Params: { id: string } }>('/v1/contributors/:id/webhooks', async (req, reply) => {
+    if (!guardOwner(req, reply, req.params.id)) return;
+    return reply.send({ data: { endpoints: listEndpoints(req.params.id).map(endpointView), events: WEBHOOK_EVENTS } });
+  });
+
+  app.post<{ Params: { id: string } }>('/v1/contributors/:id/webhooks', async (req, reply) => {
+    if (!guardOwner(req, reply, req.params.id)) return;
+    const body = (req.body ?? {}) as { url?: unknown; events?: unknown };
+    const result = await registerEndpoint(req.params.id, body.url, body.events);
+    if (result.ok === false) return reply.status(result.status).send({ error: result.error, message: result.message });
+    req.log.warn({ contributorId: req.params.id, webhookId: result.endpoint.id, url: result.endpoint.url, events: result.endpoint.events }, 'webhook endpoint registered');
+    return reply.status(201).send({
+      data: { endpoint: endpointView(result.endpoint), secret: result.secret, note: 'Store this signing secret now. It cannot be shown again; rotate to get a new one.' },
+    });
+  });
+
+  app.delete<{ Params: { id: string; webhookId: string } }>('/v1/contributors/:id/webhooks/:webhookId', async (req, reply) => {
+    if (!guardOwner(req, reply, req.params.id)) return;
+    if (!ownedEndpoint(req.params.id, req.params.webhookId)) return reply.status(404).send({ error: 'NotFound', message: 'No such webhook.' });
+    await removeEndpoint(req.params.webhookId);
+    req.log.warn({ contributorId: req.params.id, webhookId: req.params.webhookId }, 'webhook endpoint removed');
+    return reply.send({ data: { id: req.params.webhookId, removed: true } });
+  });
+
+  app.post<{ Params: { id: string; webhookId: string } }>('/v1/contributors/:id/webhooks/:webhookId/rotate-secret', async (req, reply) => {
+    if (!guardOwner(req, reply, req.params.id)) return;
+    if (!ownedEndpoint(req.params.id, req.params.webhookId)) return reply.status(404).send({ error: 'NotFound', message: 'No such webhook.' });
+    const secret = await rotateSecret(req.params.webhookId);
+    req.log.warn({ contributorId: req.params.id, webhookId: req.params.webhookId }, 'webhook secret rotated');
+    return reply.send({ data: { id: req.params.webhookId, secret, note: 'The old secret stops working at once. Store this one now.' } });
+  });
+
+  app.post<{ Params: { id: string; webhookId: string } }>('/v1/contributors/:id/webhooks/:webhookId/test', async (req, reply) => {
+    if (!guardOwner(req, reply, req.params.id)) return;
+    const endpoint = ownedEndpoint(req.params.id, req.params.webhookId);
+    if (!endpoint) return reply.status(404).send({ error: 'NotFound', message: 'No such webhook.' });
+    // A test goes to this endpoint only, whatever it subscribed to.
+    const saved = endpoint.events;
+    endpoint.events = [...saved, 'webhook.test'];
+    const queued = await emitEvent(req.params.id, 'webhook.test', { message: 'This is a test delivery from the FORGE credit bureau.', webhookId: endpoint.id });
+    endpoint.events = saved;
+    return reply.status(202).send({ data: { queued, note: 'Queued. Watch GET /v1/contributors/:id/webhook-deliveries.' } });
+  });
+
+  app.post<{ Params: { id: string; webhookId: string } }>('/v1/contributors/:id/webhooks/:webhookId/enable', async (req, reply) => {
+    if (!guardOwner(req, reply, req.params.id)) return;
+    if (!ownedEndpoint(req.params.id, req.params.webhookId)) return reply.status(404).send({ error: 'NotFound', message: 'No such webhook.' });
+    return reply.send({ data: { endpoint: endpointView((await enableEndpoint(req.params.webhookId))!) } });
+  });
+
+  app.get<{ Params: { id: string }; Querystring: { limit?: string } }>('/v1/contributors/:id/webhook-deliveries', async (req, reply) => {
+    if (!guardOwner(req, reply, req.params.id)) return;
+    const limit = Math.min(Math.max(parseInt((req.query as { limit?: string }).limit ?? '50', 10) || 50, 1), 200);
+    const rows = listDeliveries(req.params.id, limit).map(({ body: _body, ...d }) => d); // the body can hold agent data; the log shows outcomes only
+    return reply.send({ data: rows });
+  });
+
+  app.post<{ Params: { id: string; deliveryId: string } }>('/v1/contributors/:id/webhook-deliveries/:deliveryId/redeliver', async (req, reply) => {
+    if (!guardOwner(req, reply, req.params.id)) return;
+    const d = getDelivery(req.params.deliveryId);
+    if (!d || d.contributorId !== req.params.id) return reply.status(404).send({ error: 'NotFound', message: 'No such delivery.' });
+    if (d.status === 'pending') return reply.status(409).send({ error: 'AlreadyPending', message: 'That delivery is still being attempted.' });
+    await redeliver(d.id);
+    return reply.status(202).send({ data: { id: d.id, status: 'pending' } });
   });
 
   // PUT /v1/contributors/:id/limits: an operator sets an institution's request and daily-pull limits. Admin only by deny-by-default.
@@ -2085,6 +2198,7 @@ async function buildApp() {
     if (!profile) {
       return reply.status(404).send({ error: 'NotFound', message: `Agent ${agentId} not registered — register the agent first` });
     }
+    const tierBeforeIngest = profile.tier;
 
     // A furnisher may only report credit it extended itself. `creditorId` used
     // to be trusted straight from the payload, so any furnisher could attribute
@@ -2178,6 +2292,7 @@ async function buildApp() {
     profile.lastUpdatedAt = new Date().toISOString();
     const updated = deriveScoreFields(profile);
     setProfile(updated);
+    notifyTierChange(updated, tierBeforeIngest);
 
     return reply.status(201).send({
       data: {
@@ -2395,6 +2510,7 @@ async function main(): Promise<void> {
 
   const shutdown = async () => {
     app.log.info('[credit-bureau] Shutting down...');
+    stopWebhookWorker();
     await app.close();
     process.exit(0);
   };
@@ -2402,6 +2518,9 @@ async function main(): Promise<void> {
   process.on('SIGINT',  shutdown);
 
   await app.listen({ port: PORT, host: '0.0.0.0' });
+
+  // Send queued webhook deliveries (and anything left pending by a restart).
+  startWebhookWorker();
 
   // Start Mode 2 settlement scheduler (runs even if chain is unconfigured — no-ops gracefully)
   startSettlementScheduler();

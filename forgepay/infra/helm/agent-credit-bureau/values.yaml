@@ -34,7 +34,7 @@ env:
   # Proxies in front of the bureau (ingress = 1; CloudFront plus a load balancer in front of ingress = 2 or 3).
   TRUST_PROXY_HOPS: '1'
 # Secrets are NOT set here. Create a Kubernetes Secret named <release>-agent-credit-bureau-secrets (from AWS Secrets Manager
-# or Vault) holding at least: DATABASE_URL, BUREAU_ADMIN_API_KEY, CONSENT_SIGNING_SECRET (each key 32+ random characters),
+# or Vault) holding at least: DATABASE_URL, BUREAU_ADMIN_API_KEY, CONSENT_SIGNING_SECRET, WEBHOOK_SIGNING_MASTER (each 32+ random characters),
 # REDIS_URL, and COMPLIANCE_MONITOR_API_KEY. The bureau stops at startup in production if any required one is missing.
 # Check the full set with forgepay/infra/launch/bureau/preflight.mjs before installing.
 livenessProbe:

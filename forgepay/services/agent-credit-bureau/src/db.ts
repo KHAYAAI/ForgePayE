@@ -338,6 +338,27 @@ export async function runMigrations(): Promise<void> {
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
 
+      -- Webhooks to institutions: their endpoints, and the outbox of deliveries (written before an attempt, so a restart loses none).
+      CREATE TABLE IF NOT EXISTS webhook_endpoints (
+        id TEXT PRIMARY KEY,
+        contributor_id TEXT NOT NULL,
+        data JSONB NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_webhook_endpoints_contributor ON webhook_endpoints(contributor_id);
+      CREATE TABLE IF NOT EXISTS webhook_deliveries (
+        id TEXT PRIMARY KEY,
+        endpoint_id TEXT NOT NULL,
+        contributor_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        next_attempt_at BIGINT NOT NULL,
+        data JSONB NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_due ON webhook_deliveries(status, next_attempt_at);
+      CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_contributor ON webhook_deliveries(contributor_id, created_at DESC);
+
       -- Consent tokens that have been spent or revoked, until they would have expired anyway. Without this a restart made
       -- a revoked consent work again and let a used one be replayed. exp is unix seconds, as in the token.
       CREATE TABLE IF NOT EXISTS consent_tokens (
@@ -351,6 +372,40 @@ export async function runMigrations(): Promise<void> {
   } finally {
     client.release();
   }
+}
+
+// ── Repository: webhooks ────────────────────────────────────────────────────────
+
+export async function upsertWebhookEndpoint(e: { id: string; contributorId: string }): Promise<void> {
+  await pool.query(
+    `INSERT INTO webhook_endpoints (id, contributor_id, data, updated_at) VALUES ($1, $2, $3, NOW())
+     ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()`,
+    [e.id, e.contributorId, JSON.stringify(e)],
+  );
+}
+
+export async function deleteWebhookEndpoint(id: string): Promise<void> {
+  await pool.query(`DELETE FROM webhook_endpoints WHERE id = $1`, [id]);
+}
+
+export async function upsertWebhookDelivery(d: { id: string; endpointId: string; contributorId: string; status: string; nextAttemptAt: number }): Promise<void> {
+  await pool.query(
+    `INSERT INTO webhook_deliveries (id, endpoint_id, contributor_id, status, next_attempt_at, data, updated_at) VALUES ($1, $2, $3, $4, $5, $6, NOW())
+     ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, next_attempt_at = EXCLUDED.next_attempt_at, data = EXCLUDED.data, updated_at = NOW()`,
+    [d.id, d.endpointId, d.contributorId, d.status, d.nextAttemptAt, JSON.stringify(d)],
+  );
+}
+
+/** Endpoints, every pending delivery, and the last week of finished ones (so the delivery log is still there after a restart). */
+export async function loadWebhooks<E, D>(): Promise<{ endpoints: E[]; deliveries: D[] }> {
+  await pool.query(`DELETE FROM webhook_deliveries WHERE status <> 'pending' AND created_at < NOW() - INTERVAL '30 days'`);
+  const [e, d] = await Promise.all([
+    pool.query<{ data: E }>(`SELECT data FROM webhook_endpoints`),
+    pool.query<{ data: D }>(
+      `SELECT data FROM webhook_deliveries WHERE status = 'pending' OR created_at > NOW() - INTERVAL '7 days' ORDER BY created_at`,
+    ),
+  ]);
+  return { endpoints: e.rows.map((r) => r.data), deliveries: d.rows.map((r) => r.data) };
 }
 
 // ── Repository: consent token state ────────────────────────────────────────────

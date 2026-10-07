@@ -206,6 +206,16 @@ const ROUTE_SCOPES: Record<string, Scope> = {
   'POST /v1/contributors/:id/keys':          SCOPES.SELF_SERVICE,
   'DELETE /v1/contributors/:id/keys/:keyId': SCOPES.SELF_SERVICE,
 
+  // Webhooks: an institution manages its own endpoints and reads its own delivery log.
+  'GET /v1/contributors/:id/webhooks':                                  SCOPES.SELF_SERVICE,
+  'POST /v1/contributors/:id/webhooks':                                 SCOPES.SELF_SERVICE,
+  'DELETE /v1/contributors/:id/webhooks/:webhookId':                    SCOPES.SELF_SERVICE,
+  'POST /v1/contributors/:id/webhooks/:webhookId/rotate-secret':        SCOPES.SELF_SERVICE,
+  'POST /v1/contributors/:id/webhooks/:webhookId/test':                 SCOPES.SELF_SERVICE,
+  'POST /v1/contributors/:id/webhooks/:webhookId/enable':               SCOPES.SELF_SERVICE,
+  'GET /v1/contributors/:id/webhook-deliveries':                        SCOPES.SELF_SERVICE,
+  'POST /v1/contributors/:id/webhook-deliveries/:deliveryId/redeliver': SCOPES.SELF_SERVICE,
+
   // Sandbox only (the route exists only when BUREAU_SANDBOX=true): a partner issues itself a consent token for a test agent.
   'POST /v1/sandbox/consent':                SCOPES.PULL_SCORES,
 

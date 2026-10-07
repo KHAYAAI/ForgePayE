@@ -14,7 +14,7 @@ FORGE registers and activates your institution (an operator action), and gives y
 - an **API key** (shown once; store it in your secret manager),
 - the **scopes** you need: `ingest_events` (report repayments), `pull_scores` (read scores and pull reports), `read_profile` (read histories, file disputes).
 
-Send the key as `X-API-Key: <key>` or `Authorization: Bearer <key>`. You can issue, rotate and revoke your own keys (section 8).
+Send the key as `X-API-Key: <key>` or `Authorization: Bearer <key>`. You can issue, rotate and revoke your own keys (section 9).
 
 You get a **sandbox** first: the same API with free inquiries and test data, at its own address. It labels itself with the response header
 `X-Forge-Environment: sandbox` and `"environment": "sandbox"` on `/health`. Nothing you send there reaches a real credit file.
@@ -44,7 +44,7 @@ curl -X POST $B/v1/contributors/$ID/ingest -H "x-api-key: $K" -H "$J" -d '{
 curl $B/v1/agents/acme_1/score -H "x-api-key: $K"
 ```
 
-Then run the conformance script (section 10) to check your whole integration.
+Then run the conformance script (section 11) to check your whole integration.
 
 ## 3. Reporting repayments (furnishing)
 
@@ -100,19 +100,59 @@ Anyone with `read_profile` can open a dispute on a reported event: `POST /v1/age
 The bureau investigates and resolves it (upheld, corrected or deleted). The furnisher is taken from the event itself, not named by whoever files.
 As a furnisher you should expect disputes on your data and be ready to evidence your records.
 
-## 7. Billing
+## 7. Webhooks
+
+Instead of polling, register an HTTPS endpoint and the bureau pushes signed events to it.
+
+```bash
+curl -X POST $B/v1/contributors/$ID/webhooks -H "x-api-key: $K" -H "$J" -d '{"url":"https://hooks.your-institution.example/forge"}'
+# -> 201 {"endpoint":{"id":"wh_..."...},"secret":"whsec_..."}   the secret is shown once
+curl -X POST $B/v1/contributors/$ID/webhooks/wh_.../test -H "x-api-key: $K"    # sends a webhook.test event
+curl $B/v1/contributors/$ID/webhook-deliveries -H "x-api-key: $K"                # outcomes: status, attempts, last HTTP status or error
+```
+
+| Event | When |
+|---|---|
+| `dispute.opened` | A dispute was filed against an event you furnished. Carries your own `externalId` for it, so you can match your records. |
+| `dispute.resolved` | The dispute was resolved (upheld, corrected or deleted). `dataChanged` says whether your reported data was corrected or removed. |
+| `agent.tier_changed` | An agent you furnished for moved to a different tier (`from`, `to`, `score`). |
+
+**Verify every delivery.** Each is a POST of the JSON event with `X-Forge-Event`, `X-Forge-Delivery`, `X-Forge-Timestamp` and `X-Forge-Signature: v1=<hex>`, where the signature is HMAC-SHA256 of
+`<timestamp>.<raw body>` with your secret. Use the **raw** body, reject a timestamp more than five minutes old, and compare in constant time:
+
+```js
+import { createHmac, timingSafeEqual } from 'node:crypto';
+
+function verify(req, rawBody, secret) {
+  const ts = req.headers['x-forge-timestamp'];
+  const given = req.headers['x-forge-signature'] ?? '';
+  if (!Number.isInteger(Number(ts)) || Math.abs(Date.now() / 1000 - Number(ts)) > 300) return false;   // stale or replayed
+  const expected = 'v1=' + createHmac('sha256', secret).update(`${ts}.${rawBody}`).digest('hex');
+  return given.length === expected.length && timingSafeEqual(Buffer.from(given), Buffer.from(expected));
+}
+```
+
+**Delivery is at least once.** Any 2xx response is success. Anything else, or a timeout (5 seconds), is retried after 30 seconds, 2 minutes, 10 minutes, 1 hour and 6 hours, then the delivery is marked
+`failed`. The same event is sent with the same `X-Forge-Delivery` id each time, so **de-duplicate on that id**. A failed delivery can be re-sent: `POST .../webhook-deliveries/{id}/redeliver`.
+If five deliveries in a row fail after every retry, the endpoint is disabled (re-enable it with `POST .../webhooks/{id}/enable`). Queued deliveries survive a restart of the bureau.
+
+**Where it may point.** The URL must be `https`, carry no credentials, and resolve only to public addresses (checked when you register and again on every delivery); redirects are not followed.
+You can hold up to 5 endpoints, rotate a secret at any time (`POST .../rotate-secret`: the old one stops working at once), and subscribe each to the events it needs. The bureau never waits for your
+endpoint before answering the request that caused an event.
+
+## 8. Billing
 
 You pay per inquiry from a **prepaid balance** in a stablecoin (USDC; ZARP and OUSD are on hold). `GET /v1/billing/{your id}/account` shows the balance and pulls remaining;
 `POST /v1/billing/{your id}/topup` starts a top-up and `…/topup/{receiptId}/confirm` confirms it once paid. You can read only your own account.
 Plans and volume pricing are at `GET /v1/plans`.
 
-## 8. Keys: issue, rotate, revoke
+## 9. Keys: issue, rotate, revoke
 
 You can hold up to **5 active keys**. To rotate with no downtime: `POST /v1/contributors/{id}/keys` (the new key is shown once), move your systems over, then
 `DELETE /v1/contributors/{id}/keys/{oldKeyId}`. Your registration key is `primary`. You cannot revoke your only active key; if a key leaks and it is your last, ask the bureau
 operator to revoke it. `GET /v1/contributors/{id}/keys` lists keys with their status and last use, never the key itself. You can set an expiry when you issue one.
 
-## 9. Errors and limits
+## 10. Errors and limits
 
 Errors are `{ "error": "<Name>", "message": "…" }`.
 
@@ -132,7 +172,7 @@ A refused daily-cap pull returns 429 `DailyPullLimit` before anything is charged
 `GET /v1/contributors/{id}/stats` shows your limits and today's pull count. There is also a flood guard per client address on every request; if many of your systems share one address and you see 429 on unauthenticated calls, tell the operator.
 Ask the operator to change your limits; you cannot raise them yourself.
 
-## 10. Check your integration
+## 11. Check your integration
 
 `scripts/partner-conformance.mjs` (in the bureau service, Node 18 or newer, no packages) runs about 30 checks against **your sandbox**: registration, repayment reporting
 and idempotency, validation, scoring, consent and the lender report, disputes and key rotation. It **refuses to run against a live service** because it writes test data.
@@ -143,18 +183,17 @@ node scripts/partner-conformance.mjs --base-url https://<sandbox> --key <your ke
 
 Exit code 0 means every check passed. Run it before going live and after any change to your integration.
 
-## 11. Going live
+## 12. Going live
 
 - [ ] The conformance script passes against the sandbox.
 - [ ] Your key is in a secret manager, and you have practised a rotation.
 - [ ] You report every repayment, including late ones, with stable `externalId`s, and your retries are safe.
 - [ ] Your underwriting handles a `decline` for `THIN_FILE`, and reads reason codes rather than only the score.
-- [ ] You have a process for disputes on your data.
+- [ ] You have a process for disputes on your data, and a webhook endpoint that verifies signatures and de-duplicates on `X-Forge-Delivery`.
 - [ ] Your institution is activated on the live service and funded for pulls.
 
 ## Not available yet (as of 7 October 2026)
 
-- **Webhooks.** Nothing pushes events to you (a dispute opened, a score band change). Poll.
 - **Mode 2 data.** On-chain scoring has almost nothing to read for most agents.
 - **Zero-knowledge proofs.** Not offered.
 - **Company-register verification of operators.** The check exists as a seam; no register provider is connected yet, so an operator's registration is as submitted.

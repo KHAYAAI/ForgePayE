@@ -8,6 +8,7 @@
  *   node scripts/partner-conformance.mjs --base-url https://sandbox.example.com --key ck_... --institution-id <your id>
  *
  * Your key needs these scopes: ingest_events, pull_scores, read_profile.
+ * Optional: add --webhook-url <an https endpoint of yours that returns 2xx> to check webhook delivery as well.
  * Exit code 0 means every check passed.
  */
 
@@ -122,6 +123,24 @@ check('the new key works at once', (await call('GET', `/v1/contributors/${INST}/
 check('the key list never shows key material', !JSON.stringify((await call('GET', `/v1/contributors/${INST}/keys`)).json).includes(newKey ?? 'x'));
 check('the new key can be revoked', (await call('DELETE', `/v1/contributors/${INST}/keys/${newKeyId}`)).status === 200);
 check('a revoked key is refused (401)', (await call('GET', `/v1/contributors/${INST}/keys`, { key: newKey })).status === 401);
+
+// 8. Webhooks (optional: pass --webhook-url <your https endpoint> and have it return 2xx)
+if (args['webhook-url']) {
+  const reg = await call('POST', `/v1/contributors/${INST}/webhooks`, { body: { url: args['webhook-url'], events: ['dispute.opened', 'webhook.test'] } });
+  check('a webhook endpoint can be registered', reg.status === 201 && !!reg.json?.data?.secret, `got ${reg.status} ${JSON.stringify(reg.json)?.slice(0, 160)}`);
+  const hookId = reg.json?.data?.endpoint?.id;
+  check('the signing secret is shown at registration but never in the list', !JSON.stringify((await call('GET', `/v1/contributors/${INST}/webhooks`)).json).includes(reg.json?.data?.secret ?? 'x'));
+  check('a test event is queued', (await call('POST', `/v1/contributors/${INST}/webhooks/${hookId}/test`)).status === 202);
+  let delivered = null;
+  for (let i = 0; i < 15 && !delivered; i++) {
+    await new Promise((r) => setTimeout(r, 1000));
+    const log = await call('GET', `/v1/contributors/${INST}/webhook-deliveries`);
+    delivered = (log.json?.data ?? []).find((d) => d.event === 'webhook.test' && d.status === 'delivered') ?? null;
+  }
+  check('your endpoint received and acknowledged the test event (2xx)', !!delivered, 'no delivered webhook.test in the delivery log after 15s: check your endpoint returns 2xx quickly');
+  check('the delivery log shows outcomes but not the event body', !JSON.stringify((await call('GET', `/v1/contributors/${INST}/webhook-deliveries`)).json).includes('"body"'));
+  check('the endpoint can be removed', (await call('DELETE', `/v1/contributors/${INST}/webhooks/${hookId}`)).status === 200);
+}
 
 console.log(failures === 0 ? '\nAll checks passed.' : `\n${failures} check(s) failed.`);
 process.exit(failures === 0 ? 0 : 1);

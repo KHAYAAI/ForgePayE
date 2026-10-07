@@ -40,7 +40,7 @@ export const openApiDocument = {
   security: [{ ApiKey: [] }, { Bearer: [] }],
   tags: [
     { name: 'Agents' }, { name: 'Furnishing' }, { name: 'Lending' }, { name: 'Disputes' }, { name: 'Billing' },
-    { name: 'Keys' }, { name: 'Public' }, { name: 'Sandbox' },
+    { name: 'Keys' }, { name: 'Webhooks' }, { name: 'Public' }, { name: 'Sandbox' },
   ],
   paths: {
     '/health': { get: { tags: ['Public'], summary: 'Liveness, and which environment this is', security: [], responses: { 200: ok('OK') } } },
@@ -165,6 +165,39 @@ export const openApiDocument = {
       },
     },
 
+    '/v1/contributors/{id}/webhooks': {
+      get: { tags: ['Webhooks'], summary: 'List your webhook endpoints', description: 'Any active institution key; you see only your own.', parameters: [idParam('id', 'Your institution id')], responses: { 200: ok('Endpoints and the event names you can subscribe to', data()), 403: err } },
+      post: {
+        tags: ['Webhooks'], summary: 'Register a webhook endpoint',
+        description:
+          'The URL must be https, carry no credentials and resolve to a public address (checked now and again on every delivery); redirects are not followed. ' +
+          'The signing secret is shown once. Each delivery is a POST of the JSON event with `X-Forge-Event`, `X-Forge-Delivery` (the idempotency key: a retry repeats it), ' +
+          '`X-Forge-Timestamp` and `X-Forge-Signature: v1=<hex>`, where the signature is HMAC-SHA256 over `<timestamp>.<raw body>` with your secret. Reject a timestamp more than five minutes old. ' +
+          'Any 2xx is success; anything else is retried after 30s, 2m, 10m, 1h and 6h, then marked failed (you can redeliver it). Delivery is at least once. ' +
+          'Events: `dispute.opened` and `dispute.resolved` (about an event you furnished; `dataChanged` says whether your data was corrected or deleted) and `agent.tier_changed` (an agent you furnished for moved tier). Up to 5 endpoints.',
+        parameters: [idParam('id', 'Your institution id')], requestBody: body({ $ref: '#/components/schemas/RegisterWebhook' }),
+        responses: { 201: ok('The endpoint and its secret, shown once', data()), 400: err, 409: err },
+      },
+    },
+    '/v1/contributors/{id}/webhooks/{webhookId}': {
+      delete: { tags: ['Webhooks'], summary: 'Remove a webhook endpoint', description: 'Its queued deliveries are cancelled.', parameters: [idParam('id', 'Your institution id'), idParam('webhookId', 'Webhook id')], responses: { 200: ok('Removed', data()), 404: err } },
+    },
+    '/v1/contributors/{id}/webhooks/{webhookId}/rotate-secret': {
+      post: { tags: ['Webhooks'], summary: 'Rotate the signing secret', description: 'The old secret stops working at once; the new one is shown once.', parameters: [idParam('id', 'Your institution id'), idParam('webhookId', 'Webhook id')], responses: { 200: ok('The new secret', data()), 404: err } },
+    },
+    '/v1/contributors/{id}/webhooks/{webhookId}/test': {
+      post: { tags: ['Webhooks'], summary: 'Send a test event to this endpoint', description: 'Queues a `webhook.test` event. See the delivery log for the outcome.', parameters: [idParam('id', 'Your institution id'), idParam('webhookId', 'Webhook id')], responses: { 202: ok('Queued', data()), 404: err } },
+    },
+    '/v1/contributors/{id}/webhooks/{webhookId}/enable': {
+      post: { tags: ['Webhooks'], summary: 'Re-enable a disabled endpoint', description: 'An endpoint is disabled after five deliveries in a row fail after every retry.', parameters: [idParam('id', 'Your institution id'), idParam('webhookId', 'Webhook id')], responses: { 200: ok('The endpoint', data()), 404: err } },
+    },
+    '/v1/contributors/{id}/webhook-deliveries': {
+      get: { tags: ['Webhooks'], summary: 'Your delivery log', description: 'Outcomes only (status, attempts, last HTTP status or error), newest first.', parameters: [idParam('id', 'Your institution id'), { name: 'limit', in: 'query', schema: { type: 'integer', maximum: 200 } }], responses: { 200: ok('Deliveries'), 403: err } },
+    },
+    '/v1/contributors/{id}/webhook-deliveries/{deliveryId}/redeliver': {
+      post: { tags: ['Webhooks'], summary: 'Redeliver a failed or delivered event', description: 'Puts it back in the queue with fresh retries.', parameters: [idParam('id', 'Your institution id'), idParam('deliveryId', 'Delivery id')], responses: { 202: ok('Queued', data()), 404: err, 409: err } },
+    },
+
     '/v1/sandbox/consent': {
       post: {
         tags: ['Sandbox'], summary: 'Sandbox only: issue yourself a consent token for a test agent',
@@ -232,6 +265,10 @@ export const openApiDocument = {
         properties: { eventId: { type: 'string' }, description: { type: 'string', minLength: 10 }, evidence: { type: 'string' } },
       },
       TopUp: { type: 'object', required: ['amountUsd'], properties: { amountUsd: { type: 'number', maximum: 10000 }, asset: { type: 'string', enum: ['USDC', 'ZARP', 'OUSD'] } } },
+      RegisterWebhook: {
+        type: 'object', required: ['url'],
+        properties: { url: { type: 'string', format: 'uri', example: 'https://hooks.example.org/forge' }, events: { type: 'array', items: { type: 'string', enum: ['dispute.opened', 'dispute.resolved', 'agent.tier_changed', 'webhook.test'] }, description: 'Defaults to all but webhook.test' } },
+      },
       IssueKey: { type: 'object', properties: { label: { type: 'string', maxLength: 80 }, expiresInDays: { type: 'integer', minimum: 1, maximum: 730 } } },
     },
   },

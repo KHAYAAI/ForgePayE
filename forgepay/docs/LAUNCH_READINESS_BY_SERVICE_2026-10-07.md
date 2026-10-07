@@ -236,6 +236,8 @@ Built and verified (tests plus a run in production mode against real Postgres, a
 | **Published API contract** (`GET /v1/openapi.json`), integration guide (`launch/09`), and a **conformance script** that runs about 30 checks against a sandbox and refuses a live service | bureau | drift tests fail if the contract and the routes differ; CI boots a sandbox and runs the script |
 | **Operator-issued consent for lender pulls**: a workspace authorises a named lender for its own agent in the console, sees which are used, revokes its own | console, bureau | 14 tests; end to end across two workspaces, a lender and a bureau restart |
 | **Agent decision framework, institutional reporting, bank white-label persist their state** and refuse to start in production without a database | three services | unit tests, real-database tests, live restart checks |
+| **Per-institution limits**: a request budget per minute (with `X-RateLimit-*` headers and `Retry-After`) and an optional daily pull cap, set by an operator; the cap refuses before charging and does not burn the consent token | bureau | 13 tests, including a real pull refused at the cap |
+| **Signed webhooks to institutions** (`dispute.opened`, `dispute.resolved`, `agent.tier_changed`): HMAC-signed, durable outbox with retries over about seven hours, disabled after repeated failure, targets checked for public addresses at registration and at every connect, redirects not followed | bureau | 29 tests against a real local receiver; live across a real bureau restart (queued while the receiver was down, delivered after) |
 | **Bring your own wallet**: the non-custodial way to register an agent; the user signs a challenge, the console checks it, the agent is registered under `did:forge:0x<address>` | console | 12 tests with real signatures; end to end against a real bureau |
 | **The bureau's own tests now run in CI** (they did not before), plus persistence tests against Postgres | CI | |
 
@@ -248,4 +250,6 @@ Defects the building found, all fixed, each with a test that fails without the f
 5. The decision framework's **velocity limits reset on every restart**; policies fell back to defaults.
 
 Corrections to the table above: `bank-whitelabel`, `institutional-reporting` and `agent-decision-framework` no longer lose state, and the bank module's access hole is closed. Everything else in the table is unchanged. **Still true:** nothing has run on real infrastructure, no review has started, and `crypto-gateway`, `chain-sync`, `yield-engine` and `rwa-registry` are as described.
+
+Two things the webhook work found and fixed: the old global rate limiter's `X-RateLimit-*` headers masked an institution's own, and `dispute.resolved` first fired when a dispute only moved to "investigating". The dispute code's own note ("furnisher notification pending, no delivery transport wired") is now answered. New production setting: **`WEBHOOK_SIGNING_MASTER`** (32+ random characters); the bureau refuses to start in production without it, and the secret generator, launch template and preflight check include it.
 

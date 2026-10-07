@@ -27,6 +27,7 @@ const secret = (k, why) => {
 if (env.NODE_ENV !== 'production') problems.push('NODE_ENV must be production');
 secret('BUREAU_ADMIN_API_KEY', 'operator key, same value on the bureau and the console');
 secret('CONSENT_SIGNING_SECRET', 'signs consent tokens');
+secret('WEBHOOK_SIGNING_MASTER', 'derives the webhook signing secrets; the bureau refuses to start without it');
 secret('JWT_SECRET', 'signs console sessions');
 secret('INTERNAL_WEBHOOK_SECRET', 'console to router calls');
 need('DATABASE_URL', 'the bureau refuses to boot without persistence');
@@ -52,7 +53,7 @@ if ((env.FORGE_LAUNCHED_PRODUCTS ?? 'credit-bureau') !== 'credit-bureau') {
 }
 if (!env.TRUST_PROXY_HOPS) warnings.push('TRUST_PROXY_HOPS is not set: client IPs for rate limits and audit will be the proxy');
 if (env.ZK_STUB_PROOFS_ACKNOWLEDGED === 'true') warnings.push('ZK_STUB_PROOFS_ACKNOWLEDGED=true serves a stub, not a cryptographic proof');
-const keys = ['BUREAU_ADMIN_API_KEY', 'CONSENT_SIGNING_SECRET', 'JWT_SECRET', 'INTERNAL_WEBHOOK_SECRET'].map((k) => env[k]).filter(Boolean);
+const keys = ['BUREAU_ADMIN_API_KEY', 'CONSENT_SIGNING_SECRET', 'WEBHOOK_SIGNING_MASTER', 'JWT_SECRET', 'INTERNAL_WEBHOOK_SECRET'].map((k) => env[k]).filter(Boolean);
 if (new Set(keys).size !== keys.length) problems.push('two secrets share the same value; each must be generated separately');
 
 for (const w of warnings) console.log(`warn  ${w}`);

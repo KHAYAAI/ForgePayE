@@ -14,7 +14,8 @@ umask 177
 {
   echo "BUREAU_ADMIN_API_KEY=$(openssl rand -hex 32)"
   echo "CONSENT_SIGNING_SECRET=$(openssl rand -hex 32)"
+  echo "WEBHOOK_SIGNING_MASTER=$(openssl rand -hex 32)"
   echo "JWT_SECRET=$(openssl rand -hex 32)"
   echo "INTERNAL_WEBHOOK_SECRET=$(openssl rand -hex 32)"
 } > "$out"
-echo "wrote 4 secrets to $out (mode 0600). Store them in Secrets Manager, then delete the file."
+echo "wrote 5 secrets to $out (mode 0600). Store them in Secrets Manager, then delete the file."

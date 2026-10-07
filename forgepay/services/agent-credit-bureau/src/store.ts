@@ -31,7 +31,9 @@ import {
   upsertAttribution, upsertSubscription, upsertCreditBalance,
   loadAllAttributions, loadAllSubscriptions, loadAllCreditBalances,
   upsertConsentToken, loadLiveConsentTokens,
+  upsertWebhookEndpoint, deleteWebhookEndpoint, upsertWebhookDelivery, loadWebhooks,
 } from './db';
+import { hydrateWebhooks, setWebhookPersistence, type WebhookDelivery, type WebhookEndpoint } from './webhooks';
 import { hydrateConsentState, setConsentPersistence } from './consent';
 import { isSandbox } from './sandbox';
 
@@ -661,4 +663,14 @@ export async function initPersistence(): Promise<void> {
   hydrateConsentState(consentRows);
   setConsentPersistence({ write: (state, jti, exp) => persist('consent', () => upsertConsentToken(state, jti, exp)) });
   console.log(`[credit-bureau] hydrated ${consentRows.length} spent or revoked consent tokens`);
+
+  // Webhook endpoints and the delivery outbox: a delivery that was queued but not yet sent must still be sent after a restart.
+  const wh = await loadWebhooks<WebhookEndpoint, WebhookDelivery>();
+  hydrateWebhooks(wh);
+  setWebhookPersistence({
+    saveEndpoint: (e) => persist('webhook endpoint', () => upsertWebhookEndpoint(e)),
+    removeEndpoint: (id) => persist('webhook endpoint removal', () => deleteWebhookEndpoint(id)),
+    saveDelivery: (d) => persist('webhook delivery', () => upsertWebhookDelivery(d)),
+  });
+  console.log(`[credit-bureau] hydrated ${wh.endpoints.length} webhook endpoints, ${wh.deliveries.filter((d) => d.status === 'pending').length} pending deliveries`);
 }
