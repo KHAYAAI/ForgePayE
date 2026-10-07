@@ -381,14 +381,11 @@ jobs:
         service:
           - accounts-service
           - agent-credit-lines
-          - agent-decision-framework
           - agent-liquidity-manager
           - agent-negotiation
-          - bank-whitelabel
           - chain-sync
           - crypto-gateway
           - enterprise-treasury
-          - institutional-reporting
           - stablecoin-gateway
           - yield-engine
     defaults:
@@ -419,7 +416,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [bank-connectivity, rwa-registry]
+        service: [bank-connectivity, rwa-registry, agent-decision-framework, bank-whitelabel, institutional-reporting]
     defaults:
       run:
         working-directory: forgepay/services/${{ matrix.service }}
@@ -455,6 +452,7 @@ jobs:
         if: matrix.service == 'bank-connectivity'
         run: npx prisma migrate deploy
 
+      - run: npm run type-check --if-present
       - run: npm test
 
   # ── Credit bureau ────────────────────────────────────────────────────────────

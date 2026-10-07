@@ -24,7 +24,8 @@ import rateLimit from '@fastify/rate-limit';
 import helmet from '@fastify/helmet';
 import jwt from '@fastify/jwt';
 
-import { registerAuthRoutes } from './auth.js';
+import { registerAuthRoutes, registerBootstrapRoute } from './auth.js';
+import { initPersistence, persistenceFailures } from './persistence.js';
 import { registerBankRoutes } from './routes/banks.js';
 import { registerCustomerRoutes } from './routes/customers.js';
 import { registerTransactionRoutes } from './routes/transactions.js';
@@ -52,6 +53,8 @@ const CORS_ORIGINS = process.env['CORS_ORIGINS']?.split(',').map((o) => o.trim()
     : ['http://localhost:3000']);
 
 async function main(): Promise<void> {
+  // Load banks, admins, customers, transactions and the audit log before taking traffic (refuses to start in production without a database).
+  await initPersistence();
   const app = Fastify({
     logger: {
       level: process.env['LOG_LEVEL'] ?? 'info',
@@ -94,6 +97,7 @@ async function main(): Promise<void> {
     status:    'ok',
     service:   'bank-whitelabel',
     version:   '0.2.0',
+    persistenceFailures: persistenceFailures(),
     timestamp: new Date().toISOString(),
   }));
 
@@ -107,6 +111,7 @@ async function main(): Promise<void> {
   // ── Routes ────────────────────────────────────────────────────────────────
 
   await registerAuthRoutes(app);
+  await registerBootstrapRoute(app);
   await registerBankRoutes(app);
   await registerCustomerRoutes(app);
   await registerTransactionRoutes(app);

@@ -1,9 +1,10 @@
 /**
- * In-memory data store for the Bank White-Label Module.
+ * Data store for the Bank White-Label Module.
  *
- * Production note: Replace with PostgreSQL using per-bank schemas or row-level security.
- * Each Map here corresponds to a database table. The isolation pattern (filtering by bankId
- * before returning results) maps directly to WHERE bank_id = $1 queries in Postgres.
+ * Held in memory and written through to Postgres by persistence.ts, then loaded at start, so a restart no longer loses banks,
+ * admins, customers, transactions (which the daily-limit check reads) or the audit log. Each Map corresponds to a table. The
+ * isolation pattern (filtering by bankId before returning results) maps to WHERE bank_id = $1 queries in Postgres. Per-bank
+ * schemas or row-level security are still to do.
  */
 
 import { Bank, BankAdmin, BankCustomer, BankTransaction } from './types.js';
@@ -35,6 +36,20 @@ export function verifyPassword(password: string, stored: string): boolean {
   return false;
 }
 
+// ── Durability hook ───────────────────────────────────────────────────────────
+
+/** Where changes are made durable. Set by persistence.ts when a database is configured. */
+export interface StoreSink {
+  bank(b: Bank): void;
+  bankRemoved(id: string): void;
+  admin(a: BankAdmin): void;
+  customer(c: BankCustomer): void;
+  transaction(t: BankTransaction): void;
+  audit(e: AuditEntry): void;
+}
+let sink: StoreSink | null = null;
+export function setStoreSink(s: StoreSink | null): void { sink = s; }
+
 // ── Audit log ──────────────────────────────────────────────────────────────────
 
 export interface AuditEntry {
@@ -61,6 +76,7 @@ export const AuditLog = {
     };
     auditLog.push(full);
     if (auditLog.length > MAX_AUDIT_ENTRIES) auditLog.shift();
+    sink?.audit(full);
     return full;
   },
 
@@ -75,7 +91,11 @@ export const AuditLog = {
 
 // ── In-memory stores ──────────────────────────────────────────────────────────
 
-const banks: Map<string, Bank> = new Map([
+/**
+ * A demonstration bank, for development only. It used to exist in every environment, which put a named bank (and a
+ * signing key regenerated on every start) into production. In production the map starts empty and a super admin creates banks.
+ */
+const DEMO_BANKS: Array<[string, Bank]> = process.env['NODE_ENV'] === 'production' ? [] : [
   [
     'investec',
     {
@@ -94,11 +114,25 @@ const banks: Map<string, Bank> = new Map([
       adminEmails:         ['admin@investec.com'],
     },
   ],
-]);
+];
+
+const banks: Map<string, Bank> = new Map(DEMO_BANKS);
 
 const admins: Map<string, BankAdmin>       = new Map();
 const customers: Map<string, BankCustomer> = new Map();
 const transactions: Map<string, BankTransaction> = new Map();
+
+/** Replace in-memory state with what was stored (even if a table is empty: a bank may have been deleted on purpose). */
+export function hydrateStore(rows: {
+  banks: Bank[]; admins: BankAdmin[]; customers: BankCustomer[]; transactions: BankTransaction[]; audit: AuditEntry[];
+}): void {
+  banks.clear(); admins.clear(); customers.clear(); transactions.clear(); auditLog.length = 0;
+  for (const b of rows.banks) banks.set(b.id, b);
+  for (const a of rows.admins) admins.set(a.id, a);
+  for (const c of rows.customers) customers.set(c.id, c);
+  for (const t of rows.transactions) transactions.set(t.id, t);
+  auditLog.push(...rows.audit.slice(-MAX_AUDIT_ENTRIES));
+}
 
 // ── Banks CRUD ────────────────────────────────────────────────────────────────
 
@@ -112,6 +146,7 @@ export const Banks = {
 
   create: (bank: Bank): Bank => {
     banks.set(bank.id, bank);
+    sink?.bank(bank);
     return bank;
   },
 
@@ -120,10 +155,15 @@ export const Banks = {
     if (!existing) return null;
     const updated = { ...existing, ...updates };
     banks.set(id, updated);
+    sink?.bank(updated);
     return updated;
   },
 
-  delete: (id: string): boolean => banks.delete(id),
+  delete: (id: string): boolean => {
+    const removed = banks.delete(id);
+    if (removed) sink?.bankRemoved(id);
+    return removed;
+  },
 };
 
 // ── Admins CRUD ───────────────────────────────────────────────────────────────
@@ -141,13 +181,16 @@ export const Admins = {
 
   create: (admin: BankAdmin): BankAdmin => {
     admins.set(admin.id, admin);
+    sink?.admin(admin);
     return admin;
   },
 
   updateLastLogin: (id: string): void => {
     const admin = admins.get(id);
     if (admin) {
-      admins.set(id, { ...admin, lastLoginAt: new Date().toISOString() });
+      const updated = { ...admin, lastLoginAt: new Date().toISOString() };
+      admins.set(id, updated);
+      sink?.admin(updated);
     }
   },
 };
@@ -175,6 +218,7 @@ export const Customers = {
 
   create: (customer: BankCustomer): BankCustomer => {
     customers.set(customer.id, customer);
+    sink?.customer(customer);
     return customer;
   },
 
@@ -183,6 +227,7 @@ export const Customers = {
     if (!existing || existing.bankId !== bankId) return null;
     const updated = { ...existing, ...updates };
     customers.set(id, updated);
+    sink?.customer(updated);
     return updated;
   },
 };
@@ -236,6 +281,7 @@ export const Transactions = {
 
   create: (txn: BankTransaction): BankTransaction => {
     transactions.set(txn.id, txn);
+    sink?.transaction(txn);
     return txn;
   },
 
@@ -244,6 +290,7 @@ export const Transactions = {
     if (!existing || existing.bankId !== bankId) return null;
     const updated = { ...existing, ...updates };
     transactions.set(id, updated);
+    sink?.transaction(updated);
     return updated;
   },
 };
