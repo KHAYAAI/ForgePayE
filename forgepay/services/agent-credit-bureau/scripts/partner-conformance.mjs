@@ -89,6 +89,7 @@ check('reporting as a different institution id is refused (403)', (await call('P
 // 4. Read the score
 const score = await call('GET', `/v1/agents/${agentId}/score`);
 check('the score can be read', score.status === 200 && typeof score.json?.data?.score === 'number');
+check('responses show your request budget (X-RateLimit-* headers)', Number(score.headers.get('x-ratelimit-limit')) > 0 && score.headers.get('x-ratelimit-remaining') !== null);
 check('the score matches what the report said', score.json?.data?.score === ingest.json?.data?.newScore);
 check('the score is capped until enough repayments are on file', (score.json?.data?.factors ?? []).some((f) => f.code === 'LIMITED_REPAYMENT_HISTORY'));
 

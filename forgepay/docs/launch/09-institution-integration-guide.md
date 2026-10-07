@@ -126,7 +126,11 @@ Errors are `{ "error": "<Name>", "message": "…" }`.
 | 409 | Already exists (an agent id), or a key rule (last key, too many keys) |
 | 429 | Rate limit or ingest quota |
 
-Requests are rate-limited per client address (ask for your limit); back off on 429.
+**Limits.** Your institution has its own budget: a number of requests per minute (default 600, set by the operator) and, if the operator sets one, a cap on hard pulls per UTC day.
+Every authenticated response carries `X-RateLimit-Limit`, `X-RateLimit-Remaining` and `X-RateLimit-Reset` (seconds until the minute window resets); going over returns 429 with `Retry-After`.
+A refused daily-cap pull returns 429 `DailyPullLimit` before anything is charged and without using up the consent token, so you can retry the same token once the cap is raised or resets at 00:00 UTC.
+`GET /v1/contributors/{id}/stats` shows your limits and today's pull count. There is also a flood guard per client address on every request; if many of your systems share one address and you see 429 on unauthenticated calls, tell the operator.
+Ask the operator to change your limits; you cannot raise them yourself.
 
 ## 10. Check your integration
 

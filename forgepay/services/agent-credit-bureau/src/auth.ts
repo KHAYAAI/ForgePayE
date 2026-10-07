@@ -30,6 +30,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { contributors, setContributor } from './store';
 import { matchKey, touchKey } from './contributor-keys';
+import { checkRate } from './institution-limits';
 import { hashApiKey, safeEqualHex } from './hash';
 
 // Re-exported so callers can keep importing it from the auth surface. The
@@ -349,6 +350,23 @@ export function registerAuth(app: FastifyInstance): void {
     const principal = resolvePrincipal(rawKey);
     if (!principal) {
       return reply.status(401).send({ error: 'Unauthorized', message: 'Invalid or inactive API key.' });
+    }
+
+    // An institution's own request budget (set by an operator; the operator key is not limited). Counted before the scope check, so
+    // a key probing routes it may not use still spends its budget. The headers let an institution pace itself.
+    if (principal.kind === 'contributor') {
+      const institution = contributors.get(principal.principalId);
+      const rate = checkRate(principal.principalId, institution?.limits);
+      reply.header('X-RateLimit-Limit', String(rate.limit));
+      reply.header('X-RateLimit-Remaining', String(rate.remaining));
+      reply.header('X-RateLimit-Reset', String(rate.resetInSeconds));
+      if (!rate.allowed) {
+        reply.header('Retry-After', String(rate.resetInSeconds));
+        return reply.status(429).send({
+          error: 'Too Many Requests',
+          message: `This institution has used its ${rate.limit} requests per minute. Retry in ${rate.resetInSeconds}s.`,
+        });
+      }
     }
 
     const required = requiredScopeFor(req.method, pattern);

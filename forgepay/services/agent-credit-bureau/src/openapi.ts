@@ -33,7 +33,8 @@ export const openApiDocument = {
       'For lenders and data furnishers (for example microfinance institutions). Report repayments, read scores, pull underwriting reports with consent, ' +
       'raise disputes and manage your own API keys. A new agent starts at 300 (DEEP_SUBPRIME) and earns its range through reported repayments: ' +
       'the score is capped until the equivalent of 12 on-time payments are on file. Send the key as `X-API-Key` or `Authorization: Bearer`. ' +
-      'A sandbox runs the same API with free inquiries and test data; it labels itself with `X-Forge-Environment: sandbox`.',
+      'Each institution has its own request budget per minute and may have a daily cap on pulls, set by the operator; every authenticated response carries `X-RateLimit-Limit`, `X-RateLimit-Remaining` and `X-RateLimit-Reset` (seconds), ' +
+      'and going over returns 429 with `Retry-After`. A sandbox runs the same API with free inquiries and test data; it labels itself with `X-Forge-Environment: sandbox`.',
   },
   servers: [{ url: 'https://api.myforgepay.com', description: 'Live' }],
   security: [{ ApiKey: [] }, { Bearer: [] }],

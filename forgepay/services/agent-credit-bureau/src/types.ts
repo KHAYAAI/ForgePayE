@@ -312,6 +312,9 @@ export interface DataContributor {
    */
   apiKeys?: ContributorApiKey[];
   primaryKeyRevokedAt?: string;
+  /** Per-institution limits set by an operator (see institution-limits.ts), and today's hard-pull count against the daily cap. */
+  limits?: { requestsPerMinute?: number; maxPullsPerDay?: number };
+  pullsToday?: { date: string; count: number };
   permissions: string[];
   queriesUsed: number;
   queriesAllowed: number;          // Based on data contributed

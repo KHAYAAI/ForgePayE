@@ -47,6 +47,7 @@ import { randomUUID, randomBytes } from 'crypto';
 import { registerAuth, hashApiKey, redactContributor, contributorAccessError } from './auth';
 import { issueKey, listKeys, revokeKey, MAX_ACTIVE_KEYS } from './contributor-keys';
 import { openApiDocument } from './openapi';
+import { checkPullCap, parseLimits, recordPull } from './institution-limits';
 import { isSandbox, assertSandboxSafe, environmentName, SANDBOX_CHARGE, registerSandboxHeader } from './sandbox';
 import { isValidDid, isAddressBody, addressFromDid, toChecksumAddress, sameAddress } from './did';
 import { issueConsent, verifyConsent, revokeConsentDurable, consumeConsentDurable, isSpent, isRevoked, type ConsentPurpose } from './consent';
@@ -383,6 +384,10 @@ async function buildApp() {
     timeWindow: '1 minute',
     redis:      isRedisEnabled() ? getRedisClient() : undefined,
     keyGenerator: (req) => req.ip, // from the trusted proxy hops only (TRUST_PROXY_HOPS); never the raw header
+    // The X-RateLimit-* headers on an authenticated request describe the institution's own budget (see institution-limits.ts), not
+    // this per-address flood guard, so this plugin does not send them (it still sends Retry-After on its 429).
+    addHeadersOnExceeding: { 'x-ratelimit-limit': false, 'x-ratelimit-remaining': false, 'x-ratelimit-reset': false },
+    addHeaders: { 'x-ratelimit-limit': false, 'x-ratelimit-remaining': false, 'x-ratelimit-reset': false, 'retry-after': true },
     errorResponseBuilder: (_req, ctx) => ({
       statusCode: 429,
       error:      'Too Many Requests',
@@ -855,6 +860,25 @@ async function buildApp() {
     // Entitlement-aware: a subscriber's bundled allocation is spent before
     // their prepaid balance, and cash pulls are priced by volume band rather
     // than at a flat list rate. See billing.ts/chargeForPull.
+    // The requesting institution's daily pull cap, checked before anything is charged or recorded: a refused pull leaves no trace.
+    const institution = getContributor(requestorId);
+    if (institution) {
+      const cap = checkPullCap(institution);
+      if (!cap.allowed) {
+        input.log.warn({ agentId, requestorId, limit: cap.limit, used: cap.used }, 'credit report refused — daily pull limit reached');
+        return {
+          ok: false,
+          status: 429,
+          body: {
+            error: 'DailyPullLimit',
+            limit: cap.limit,
+            used: cap.used,
+            message: `This institution has reached its limit of ${cap.limit} pulls for today (UTC). It resets at 00:00 UTC; ask the bureau operator to raise it if this is expected.`,
+          },
+        };
+      }
+    }
+
     const charge = isSandbox() ? SANDBOX_CHARGE : chargeForPull(requestorId, `inquiry_fee:${agentId}:${purpose}`);
     if (!charge.ok) {
       if (charge.reason === 'plan_forbids_hard_pulls') {
@@ -899,6 +923,7 @@ async function buildApp() {
 
     // The charge cleared — now, and only now, spend the single-use token.
     await consumeConsentDurable(consent.payload!.jti, consent.payload!.exp);
+    if (institution) { recordPull(institution); setContributor(institution); }
 
     profile.hardInquiries.push({
       id:            randomUUID(),
@@ -1911,6 +1936,22 @@ async function buildApp() {
     return reply.send({
       data: { ...redactContributor(contributor), previousStatus: previous },
     });
+  });
+
+  // PUT /v1/contributors/:id/limits: an operator sets an institution's request and daily-pull limits. Admin only by deny-by-default.
+  // A field set to null removes that limit; a field left out is left alone.
+  app.put<{ Params: { id: string } }>('/v1/contributors/:id/limits', async (req, reply) => {
+    const parsed = parseLimits(req.body);
+    if (!parsed.ok) return reply.status(400).send({ error: 'ValidationError', message: parsed.message });
+    const contributor = getContributor(req.params.id);
+    if (!contributor) return reply.status(404).send({ error: 'NotFound', message: 'Contributor not found' });
+    const previous = { ...(contributor.limits ?? {}) };
+    const next = { ...previous, ...parsed.value };
+    for (const k of parsed.clear) delete next[k];
+    contributor.limits = Object.keys(next).length ? next : undefined;
+    setContributor(contributor);
+    req.log.warn({ contributorId: contributor.id, from: previous, to: contributor.limits ?? {} }, 'institution limits changed');
+    return reply.send({ data: { contributorId: contributor.id, limits: contributor.limits ?? {}, previous } });
   });
 
   // ── API keys for an institution ───────────────────────────────────────────
