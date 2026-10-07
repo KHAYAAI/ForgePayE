@@ -20,5 +20,5 @@ export async function POST(req: Request) {
     agentId: body?.agentId as string,
   });
   if (result.ok === false) return NextResponse.json({ error: result.error, message: result.message }, { status: result.status });
-  return NextResponse.json({ data: { nonce: result.nonce, message: result.message, expiresAt: result.expiresAt, address: result.address } }, { status: 201 });
+  return NextResponse.json({ data: { nonce: result.nonce, message: result.message, expiresAt: result.expiresAt, address: result.address, chain: result.chain } }, { status: 201 });
 }

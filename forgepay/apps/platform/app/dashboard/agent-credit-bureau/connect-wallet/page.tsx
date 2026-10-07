@@ -15,9 +15,20 @@ type Eip1193 = { request: (a: { method: string; params?: unknown[] }) => Promise
 const provider = (): Eip1193 | null =>
   typeof window === 'undefined' ? null : ((window as unknown as { ethereum?: Eip1193 }).ethereum ?? null);
 
+// Solana wallets (Phantom and compatible) expose connect() and signMessage(bytes). The message is signed as raw bytes; no transaction is built.
+type SolanaWallet = {
+  connect: () => Promise<{ publicKey: { toString: () => string } }>;
+  signMessage: (m: Uint8Array, display?: 'utf8') => Promise<{ signature: Uint8Array }>;
+};
+const solanaProvider = (): SolanaWallet | null =>
+  typeof window === 'undefined' ? null : ((window as unknown as { solana?: SolanaWallet }).solana ?? null);
+
+const toBase64 = (b: Uint8Array) => btoa(String.fromCharCode(...b));
+
 const toHex = (s: string) => '0x' + Array.from(new TextEncoder().encode(s)).map((b) => b.toString(16).padStart(2, '0')).join('');
 
 export default function ConnectWallet() {
+  const [chain, setChain] = useState<'evm' | 'solana'>('evm');
   const [address, setAddress] = useState<string | null>(null);
   const [agentId, setAgentId] = useState('');
   const [entityType, setEntityType] = useState('llc');
@@ -30,6 +41,17 @@ export default function ConnectWallet() {
 
   const connect = async () => {
     setError(null);
+    if (chain === 'solana') {
+      const sol = solanaProvider();
+      if (!sol) { setError('No Solana wallet found in this browser. Install one (for example Phantom), or open this page in your wallet\'s browser.'); return; }
+      try {
+        const { publicKey } = await sol.connect();
+        setAddress(publicKey.toString());
+      } catch {
+        setError('The wallet did not share an account. Nothing was changed.');
+      }
+      return;
+    }
     const eth = provider();
     if (!eth) { setError('No wallet found in this browser. Install a wallet extension, or open this page in your wallet\'s browser.'); return; }
     try {
@@ -43,7 +65,8 @@ export default function ConnectWallet() {
   const signAndRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     const eth = provider();
-    if (!eth || !address) return;
+    const sol = solanaProvider();
+    if (!address || (chain === 'evm' ? !eth : !sol)) return;
     setBusy(true); setError(null); setDone(null);
     try {
       const start = await fetch('/api/forge/wallet-bind/challenge', {
@@ -54,7 +77,9 @@ export default function ConnectWallet() {
 
       let signature: string;
       try {
-        signature = (await eth.request({ method: 'personal_sign', params: [toHex(challenge.data.message), address] })) as string;
+        signature = chain === 'solana'
+          ? toBase64((await sol!.signMessage(new TextEncoder().encode(challenge.data.message), 'utf8')).signature)
+          : ((await eth!.request({ method: 'personal_sign', params: [toHex(challenge.data.message), address] })) as string);
       } catch {
         setError('You declined to sign. Nothing was changed.');
         return;
@@ -86,6 +111,12 @@ export default function ConnectWallet() {
       />
 
       <Panel title="1. Connect" label="your wallet">
+        <label style={{ display: 'block', marginBottom: 12 }}>Wallet type
+          <select value={chain} onChange={(e) => { setChain(e.target.value as 'evm' | 'solana'); setAddress(null); setError(null); }}>
+            <option value="evm">Ethereum, Base or other EVM wallet</option>
+            <option value="solana">Solana wallet</option>
+          </select>
+        </label>
         {address
           ? <p>Connected: <Mono>{address}</Mono></p>
           : <button className="btn-primary" onClick={connect}>Connect wallet</button>}

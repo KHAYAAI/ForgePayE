@@ -25,12 +25,15 @@
  */
 
 import { createPublicClient, http, parseAbiItem, type Address } from 'viem';
+import { isSolanaAddress } from './did';
 
 // ── Configuration ────────────────────────────────────────────────────────────
 
 export interface TokenConfig { symbol: string; address: string; decimals: number }
 
 export interface ChainConfig {
+  /** Absent means an EVM chain. */
+  kind?: 'evm';
   chainId: number;
   name: string;
   rpcUrl: string;
@@ -42,6 +45,22 @@ export interface ChainConfig {
   maxBlockRange: number;
   tokens: TokenConfig[];
 }
+
+/**
+ * A Solana cluster. There are no blocks to scan: activity is read per token account, newest to oldest, in pages of
+ * signatures, at `finalized` commitment (which cannot be rolled back, so no confirmation depth is needed). `tokens[].address`
+ * is the token's mint address. `chainId` is only a label to keep summaries apart from EVM chains; use 101 for mainnet.
+ */
+export interface SolanaChainConfig {
+  kind: 'solana';
+  chainId: number;
+  name: string;
+  rpcUrl: string;
+  pageSize: number;
+  tokens: TokenConfig[];
+}
+
+export type AnyChainConfig = ChainConfig | SolanaChainConfig;
 
 export interface IndexerLimits {
   /** Fewest qualifying transfers before a wallet is scored at all. */
@@ -57,6 +76,12 @@ export const DEFAULT_LIMITS: IndexerLimits = { minTransfers: 5, minCounterpartie
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const MAX_COUNTERPARTIES_TRACKED = 1000;
 const ZERO = '0x0000000000000000000000000000000000000000';
+const SOLANA_SYSTEM = '11111111111111111111111111111111';
+
+/** EVM addresses compare case-insensitively; Solana's base58 changes meaning with case and is kept verbatim. */
+export function normAddr(address: string): string {
+  return /^0x/i.test(address) ? address.toLowerCase() : address;
+}
 
 export function indexerEnabled(): boolean {
   return process.env['ONCHAIN_INDEXER_ENABLED'] === 'true';
@@ -67,7 +92,7 @@ export function indexerEnabled(): boolean {
  * wrong address would score the wrong asset without any error, so the operator
  * supplies them from each issuer's published list. Throws with a precise message.
  */
-export function parseChains(raw: string | undefined): ChainConfig[] {
+export function parseChains(raw: string | undefined): AnyChainConfig[] {
   if (!raw) throw new Error('ONCHAIN_CHAINS is required when ONCHAIN_INDEXER_ENABLED=true');
   let data: unknown;
   try { data = JSON.parse(raw); } catch { throw new Error('ONCHAIN_CHAINS is not valid JSON'); }
@@ -85,11 +110,20 @@ export function parseChains(raw: string | undefined): ChainConfig[] {
     if (typeof c?.name !== 'string' || !c.name) throw new Error(`${at}.name is required`);
     if (typeof c?.rpcUrl !== 'string' || !/^https?:\/\//.test(c.rpcUrl)) throw new Error(`${at}.rpcUrl must be an http(s) URL`);
     if (!Array.isArray(c?.tokens) || c.tokens.length === 0) throw new Error(`${at}.tokens must list at least one stablecoin`);
+    if (c.kind !== undefined && c.kind !== 'evm' && c.kind !== 'solana') throw new Error(`${at}.kind must be "evm" or "solana"`);
+    const solana = c.kind === 'solana';
     const tokens: TokenConfig[] = c.tokens.map((t: any, j: number) => {
       if (typeof t?.symbol !== 'string' || !t.symbol) throw new Error(`${at}.tokens[${j}].symbol is required`);
+      if (solana) {
+        if (!isSolanaAddress(t?.address)) throw new Error(`${at}.tokens[${j}].address is not a valid Solana mint address`);
+        return { symbol: t.symbol, address: t.address, decimals: posInt(t.decimals, `tokens[${j}].decimals`, 0) };   // case-sensitive
+      }
       if (typeof t?.address !== 'string' || !ADDRESS_RE.test(t.address)) throw new Error(`${at}.tokens[${j}].address is not a valid address`);
       return { symbol: t.symbol, address: t.address.toLowerCase(), decimals: posInt(t.decimals, `tokens[${j}].decimals`, 0) };
     });
+    if (solana) {
+      return { kind: 'solana' as const, chainId, name: c.name, rpcUrl: c.rpcUrl, tokens, pageSize: c.pageSize === undefined ? 50 : posInt(c.pageSize, 'pageSize') };
+    }
     return {
       chainId, name: c.name, rpcUrl: c.rpcUrl, tokens,
       startBlock: posInt(c.startBlock, 'startBlock', 0),
@@ -99,9 +133,9 @@ export function parseChains(raw: string | undefined): ChainConfig[] {
   });
 }
 
-let configured: ChainConfig[] = [];
-export function setConfiguredChains(c: ChainConfig[]): void { configured = c; }
-export function configuredChains(): ChainConfig[] { return configured; }
+let configured: AnyChainConfig[] = [];
+export function setConfiguredChains(c: AnyChainConfig[]): void { configured = c; }
+export function configuredChains(): AnyChainConfig[] { return configured; }
 
 /** Optional overrides; anything that is not a positive integer is ignored in favour of the default. */
 export function limitsFromEnv(env: NodeJS.ProcessEnv = process.env): IndexerLimits {
@@ -172,11 +206,27 @@ export interface ActivitySummary {
   firstSeenAt: string | null;
   indexedAt: string;
   lastError: string | null;
+  /** Solana only: where reading has got to, per token account. Absent for EVM chains. */
+  solana?: { accounts: Record<string, SolanaAccountState> };
+  /** Solana only: transactions the RPC could not return (pruned), so they could not be counted. */
+  skipped?: number;
 }
 
-export function emptySummary(address: string, cfg: ChainConfig): ActivitySummary {
+/**
+ * Newest-first paging state for one token account. `newest` is the most recent signature fully read; `pendingNewest`/`fwdBefore`
+ * track a catch-up on new activity that spans several pages; `before`/`done` track the backfill of older history.
+ */
+export interface SolanaAccountState {
+  newest: string | null;
+  pendingNewest: string | null;
+  fwdBefore: string | null;
+  before: string | null;
+  done: boolean;
+}
+
+export function emptySummary(address: string, cfg: AnyChainConfig): ActivitySummary {
   return {
-    address: address.toLowerCase(), chainId: cfg.chainId, cursor: cfg.startBlock - 1,
+    address: normAddr(address), chainId: cfg.chainId, cursor: cfg.kind === 'solana' ? 0 : cfg.startBlock - 1,
     transferCount: 0, inboundCount: 0, outboundCount: 0, volumeCents: 0, counterparties: [],
     firstSeenBlock: null, firstSeenAt: null, indexedAt: new Date(0).toISOString(), lastError: null,
   };
@@ -192,7 +242,7 @@ export function toCents(value: bigint, decimals: number): number {
 export function applyTransfers(
   s: ActivitySummary, wallet: string, token: TokenConfig, transfers: RawTransfer[], limits: IndexerLimits,
 ): number | null {
-  const me = wallet.toLowerCase();
+  const me = normAddr(wallet);
   const seen = new Set(s.counterparties);
   let lowest: number | null = null;
   for (const t of transfers) {
@@ -200,7 +250,7 @@ export function applyTransfers(
     const inbound = t.to === me;
     if (outbound === inbound) continue;                      // neither, or a transfer to oneself
     const other = outbound ? t.to : t.from;
-    if (other === ZERO || other === me) continue;            // mint/burn, or oneself
+    if (other === ZERO || other === SOLANA_SYSTEM || other === me) continue;   // mint/burn, or oneself
     const cents = toCents(t.value, token.decimals);
     if (cents < limits.dustCents) continue;
     s.transferCount += 1;
@@ -272,10 +322,173 @@ export async function indexWallet(
   }
 }
 
+// ── Solana ───────────────────────────────────────────────────────────────────
+
+export interface SolanaTokenBalance { accountIndex: number; owner: string; mint: string; amount: bigint }
+
+export interface SolanaTx {
+  slot: number;
+  blockTime: number | null;
+  failed: boolean;
+  pre: SolanaTokenBalance[];
+  post: SolanaTokenBalance[];
+}
+
+export interface SolanaSignature { signature: string; slot: number; blockTime: number | null; failed: boolean }
+
+/** The only part that talks to a Solana RPC node. All reads are at `finalized` commitment. */
+export interface SolanaSource {
+  tokenAccounts(owner: string, mint: string): Promise<string[]>;
+  signatures(account: string, o: { before?: string; until?: string; limit: number }): Promise<SolanaSignature[]>;
+  transaction(signature: string): Promise<SolanaTx | null>;
+}
+
+export function solanaRpcSource(cfg: SolanaChainConfig): SolanaSource {
+  // Errors name the method and the node's own message, never the URL: it carries the provider key.
+  async function rpc<T>(method: string, params: unknown[]): Promise<T> {
+    const res = await fetch(cfg.rpcUrl, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), signal: AbortSignal.timeout(20_000),
+    });
+    if (!res.ok) throw new Error(`solana rpc ${method}: http ${res.status}`);
+    const j = (await res.json()) as { result?: T; error?: { message?: string; code?: number } };
+    if (j.error) throw new Error(`solana rpc ${method}: ${j.error.message ?? j.error.code}`);
+    return j.result as T;
+  }
+  const commitment = 'finalized';
+  const balances = (list: any[] | undefined): SolanaTokenBalance[] =>
+    (list ?? []).filter((b) => typeof b?.owner === 'string' && typeof b?.mint === 'string' && typeof b?.uiTokenAmount?.amount === 'string')
+      .map((b) => ({ accountIndex: Number(b.accountIndex), owner: b.owner, mint: b.mint, amount: BigInt(b.uiTokenAmount.amount) }));
+  return {
+    tokenAccounts: async (owner, mint) => {
+      const r = await rpc<{ value: Array<{ pubkey: string }> }>('getTokenAccountsByOwner', [owner, { mint }, { encoding: 'jsonParsed', commitment }]);
+      return r.value.map((v) => v.pubkey);
+    },
+    signatures: async (account, o) => {
+      const r = await rpc<Array<{ signature: string; slot: number; blockTime: number | null; err: unknown }>>('getSignaturesForAddress', [
+        account, { limit: o.limit, commitment, ...(o.before ? { before: o.before } : {}), ...(o.until ? { until: o.until } : {}) },
+      ]);
+      return r.map((x) => ({ signature: x.signature, slot: x.slot, blockTime: x.blockTime, failed: x.err != null }));
+    },
+    transaction: async (signature) => {
+      const t = await rpc<any>('getTransaction', [signature, { encoding: 'jsonParsed', commitment, maxSupportedTransactionVersion: 0 }]);
+      if (!t) return null;
+      return { slot: t.slot, blockTime: t.blockTime ?? null, failed: t.meta?.err != null, pre: balances(t.meta?.preTokenBalances), post: balances(t.meta?.postTokenBalances) };
+    },
+  };
+}
+
+/**
+ * What one transaction did to the wallet's balance of one token: its net change, and the other party that moved the opposite
+ * way by the most. Returns null when the wallet's balance did not change or there is no counterparty (a mint, a burn, a
+ * transfer between the wallet's own accounts), so those never count as activity.
+ */
+export function classifySolanaTx(tx: SolanaTx, wallet: string, mint: string): RawTransfer | null {
+  if (tx.failed) return null;
+  const delta = new Map<string, bigint>();
+  const add = (list: SolanaTokenBalance[], sign: bigint) => {
+    for (const b of list) if (b.mint === mint) delta.set(b.owner, (delta.get(b.owner) ?? 0n) + sign * b.amount);
+  };
+  add(tx.pre, -1n); add(tx.post, 1n);
+  const mine = delta.get(wallet) ?? 0n;
+  if (mine === 0n) return null;
+  let other: string | null = null; let best = 0n;
+  for (const [owner, d] of delta) {
+    if (owner === wallet) continue;
+    const opposite = mine > 0n ? -d : d;                       // how far this owner moved against the wallet
+    if (opposite > best) { best = opposite; other = owner; }
+  }
+  if (!other) return null;
+  const inbound = mine > 0n;
+  return { logIndex: 0, blockNumber: tx.slot, from: inbound ? other : wallet, to: inbound ? wallet : other, value: inbound ? mine : -mine };
+}
+
+const FRESH_ACCOUNT: SolanaAccountState = { newest: null, pendingNewest: null, fwdBefore: null, before: null, done: false };
+
+/**
+ * Advance a wallet's Solana summary. Per token account: first catch up on anything newer than the last signature read, then work
+ * back through older history. Each page of signatures is folded into a copy and committed only when every transaction in it has
+ * been read, so a failure part way never leaves a page counted twice or skipped. Spends at most `maxCalls` RPC calls.
+ *
+ * A wallet with more than one token account for the same token is not indexed for that token and says so: counting from several
+ * accounts could count one transaction twice, and an undercount is the safer error.
+ */
+export async function indexSolanaWallet(
+  source: SolanaSource, cfg: SolanaChainConfig, wallet: string, prior: ActivitySummary | undefined,
+  limits: IndexerLimits = DEFAULT_LIMITS, maxCalls = 300,
+): Promise<IndexResult> {
+  const clone = (x: ActivitySummary): ActivitySummary => ({
+    ...x, counterparties: [...x.counterparties],
+    solana: { accounts: Object.fromEntries(Object.entries(x.solana?.accounts ?? {}).map(([k, v]) => [k, { ...v }])) },
+  });
+  let s = prior ? clone(prior) : { ...emptySummary(wallet, cfg), solana: { accounts: {} } };
+  let advanced = false; let complete = true; let calls = 0;
+  const notes: string[] = [];
+  try {
+    for (const token of cfg.tokens) {
+      calls += 1;
+      const accounts = await source.tokenAccounts(wallet, token.address);
+      if (accounts.length === 0) continue;                              // no token account yet: nothing to read
+      if (accounts.length > 1) { notes.push(`${token.symbol}: several token accounts, not indexed`); continue; }
+      const acct = accounts[0]!;
+      let forwardChecked = false;
+      for (;;) {
+        const st = s.solana!.accounts[acct] ?? { ...FRESH_ACCOUNT };
+        const phase: 'init' | 'forward' | 'back' | null =
+          st.newest === null ? 'init' : (!forwardChecked || st.pendingNewest !== null) ? 'forward' : !st.done ? 'back' : null;
+        if (phase === null) break;
+        const limit = Math.min(cfg.pageSize, maxCalls - calls - 1);
+        if (limit < 1) { complete = false; break; }
+        calls += 1;
+        const page = await source.signatures(acct, phase === 'init' ? { limit }
+          : phase === 'forward' ? { limit, until: st.newest!, ...(st.fwdBefore ? { before: st.fwdBefore } : {}) }
+          : { limit, before: st.before! });
+
+        const work = clone(s);
+        const ws: SolanaAccountState = { ...st };
+        for (const sig of page) {
+          if (sig.failed) continue;
+          calls += 1;
+          const tx = await source.transaction(sig.signature);
+          if (!tx) { work.skipped = (work.skipped ?? 0) + 1; continue; }
+          const t = classifySolanaTx(tx, wallet, token.address);
+          if (!t) continue;
+          const low = applyTransfers(work, wallet, token, [t], limits);
+          if (low !== null && tx.blockTime !== null) {
+            const at = new Date(tx.blockTime * 1000).toISOString();
+            if (work.firstSeenAt === null || at < work.firstSeenAt) { work.firstSeenAt = at; work.firstSeenBlock = tx.slot; }
+          }
+        }
+        const last = page[page.length - 1]?.signature ?? null;
+        const full = page.length >= limit;
+        if (phase === 'init') {
+          ws.newest = page[0]?.signature ?? null; ws.before = last; ws.done = !full || page.length === 0;
+          forwardChecked = true;
+        } else if (phase === 'forward') {
+          if (page.length > 0 && ws.pendingNewest === null) ws.pendingNewest = page[0]!.signature;
+          if (full) ws.fwdBefore = last;
+          else { if (ws.pendingNewest) ws.newest = ws.pendingNewest; ws.pendingNewest = null; ws.fwdBefore = null; forwardChecked = true; }
+        } else {
+          ws.before = last ?? ws.before; ws.done = !full;
+        }
+        work.solana!.accounts[acct] = ws;
+        s = work; advanced = true;
+      }
+    }
+    s.lastError = notes[0] ?? null;
+    s.indexedAt = new Date().toISOString();
+    return { summary: s, advanced, complete: complete && notes.length === 0 };
+  } catch (e) {
+    s.lastError = String((e as Error).message ?? e).slice(0, 200);
+    s.indexedAt = new Date().toISOString();
+    return { summary: s, advanced, complete: false };
+  }
+}
+
 // ── Store, persistence and worker ────────────────────────────────────────────
 
 const summaries = new Map<string, ActivitySummary>();   // `${chainId}:${address}`
-const key = (chainId: number, address: string) => `${chainId}:${address.toLowerCase()}`;
+const key = (chainId: number, address: string) => `${chainId}:${normAddr(address)}`;
 
 export interface ActivityPersistence { save(s: ActivitySummary): Promise<void> }
 let persistence: ActivityPersistence | null = null;
@@ -287,14 +500,15 @@ export function hydrateActivity(rows: ActivitySummary[]): void {
 }
 
 export function activityFor(address: string): ActivitySummary[] {
-  return [...summaries.values()].filter((s) => s.address === address.toLowerCase());
+  return [...summaries.values()].filter((s) => s.address === normAddr(address));
 }
 
 export function resetActivity(): void { summaries.clear(); }
 
 export interface IndexerDeps {
-  chains: ChainConfig[];
+  chains: AnyChainConfig[];
   sources: Map<number, ChainSource>;
+  solanaSources?: Map<number, SolanaSource>;
   listWallets: () => string[];
   limits?: IndexerLimits;
 }
@@ -307,10 +521,20 @@ export async function runIndexerPass(deps: IndexerDeps): Promise<void> {
   const limits = deps.limits ?? DEFAULT_LIMITS;
   for (const wallet of deps.listWallets()) {
     for (const cfg of deps.chains) {
-      const source = deps.sources.get(cfg.chainId);
-      if (!source) continue;
+      // A wallet is only read on chains of its own kind: a 0x address is not a Solana account, and vice versa.
+      const isEvmWallet = /^0x[0-9a-fA-F]{40}$/.test(wallet);
+      if (cfg.kind === 'solana' ? !isSolanaAddress(wallet) : !isEvmWallet) continue;
       const prior = summaries.get(key(cfg.chainId, wallet));
-      const r = await indexWallet(source, cfg, wallet, prior, limits);
+      let r: IndexResult;
+      if (cfg.kind === 'solana') {
+        const src = deps.solanaSources?.get(cfg.chainId);
+        if (!src) continue;
+        r = await indexSolanaWallet(src, cfg, wallet, prior, limits);
+      } else {
+        const src = deps.sources.get(cfg.chainId);
+        if (!src) continue;
+        r = await indexWallet(src, cfg, wallet, prior, limits);
+      }
       if (r.summary.lastError) failures += 1;
       summaries.set(key(cfg.chainId, wallet), r.summary);
       if (r.advanced || r.summary.lastError !== (prior?.lastError ?? null)) {
@@ -347,8 +571,9 @@ export type ActivityInputs =
   | { ok: false; reason: 'not_indexed_yet' | 'insufficient_history'; detail: string; provenance: ActivityProvenance[] };
 
 /** Combine the wallet's per-chain summaries into what Mode 2 needs, or say why it cannot be scored. */
-export function activityInputs(address: string, chains: ChainConfig[], limits: IndexerLimits = DEFAULT_LIMITS): ActivityInputs {
-  const own = activityFor(address);
+/** `address` may be one wallet or several (an agent with both an EVM and a Solana wallet); their activity is combined. */
+export function activityInputs(address: string | string[], chains: AnyChainConfig[], limits: IndexerLimits = DEFAULT_LIMITS): ActivityInputs {
+  const own = (Array.isArray(address) ? address : [address]).flatMap((a) => activityFor(a));
   const provenance: ActivityProvenance[] = own.map((s) => ({
     chainId: s.chainId, name: chains.find((c) => c.chainId === s.chainId)?.name ?? String(s.chainId),
     indexedToBlock: s.cursor, indexedAt: s.indexedAt, error: s.lastError,

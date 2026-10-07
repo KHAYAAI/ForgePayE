@@ -58,8 +58,12 @@ export interface ParsedDid {
   form: DidForm;
   /** Method-specific id, verbatim (checksummed when it is an address). */
   id: string;
-  /** Present only for the address form. EIP-55 checksummed. */
+  /** Present only for the EVM address form. EIP-55 checksummed. */
   address?: string;
+  /** Present only for the Solana form (`did:forge:sol:<base58 public key>`). */
+  solanaAddress?: string;
+  /** Which kind of wallet the identifier carries, when it carries one. */
+  chain?: 'evm' | 'solana';
   /** The equivalent `did:forge:` string. Already canonical inputs return themselves. */
   canonical: string;
   /** True when the input was already in canonical form. */
@@ -117,6 +121,43 @@ export function sameAddress(a: string | undefined, b: string | undefined): boole
   return a.toLowerCase() === b.toLowerCase();
 }
 
+// ── Solana addresses ──────────────────────────────────────────────────────────
+//
+// A Solana account is a 32-byte ed25519 public key written in base58. The
+// decoder is local for the same reason keccak is: this module has no
+// dependencies, so it can be copied verbatim into services that carry none.
+
+const B58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+const B58_BODY = /^[1-9A-HJ-NP-Za-km-z]+$/;
+
+/** Decode base58, or null if the text is not base58. Leading '1's are leading zero bytes. */
+export function base58Decode(text: string): Uint8Array | null {
+  if (!B58_BODY.test(text)) return null;
+  let n = 0n;
+  for (const c of text) n = n * 58n + BigInt(B58_ALPHABET.indexOf(c));
+  const bytes: number[] = [];
+  while (n > 0n) { bytes.push(Number(n & 0xffn)); n >>= 8n; }
+  let zeros = 0;
+  for (const c of text) { if (c === '1') zeros += 1; else break; }
+  return Uint8Array.from([...new Array<number>(zeros).fill(0), ...bytes.reverse()]);
+}
+
+/** True for a base58 string that decodes to exactly 32 bytes (a Solana account address). */
+export function isSolanaAddress(value: unknown): value is string {
+  return typeof value === 'string' && value.length >= 32 && value.length <= 44 && base58Decode(value)?.length === 32;
+}
+
+/** The self-certifying form for a Solana account. */
+export function didFromSolanaAddress(address: string): string {
+  if (!isSolanaAddress(address)) throw new Error(`Not a Solana address: ${address}`);
+  return `did:forge:sol:${address}`;
+}
+
+/** The Solana address a DID self-certifies, or null when it does not carry one. */
+export function solanaAddressFromDid(did: unknown): string | null {
+  return parseDid(did)?.solanaAddress ?? null;
+}
+
 // ── Parsing ───────────────────────────────────────────────────────────────────
 
 const METHODS: Record<string, DidMethod> = {
@@ -161,8 +202,27 @@ export function parseDid(input: unknown): ParsedDid | null {
       form: 'address',
       id: address,
       address,
+      chain: 'evm',
       canonical,
       wasCanonical: method === 'forge' && body === address,
+    };
+  }
+
+  // ── Solana form ─────────────────────────────────────────────────────────
+  // `sol:` is reserved for Solana accounts, so it can never be a registry id:
+  // a body that starts with it is a Solana DID or it is malformed. Only the
+  // canonical method may carry it; the legacy aliases predate Solana.
+  if (body.startsWith('sol:')) {
+    const key = body.slice(4);
+    if (method !== 'forge' || !isSolanaAddress(key)) return null;
+    return {
+      method,
+      form: 'address',
+      id: key,
+      solanaAddress: key,
+      chain: 'solana',
+      canonical: `did:forge:sol:${key}`,
+      wasCanonical: true,
     };
   }
 

@@ -53,7 +53,7 @@ import {
   registerEndpoint, removeEndpoint, rotateSecret, startWebhookWorker, stopWebhookWorker, WEBHOOK_EVENTS,
 } from './webhooks';
 import { isSandbox, assertSandboxSafe, environmentName, SANDBOX_CHARGE, registerSandboxHeader } from './sandbox';
-import { isValidDid, isAddressBody, addressFromDid, toChecksumAddress, sameAddress } from './did';
+import { isValidDid, isAddressBody, addressFromDid, solanaAddressFromDid, isSolanaAddress, toChecksumAddress, sameAddress } from './did';
 import { issueConsent, verifyConsent, revokeConsentDurable, consumeConsentDurable, isSpent, isRevoked, type ConsentPurpose } from './consent';
 import { resolveDispute, withEscalationCheck, furnisherForEvent, type DisputeCorrection } from './disputes';
 import {
@@ -104,8 +104,8 @@ import { verifyAgent, sanctionsScreen } from './verify';
 import { operatorEligibility, verifyOperator } from './kyb';
 import { getChainClient, didToAddress } from './chain';
 import {
-  indexerEnabled, parseChains, viemSource, limitsFromEnv, setConfiguredChains, configuredChains, activityInputs,
-  startIndexerWorker, stopIndexerWorker,
+  indexerEnabled, parseChains, viemSource, solanaRpcSource, limitsFromEnv, setConfiguredChains, configuredChains, activityInputs,
+  startIndexerWorker, stopIndexerWorker, type ChainConfig, type SolanaChainConfig,
 } from './onchain-activity';
 import {
   runSettlement, startSettlementScheduler, hydrateSettlements,
@@ -190,13 +190,16 @@ const CreateProfileSchema = z.object({
   // silently un-settleable — the format only failed later, inside a settlement
   // run's error array. Reject at the boundary instead.
   did:                 z.string().refine(isValidDid, {
-    message: 'Must be a DID of the form did:forge:0x<40 hex> or did:forge:agent_<id> ' +
+    message: 'Must be a DID of the form did:forge:0x<40 hex>, did:forge:sol:<base58 key> or did:forge:agent_<id> ' +
              '(did:fp: and did:forgepay: are accepted as legacy aliases)',
   }),
   // Optional because a registry-form DID carries no address. Required in
   // practice for an agent that intends to settle on-chain.
   evmAddress:          z.string().refine(isAddressBody, {
     message: 'Must be a 20-byte hex EVM address (0x + 40 hex characters)',
+  }).optional(),
+  solanaAddress:       z.string().refine(isSolanaAddress, {
+    message: 'Must be a Solana account address (base58, 32 bytes)',
   }).optional(),
   operatorEntityId:    z.string().min(1),
   // Console workspace that owns this registration. Honoured only from the
@@ -506,11 +509,22 @@ async function buildApp() {
       });
     }
 
+    // Same rule for Solana: an explicit address must agree with the one in the DID.
+    const derivedSolana = solanaAddressFromDid(parse.data.did);
+    const solanaAddress = parse.data.solanaAddress ?? derivedSolana ?? undefined;
+    if (parse.data.solanaAddress && derivedSolana && parse.data.solanaAddress !== derivedSolana) {
+      return reply.status(400).send({
+        error: 'ValidationError',
+        message: `solanaAddress ${parse.data.solanaAddress} contradicts the address in the DID (${derivedSolana}).`,
+      });
+    }
+
     const now = new Date().toISOString();
     const profile: AgentCreditProfile = {
       agentId:             req.params.agentId,
       did:                 parse.data.did,
       evmAddress,
+      ...(solanaAddress ? { solanaAddress } : {}),
       operatorEntityId:    parse.data.operatorEntityId,
       ...(req.auth?.kind === 'admin' && parse.data.managedBy ? { managedBy: parse.data.managedBy } : {}),
       operatorEntityType:  parse.data.operatorEntityType,
@@ -2365,15 +2379,17 @@ async function buildApp() {
 
     // With the activity indexer on, Mode 2 comes from the wallet's own indexed transfers and needs no
     // settlement receipt or deployed contract. Off, it is the contract-based path below, unchanged.
-    const indexed = indexerEnabled() && agentAddress
-      ? activityInputs(agentAddress, configuredChains(), limitsFromEnv())
+    // An agent may have an EVM wallet, a Solana wallet, or both; their activity is combined.
+    const wallets = [agentAddress, profile.solanaAddress].filter((a): a is string => !!a);
+    const indexed = indexerEnabled() && wallets.length > 0
+      ? activityInputs(wallets, configuredChains(), limitsFromEnv())
       : null;
 
     // Why Mode 2 may be absent. Previously the response carried a bare
     // `mode2: null` with no way for a caller to tell an unconfigured chain from
     // an agent that can never settle.
     const mode2Unavailable = indexerEnabled()
-      ? (!agentAddress ? { reason: eligibility.reason, detail: eligibility.detail }
+      ? (wallets.length === 0 ? { reason: eligibility.reason, detail: eligibility.detail }
         : indexed && !indexed.ok ? { reason: indexed.reason, detail: indexed.detail }
         : null)
       : chain === null          ? { reason: 'chain_unconfigured', detail: 'The bureau has no on-chain client configured; Mode 1 is authoritative.' }
@@ -2556,11 +2572,12 @@ async function main(): Promise<void> {
   // Mode 2 activity indexer (off unless ONCHAIN_INDEXER_ENABLED=true).
   if (indexerEnabled()) {
     const chains = configuredChains();
-    const sources = new Map(chains.map((c) => [c.chainId, viemSource(c)] as const));
+    const sources = new Map(chains.filter((c): c is ChainConfig => c.kind !== 'solana').map((c) => [c.chainId, viemSource(c)] as const));
+    const solanaSources = new Map(chains.filter((c): c is SolanaChainConfig => c.kind === 'solana').map((c) => [c.chainId, solanaRpcSource(c)] as const));
     startIndexerWorker({
-      chains, sources, limits: limitsFromEnv(),
+      chains, sources, solanaSources, limits: limitsFromEnv(),
       listWallets: () => listProfiles(Number.MAX_SAFE_INTEGER).data
-        .map((p) => settlementEligibility(p).address)
+        .flatMap((p) => [settlementEligibility(p).address, p.solanaAddress])
         .filter((a): a is string => !!a),
     }, Number(process.env['ONCHAIN_INDEX_INTERVAL_MS'] ?? 30_000));
     console.log(`[credit-bureau] Mode 2 indexer on: ${chains.map((c) => `${c.name} (${c.chainId})`).join(', ')}`);

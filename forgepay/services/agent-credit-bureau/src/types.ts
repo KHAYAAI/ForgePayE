@@ -27,6 +27,8 @@ export interface AgentCreditProfile {
    * on-chain yet, which `settlementEligibility()` reports explicitly.
    */
   evmAddress?: string;
+  /** Solana wallet (base58 public key), when the agent's identity is a Solana wallet. Case-sensitive. */
+  solanaAddress?: string;
   operatorEntityId: string;         // Legal entity (EIN/VAT/TRN) bound to this agent
   /**
    * The console workspace (tenant) that registered this agent, when it was

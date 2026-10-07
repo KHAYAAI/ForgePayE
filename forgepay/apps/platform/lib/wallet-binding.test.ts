@@ -27,7 +27,8 @@ vi.mock('./db', () => ({
   }),
 }));
 
-import { CHALLENGE_TTL_MS, createWalletChallenge, didForWallet, verifyWalletChallenge } from './wallet-binding';
+import { CHALLENGE_TTL_MS, createWalletChallenge, didForWallet, verifyWalletChallenge, walletChain } from './wallet-binding';
+import { newSolanaWallet } from './testing/solana-wallet';
 
 const key = generatePrivateKey();
 const wallet = privateKeyToAccount(key);
@@ -128,5 +129,71 @@ describe('verifying a signature', () => {
 describe('the identity of a proven wallet', () => {
   it('is did:forge: plus the checksummed address, which is what the bureau derives', () => {
     expect(didForWallet(wallet.address.toLowerCase())).toBe(`did:forge:${wallet.address}`);
+  });
+});
+
+describe('a Solana wallet', () => {
+  const sol = newSolanaWallet();
+  const otherSol = newSolanaWallet();
+
+  async function solChallenge(address = sol.address, tenantId = 'ws_a', now = Date.now()) {
+    const c = await createWalletChallenge({ tenantId, address, agentId: 'agent_sol' }, now);
+    if (!c.ok) throw new Error('challenge failed: ' + c.message);
+    return c;
+  }
+
+  it('is told apart from an EVM wallet by its address alone', () => {
+    expect(walletChain(sol.address)).toBe('solana');
+    expect(walletChain(wallet.address)).toBe('evm');
+    for (const bad of ['', 'nope', '0x123', null, undefined, 5]) expect(walletChain(bad)).toBeNull();
+  });
+
+  it('gets a challenge naming the address exactly as given (base58 is case-sensitive)', async () => {
+    const c = await solChallenge();
+    expect(c).toMatchObject({ chain: 'solana', address: sol.address });
+    expect(c.message).toContain(`Address: ${sol.address}`);
+  });
+
+  it('is proven by an ed25519 signature over the challenge, returning the address, agent and chain', async () => {
+    const c = await solChallenge();
+    expect(await verifyWalletChallenge('ws_a', c.nonce, sol.signMessage(c.message))).toMatchObject({ ok: true, address: sol.address, agentId: 'agent_sol', chain: 'solana' });
+  });
+
+  it('refuses another wallet\'s signature and a signature over altered text, without spending the challenge', async () => {
+    const c = await solChallenge();
+    expect(await verifyWalletChallenge('ws_a', c.nonce, otherSol.signMessage(c.message))).toMatchObject({ ok: false, status: 401, error: 'WrongSigner' });
+    expect(await verifyWalletChallenge('ws_a', c.nonce, sol.signMessage(c.message.replace('agent_sol', 'agent_evil')))).toMatchObject({ ok: false, error: 'WrongSigner' });
+    expect(rows.get(c.nonce)!.used_at).toBeNull();
+    expect((await verifyWalletChallenge('ws_a', c.nonce, sol.signMessage(c.message))).ok).toBe(true);
+  });
+
+  it('cannot be replayed, expires, and is not usable from another workspace', async () => {
+    const c = await solChallenge();
+    const sig = sol.signMessage(c.message);
+    expect(await verifyWalletChallenge('ws_b', c.nonce, sig)).toMatchObject({ ok: false, status: 404 });
+    expect((await verifyWalletChallenge('ws_a', c.nonce, sig)).ok).toBe(true);
+    expect(await verifyWalletChallenge('ws_a', c.nonce, sig)).toMatchObject({ ok: false, status: 409, error: 'AlreadyUsed' });
+    const old = await solChallenge(sol.address, 'ws_a', Date.now() - CHALLENGE_TTL_MS - 1000);
+    expect(await verifyWalletChallenge('ws_a', old.nonce, sol.signMessage(old.message))).toMatchObject({ ok: false, status: 410 });
+  });
+
+  it('two simultaneous requests with the same valid signature: exactly one succeeds', async () => {
+    const c = await solChallenge();
+    const sig = sol.signMessage(c.message);
+    const results = await Promise.all([verifyWalletChallenge('ws_a', c.nonce, sig), verifyWalletChallenge('ws_a', c.nonce, sig)]);
+    expect(results.filter((r) => r.ok)).toHaveLength(1);
+  });
+
+  it('the signature shape must match the wallet kind: a hex signature cannot prove a Solana wallet, nor base64 an EVM one', async () => {
+    const c = await solChallenge();
+    expect(await verifyWalletChallenge('ws_a', c.nonce, await wallet.signMessage({ message: c.message }))).toMatchObject({ ok: false, status: 400, error: 'BadSignature' });
+    const e = await challenge();
+    expect(await verifyWalletChallenge('ws_a', e.nonce, sol.signMessage(e.message))).toMatchObject({ ok: false, status: 400, error: 'BadSignature' });
+    expect(rows.get(c.nonce)!.used_at).toBeNull();
+    expect(rows.get(e.nonce)!.used_at).toBeNull();
+  });
+
+  it('gets the Solana form of the identity, which the bureau derives the same way', () => {
+    expect(didForWallet(sol.address)).toBe(`did:forge:sol:${sol.address}`);
   });
 });

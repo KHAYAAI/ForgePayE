@@ -218,7 +218,7 @@ export const openApiDocument = {
         type: 'object', required: ['agentId', 'did', 'operatorEntityId', 'operatorEntityType'],
         properties: {
           agentId: { type: 'string' }, did: { type: 'string', example: 'did:forge:agent_acme_1', description: 'did:forge:agent_<id> or did:forge:0x<address>' },
-          evmAddress: { type: 'string' }, operatorEntityId: { type: 'string' },
+          evmAddress: { type: 'string' }, solanaAddress: { type: 'string', description: 'Solana account (base58). Optional; derived from a did:forge:sol: identity.' }, operatorEntityId: { type: 'string' },
           operatorEntityType: { type: 'string', enum: ['individual', 'llc', 'corp', 'dao'] },
           operatorLegalName: { type: 'string' }, operatorCountry: { type: 'string', example: 'ZA' }, operatorRegistrationNumber: { type: 'string' },
         },

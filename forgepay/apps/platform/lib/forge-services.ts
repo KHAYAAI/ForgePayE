@@ -320,6 +320,7 @@ export interface RegisterAgentInput {
   operatorEntityId: string;
   operatorEntityType: 'individual' | 'llc' | 'corp' | 'dao';
   evmAddress?: string;
+  solanaAddress?: string;
   operatorLegalName?: string;
   operatorCountry?: string;
   operatorRegistrationNumber?: string;

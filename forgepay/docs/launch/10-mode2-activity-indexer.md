@@ -48,13 +48,49 @@ Built for any EVM chain through configuration; **Base and Ethereum mainnet are t
 - **Ethereum mainnet:** the deepest stablecoin history. Costlier RPC use for the same wallet.
 - **Arbitrum One and Optimism:** the sensible next additions: same log format, cheap, and active for automated agents. Configuration only.
 - **Polygon:** possible, but expect a lot of tiny spam transfers; the dust filter helps and the minimums should be raised.
-- **Solana is not a configuration change.** It has different addresses, a different transfer model (token accounts, not events) and a different
-  signature scheme. Today an agent's identity (`did:forge:0x…`) and the wallet-binding proof are Ethereum-only, so a Solana wallet could not
-  be proven or registered. It needs, in order: a Solana wallet proof (ed25519), a chain-neutral agent identity, then its own indexer. That is
-  a separate project, worth doing only if design partners ask for it.
+## Solana
+
+Solana is supported, as its own kind of chain (`"kind":"solana"` in `ONCHAIN_CHAINS`), because it cannot share the EVM code path.
+
+- **Identity:** a Solana agent is `did:forge:sol:<base58 public key>`. The `sol:` prefix is reserved, so it can never collide with a registry id,
+  and the legacy `did:fp:` / `did:forgepay:` forms do not carry it. Base58 is case-sensitive, so the address is kept exactly as given.
+  EVM identities and every existing DID parse exactly as before. A profile may carry both an EVM and a Solana wallet; their activity is combined.
+- **Wallet proof (console, *Connect wallet*):** choose "Solana wallet", connect (Phantom or a compatible wallet), and sign the same challenge.
+  The wallet signs the message bytes with ed25519; the console checks the signature server-side with Node's own crypto. The kind of wallet is read from
+  the address, never from the caller, and a hex signature cannot prove a Solana wallet (or the reverse). The challenge is single-use, ten minutes,
+  workspace-bound, and a wrong signature does not spend it, as for EVM wallets.
+- **Indexer:** reads each wallet's token account for the configured stablecoin mints over plain JSON-RPC at `finalized` commitment (which cannot be
+  rolled back, so there is no confirmation depth to tune). There are no block ranges on Solana, so it pages the token account's signatures
+  newest to oldest, first catching up on anything new, then working back through history. Each page commits only when every transaction in it was read.
+  A transfer is the wallet's net change of that token in one transaction, with the party that moved against it by the most as counterparty; mints, burns,
+  transfers between the wallet's own accounts and failed transactions do not count. The same dust, minimum-history and counterparty rules apply.
+- **Settlement:** scores settle to an EVM registry, so a Solana-only agent is not settled on-chain; its Mode 2 comes from indexed activity only. The
+  dual-score response says so.
+
+`ONCHAIN_CHAINS` entry for Solana (mint addresses are not built in; take them from the issuer's published list):
+
+```json
+{"kind":"solana","chainId":101,"name":"Solana","rpcUrl":"<provider url>","pageSize":50,"tokens":[{"symbol":"USDC","address":"<issuer-published mint>","decimals":6}]}
+```
+
+`chainId` is only a label that keeps Solana's summaries apart from EVM chains; use 101 for mainnet.
+
+**Known limits.**
+- A wallet with **more than one token account for the same token** is not indexed for that token (it is reported in the source note), because counting
+  from several accounts could count one transaction twice. An undercount is the safer error.
+- History is read from the token account, so activity on an account that has since been **closed** is not seen.
+- A transaction the RPC node can no longer return (pruned history) is counted in `skipped` and cannot be scored; use a provider with full history.
+- Needs a provider that serves `getSignaturesForAddress` and `getTransaction` for old transactions. Many free tiers do not.
 
 ## Checked
 
-Unit tests with a fake chain (ranges, confirmation depth, resume, retry, atomic batches, thin history, multi-chain combining) and a real
-Postgres restart test. Two mutations (non-atomic batch, no confirmation depth) were confirmed to fail the tests meant to catch them.
-**Not yet run against a live RPC provider or a real wallet**: that needs your provider and verified token addresses.
+- **EVM:** unit tests with a fake chain (ranges, confirmation depth, resume, retry, atomic batches, thin history, multi-chain combining) and a real
+  Postgres restart test. Mutations (non-atomic batch, no confirmation depth) were confirmed to fail the tests meant to catch them.
+- **Solana:** a fake node that pages signatures newest-first like a real one: classification, paging across passes, catch-up spanning pages, an interrupted
+  catch-up, atomic pages, missing transactions, several token accounts, routing wallets to the right kind of chain; the DID and base58 handling; the
+  ed25519 proof with the same security cases as EVM (wrong signer, swapped message, replay, expiry, other workspace, shape mismatch); and registration
+  through the bureau's real HTTP routes. Mutations (non-atomic page, wrong catch-up pointer, indexing despite several accounts, skipping the signature check)
+  were each confirmed to fail the tests meant to catch them.
+- **Not yet run:** against a live RPC provider (EVM or Solana), with real token addresses, or with a real wallet in a real browser. The Solana
+  page's wallet calls (`connect`, `signMessage`) follow Phantom's documented interface but have only been type-checked, not clicked through.
+  That needs your provider, verified addresses, and a person with a wallet.

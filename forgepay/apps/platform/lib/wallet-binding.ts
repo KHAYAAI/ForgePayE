@@ -7,14 +7,29 @@
  *
  * A challenge is bound to the workspace, the address and the agent; it is single-use and lasts ten minutes. The signature is
  * recovered server-side, so the browser cannot claim an address it does not control.
+ *
+ * Two kinds of wallet: Ethereum-style (a 0x address; the wallet signs with personal_sign) and Solana (a base58 public key; the
+ * wallet signs the message bytes with ed25519). The kind is read from the address itself, never from the caller.
  */
 
 import { randomBytes } from 'node:crypto';
 import { getAddress, isAddress, recoverMessageAddress, type Hex } from 'viem';
 import { query, queryOne } from './db';
+import { isSolanaAddress, SOLANA_SIGNATURE_SHAPE, verifySolanaSignature } from './solana-address';
 
 export const CHALLENGE_TTL_MS = 10 * 60 * 1000;
 const AGENT_ID = /^[A-Za-z0-9_.:-]{1,120}$/;
+const EVM_SIGNATURE_SHAPE = /^0x[0-9a-fA-F]{130}$/;
+
+export type WalletChain = 'evm' | 'solana';
+
+/** Which kind of wallet an address is, or null if it is neither. A 0x address is never a Solana key and vice versa. */
+export function walletChain(address: unknown): WalletChain | null {
+  if (typeof address !== 'string') return null;
+  if (isAddress(address, { strict: false })) return 'evm';
+  if (isSolanaAddress(address)) return 'solana';
+  return null;
+}
 
 export interface ChallengeInput { tenantId: string; address: string; agentId: string }
 
@@ -34,17 +49,19 @@ export function challengeMessage(i: { tenantId: string; address: string; agentId
 }
 
 export type ChallengeOutcome =
-  | { ok: true; nonce: string; message: string; expiresAt: string; address: string }
+  | { ok: true; nonce: string; message: string; expiresAt: string; address: string; chain: WalletChain }
   | { ok: false; status: number; error: string; message: string };
 
 export async function createWalletChallenge(input: ChallengeInput, now = Date.now()): Promise<ChallengeOutcome> {
-  if (typeof input.address !== 'string' || !isAddress(input.address, { strict: false })) {
-    return { ok: false, status: 400, error: 'ValidationError', message: 'address must be a 0x-prefixed 20-byte wallet address' };
+  const chain = walletChain(input.address);
+  if (!chain) {
+    return { ok: false, status: 400, error: 'ValidationError', message: 'address must be a 0x-prefixed 20-byte wallet address or a Solana account address' };
   }
   if (typeof input.agentId !== 'string' || !AGENT_ID.test(input.agentId)) {
     return { ok: false, status: 400, error: 'ValidationError', message: 'agentId must be 1 to 120 letters, digits, or _ . : -' };
   }
-  const address = getAddress(input.address); // checksummed, so the message and the DID are canonical
+  // EVM: checksummed, so the message and the DID are canonical. Solana: base58 is case-sensitive and kept exactly as given.
+  const address = chain === 'evm' ? getAddress(input.address) : input.address;
   const nonce = randomBytes(16).toString('hex');
   const issuedAt = new Date(now).toISOString();
   const expiresAt = new Date(now + CHALLENGE_TTL_MS).toISOString();
@@ -53,13 +70,13 @@ export async function createWalletChallenge(input: ChallengeInput, now = Date.no
     `INSERT INTO wallet_challenges (nonce, tenant_id, address, agent_id, message, expires_at) VALUES ($1, $2, $3, $4, $5, $6)`,
     [nonce, input.tenantId, address, input.agentId, message, expiresAt],
   );
-  return { ok: true, nonce, message, expiresAt, address };
+  return { ok: true, nonce, message, expiresAt, address, chain };
 }
 
 interface ChallengeRow { nonce: string; tenant_id: string; address: string; agent_id: string; message: string; expires_at: string; used_at: string | null }
 
 export type VerifyOutcome =
-  | { ok: true; address: string; agentId: string }
+  | { ok: true; address: string; agentId: string; chain: WalletChain }
   | { ok: false; status: number; error: string; message: string };
 
 /**
@@ -70,8 +87,9 @@ export async function verifyWalletChallenge(tenantId: string, nonce: string, sig
   if (typeof nonce !== 'string' || !/^[0-9a-f]{32}$/.test(nonce)) {
     return { ok: false, status: 400, error: 'ValidationError', message: 'nonce is not valid' };
   }
-  if (typeof signature !== 'string' || !/^0x[0-9a-fA-F]{130}$/.test(signature)) {
-    return { ok: false, status: 400, error: 'ValidationError', message: 'signature must be a 65-byte hex signature' };
+  // Either wallet kind's signature shape, checked before the database is touched; it is matched to the wallet's kind below.
+  if (typeof signature !== 'string' || !(EVM_SIGNATURE_SHAPE.test(signature) || SOLANA_SIGNATURE_SHAPE.test(signature))) {
+    return { ok: false, status: 400, error: 'ValidationError', message: 'signature must be a 65-byte hex signature, or a 64-byte base64 signature for a Solana wallet' };
   }
   const row = await queryOne<ChallengeRow>(
     `SELECT nonce, tenant_id, address, agent_id, message, expires_at, used_at FROM wallet_challenges WHERE nonce = $1 AND tenant_id = $2`,
@@ -81,14 +99,27 @@ export async function verifyWalletChallenge(tenantId: string, nonce: string, sig
   if (row.used_at) return { ok: false, status: 409, error: 'AlreadyUsed', message: 'That challenge was already used. Start again.' };
   if (Date.parse(row.expires_at) <= now) return { ok: false, status: 410, error: 'Expired', message: 'That challenge expired. Start again.' };
 
-  let recovered: string;
-  try {
-    recovered = await recoverMessageAddress({ message: row.message, signature: signature as Hex });
-  } catch {
-    return { ok: false, status: 400, error: 'BadSignature', message: 'That is not a valid signature.' };
-  }
-  if (recovered.toLowerCase() !== row.address.toLowerCase()) {
-    return { ok: false, status: 401, error: 'WrongSigner', message: 'The signature was made by a different wallet than the one named.' };
+  const chain = walletChain(row.address);
+  if (chain === 'solana') {
+    if (!SOLANA_SIGNATURE_SHAPE.test(signature)) {
+      return { ok: false, status: 400, error: 'BadSignature', message: 'A Solana wallet signs with a 64-byte base64 signature.' };
+    }
+    if (!verifySolanaSignature(row.address, row.message, signature)) {
+      return { ok: false, status: 401, error: 'WrongSigner', message: 'The signature was made by a different wallet than the one named.' };
+    }
+  } else {
+    if (!EVM_SIGNATURE_SHAPE.test(signature)) {
+      return { ok: false, status: 400, error: 'BadSignature', message: 'An Ethereum-style wallet signs with a 65-byte hex signature.' };
+    }
+    let recovered: string;
+    try {
+      recovered = await recoverMessageAddress({ message: row.message, signature: signature as Hex });
+    } catch {
+      return { ok: false, status: 400, error: 'BadSignature', message: 'That is not a valid signature.' };
+    }
+    if (recovered.toLowerCase() !== row.address.toLowerCase()) {
+      return { ok: false, status: 401, error: 'WrongSigner', message: 'The signature was made by a different wallet than the one named.' };
+    }
   }
 
   // Spend it atomically: two requests with the same valid signature cannot both succeed.
@@ -97,7 +128,7 @@ export async function verifyWalletChallenge(tenantId: string, nonce: string, sig
     [nonce, tenantId],
   );
   if (spent.length === 0) return { ok: false, status: 409, error: 'AlreadyUsed', message: 'That challenge was already used. Start again.' };
-  return { ok: true, address: row.address, agentId: row.agent_id };
+  return { ok: true, address: row.address, agentId: row.agent_id, chain: chain ?? 'evm' };
 }
 
 export async function recordWalletBinding(tenantId: string, address: string, agentId: string, provedBy: string): Promise<void> {
@@ -108,7 +139,7 @@ export async function recordWalletBinding(tenantId: string, address: string, age
   );
 }
 
-/** The self-certifying identity for a proven wallet: did:forge:0x<checksummed address>. */
+/** The self-certifying identity for a proven wallet: did:forge:0x<checksummed address>, or did:forge:sol:<address> for Solana. */
 export function didForWallet(address: string): string {
-  return `did:forge:${getAddress(address)}`;
+  return walletChain(address) === 'solana' ? `did:forge:sol:${address}` : `did:forge:${getAddress(address)}`;
 }

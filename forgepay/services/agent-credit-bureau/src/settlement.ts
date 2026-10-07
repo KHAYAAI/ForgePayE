@@ -67,6 +67,10 @@ export function settlementEligibility(profile: AgentCreditProfile): SettlementEl
       eligible: false,
       reason: 'no_evm_address',
       detail:
+        (profile.solanaAddress
+          ? 'This agent is identified by a Solana wallet. Scores settle to an EVM registry, so it is not settled on-chain; ' +
+            'its Mode 2 comes from indexed Solana activity instead. '
+          : '') +
         `DID ${profile.did} does not carry an EVM address and no evmAddress is set on ` +
         `the profile. Supply one via POST /v1/agents/${profile.agentId}/profile, or use ` +
         `a did:forge:0x… identifier.`,

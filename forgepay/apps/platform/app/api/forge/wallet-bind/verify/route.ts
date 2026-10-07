@@ -1,6 +1,6 @@
 /**
  * POST /api/forge/wallet-bind/verify  { nonce, signature, operatorEntityId, operatorEntityType, ... }
- * Check the signature, then register the agent with the self-certifying identity of that wallet (did:forge:0x...). The bureau
+ * Check the signature, then register the agent with the self-certifying identity of that wallet (did:forge:0x... or did:forge:sol:...). The bureau
  * then holds an agent whose address was proven, not just typed in.
  */
 
@@ -34,7 +34,7 @@ export async function POST(req: Request) {
   const input: RegisterAgentInput = {
     agentId: proof.agentId,
     did: didForWallet(proof.address),
-    evmAddress: proof.address,
+    ...(proof.chain === 'solana' ? { solanaAddress: proof.address } : { evmAddress: proof.address }),
     operatorEntityId,
     operatorEntityType: operatorEntityType as RegisterAgentInput['operatorEntityType'],
     ...(typeof body?.operatorLegalName === 'string' && body.operatorLegalName ? { operatorLegalName: body.operatorLegalName } : {}),
@@ -49,8 +49,8 @@ export async function POST(req: Request) {
   await recordWalletBinding(g.user.tenantId, proof.address, proof.agentId, g.user.email);
   await logAuditEvent({
     tenantId: g.user.tenantId, actorUserId: g.user.userId, actorEmail: g.user.email,
-    action: 'wallet.bound', resource: proof.agentId, detail: { address: proof.address, did: input.did },
+    action: 'wallet.bound', resource: proof.agentId, detail: { address: proof.address, chain: proof.chain, did: input.did },
     ipAddress: clientIp(req), userAgent: req.headers.get('user-agent'),
   });
-  return NextResponse.json({ data: { agentId: proof.agentId, did: input.did, address: proof.address, agent: registered.data } }, { status: 201 });
+  return NextResponse.json({ data: { agentId: proof.agentId, did: input.did, address: proof.address, chain: proof.chain, agent: registered.data } }, { status: 201 });
 }
