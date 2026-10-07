@@ -19,7 +19,7 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.esm.json && tsc -p tsconfig.cjs.json",
+    "build": "tsc -p tsconfig.esm.json && tsc -p tsconfig.cjs.json && node scripts/mark-module-types.cjs",
     "dev": "tsc -p tsconfig.esm.json --watch",
     "type-check": "tsc --noEmit",
     "test": "vitest run",

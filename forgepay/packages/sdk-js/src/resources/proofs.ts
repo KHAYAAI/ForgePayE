@@ -52,6 +52,13 @@
 
 import type { FPHttpClient } from '../client.js';
 
+/**
+ * The optional WASM prover. Named in a variable so the SDK compiles whether or not the package is installed (it is not published yet);
+ * a missing module is handled where it is loaded, which falls back to stub mode and says so.
+ */
+const WASM_MODULE = '@forgepay/privacy-payment-wasm';
+interface WasmModule { ProofGenerator?: { fromSeed(seedHex: string): unknown } }
+
 export interface DepositProofInput {
   asset: number;           // Asset ID (0=USDC, 1=USDT)
   amountUsd: number;       // Dollar amount (e.g., 49.00)
@@ -197,7 +204,7 @@ export class ProofsResource {
 
     try {
       // Try to load WASM module
-      const module = await import('@forgepay/privacy-payment-wasm');
+      const module = (await import(/* @vite-ignore */ WASM_MODULE)) as WasmModule;
       if (!module.ProofGenerator) {
         throw new Error('ProofGenerator not exported from WASM module');
       }
@@ -342,7 +349,7 @@ export class ProofsResource {
 
     try {
       // Try to dynamically import the module
-      await import('@forgepay/privacy-payment-wasm');
+      await import(/* @vite-ignore */ WASM_MODULE);
       return true;
     } catch {
       return false;

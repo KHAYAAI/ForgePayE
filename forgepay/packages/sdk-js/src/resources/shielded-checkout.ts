@@ -64,6 +64,18 @@ interface EncryptedMemoWire {
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
+/** Web Crypto takes BufferSource; a plain Uint8Array is typed as possibly shared, which newer TypeScript rejects. */
+const asBuf = (u: Uint8Array): BufferSource => u as BufferSource;
+
+/** PKCS#8 wrapper (RFC 8410) for a raw 32-byte X25519 private key: a fixed 16-byte header, then the key. */
+const X25519_PKCS8_HEADER = Uint8Array.from([0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x6e, 0x04, 0x22, 0x04, 0x20]);
+function x25519Pkcs8(secret: Uint8Array): Uint8Array {
+  const out = new Uint8Array(X25519_PKCS8_HEADER.length + secret.length);
+  out.set(X25519_PKCS8_HEADER);
+  out.set(secret, X25519_PKCS8_HEADER.length);
+  return out;
+}
+
 function hexToBytes(hex: string): Uint8Array {
   if (hex.length % 2 !== 0) throw new Error('hex string must have even length');
   const bytes = new Uint8Array(hex.length / 2);
@@ -79,7 +91,7 @@ function bytesToHex(bytes: Uint8Array): string {
 
 // SHA-256 of shared secret bytes → 32-byte AES key
 async function deriveAesKey(sharedSecretBytes: Uint8Array): Promise<CryptoKey> {
-  const hashBuf = await crypto.subtle.digest('SHA-256', sharedSecretBytes);
+  const hashBuf = await crypto.subtle.digest('SHA-256', asBuf(sharedSecretBytes));
   return crypto.subtle.importKey(
     'raw', hashBuf, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt'],
   );
@@ -111,8 +123,7 @@ export class ShieldedCheckoutResource {
   async create(
     params: ShieldedCheckoutSessionCreateParams,
   ): Promise<ShieldedCheckoutSessionResponse> {
-    const response = await this.client.request(
-      'POST',
+    const response = await this.client.post<ShieldedCheckoutSessionResponse>(
       '/v1/checkout/sessions/shielded',
       {
         merchant_id: params.merchant_id,
@@ -136,8 +147,7 @@ export class ShieldedCheckoutResource {
 
   /** Retrieve a shielded checkout session by ID. */
   async retrieve(sessionId: string): Promise<ShieldedCheckoutSessionResponse> {
-    const response = await this.client.request('GET', `/v1/checkout/sessions/${sessionId}`);
-    return response as ShieldedCheckoutSessionResponse;
+    return this.client.get<ShieldedCheckoutSessionResponse>(`/v1/checkout/sessions/${sessionId}`);
   }
 
   /**
@@ -148,11 +158,10 @@ export class ShieldedCheckoutResource {
     data: ShieldedCheckoutSessionResponse[];
     total: number;
   }> {
-    const response = await this.client.request('GET', '/v1/checkout/sessions', {
-      shielded: true,
+    return this.client.get<{ data: ShieldedCheckoutSessionResponse[]; total: number }>('/v1/checkout/sessions', {
+      shielded: 'true',
       ...params,
     });
-    return response as { data: ShieldedCheckoutSessionResponse[]; total: number };
   }
 
   /**
@@ -184,7 +193,7 @@ export class ShieldedCheckoutResource {
 
     // 1. Import auditor's X25519 public key
     const auditorPk = await crypto.subtle.importKey(
-      'raw', auditorPkBytes, { name: 'X25519' }, false, [],
+      'raw', asBuf(auditorPkBytes), { name: 'X25519' }, false, [],
     );
 
     // 2. Generate ephemeral X25519 keypair
@@ -253,15 +262,17 @@ export class ShieldedCheckoutResource {
       throw new Error('auditorSecretKeyHex must be 32 bytes');
     }
 
-    // Import auditor's X25519 private key
+    // Import auditor's X25519 private key. Web Crypto cannot import a private key in 'raw' form (only pkcs8 or jwk), so the 32-byte
+    // secret is wrapped in the fixed PKCS#8 header for X25519 (RFC 8410). Importing it raw threw NotSupportedError every time, so
+    // decryptMemo could never have worked with a raw hex secret.
     const auditorSk = await crypto.subtle.importKey(
-      'raw', skBytes, { name: 'X25519' }, false, ['deriveBits'],
+      'pkcs8', asBuf(x25519Pkcs8(skBytes)), { name: 'X25519' }, false, ['deriveBits'],
     );
 
     // Import ephemeral public key
     const ephPkBytes = hexToBytes(wire.ephemeral_pk);
     const ephPk = await crypto.subtle.importKey(
-      'raw', ephPkBytes, { name: 'X25519' }, false, [],
+      'raw', asBuf(ephPkBytes), { name: 'X25519' }, false, [],
     );
 
     // ECDH → shared secret
@@ -283,9 +294,9 @@ export class ShieldedCheckoutResource {
     fullCiphertext.set(authTag, ciphertext.length);
 
     const plaintext = await crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv: nonce, tagLength: 128 },
+      { name: 'AES-GCM', iv: asBuf(nonce), tagLength: 128 },
       aesKey,
-      fullCiphertext,
+      asBuf(fullCiphertext),
     );
 
     return JSON.parse(new TextDecoder().decode(plaintext));

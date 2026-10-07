@@ -174,7 +174,7 @@ async def readyz() -> dict[str, Any] | Response:
     # 2. Redis probe
     try:
         import redis.asyncio as aioredis
-        r = aioredis.from_url(settings.redis_url)
+        r = aioredis.from_url(settings.redis_url)  # type: ignore[no-untyped-call,unused-ignore]  # untyped in some redis releases, typed in others
         await r.ping()
         await r.aclose()
         checks["redis"] = "ok"

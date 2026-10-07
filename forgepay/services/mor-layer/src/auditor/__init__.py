@@ -81,7 +81,7 @@ class AuditorClient:
         self._redis: Optional[redis.Redis] = None
         if redis_url:
             try:
-                self._redis = redis.from_url(redis_url, decode_responses=True)
+                self._redis = redis.from_url(redis_url, decode_responses=True)  # type: ignore[no-untyped-call,unused-ignore]  # untyped in some redis releases, typed in others
                 self._redis.ping()
                 logger.info("Connected to Redis for nullifier state")
             except Exception as e:

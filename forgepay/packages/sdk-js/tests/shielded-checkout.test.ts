@@ -102,8 +102,9 @@ describe('ShieldedCheckoutResource', () => {
         .map(b => b.toString(16).padStart(2, '0'))
         .join('');
 
-      const auditorSkRaw = await crypto.subtle.exportKey('raw', auditorKeypair.privateKey);
-      const auditorSkHex = Array.from(new Uint8Array(auditorSkRaw))
+      // Web Crypto exports a private key only as pkcs8 or jwk; the raw 32-byte secret is the last 32 bytes of the pkcs8 form.
+      const auditorSkPkcs8 = new Uint8Array(await crypto.subtle.exportKey('pkcs8', auditorKeypair.privateKey));
+      const auditorSkHex = Array.from(auditorSkPkcs8.slice(-32))
         .map(b => b.toString(16).padStart(2, '0'))
         .join('');
 
