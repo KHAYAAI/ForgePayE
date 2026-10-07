@@ -42,6 +42,7 @@ prometheus-client = "^0.20.0"
 [tool.poetry.group.dev.dependencies]
 pytest       = "^8.2.2"
 pytest-asyncio = "^0.23.7"
+respx        = "^0.21.1"        # Mock httpx calls in the Hyperswitch bridge and webhook tests
 httpx        = "^0.27.0"
 ruff         = "^0.5.0"
 mypy         = "^1.10.1"
