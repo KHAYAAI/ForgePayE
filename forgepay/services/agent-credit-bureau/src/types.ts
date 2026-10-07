@@ -438,7 +438,13 @@ export interface DualModeScore {
  * These are the Qova-derived factors computed off the raw TransactionStats struct.
  */
 export interface Mode2Inputs {
-  successRateBps: number;          // basis points: 9500 = 95%
+  /**
+   * Basis points (9500 = 95%), or `null` when it cannot be known. A wallet
+   * indexed from public transfer logs only ever shows transfers that succeeded,
+   * so a rate computed from them would always read 100%; that is left out of
+   * the score rather than scored.
+   */
+  successRateBps: number | null;
   totalVolumeUsd: number;
   totalCount: number;
   /**

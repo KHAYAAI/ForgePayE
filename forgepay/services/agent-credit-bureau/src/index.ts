@@ -104,6 +104,10 @@ import { verifyAgent, sanctionsScreen } from './verify';
 import { operatorEligibility, verifyOperator } from './kyb';
 import { getChainClient, didToAddress } from './chain';
 import {
+  indexerEnabled, parseChains, viemSource, limitsFromEnv, setConfiguredChains, configuredChains, activityInputs,
+  startIndexerWorker, stopIndexerWorker,
+} from './onchain-activity';
+import {
   runSettlement, startSettlementScheduler, hydrateSettlements,
   getLastSettlementRun, getSettlementReceipt, getSettlementRunCount,
   settlementEligibility,
@@ -2359,11 +2363,20 @@ async function buildApp() {
     const eligibility  = settlementEligibility(profile);
     const agentAddress = eligibility.address as `0x${string}` | undefined;
 
+    // With the activity indexer on, Mode 2 comes from the wallet's own indexed transfers and needs no
+    // settlement receipt or deployed contract. Off, it is the contract-based path below, unchanged.
+    const indexed = indexerEnabled() && agentAddress
+      ? activityInputs(agentAddress, configuredChains(), limitsFromEnv())
+      : null;
+
     // Why Mode 2 may be absent. Previously the response carried a bare
     // `mode2: null` with no way for a caller to tell an unconfigured chain from
     // an agent that can never settle.
-    const mode2Unavailable =
-      chain === null          ? { reason: 'chain_unconfigured', detail: 'The bureau has no on-chain client configured; Mode 1 is authoritative.' }
+    const mode2Unavailable = indexerEnabled()
+      ? (!agentAddress ? { reason: eligibility.reason, detail: eligibility.detail }
+        : indexed && !indexed.ok ? { reason: indexed.reason, detail: indexed.detail }
+        : null)
+      : chain === null          ? { reason: 'chain_unconfigured', detail: 'The bureau has no on-chain client configured; Mode 1 is authoritative.' }
       : !agentAddress         ? { reason: eligibility.reason, detail: eligibility.detail }
       : receipt === undefined ? { reason: 'not_yet_settled', detail: 'This agent has no settlement receipt yet; the next settlement run will publish one.' }
       : null;
@@ -2374,9 +2387,21 @@ async function buildApp() {
     );
 
     // Fetch Mode 2 inputs from on-chain (null if chain unconfigured or agent has no on-chain data)
-    const mode2Inputs = (chain && agentAddress)
-      ? await chain.getMode2Inputs(agentAddress, ageMonths).catch(() => null)
-      : null;
+    const mode2Inputs = indexerEnabled()
+      ? (indexed && indexed.ok
+        ? {
+            successRateBps: null,
+            totalVolumeUsd: indexed.totalVolumeUsd,
+            totalCount: indexed.totalCount,
+            budgetComplianceRate: null,
+            accountAgeMonths: Math.max(0, (Date.now() - new Date(indexed.firstSeenAt).getTime()) / (1000 * 60 * 60 * 24 * 30.44)),
+            accountAgeSource: 'on-chain' as const,
+            onChainSettled: receipt !== undefined,
+          }
+        : null)
+      : ((chain && agentAddress)
+        ? await chain.getMode2Inputs(agentAddress, ageMonths).catch(() => null)
+        : null);
 
     const dualScore = computeDualModeScore(
       profile.agentId,
@@ -2400,6 +2425,8 @@ async function buildApp() {
           ...(eligibility.reason ? { reason: eligibility.reason, detail: eligibility.detail } : {}),
         },
         ...(mode2Unavailable ? { mode2Unavailable } : {}),
+        // Which chains and blocks the Mode 2 figures were read from, so a lender can see how current they are.
+        ...(indexed ? { mode2Source: { kind: 'indexed_wallet_activity', chains: indexed.provenance } } : {}),
       },
     });
   });
@@ -2508,9 +2535,13 @@ async function main(): Promise<void> {
   await initPersistence();
   await hydrateSettlements();
 
+  // Fail at startup, not at the first request, if the indexer is switched on with a bad or missing chain list.
+  if (indexerEnabled()) setConfiguredChains(parseChains(process.env['ONCHAIN_CHAINS']));
+
   const shutdown = async () => {
     app.log.info('[credit-bureau] Shutting down...');
     stopWebhookWorker();
+    stopIndexerWorker();
     await app.close();
     process.exit(0);
   };
@@ -2521,6 +2552,19 @@ async function main(): Promise<void> {
 
   // Send queued webhook deliveries (and anything left pending by a restart).
   startWebhookWorker();
+
+  // Mode 2 activity indexer (off unless ONCHAIN_INDEXER_ENABLED=true).
+  if (indexerEnabled()) {
+    const chains = configuredChains();
+    const sources = new Map(chains.map((c) => [c.chainId, viemSource(c)] as const));
+    startIndexerWorker({
+      chains, sources, limits: limitsFromEnv(),
+      listWallets: () => listProfiles(Number.MAX_SAFE_INTEGER).data
+        .map((p) => settlementEligibility(p).address)
+        .filter((a): a is string => !!a),
+    }, Number(process.env['ONCHAIN_INDEX_INTERVAL_MS'] ?? 30_000));
+    console.log(`[credit-bureau] Mode 2 indexer on: ${chains.map((c) => `${c.name} (${c.chainId})`).join(', ')}`);
+  }
 
   // Start Mode 2 settlement scheduler (runs even if chain is unconfigured — no-ops gracefully)
   startSettlementScheduler();

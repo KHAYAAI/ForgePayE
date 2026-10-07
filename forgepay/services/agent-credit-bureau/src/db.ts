@@ -368,6 +368,17 @@ export async function runMigrations(): Promise<void> {
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         PRIMARY KEY (jti, state)
       );
+
+      -- Mode 2: what the indexer has read about each wallet on each chain, and how far it has read (cursor_block).
+      -- One small summary per wallet and chain, not raw logs.
+      CREATE TABLE IF NOT EXISTS onchain_activity (
+        address TEXT NOT NULL,
+        chain_id BIGINT NOT NULL,
+        cursor_block BIGINT NOT NULL,
+        data JSONB NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (address, chain_id)
+      );
     `);
   } finally {
     client.release();
@@ -406,6 +417,21 @@ export async function loadWebhooks<E, D>(): Promise<{ endpoints: E[]; deliveries
     ),
   ]);
   return { endpoints: e.rows.map((r) => r.data), deliveries: d.rows.map((r) => r.data) };
+}
+
+// ── Repository: on-chain activity summaries ───────────────────────────────────
+
+export async function upsertOnchainActivity(a: { address: string; chainId: number; cursor: number }): Promise<void> {
+  await pool.query(
+    `INSERT INTO onchain_activity (address, chain_id, cursor_block, data, updated_at) VALUES ($1, $2, $3, $4, NOW())
+     ON CONFLICT (address, chain_id) DO UPDATE SET cursor_block = EXCLUDED.cursor_block, data = EXCLUDED.data, updated_at = NOW()`,
+    [a.address, a.chainId, a.cursor, JSON.stringify(a)],
+  );
+}
+
+export async function loadOnchainActivity<T>(): Promise<T[]> {
+  const res = await pool.query<{ data: T }>(`SELECT data FROM onchain_activity`);
+  return res.rows.map((r) => r.data);
 }
 
 // ── Repository: consent token state ────────────────────────────────────────────

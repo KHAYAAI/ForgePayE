@@ -32,8 +32,10 @@ import {
   loadAllAttributions, loadAllSubscriptions, loadAllCreditBalances,
   upsertConsentToken, loadLiveConsentTokens,
   upsertWebhookEndpoint, deleteWebhookEndpoint, upsertWebhookDelivery, loadWebhooks,
+  upsertOnchainActivity, loadOnchainActivity,
 } from './db';
 import { hydrateWebhooks, setWebhookPersistence, type WebhookDelivery, type WebhookEndpoint } from './webhooks';
+import { hydrateActivity, setActivityPersistence, type ActivitySummary } from './onchain-activity';
 import { hydrateConsentState, setConsentPersistence } from './consent';
 import { isSandbox } from './sandbox';
 
@@ -672,5 +674,11 @@ export async function initPersistence(): Promise<void> {
     removeEndpoint: (id) => persist('webhook endpoint removal', () => deleteWebhookEndpoint(id)),
     saveDelivery: (d) => persist('webhook delivery', () => upsertWebhookDelivery(d)),
   });
+  // Mode 2 activity summaries and their cursors: without them a restart would re-read every wallet from the start block.
+  const activity = await loadOnchainActivity<ActivitySummary>();
+  hydrateActivity(activity);
+  setActivityPersistence({ save: (a) => persist('onchain activity', () => upsertOnchainActivity(a)) });
+  console.log(`[credit-bureau] hydrated ${activity.length} on-chain activity summaries`);
+
   console.log(`[credit-bureau] hydrated ${wh.endpoints.length} webhook endpoints, ${wh.deliveries.filter((d) => d.status === 'pending').length} pending deliveries`);
 }

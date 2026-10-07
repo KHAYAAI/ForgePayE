@@ -446,23 +446,32 @@ export function computeMode2Score(inputs: Mode2Inputs): Mode2Scored | Mode2Unsco
   // omitting a factor does not silently depress the result.
   let availablePoints = 0;
 
-  // ── 1. Success Rate (30%) — max 300pts ────────────────────────────────────
-  const successPct = inputs.successRateBps / 100;   // e.g. 9500 bps → 95%
-  let successScore: number;
-  if      (successPct >= 99) successScore = 300;
-  else if (successPct >= 95) successScore = 270;
-  else if (successPct >= 90) successScore = 220;
-  else if (successPct >= 80) successScore = 150;
-  else if (successPct >= 70) successScore = 80;
-  else                       successScore = 20;
+  // ── 1. Success Rate (30%) — max 300pts, scored only when it was measured ──
+  let successScore = 0;
+  if (inputs.successRateBps === null) {
+    factors.push({
+      code:        'SUCCESS_RATE_UNKNOWN',
+      description: 'Failed transactions leave no transfer, so the success rate cannot be measured from public logs and is excluded from this score.',
+      impact:      'neutral',
+      weight:      0,
+    });
+  } else {
+    const successPct = inputs.successRateBps / 100;   // e.g. 9500 bps → 95%
+    if      (successPct >= 99) successScore = 300;
+    else if (successPct >= 95) successScore = 270;
+    else if (successPct >= 90) successScore = 220;
+    else if (successPct >= 80) successScore = 150;
+    else if (successPct >= 70) successScore = 80;
+    else                       successScore = 20;
 
-  availablePoints += 300;
-  factors.push({
-    code: successPct >= 95 ? 'HIGH_SUCCESS_RATE' : 'LOW_SUCCESS_RATE',
-    description: `${successPct.toFixed(1)}% of on-chain transactions succeeded.`,
-    impact: successPct >= 90 ? 'positive' : successPct >= 75 ? 'neutral' : 'negative',
-    weight: 30,
-  });
+    availablePoints += 300;
+    factors.push({
+      code: successPct >= 95 ? 'HIGH_SUCCESS_RATE' : 'LOW_SUCCESS_RATE',
+      description: `${successPct.toFixed(1)}% of on-chain transactions succeeded.`,
+      impact: successPct >= 90 ? 'positive' : successPct >= 75 ? 'neutral' : 'negative',
+      weight: 30,
+    });
+  }
 
   // ── 2. Transaction Volume (25%) — max 250pts ──────────────────────────────
   const vol = inputs.totalVolumeUsd;
