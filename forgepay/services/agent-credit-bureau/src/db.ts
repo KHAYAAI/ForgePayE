@@ -337,10 +337,39 @@ export async function runMigrations(): Promise<void> {
         balance JSONB NOT NULL,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
+
+      -- Consent tokens that have been spent or revoked, until they would have expired anyway. Without this a restart made
+      -- a revoked consent work again and let a used one be replayed. exp is unix seconds, as in the token.
+      CREATE TABLE IF NOT EXISTS consent_tokens (
+        jti TEXT NOT NULL,
+        state TEXT NOT NULL CHECK (state IN ('spent', 'revoked')),
+        exp BIGINT NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (jti, state)
+      );
     `);
   } finally {
     client.release();
   }
+}
+
+// ── Repository: consent token state ────────────────────────────────────────────
+
+export async function upsertConsentToken(state: 'spent' | 'revoked', jti: string, exp: number): Promise<void> {
+  await pool.query(
+    `INSERT INTO consent_tokens (jti, state, exp, updated_at) VALUES ($1, $2, $3, NOW())
+     ON CONFLICT (jti, state) DO UPDATE SET exp = EXCLUDED.exp, updated_at = NOW()`,
+    [jti, state, exp],
+  );
+}
+
+/** Tokens still inside their lifetime; older rows are pruned a day after expiry. */
+export async function loadLiveConsentTokens(nowSec: number): Promise<Array<{ jti: string; state: 'spent' | 'revoked'; exp: number }>> {
+  await pool.query(`DELETE FROM consent_tokens WHERE exp <= $1`, [nowSec - 86_400]);
+  const res = await pool.query<{ jti: string; state: 'spent' | 'revoked'; exp: string }>(
+    `SELECT jti, state, exp FROM consent_tokens WHERE exp > $1`, [nowSec],
+  );
+  return res.rows.map((r) => ({ jti: r.jti, state: r.state, exp: Number(r.exp) }));
 }
 
 // ── Repository: credit profiles ────────────────────────────────────────────────

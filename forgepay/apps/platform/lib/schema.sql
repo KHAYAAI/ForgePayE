@@ -125,3 +125,19 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_invitations_live
 
 -- Per-user API keys are stored as 'sha256:<hex>' of the key. Upgrade any still held in the clear (idempotent).
 UPDATE users SET api_key = 'sha256:' || encode(sha256(convert_to(api_key, 'UTF8')), 'hex') WHERE api_key NOT LIKE 'sha256:%';
+
+-- Consent an agent's operator has given for a lender to pull that agent's credit report. The token itself is a bearer
+-- credential handed to the operator once and is never stored here; this table records who authorised what, so it can be
+-- listed, audited and revoked. A workspace may revoke only its own rows.
+CREATE TABLE IF NOT EXISTS bureau_consents (
+  jti           TEXT PRIMARY KEY,
+  tenant_id     TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  agent_id      TEXT NOT NULL,
+  requestor_id  TEXT NOT NULL,
+  purpose       TEXT NOT NULL,
+  issued_by     TEXT NOT NULL,
+  issued_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at    TIMESTAMPTZ NOT NULL,
+  revoked_at    TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_bureau_consents_tenant ON bureau_consents(tenant_id, issued_at DESC);

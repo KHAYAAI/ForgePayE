@@ -49,7 +49,7 @@ import { issueKey, listKeys, revokeKey, MAX_ACTIVE_KEYS } from './contributor-ke
 import { openApiDocument } from './openapi';
 import { isSandbox, assertSandboxSafe, environmentName, SANDBOX_CHARGE, registerSandboxHeader } from './sandbox';
 import { isValidDid, isAddressBody, addressFromDid, toChecksumAddress, sameAddress } from './did';
-import { issueConsent, verifyConsent, revokeConsent, consumeConsent, type ConsentPurpose } from './consent';
+import { issueConsent, verifyConsent, revokeConsentDurable, consumeConsentDurable, isSpent, isRevoked, type ConsentPurpose } from './consent';
 import { resolveDispute, withEscalationCheck, furnisherForEvent, type DisputeCorrection } from './disputes';
 import {
   getAccountSummary, creditAccount, chargeInquiryFee, billingHistory,
@@ -770,9 +770,19 @@ async function buildApp() {
     const parse = RevokeConsentSchema.safeParse(req.body);
     if (!parse.success) return reply.status(400).send({ error: 'ValidationError', details: parse.error.flatten() });
 
-    revokeConsent(parse.data.jti, parse.data.exp);
+    await revokeConsentDurable(parse.data.jti, parse.data.exp);
     req.log.info({ jti: parse.data.jti }, 'consent revoked');
     return reply.send({ data: { jti: parse.data.jti, revoked: true } });
+  });
+
+  // POST /v1/consent/status { jtis: string[] }: whether each token is unused, spent or revoked (admin only, by deny-by-default).
+  // The console uses it to show an operator which of its authorisations a lender has already used.
+  app.post('/v1/consent/status', async (req, reply) => {
+    const parse = z.object({ jtis: z.array(z.string().min(1)).min(1).max(200) }).safeParse(req.body);
+    if (!parse.success) return reply.status(400).send({ error: 'ValidationError', details: parse.error.flatten() });
+    const states: Record<string, 'unused' | 'spent' | 'revoked'> = {};
+    for (const jti of parse.data.jtis) states[jti] = isRevoked(jti) ? 'revoked' : isSpent(jti) ? 'spent' : 'unused';
+    return reply.send({ data: states });
   });
 
   /**
@@ -792,20 +802,20 @@ async function buildApp() {
    * is checked *without being consumed* (`consume: false`) so that a pull
    * refused for insufficient balance does not burn the agent's one-time
    * authorisation — the requestor can top up and retry with the same
-   * still-valid token. It is only spent, via `consumeConsent`, once the charge
+   * still-valid token. It is only spent, via `consumeConsentDurable`, once the charge
    * has actually cleared.
    */
   type PullDenial = { ok: false; status: number; body: Record<string, unknown> };
   type PullGrant  = { ok: true; profile: AgentCreditProfile };
 
-  const authoriseAndRecordPull = (input: {
+  const authoriseAndRecordPull = async (input: {
     agentId: string;
     requestorId: string;
     requestorName: string;
     purpose: ConsentPurpose;
     consentToken: string;
     log: { warn: (obj: object, msg: string) => void };
-  }): PullDenial | PullGrant => {
+  }): Promise<PullDenial | PullGrant> => {
     const { agentId, requestorId, requestorName, purpose, consentToken } = input;
 
     const profile = getProfile(agentId);
@@ -888,7 +898,7 @@ async function buildApp() {
     }
 
     // The charge cleared — now, and only now, spend the single-use token.
-    consumeConsent(consent.payload!.jti, consent.payload!.exp);
+    await consumeConsentDurable(consent.payload!.jti, consent.payload!.exp);
 
     profile.hardInquiries.push({
       id:            randomUUID(),
@@ -938,7 +948,7 @@ async function buildApp() {
     const requestorDenied = contributorAccessError(req.auth, requestorId);
     if (requestorDenied) return reply.status(403).send(requestorDenied);
 
-    const pull = authoriseAndRecordPull({ agentId, requestorId, requestorName, purpose, consentToken, log: req.log });
+    const pull = await authoriseAndRecordPull({ agentId, requestorId, requestorName, purpose, consentToken, log: req.log });
     if (!pull.ok) return reply.status(pull.status).send(pull.body);
     const { profile } = pull;
     const score = profile.currentScore;
@@ -1146,7 +1156,7 @@ async function buildApp() {
     const requestorDenied = contributorAccessError(req.auth, requestorId);
     if (requestorDenied) return reply.status(403).send(requestorDenied);
 
-    const pull = authoriseAndRecordPull({ agentId, requestorId, requestorName, purpose, consentToken, log: req.log });
+    const pull = await authoriseAndRecordPull({ agentId, requestorId, requestorName, purpose, consentToken, log: req.log });
     if (!pull.ok) return reply.status(pull.status).send(pull.body);
 
     // Screened at report time rather than read from the profile: a lender is

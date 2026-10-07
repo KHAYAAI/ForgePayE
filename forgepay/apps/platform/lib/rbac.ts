@@ -16,6 +16,7 @@ export type Permission =
   | 'manage:team'          // invite/remove users, change roles
   | 'manage:api_keys'      // create/rotate/revoke API keys
   | 'manage:billing'
+  | 'manage:consent'       // authorise a lender to pull an agent's credit report; revoke that authorisation
   | 'approve:credit'       // send credit-line extensions to treasury
   | 'approve:payouts'      // dual-control payout / refund release
   | 'manage:custody_policy'// propose custody governance changes
@@ -24,11 +25,11 @@ export type Permission =
 
 const MATRIX: Record<Role, Permission[]> = {
   owner: [
-    'view:dashboard', 'manage:team', 'manage:api_keys', 'manage:billing',
+    'view:dashboard', 'manage:team', 'manage:api_keys', 'manage:billing', 'manage:consent',
     'approve:credit', 'approve:payouts', 'manage:custody_policy', 'view:audit', 'admin:all',
   ],
   admin: [
-    'view:dashboard', 'manage:team', 'manage:api_keys', 'manage:billing',
+    'view:dashboard', 'manage:team', 'manage:api_keys', 'manage:billing', 'manage:consent',
     'approve:credit', 'approve:payouts', 'manage:custody_policy', 'view:audit',
   ],
   approver: [

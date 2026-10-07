@@ -325,6 +325,67 @@ export interface RegisterAgentInput {
   operatorRegistrationNumber?: string;
 }
 
+export interface IssuedConsent {
+  consentToken: string;
+  jti: string;
+  expiresAt: string;
+  scope: { agentId: string; requestorId: string; purpose: string };
+}
+
+/** Issue a single-use consent token on the bureau (admin-only there). The caller has already checked the agent is the workspace's. */
+export async function issueBureauConsent(
+  input: { agentId: string; requestorId: string; purpose: string; ttlSeconds: number },
+): Promise<{ ok: true; data: IssuedConsent } | { ok: false; status: number; error: unknown }> {
+  try {
+    const res = await fetch(`${SERVICE_URLS.bureau}/v1/consent`, {
+      method: 'POST',
+      headers: { ...bureauAuthHeaders(), 'content-type': 'application/json' },
+      body: JSON.stringify(input),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+      cache: 'no-store',
+    });
+    const json = await res.json().catch(() => null);
+    if (!res.ok) return { ok: false, status: res.status, error: json };
+    return { ok: true, data: json.data as IssuedConsent };
+  } catch (err) {
+    return { ok: false, status: 0, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** Which of these tokens the bureau has seen spent or revoked. Unreachable bureau: an empty answer, never a guess. */
+export async function getBureauConsentStates(jtis: string[]): Promise<Record<string, 'unused' | 'spent' | 'revoked'>> {
+  if (jtis.length === 0) return {};
+  try {
+    const res = await fetch(`${SERVICE_URLS.bureau}/v1/consent/status`, {
+      method: 'POST',
+      headers: { ...bureauAuthHeaders(), 'content-type': 'application/json' },
+      body: JSON.stringify({ jtis: jtis.slice(0, 200) }),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+      cache: 'no-store',
+    });
+    if (!res.ok) return {};
+    return ((await res.json()) as { data: Record<string, 'unused' | 'spent' | 'revoked'> }).data ?? {};
+  } catch {
+    return {};
+  }
+}
+
+/** Withdraw an outstanding consent on the bureau (jti and expiry are what the bureau needs to refuse it from now on). */
+export async function revokeBureauConsent(jti: string, expEpochSeconds: number): Promise<{ ok: boolean; status: number }> {
+  try {
+    const res = await fetch(`${SERVICE_URLS.bureau}/v1/consent/revoke`, {
+      method: 'POST',
+      headers: { ...bureauAuthHeaders(), 'content-type': 'application/json' },
+      body: JSON.stringify({ jti, exp: expEpochSeconds }),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+      cache: 'no-store',
+    });
+    return { ok: res.ok, status: res.status };
+  } catch {
+    return { ok: false, status: 0 };
+  }
+}
+
 /** Real agent registration — POST /v1/agents/:agentId/profile. The console's only write path onto the bureau register. */
 export async function registerBureauAgent<T = Record<string, unknown>>(
   tenantId: string,

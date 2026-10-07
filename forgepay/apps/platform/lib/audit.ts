@@ -29,7 +29,9 @@ export type AuditAction =
   | 'tenant.products_updated'
   | 'team.invited'
   | 'team.invite_revoked'
-  | 'team.invite_accepted';
+  | 'team.invite_accepted'
+  | 'bureau.consent.issued'
+  | 'bureau.consent.revoked';
 
 export interface AuditEventInput {
   tenantId?: string | null;

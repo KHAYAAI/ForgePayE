@@ -75,7 +75,9 @@ do not rely on it yet.** Mode 1, the credit file, is the authoritative score.
 
 A report releases the agent's credit data, so it needs **consent**: a single-use token bound to this agent, you as the requestor, and a purpose.
 
-1. **Get consent.** In the **sandbox**, issue it yourself: `POST /v1/sandbox/consent {"agentId":"acme_1"}`. In the **live** service, the agent's operator authorises each pull; see "Not available yet" below.
+1. **Get consent.** In the **sandbox**, issue it yourself: `POST /v1/sandbox/consent {"agentId":"acme_1"}`. In the **live** service, **the agent's operator authorises you**: they sign in to the
+   FORGE console, open *Agent Credit Bureau > Consent*, name your institution id, the agent and the purpose, and hand you the token. It is shown to them once, works once, and only for that agent,
+   your institution and that purpose; they can revoke it before you use it (a revoked or used token stays refused, even across a restart). Give the operator your institution id.
 2. **Pull the report:**
 
 ```bash
@@ -148,8 +150,6 @@ Exit code 0 means every check passed. Run it before going live and after any cha
 
 ## Not available yet (as of 7 October 2026)
 
-- **Live consent for operators.** In the live service consent is issued by an operator action; an operator-facing way to authorise a lender from the FORGE console is not built yet.
-  Until it is, the bureau issues consent on the operator's instruction.
 - **Webhooks.** Nothing pushes events to you (a dispute opened, a score band change). Poll.
 - **Mode 2 data.** On-chain scoring has almost nothing to read for most agents.
 - **Zero-knowledge proofs.** Not offered.

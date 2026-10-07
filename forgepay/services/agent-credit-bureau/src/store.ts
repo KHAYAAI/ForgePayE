@@ -30,7 +30,9 @@ import {
   loadAllBillingAccounts, loadAllBillingTransactions, loadAllTopUpReceipts,
   upsertAttribution, upsertSubscription, upsertCreditBalance,
   loadAllAttributions, loadAllSubscriptions, loadAllCreditBalances,
+  upsertConsentToken, loadLiveConsentTokens,
 } from './db';
+import { hydrateConsentState, setConsentPersistence } from './consent';
 import { isSandbox } from './sandbox';
 
 /** Fire-and-forget persistence error logger — keeps mutators synchronous. */
@@ -653,4 +655,10 @@ export async function initPersistence(): Promise<void> {
     `[credit-bureau] hydrated ${attributions.size} furnisher attributions, ` +
     `${subscriptions.size} subscriptions, ${creditBalances.size} credit balances`,
   );
+
+  // Spent and revoked consent tokens: an authorisation withdrawn or already used must stay that way across a restart.
+  const consentRows = await loadLiveConsentTokens(Math.floor(Date.now() / 1000));
+  hydrateConsentState(consentRows);
+  setConsentPersistence({ write: (state, jti, exp) => persist('consent', () => upsertConsentToken(state, jti, exp)) });
+  console.log(`[credit-bureau] hydrated ${consentRows.length} spent or revoked consent tokens`);
 }

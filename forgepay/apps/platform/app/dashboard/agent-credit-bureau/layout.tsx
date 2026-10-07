@@ -15,6 +15,7 @@ export default async function BureauLayout({ children }: { children: React.React
           { href: '/dashboard/agent-credit-bureau/scores', label: 'Scores' },
           { href: '/dashboard/agent-credit-bureau/verify', label: 'Verify' },
           { href: '/dashboard/agent-credit-bureau/disputes', label: 'Disputes' },
+          { href: '/dashboard/agent-credit-bureau/consent', label: 'Consent' },
           { href: '/dashboard/agent-credit-bureau/developers', label: 'Developers' },
         ]}
       />

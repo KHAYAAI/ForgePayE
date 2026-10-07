@@ -120,14 +120,14 @@ export function __resetConsentSecret(): void {
 
 // ── Single-use and revocation state ───────────────────────────────────────────
 //
-// In-memory, matching the rest of the service's read model. Both sets are
-// bounded by expiry: a jti is only interesting until its token expires, after
-// which the expiry check rejects it anyway.
+// Held in memory for speed and written through to Postgres when persistence is configured, then loaded back at start
+// (see store.ts and consent_tokens in db.ts). Before that, a restart forgot every spent and every revoked token, so a
+// revoked consent worked again and a used one could be replayed for the rest of its lifetime (up to a day). Both sets are
+// bounded by expiry: a jti is only interesting until its token expires, after which the expiry check rejects it anyway.
 //
-// ⚠️ Per-process. With more than one replica a token could be spent once
-// against each pod, so this must move to the shared Redis before the bureau
-// scales past a single replica — the same constraint documented on
-// forge-custody's replay cache.
+// ⚠️ Still per-process in memory between writes. With more than one replica a token could be spent once against each
+// pod until the other replica next restarts, so a multi-replica bureau needs this read through the database or Redis
+// on every check, the same constraint documented on forge-custody's replay cache.
 
 const spentTokens = new Map<string, number>();   // jti → exp (unix seconds)
 const revokedTokens = new Map<string, number>(); // jti → exp (unix seconds)
@@ -137,13 +137,45 @@ function prune(now: number): void {
   for (const [jti, exp] of revokedTokens) if (exp <= now) revokedTokens.delete(jti);
 }
 
+/** Where spent and revoked tokens are made durable. Set by the store when a database is configured. */
+export interface ConsentStatePersistence {
+  write(state: 'spent' | 'revoked', jti: string, exp: number): Promise<void>;
+}
+let persistence: ConsentStatePersistence | null = null;
+export function setConsentPersistence(p: ConsentStatePersistence | null): void {
+  persistence = p;
+}
+
+/** Load spent and revoked tokens read back from storage, replacing what is in memory. */
+export function hydrateConsentState(rows: Array<{ jti: string; state: 'spent' | 'revoked'; exp: number }>): void {
+  spentTokens.clear();
+  revokedTokens.clear();
+  for (const r of rows) (r.state === 'spent' ? spentTokens : revokedTokens).set(r.jti, r.exp);
+}
+
 /** Revoke an outstanding token before it is spent or expires. */
 export function revokeConsent(jti: string, exp: number): void {
   revokedTokens.set(jti, exp);
 }
 
+/** Revoke and make it durable: the caller can tell the operator it is withdrawn only once this returns. */
+export async function revokeConsentDurable(jti: string, exp: number): Promise<void> {
+  revokeConsent(jti, exp);
+  await persistence?.write('revoked', jti, exp);
+}
+
+/** Spend and make it durable, so a restart cannot make a used token usable again. */
+export async function consumeConsentDurable(jti: string, exp: number): Promise<void> {
+  consumeConsent(jti, exp);
+  await persistence?.write('spent', jti, exp);
+}
+
 export function isSpent(jti: string): boolean {
   return spentTokens.has(jti);
+}
+
+export function isRevoked(jti: string): boolean {
+  return revokedTokens.has(jti);
 }
 
 /**
