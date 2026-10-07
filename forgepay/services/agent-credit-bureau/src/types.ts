@@ -285,6 +285,17 @@ export type DataContributorType =
   | 'bank'
   | 'forgepay_internal';
 
+export interface ContributorApiKey {
+  id: string;
+  /** sha256 of the key; the raw key is shown once at issue and never stored. */
+  hash: string;
+  label?: string;
+  createdAt: string;
+  expiresAt?: string;
+  revokedAt?: string;
+  lastUsedAt?: string;
+}
+
 export interface DataContributor {
   id: string;
   name: string;
@@ -295,6 +306,12 @@ export interface DataContributor {
    * and served to unauthenticated callers by `GET /v1/contributors/:id/stats`.
    */
   apiKeyHash: string;
+  /**
+   * Further keys issued after registration, so an institution can rotate without downtime (issue a new key, move over,
+   * revoke the old one). `apiKeyHash` above stays the first ("primary") key; `primaryKeyRevokedAt` retires it.
+   */
+  apiKeys?: ContributorApiKey[];
+  primaryKeyRevokedAt?: string;
   permissions: string[];
   queriesUsed: number;
   queriesAllowed: number;          // Based on data contributed

@@ -28,7 +28,8 @@
  */
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { contributors } from './store';
+import { contributors, setContributor } from './store';
+import { matchKey, touchKey } from './contributor-keys';
 import { hashApiKey, safeEqualHex } from './hash';
 
 // Re-exported so callers can keep importing it from the auth surface. The
@@ -47,6 +48,8 @@ export const SCOPES = {
   PULL_SCORES:     'pull_scores',
   READ_PROFILE:    'read_profile',
   MANAGE_DISPUTES: 'manage_disputes',
+  /** Every active contributor holds this implicitly: managing its own API keys needs no data scope. */
+  SELF_SERVICE:    'self_service',
   ADMIN:           'admin',
 } as const;
 
@@ -119,9 +122,11 @@ export function __resetAdminKeyCache(): void {
  * including the plaintext API key — to an unauthenticated caller who knew the
  * contributor id, which made it a credential-disclosure endpoint.
  */
-export function redactContributor<T extends { apiKeyHash?: string }>(c: T): Omit<T, 'apiKeyHash'> {
-  const { apiKeyHash: _omitted, ...rest } = c;
-  return rest;
+export function redactContributor<T extends { apiKeyHash?: string; apiKeys?: Array<{ hash?: string }> }>(c: T): Omit<T, 'apiKeyHash'> {
+  const { apiKeyHash: _omitted, apiKeys, ...rest } = c;
+  // Later keys carry their own digests; they are no more for display than the primary one. Use listKeys for key metadata.
+  const redacted = apiKeys ? { ...rest, apiKeys: apiKeys.map(({ hash: _h, ...meta }) => meta) } : rest;
+  return redacted as Omit<T, 'apiKeyHash'>;
 }
 
 /**
@@ -191,6 +196,12 @@ const ROUTE_SCOPES: Record<string, Scope> = {
   'POST /v1/agents/:agentId/events':         SCOPES.INGEST_EVENTS,
   'POST /v1/contributors/:id/ingest':        SCOPES.INGEST_EVENTS,
   'GET /v1/contributors/:id/stats':          SCOPES.INGEST_EVENTS,
+
+  // Key management for an institution's own keys. Any active contributor may manage its own; the handler narrows to
+  // "its own" with contributorAccessError, and an operator may manage anyone's.
+  'GET /v1/contributors/:id/keys':           SCOPES.SELF_SERVICE,
+  'POST /v1/contributors/:id/keys':          SCOPES.SELF_SERVICE,
+  'DELETE /v1/contributors/:id/keys/:keyId': SCOPES.SELF_SERVICE,
 
   // Reports — a hard inquiry, lender-facing.
   'POST /v1/reports':                        SCOPES.PULL_SCORES,
@@ -263,18 +274,22 @@ function resolvePrincipal(rawKey: string): AuthContext | null {
   }
 
   for (const contributor of contributors.values()) {
-    if (!contributor.apiKeyHash) continue;
-    if (!safeEqualHex(presented, contributor.apiKeyHash)) continue;
+    // Matches the registration key or any later key that is neither revoked nor expired.
+    const keyId = matchKey(contributor, presented);
+    if (!keyId) continue;
 
     // A key belonging to a pending or suspended contributor is not a
     // credential. Checked here rather than at the route so every path
     // inherits it.
     if (contributor.status !== 'active') return null;
 
+    // Last-used is kept in memory and only written back now and then.
+    if (touchKey(contributor, keyId)) setContributor(contributor);
+
     return {
       principalId: contributor.id,
       kind: 'contributor',
-      scopes: new Set(contributor.permissions),
+      scopes: new Set([...contributor.permissions, SCOPES.SELF_SERVICE]),
     };
   }
 

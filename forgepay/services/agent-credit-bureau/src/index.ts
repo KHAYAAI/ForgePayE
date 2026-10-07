@@ -45,6 +45,7 @@ import helmet from '@fastify/helmet';
 import { z } from 'zod';
 import { randomUUID, randomBytes } from 'crypto';
 import { registerAuth, hashApiKey, redactContributor, contributorAccessError } from './auth';
+import { issueKey, listKeys, revokeKey, MAX_ACTIVE_KEYS } from './contributor-keys';
 import { isValidDid, isAddressBody, addressFromDid, toChecksumAddress, sameAddress } from './did';
 import { issueConsent, verifyConsent, revokeConsent, consumeConsent, type ConsentPurpose } from './consent';
 import { resolveDispute, withEscalationCheck, furnisherForEvent, type DisputeCorrection } from './disputes';
@@ -290,6 +291,11 @@ const RegisterContributorSchema = z.object({
   name:        z.string().min(1),
   type:        z.enum(['defi_protocol', 'cefi_lender', 'saas_platform', 'bank', 'forgepay_internal']),
   permissions: z.array(z.string()).default(['ingest_events']),
+});
+
+const IssueKeySchema = z.object({
+  label: z.string().min(1).max(80).optional(),
+  expiresInDays: z.number().int().min(1).max(730).optional(),
 });
 
 const ContributorStatusSchema = z.object({
@@ -1857,6 +1863,60 @@ async function buildApp() {
     return reply.send({
       data: { ...redactContributor(contributor), previousStatus: previous },
     });
+  });
+
+  // ── API keys for an institution ───────────────────────────────────────────
+  // An institution can hold several keys, issue a new one, move over, and revoke the old (see contributor-keys.ts). It manages
+  // its own keys; an operator manages anyone's, including revoking a leaked institution's last key.
+
+  // GET /v1/contributors/:id/keys: key metadata, never key material
+  app.get<{ Params: { id: string } }>('/v1/contributors/:id/keys', async (req, reply) => {
+    const denied = contributorAccessError(req.auth, req.params.id);
+    if (denied) return reply.status(403).send(denied);
+    const contributor = getContributor(req.params.id);
+    if (!contributor) return reply.status(404).send({ error: 'NotFound', message: 'Contributor not found' });
+    return reply.send({ data: { keys: listKeys(contributor), maxActiveKeys: MAX_ACTIVE_KEYS } });
+  });
+
+  // POST /v1/contributors/:id/keys: issue a new key; the raw key is returned once
+  app.post<{ Params: { id: string } }>('/v1/contributors/:id/keys', async (req, reply) => {
+    const denied = contributorAccessError(req.auth, req.params.id);
+    if (denied) return reply.status(403).send(denied);
+    const parse = IssueKeySchema.safeParse(req.body ?? {});
+    if (!parse.success) return reply.status(400).send({ error: 'ValidationError', details: parse.error.flatten() });
+    const contributor = getContributor(req.params.id);
+    if (!contributor) return reply.status(404).send({ error: 'NotFound', message: 'Contributor not found' });
+
+    const issued = issueKey(contributor, parse.data);
+    if (!issued.ok) return reply.status(409).send({ error: issued.error, message: issued.message });
+    setContributor(contributor);
+    req.log.warn(
+      { contributorId: contributor.id, keyId: issued.key.id, by: req.auth?.kind === 'admin' ? 'operator' : 'institution', expiresAt: issued.key.expiresAt },
+      'contributor api key issued',
+    );
+    return reply.status(201).send({
+      data: { key: issued.key, apiKey: issued.rawKey, note: 'Store this key now. It cannot be retrieved again.' },
+    });
+  });
+
+  // DELETE /v1/contributors/:id/keys/:keyId: revoke; effective on the next request
+  app.delete<{ Params: { id: string; keyId: string } }>('/v1/contributors/:id/keys/:keyId', async (req, reply) => {
+    const denied = contributorAccessError(req.auth, req.params.id);
+    if (denied) return reply.status(403).send(denied);
+    const contributor = getContributor(req.params.id);
+    if (!contributor) return reply.status(404).send({ error: 'NotFound', message: 'Contributor not found' });
+
+    const revoked = revokeKey(contributor, req.params.keyId, req.auth?.kind === 'admin');
+    if (!revoked.ok) {
+      const status = revoked.error === 'NotFound' ? 404 : 409;
+      return reply.status(status).send({ error: revoked.error, message: revoked.message });
+    }
+    setContributor(contributor);
+    req.log.warn(
+      { contributorId: contributor.id, keyId: revoked.key.id, by: req.auth?.kind === 'admin' ? 'operator' : 'institution' },
+      'contributor api key revoked',
+    );
+    return reply.send({ data: { key: revoked.key } });
   });
 
   // PUT /v1/contributors/:id/payout-destination — where this furnisher's cash
