@@ -222,3 +222,29 @@ Per-user wallets with envelope encryption and a testnet-only chain allowlist. **
 
 - **Bureau soft launch:** bureau, compliance-monitor, console, stablecoin-gateway (and optionally agent-identity), plus Postgres, Redis, secrets, the live-list run and the testnet money path.
 - **Everything else** is off, labelled as off, and gated by `FORGE_LAUNCHED_PRODUCTS=credit-bureau`.
+
+---
+
+## Update, later on 7 October: what was built, and what building it found
+
+Built and verified (tests plus a run in production mode against real Postgres, across a real restart where it matters):
+
+| Change | Where | Verified |
+|---|---|---|
+| **Institution API keys**: several per institution, issue, rotate, revoke, expiry, last-used; an institution manages only its own and cannot revoke its last | bureau | 15 tests; across a restart on Postgres |
+| **Sandbox mode** (`BUREAU_SANDBOX`): free inquiries, a consent shortcut, a visible label; refuses to start if it could reach real money | bureau | 9 tests |
+| **Published API contract** (`GET /v1/openapi.json`), integration guide (`launch/09`), and a **conformance script** that runs about 30 checks against a sandbox and refuses a live service | bureau | drift tests fail if the contract and the routes differ; CI boots a sandbox and runs the script |
+| **Operator-issued consent for lender pulls**: a workspace authorises a named lender for its own agent in the console, sees which are used, revokes its own | console, bureau | 14 tests; end to end across two workspaces, a lender and a bureau restart |
+| **Agent decision framework, institutional reporting, bank white-label persist their state** and refuse to start in production without a database | three services | unit tests, real-database tests, live restart checks |
+| **The bureau's own tests now run in CI** (they did not before), plus persistence tests against Postgres | CI | |
+
+Defects the building found, all fixed, each with a test that fails without the fix:
+
+1. **Bank white-label had an unauthenticated route that created super-admins** (`POST /v1/auth/seed`, open in every environment). Anyone who could reach the service in production could take over every bank's data. Now it needs a signed-in super_admin in production, and a one-time `BANK_BOOTSTRAP_TOKEN` route creates the first admin. The demo "Investec" bank no longer exists in production.
+2. **The bureau forgot consent state on restart.** Spent and revoked consent tokens were only in memory, so a revoked consent worked again and a used one could be replayed for up to a day. Now written through to Postgres.
+3. **The bureau lost institutions registered before the first agent** on restart (hydration treated "no agents" as "empty database"), including their keys.
+4. **Later API keys' digests leaked** in the contributor stats response (caught by the new key tests).
+5. The decision framework's **velocity limits reset on every restart**; policies fell back to defaults.
+
+Corrections to the table above: `bank-whitelabel`, `institutional-reporting` and `agent-decision-framework` no longer lose state, and the bank module's access hole is closed. Everything else in the table is unchanged. **Still true:** nothing has run on real infrastructure, no review has started, and `crypto-gateway`, `chain-sync`, `yield-engine` and `rwa-registry` are as described.
+
