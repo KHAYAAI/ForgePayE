@@ -130,11 +130,20 @@ not something I can settle.
 4. **Request scope A quotes from three firms**, and a scope B quote from at least two of Kudelski, Trail of Bits, Least Authority and Cure53.
 5. **Confirm the AWS region and accounts**, then open the staging account (see `07`).
 
+## Built since (7 October)
+
+- **Bring your own wallet** (console, *Agent Credit Bureau > Connect wallet*): the user connects a wallet they control and signs one message that names the address, the agent and
+  the workspace. The console recovers the signature server-side, so a browser cannot claim an address it does not control; a challenge is single-use, lasts ten minutes, and is
+  bound to the workspace. The agent is then registered under the self-certifying identity `did:forge:0x<address>`, so the bureau holds an agent whose address was **proven**, not
+  typed in. FORGE never sees a key and the signature moves no funds. Checked end to end: a different wallet's signature is refused (and does not spend the challenge), another
+  workspace cannot use the challenge, a replay is refused, and the bureau holds the agent at 300 / DEEP_SUBPRIME. The hosted `open-privy` wallet stays off.
+- **The lender and furnisher API for institutions** (keys, sandbox, published contract, conformance script, operator-issued consent): see `09-institution-integration-guide.md`.
+- **Unlaunched lending code** is still in the repo but off and labelled; nothing in the console offers it.
+
 ## What I can build next, given these decisions
 
 - Take the credit lines, liquidity and lender-style escrow off every customer-facing surface, and mark them "not offered" in the console and docs.
-- Harden the MFI integration: furnisher and lender APIs, per-MFI keys and quotas, consent and dispute flows, and a sandbox they can test against.
-- A "bring your own wallet" flow in the console: connect a wallet, sign a message to bind it to an agent DID, no key ever sent to FORGE.
+- Per-institution request quotas and webhooks for the lender and furnisher API (keys, sandbox, contract and consent are built).
 - An issuer adapter interface for tokenised assets, with no default issuer.
 - A payments-partner adapter for whichever you choose (once chosen and checked against Hyperswitch's connectors).
 

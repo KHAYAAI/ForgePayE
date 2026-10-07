@@ -141,3 +141,25 @@ CREATE TABLE IF NOT EXISTS bureau_consents (
   revoked_at    TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS idx_bureau_consents_tenant ON bureau_consents(tenant_id, issued_at DESC);
+
+-- Linking a wallet the user controls to an agent, by a signed message (the user keeps the key; FORGE never sees it).
+-- A challenge is single-use and short-lived; a binding records that control was proven, when, and for which workspace.
+CREATE TABLE IF NOT EXISTS wallet_challenges (
+  nonce       TEXT PRIMARY KEY,
+  tenant_id   TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  address     TEXT NOT NULL,
+  agent_id    TEXT NOT NULL,
+  message     TEXT NOT NULL,
+  expires_at  TIMESTAMPTZ NOT NULL,
+  used_at     TIMESTAMPTZ
+);
+CREATE TABLE IF NOT EXISTS wallet_bindings (
+  id          BIGSERIAL PRIMARY KEY,
+  tenant_id   TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  address     TEXT NOT NULL,
+  agent_id    TEXT NOT NULL,
+  proved_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  proved_by   TEXT NOT NULL,
+  UNIQUE (tenant_id, address, agent_id)
+);
+

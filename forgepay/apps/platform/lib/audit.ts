@@ -31,7 +31,8 @@ export type AuditAction =
   | 'team.invite_revoked'
   | 'team.invite_accepted'
   | 'bureau.consent.issued'
-  | 'bureau.consent.revoked';
+  | 'bureau.consent.revoked'
+  | 'wallet.bound';
 
 export interface AuditEventInput {
   tenantId?: string | null;

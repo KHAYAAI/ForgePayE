@@ -236,6 +236,7 @@ Built and verified (tests plus a run in production mode against real Postgres, a
 | **Published API contract** (`GET /v1/openapi.json`), integration guide (`launch/09`), and a **conformance script** that runs about 30 checks against a sandbox and refuses a live service | bureau | drift tests fail if the contract and the routes differ; CI boots a sandbox and runs the script |
 | **Operator-issued consent for lender pulls**: a workspace authorises a named lender for its own agent in the console, sees which are used, revokes its own | console, bureau | 14 tests; end to end across two workspaces, a lender and a bureau restart |
 | **Agent decision framework, institutional reporting, bank white-label persist their state** and refuse to start in production without a database | three services | unit tests, real-database tests, live restart checks |
+| **Bring your own wallet**: the non-custodial way to register an agent; the user signs a challenge, the console checks it, the agent is registered under `did:forge:0x<address>` | console | 12 tests with real signatures; end to end against a real bureau |
 | **The bureau's own tests now run in CI** (they did not before), plus persistence tests against Postgres | CI | |
 
 Defects the building found, all fixed, each with a test that fails without the fix:

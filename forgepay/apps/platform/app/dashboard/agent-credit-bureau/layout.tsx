@@ -12,6 +12,7 @@ export default async function BureauLayout({ children }: { children: React.React
         items={[
           { href: '/dashboard/agent-credit-bureau', label: 'Overview' },
           { href: '/dashboard/agent-credit-bureau/agents', label: 'Agents' },
+          { href: '/dashboard/agent-credit-bureau/connect-wallet', label: 'Connect wallet' },
           { href: '/dashboard/agent-credit-bureau/scores', label: 'Scores' },
           { href: '/dashboard/agent-credit-bureau/verify', label: 'Verify' },
           { href: '/dashboard/agent-credit-bureau/disputes', label: 'Disputes' },
