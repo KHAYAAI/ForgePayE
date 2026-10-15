@@ -1,0 +1,35 @@
+# Custody-mode payouts: this pod holds NO signing key. It asks FORGE custody to pay, with an agent key mounted from a Secret.
+# Used by CI to render the custody branch of the chart. No secrets: only references to Secrets that must exist beforehand.
+replicaCount: 2
+leaderLock:
+  enabled: true
+image:
+  repository: ghcr.io/example/forgepay/stablecoin-gateway
+  tag: "2026.10.1"
+config:
+  CORS_ALLOWED_ORIGINS: "https://dashboard.example.com"
+  DEPOSIT_MONITOR_CHAINS: "base"
+  ASSETS_ENABLED: "USDC"
+  PAYOUT_SIGNER_CHAIN: base-sepolia
+  PAYOUT_SIGNER_DAILY_MAX_USD: "1000"
+  ALERT_ENV: staging
+keyWrap:
+  provider: awskms
+  awskms:
+    keyId: arn:aws:kms:us-east-1:111111111111:key/00000000-0000-0000-0000-0000000000d1
+    region: us-east-1
+payout:
+  signerEnabled: true
+  mode: custody
+  custody:
+    apiUrl: https://custody.example.org
+    agentKeySecret: { name: sgw-custody-agent-key, key: key }
+alerts:
+  webhookSecret: { name: sgw-alerts, key: webhook-url }
+  pagerdutySecret: { name: sgw-alerts, key: pagerduty-routing-key }
+serviceAccount:
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::111111111111:role/forgepay-staging-stablecoin-gateway
+autoscaling:
+  enabled: true
+  minReplicas: 2

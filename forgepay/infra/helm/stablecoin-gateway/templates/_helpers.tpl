@@ -79,7 +79,15 @@ Refuse configurations that would put money-moving workers in more than one place
 {{- if and (eq (include "stablecoin-gateway.multiReplica" .) "true") (not .Values.leaderLock.enabled) }}
 {{- fail "replicaCount > 1 (or autoscaling) requires leaderLock.enabled=true: the settlement, payout, sweeper and treasury workers must run in exactly ONE replica. With leaderLock.enabled=false set replicaCount=1 and autoscaling.enabled=false." }}
 {{- end }}
-{{- if and .Values.payout.signerEnabled (not .Values.payout.keySecret.name) }}
+{{- if not (has .Values.payout.mode (list "hot_key" "custody")) }}
+{{- fail "payout.mode must be hot_key or custody" }}
+{{- end }}
+{{- if and .Values.payout.signerEnabled (eq .Values.payout.mode "custody") }}
+{{- if not .Values.payout.custody.apiUrl }}{{ fail "payout.mode=custody needs payout.custody.apiUrl (the FORGE custody API gateway origin, https)" }}{{ end }}
+{{- if not .Values.payout.custody.agentKeySecret.name }}{{ fail "payout.mode=custody needs payout.custody.agentKeySecret.name (the custody agent key is read from a mounted file, CUSTODY_AGENT_KEY_FILE)" }}{{ end }}
+{{- if .Values.payout.keySecret.name }}{{ fail "payout.mode=custody must not also set payout.keySecret.name: custody mode exists so that this service holds no signing key" }}{{ end }}
+{{- end }}
+{{- if and .Values.payout.signerEnabled (eq .Values.payout.mode "hot_key") (not .Values.payout.keySecret.name) }}
 {{- fail "payout.signerEnabled=true needs payout.keySecret.name (the key is read from a mounted file, PAYOUT_SIGNER_KEY_FILE)" }}
 {{- end }}
 {{- if .Values.sweep.enabled }}

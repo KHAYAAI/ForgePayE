@@ -31,8 +31,10 @@ on a real cluster or against a real AWS account or Vault. Treat each step's veri
   (`services/openfireblocks/infrastructure/helm/openfireblocks`). The coordinator holds an ed25519 key that signs session
   requests and a client certificate; it never holds a share.
 * The stablecoin gateway (`infra/helm/stablecoin-gateway`) holds deposit keys wrapped by Vault or KMS and runs the
-  settlement, payout, sweeper and treasury workers. Today it signs payouts with a single hot key read from a file
-  (`PAYOUT_SIGNER_KEY_FILE`); it does not call the MPC coordinator itself.
+  settlement, payout, sweeper and treasury workers. By default it signs payouts with a single hot key read from a file
+  (`PAYOUT_SIGNER_KEY_FILE`). With `PAYOUT_SIGNER_MODE=custody` (Helm: `payout.mode: custody`) it holds no key and asks the
+  custody api-gateway to pay, using an agent key; see `docs/launch/11-custody-backend.md`. It still does not call the MPC
+  coordinator itself: the api-gateway does.
 
 Who does what: steps 1, 3 (CA), 4 (recovery key) and 5-6 are done **by each node's own operators or jointly** as noted;
 only steps 7-9 belong to the platform team.

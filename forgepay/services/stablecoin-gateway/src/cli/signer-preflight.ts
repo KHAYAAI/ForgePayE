@@ -32,6 +32,12 @@ async function main(): Promise<void> {
   console.log('=== Outbound payout signer preflight ===');
   console.log('');
 
+  if (process.env['PAYOUT_SIGNER_MODE'] === 'custody') {
+    console.log('Signer: CUSTODY MODE. There is no hot wallet to check here; run `npm run preflight:custody` instead.');
+    console.log('');
+    process.exit(0);
+  }
+
   if (!signerRequested()) {
     console.log('Signer: NOT ENABLED.');
     console.log('');

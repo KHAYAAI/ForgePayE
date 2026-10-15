@@ -79,6 +79,12 @@ keyWrap:
 # Key material is read from FILES mounted from Secrets (…_KEY_FILE), never from the environment.
 payout:
   signerEnabled: false # PAYOUT_SIGNER_ENABLED
+  # hot_key: sign with the key in keySecret (the original behaviour). custody: hold NO key; ask FORGE custody to pay with an
+  # agent key (PAYOUT_SIGNER_MODE=custody). Also set PAYOUT_SIGNER_CHAIN and PAYOUT_SIGNER_DAILY_MAX_USD in config.
+  mode: hot_key
+  custody:
+    apiUrl: "" # CUSTODY_API_URL: https origin of the custody API gateway
+    agentKeySecret: { name: "", key: key } # -> CUSTODY_AGENT_KEY_FILE (an ofb_agent_… key issued by a custody admin)
   autoSubmit: true # PAYOUT_AUTO_SUBMIT (false: an operator calls POST /payouts/:id/submit)
   keySecret: { name: "", key: key } # -> PAYOUT_SIGNER_KEY_FILE
 sweep:

@@ -11,7 +11,8 @@
     "type-check": "tsc --noEmit",
     "lint": "eslint src",
     "test": "vitest run",
-    "preflight:signer": "node dist/cli/signer-preflight.js"
+    "preflight:signer": "node dist/cli/signer-preflight.js",
+    "preflight:custody": "node dist/cli/custody-preflight.js"
   },
   "dependencies": {
     "@aws-sdk/client-kms": "^3.1143.0",

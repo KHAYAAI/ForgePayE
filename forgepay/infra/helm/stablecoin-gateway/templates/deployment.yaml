@@ -125,8 +125,18 @@ spec:
             {{- if .Values.payout.signerEnabled }}
             - name: PAYOUT_SIGNER_ENABLED
               value: "true"
+            {{- if eq .Values.payout.mode "custody" }}
+            {{- /* Custody mode: no signing key in this pod. It asks FORGE custody to pay, with an agent key mounted from a Secret. */}}
+            - name: PAYOUT_SIGNER_MODE
+              value: custody
+            - name: CUSTODY_API_URL
+              value: {{ .Values.payout.custody.apiUrl | quote }}
+            - name: CUSTODY_AGENT_KEY_FILE
+              value: /run/secrets/payout-signer/{{ .Values.payout.custody.agentKeySecret.key }}
+            {{- else }}
             - name: PAYOUT_SIGNER_KEY_FILE
               value: /run/secrets/payout-signer/{{ .Values.payout.keySecret.key }}
+            {{- end }}
             - name: PAYOUT_AUTO_SUBMIT
               value: {{ .Values.payout.autoSubmit | quote }}
             {{- end }}
@@ -204,7 +214,7 @@ spec:
         {{- if .Values.payout.signerEnabled }}
         - name: payout-signer-key
           secret:
-            secretName: {{ .Values.payout.keySecret.name }}
+            secretName: {{ if eq .Values.payout.mode "custody" }}{{ .Values.payout.custody.agentKeySecret.name }}{{ else }}{{ .Values.payout.keySecret.name }}{{ end }}
             defaultMode: 288 # 0440
         {{- end }}
         {{- if .Values.sweep.enabled }}

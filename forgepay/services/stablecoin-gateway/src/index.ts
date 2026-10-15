@@ -207,11 +207,15 @@ async function main() {
   // broadcaster that refuses every settlement run. Saying nothing about
   // signing leaves the refusing broadcaster in place — the default posture is
   // "cannot send", never "sends".
-  const { installPayoutSigner } = await import('./lib/payout-signer.js');
-  const signer = installPayoutSigner();
+  // PAYOUT_SIGNER_MODE picks the signer: unset or "hot_key" is the hot-wallet signer exactly as before; "custody" pays through
+  // FORGE custody and holds no key at all (see lib/custody-payout-signer.ts).
+  const { installConfiguredPayoutSigner } = await import('./lib/custody-payout-signer.js');
+  const signer = installConfiguredPayoutSigner();
   if (signer.installed) {
     console.warn(
-      `[stablecoin-gateway] Outbound payout signer ACTIVE — ${signer.address} on ${signer.chain}`,
+      signer.mode === 'custody'
+        ? `[stablecoin-gateway] Outbound payout signer ACTIVE — via FORGE custody (${signer.endpoint}) on ${signer.chain}`
+        : `[stablecoin-gateway] Outbound payout signer ACTIVE — ${signer.address} on ${signer.chain}`,
     );
   } else {
     console.log(`[stablecoin-gateway] Outbound payouts not signed: ${signer.reason}`);

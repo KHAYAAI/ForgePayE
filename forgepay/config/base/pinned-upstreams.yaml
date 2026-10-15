@@ -36,6 +36,19 @@ forge-custody-core:
   license: Apache-2.0
   note: FORGE Custody is served directly by this vendored tree (api-gateway, mpc-signer, policy-service, temporal-worker). The older forge-custody wrapper was retired 2026-10-04.
 
+forge-custody-backend-target:
+  source: https://github.com/KHAYAAI/openfireblocks
+  branch: claude/platform-explanation-h0st5y
+  commit: 5b6ab125da91bcb87149a58bc088d837267bfb0a  # 2026-10-12 — Launch readiness: measured timeline to certification and bank readiness
+  license: Elastic-2.0   # per that repo's LICENSE and docs/LICENSING.md; the vendored tree above predates it
+  note: >
+    The custody backend the platform is built against: 13 services, agent accounts and the MCP server, threshold-signed transfers
+    accepted by public test networks. NOT vendored: forgepay/services/openfireblocks is still the older 4-service tree that CI
+    builds images from. The stablecoin-gateway's custody-backed payout signer (lib/custody-payout-signer.ts) is written against
+    this commit's agent API (services/api-gateway/src/agents/), and its contract test runs against a deployment of it.
+    To read it: git clone --branch claude/platform-explanation-h0st5y https://github.com/KHAYAAI/openfireblocks and check out the commit.
+    Move this pin only after re-running __tests__/custody-contract.test.ts against a deployment of the new commit.
+
 forge-wallet-core:
   source: https://github.com/KHAYAAI/open-privy
   commit: a63eebebb08547ee2754639dc4e4b239618624e7  # 2026-07 — Phase 0 MVP vendored to forgepay/services/open-privy

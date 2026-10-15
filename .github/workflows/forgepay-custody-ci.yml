@@ -325,6 +325,14 @@ jobs:
               stablecoin-gateway)
                 check "$name (defaults)" "$chart"
                 check "$name (ci/production-values)" "$chart" -f "$chart/ci/production-values.yaml"
+                check "$name (ci/custody-values)" "$chart" -f "$chart/ci/custody-values.yaml"
+                # Custody mode exists so the pod holds no key: the chart must refuse it beside a hot-wallet key secret.
+                if helm template ci-release "$chart" -f "$chart/ci/custody-values.yaml" --set payout.keySecret.name=sgw-payout-signer-key > /dev/null 2>&1; then
+                  echo "::error title=helm::$name accepted custody mode together with a hot-wallet key secret"
+                  fail=1
+                else
+                  echo "ok      $name (custody mode refuses a hot key)"
+                fi
                 ;;
               openfireblocks)
                 check "$name (defaults)" "$chart"
