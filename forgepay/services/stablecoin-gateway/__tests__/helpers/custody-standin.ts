@@ -38,7 +38,8 @@ export class StandInCustody {
   payments = 0;
 
   tokens: StandInToken[] = [{ symbol: 'USDC', chainId: 84532, decimals: 6, platformBroadcasts: true }];
-  agent = { agentId: 'agent_bureau', expiresAt: '2099-01-01T00:00:00.000Z', remaining24hZar: 1000 };
+  agent: { agentId: string; expiresAt: string; remaining24hZar: number; allowedRecipients: string[] | null } =
+    { agentId: 'agent_bureau', expiresAt: '2099-01-01T00:00:00.000Z', remaining24hZar: 1000, allowedRecipients: null };
 
   /** Refuse the next payment(s) with this reason (403, recorded as 'refused'). */
   refuseWith: string | null = null;

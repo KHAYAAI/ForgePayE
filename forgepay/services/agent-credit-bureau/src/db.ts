@@ -369,6 +369,14 @@ export async function runMigrations(): Promise<void> {
         PRIMARY KEY (jti, state)
       );
 
+      -- Custody attestations: the signed statement an operator gave the bureau about an agent's record at FORGE custody. One per
+      -- agent. Deleting the row is how consent is withdrawn.
+      CREATE TABLE IF NOT EXISTS custody_attestations (
+        agent_id TEXT PRIMARY KEY,
+        data JSONB NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
       -- Mode 2: what the indexer has read about each wallet on each chain, and how far it has read (cursor_block).
       -- One small summary per wallet and chain, not raw logs.
       CREATE TABLE IF NOT EXISTS onchain_activity (
@@ -417,6 +425,25 @@ export async function loadWebhooks<E, D>(): Promise<{ endpoints: E[]; deliveries
     ),
   ]);
   return { endpoints: e.rows.map((r) => r.data), deliveries: d.rows.map((r) => r.data) };
+}
+
+// ── Repository: custody attestations ───────────────────────────────────────────
+
+export async function upsertCustodyAttestation(a: { bureauAgentId: string }): Promise<void> {
+  await pool.query(
+    `INSERT INTO custody_attestations (agent_id, data, updated_at) VALUES ($1, $2, NOW())
+     ON CONFLICT (agent_id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()`,
+    [a.bureauAgentId, JSON.stringify(a)],
+  );
+}
+
+export async function deleteCustodyAttestation(bureauAgentId: string): Promise<void> {
+  await pool.query(`DELETE FROM custody_attestations WHERE agent_id = $1`, [bureauAgentId]);
+}
+
+export async function loadCustodyAttestations<T>(): Promise<T[]> {
+  const res = await pool.query<{ data: T }>(`SELECT data FROM custody_attestations`);
+  return res.rows.map((r) => r.data);
 }
 
 // ── Repository: on-chain activity summaries ───────────────────────────────────

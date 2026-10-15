@@ -1,0 +1,11 @@
+{
+  "note": "Produced by AgentAttestationService.issue() in KHAYAAI/openfireblocks (agent-attestation patch). TEST KEY ONLY; the signing key was generated for this file and discarded.",
+  "envelope": {
+    "payload": "{\"version\":1,\"issuer\":\"forge-custody\",\"issuedAt\":\"2026-10-15T12:00:00.000Z\",\"expiresAt\":\"2026-10-22T12:00:00.000Z\",\"custodyCustomerId\":\"cust_fixture\",\"agentId\":\"cag_fixture\",\"keyAddress\":\"0x00000000000000000000000000000000000000Aa\",\"agentStatus\":\"active\",\"record\":{\"transfers\":40,\"released\":2,\"refused\":3,\"refusalsByReason\":{\"over daily budget\":1,\"recipient not allowed\":2}},\"subject\":\"bureau_agent_fixture\"}",
+    "signature": "Vy0DjHVhGZQfB/aJSMm34SjxQi5tGkYSrJwHk/fY8BKrYAc0C8NruI7wwhML8V1b3rZ/XX0MPbJ/EmibP4KCAQ=="
+  },
+  "publicKey": "0Ux8wlDKNhKpijqA3FlX4MSY41/jrC+vVmZEZkdLarc=",
+  "walletAddress": "0x00000000000000000000000000000000000000Aa",
+  "subject": "bureau_agent_fixture",
+  "verifyAt": "2026-10-15T13:00:00.000Z"
+}

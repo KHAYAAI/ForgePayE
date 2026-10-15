@@ -108,6 +108,10 @@ import {
   startIndexerWorker, stopIndexerWorker, type ChainConfig, type SolanaChainConfig,
 } from './onchain-activity';
 import {
+  verifyAttestation, refuseIfRegressive, custodySignals, getAttestation, saveAttestation, revokeAttestation,
+  attestationSummary,
+} from './custody-attestation';
+import {
   runSettlement, startSettlementScheduler, hydrateSettlements,
   getLastSettlementRun, getSettlementReceipt, getSettlementRunCount,
   settlementEligibility,
@@ -2419,10 +2423,22 @@ async function buildApp() {
         ? await chain.getMode2Inputs(agentAddress, ageMonths).catch(() => null)
         : null);
 
+    // A custody attestation the operator gave us adds the two measurements public chain data cannot show: how often payments go
+    // through, and how often the agent stayed within its budget. Where it is absent, expired or too thin, the inputs are unchanged.
+    const custodyAtt = getAttestation(profile.agentId);
+    const custody = custodyAtt ? custodySignals(custodyAtt) : null;
+    const scoredInputs = mode2Inputs && custody
+      ? {
+          ...mode2Inputs,
+          successRateBps: custody.successRateBps ?? mode2Inputs.successRateBps,
+          budgetComplianceRate: custody.budgetComplianceRate ?? mode2Inputs.budgetComplianceRate,
+        }
+      : mode2Inputs;
+
     const dualScore = computeDualModeScore(
       profile.agentId,
       profile,
-      mode2Inputs,
+      scoredInputs,
       receipt ? {
         txHash:      receipt.txHash,
         blockNumber: receipt.blockNumber,
@@ -2443,6 +2459,18 @@ async function buildApp() {
         ...(mode2Unavailable ? { mode2Unavailable } : {}),
         // Which chains and blocks the Mode 2 figures were read from, so a lender can see how current they are.
         ...(indexed ? { mode2Source: { kind: 'indexed_wallet_activity', chains: indexed.provenance } } : {}),
+        // Whether a custody attestation was used, and if not, why not.
+        ...(custodyAtt ? {
+          custodySource: {
+            issuer: 'forge-custody', issuedAt: custodyAtt.issuedAt, expiresAt: custodyAtt.expiresAt,
+            used: Boolean(mode2Inputs && custody),
+            ...(!custody ? { reason: 'expired' } : !mode2Inputs ? { reason: 'no_onchain_inputs' } : {
+              attempts: custody.attempts,
+              successRate: custody.successRateBps === null ? 'unknown' : 'measured',
+              budgetCompliance: custody.budgetComplianceRate === null ? 'unknown' : 'measured',
+            }),
+          },
+        } : {}),
       },
     });
   });
@@ -2450,6 +2478,56 @@ async function buildApp() {
   // ═══════════════════════════════════════════════════════════════════════════
   // Verification — 8-check agent verify + sanctions screen (Qova-derived)
   // ═══════════════════════════════════════════════════════════════════════════
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Custody attestations — an operator gives the bureau a signed statement from FORGE custody about an agent's record.
+  // Admin-only by the deny-by-default scope table (the console submits on the operator's behalf). See custody-attestation.ts.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // POST /v1/agents/:agentId/custody-attestation  { payload, signature, submittedBy, consentRef? }
+  app.post<{ Params: { agentId: string } }>('/v1/agents/:agentId/custody-attestation', async (req, reply) => {
+    const profile = getProfile(req.params.agentId);
+    if (!profile) return reply.status(404).send({ error: 'NotFound', message: `Agent ${req.params.agentId} not registered` });
+
+    const body = (req.body ?? {}) as { payload?: unknown; signature?: unknown; submittedBy?: unknown; consentRef?: unknown };
+    const submittedBy = typeof body.submittedBy === 'string' ? body.submittedBy.trim() : '';
+    if (!submittedBy || submittedBy.length > 200) {
+      return reply.status(400).send({ error: 'ValidationError', message: 'submittedBy is required (who is giving this statement to the bureau, and so consenting).' });
+    }
+    if (body.consentRef !== undefined && (typeof body.consentRef !== 'string' || body.consentRef.length > 200)) {
+      return reply.status(400).send({ error: 'ValidationError', message: 'consentRef must be a string of at most 200 characters.' });
+    }
+
+    const verified = verifyAttestation({ payload: body.payload, signature: body.signature }, profile);
+    if (!verified.ok) {
+      return reply.status(verified.code === 'unconfigured' ? 503 : 422).send({ error: verified.code, message: verified.message });
+    }
+    const refusal = refuseIfRegressive(getAttestation(profile.agentId), verified.payload);
+    if (refusal) return reply.status(409).send({ error: refusal.code, message: refusal.message });
+
+    const stored = {
+      ...verified.payload, bureauAgentId: profile.agentId, submittedBy, receivedAt: new Date().toISOString(),
+      ...(typeof body.consentRef === 'string' ? { consentRef: body.consentRef } : {}),
+    };
+    saveAttestation(stored);
+    app.log.info({ agentId: profile.agentId, custodyAgentId: stored.agentId, submittedBy }, '[custody-attestation] accepted');
+    return reply.status(201).send({ data: attestationSummary(stored) });
+  });
+
+  app.get<{ Params: { agentId: string } }>('/v1/agents/:agentId/custody-attestation', async (req, reply) => {
+    if (!getProfile(req.params.agentId)) return reply.status(404).send({ error: 'NotFound', message: `Agent ${req.params.agentId} not registered` });
+    const a = getAttestation(req.params.agentId);
+    if (!a) return reply.status(404).send({ error: 'NotFound', message: 'No custody attestation is held for this agent.' });
+    return reply.send({ data: attestationSummary(a) });
+  });
+
+  // Withdraw consent: the held statement and every signal derived from it are erased.
+  app.delete<{ Params: { agentId: string } }>('/v1/agents/:agentId/custody-attestation', async (req, reply) => {
+    if (!getProfile(req.params.agentId)) return reply.status(404).send({ error: 'NotFound', message: `Agent ${req.params.agentId} not registered` });
+    if (!revokeAttestation(req.params.agentId)) return reply.status(404).send({ error: 'NotFound', message: 'No custody attestation is held for this agent.' });
+    app.log.info({ agentId: req.params.agentId }, '[custody-attestation] consent withdrawn, statement erased');
+    return reply.status(204).send();
+  });
 
   // GET /v1/grade-scale — the published AAA–D rating scale
   app.get('/v1/grade-scale', async (_req, reply) => {

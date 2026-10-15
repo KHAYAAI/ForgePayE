@@ -33,9 +33,11 @@ import {
   upsertConsentToken, loadLiveConsentTokens,
   upsertWebhookEndpoint, deleteWebhookEndpoint, upsertWebhookDelivery, loadWebhooks,
   upsertOnchainActivity, loadOnchainActivity,
+  upsertCustodyAttestation, deleteCustodyAttestation, loadCustodyAttestations,
 } from './db';
 import { hydrateWebhooks, setWebhookPersistence, type WebhookDelivery, type WebhookEndpoint } from './webhooks';
 import { hydrateActivity, setActivityPersistence, type ActivitySummary } from './onchain-activity';
+import { hydrateAttestations, setAttestationPersistence, type StoredAttestation } from './custody-attestation';
 import { hydrateConsentState, setConsentPersistence } from './consent';
 import { isSandbox } from './sandbox';
 
@@ -679,6 +681,16 @@ export async function initPersistence(): Promise<void> {
   hydrateActivity(activity);
   setActivityPersistence({ save: (a) => persist('onchain activity', () => upsertOnchainActivity(a)) });
   console.log(`[credit-bureau] hydrated ${activity.length} on-chain activity summaries`);
+
+  // Custody attestations (operator-consented statements about an agent's record at custody): they survive a restart, and withdrawing
+  // consent deletes the row.
+  const attestations = await loadCustodyAttestations<StoredAttestation>();
+  hydrateAttestations(attestations);
+  setAttestationPersistence({
+    save: (a) => persist('custody attestation', () => upsertCustodyAttestation(a)),
+    remove: (id) => persist('custody attestation removal', () => deleteCustodyAttestation(id)),
+  });
+  console.log(`[credit-bureau] hydrated ${attestations.length} custody attestations`);
 
   console.log(`[credit-bureau] hydrated ${wh.endpoints.length} webhook endpoints, ${wh.deliveries.filter((d) => d.status === 'pending').length} pending deliveries`);
 }

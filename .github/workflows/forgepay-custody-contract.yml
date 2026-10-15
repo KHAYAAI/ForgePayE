@@ -1,0 +1,89 @@
+# ForgePay Custody Contract (manual)
+#
+# Runs services/stablecoin-gateway/__tests__/custody-contract.test.ts against a REAL custody deployment, from GitHub's network (so it
+# can reach a staging environment that a developer sandbox cannot). It checks that the custody agent API still has the shapes the
+# gateway's custody payout signer depends on. The unit tests only know those from custody's source via a stand-in.
+#
+# One-time setup (repository settings):
+#   - Environment "custody-staging" (Settings > Environments). Add required reviewers: the paying run below moves testnet funds.
+#   - Secrets on that environment:
+#       CUSTODY_CONTRACT_URL         origin of the custody api-gateway, e.g. https://staging.example.org
+#       CUSTODY_CONTRACT_AGENT_KEY   an ofb_agent_… key issued for TESTNET use (scripts/issue-custody-agent-key.mjs). Never a production key.
+#
+# Read-only checks always run. The paying test runs only when "allow_pay" is ticked, and refuses any mainnet chain id.
+
+name: "ForgePay Custody Contract (manual)"
+
+on:
+  workflow_dispatch:
+    inputs:
+      allow_pay:
+        description: "Also make ONE tiny testnet payment (and replay it) to check idempotency"
+        type: boolean
+        default: false
+      chain_id:
+        description: "Testnet chain id for the payment, e.g. 11155111 (Sepolia). Required if allow_pay."
+        type: string
+        default: ""
+      token:
+        description: "Symbol of a test token the agent key may pay, e.g. USDC"
+        type: string
+        default: "USDC"
+      recipient:
+        description: "A test address you control (must be on the key's recipient list). Required if allow_pay."
+        type: string
+        default: ""
+      amount:
+        description: "Tiny amount, e.g. 0.01"
+        type: string
+        default: "0.01"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: forgepay-custody-contract
+  cancel-in-progress: false
+
+jobs:
+  contract:
+    name: "custody agent API — contract"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: custody-staging
+    defaults:
+      run:
+        working-directory: forgepay/services/stablecoin-gateway
+    env:
+      CUSTODY_CONTRACT_URL: ${{ secrets.CUSTODY_CONTRACT_URL }}
+      CUSTODY_CONTRACT_AGENT_KEY: ${{ secrets.CUSTODY_CONTRACT_AGENT_KEY }}
+      CUSTODY_CONTRACT_ALLOW_PAY: ${{ inputs.allow_pay && 'true' || 'false' }}
+      CUSTODY_CONTRACT_CHAIN_ID: ${{ inputs.chain_id }}
+      CUSTODY_CONTRACT_TOKEN: ${{ inputs.token }}
+      CUSTODY_CONTRACT_RECIPIENT: ${{ inputs.recipient }}
+      CUSTODY_CONTRACT_AMOUNT: ${{ inputs.amount }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: forgepay/services/stablecoin-gateway/package-lock.json
+
+      - name: Refuse to run unconfigured
+        # Without this the suite would skip itself and the job would look green having checked nothing.
+        run: |
+          missing=0
+          [ -n "$CUSTODY_CONTRACT_URL" ] || { echo "::error::CUSTODY_CONTRACT_URL is not set on the custody-staging environment"; missing=1; }
+          [ -n "$CUSTODY_CONTRACT_AGENT_KEY" ] || { echo "::error::CUSTODY_CONTRACT_AGENT_KEY is not set on the custody-staging environment"; missing=1; }
+          if [ "$CUSTODY_CONTRACT_ALLOW_PAY" = "true" ]; then
+            [ -n "$CUSTODY_CONTRACT_CHAIN_ID" ] || { echo "::error::allow_pay needs chain_id"; missing=1; }
+            [ -n "$CUSTODY_CONTRACT_RECIPIENT" ] || { echo "::error::allow_pay needs recipient"; missing=1; }
+          fi
+          exit "$missing"
+
+      - run: npm ci
+
+      - name: Run the contract tests
+        run: npx vitest run __tests__/custody-contract.test.ts --reporter=verbose

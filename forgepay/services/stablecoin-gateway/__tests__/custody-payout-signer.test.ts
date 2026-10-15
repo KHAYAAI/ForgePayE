@@ -41,7 +41,7 @@ function payout(over: Partial<Payout> = {}): Payout {
 }
 
 const CFG: CustodyConfig = {
-  baseUrl: 'https://custody.example.org', chain: 'base-sepolia', chainId: 84532, dailyMaxUsd: 5000, confirmations: 1,
+  baseUrl: 'https://custody.example.org', chain: 'base-sepolia', chainId: 84532, dailyMaxUsd: 5000, requireRecipientList: false, confirmations: 1,
   requestTimeoutMs: 5_000, waitMs: 10_000, resolveMs: 10_000, pollMs: 1_000,
 };
 
@@ -441,5 +441,66 @@ describe('the read-only readiness check', () => {
     const down = await checkCustodyReadiness(CFG, AGENT_KEY, 'USDC', { fetch: async () => { throw new Error('fetch failed'); }, ...clock() });
     expect(down.ok).toBe(false);
     expect(down.problems.join(' ')).toMatch(/Could not reach custody/);
+  });
+});
+
+describe('the recipient list policy', () => {
+  const strict = () => setup({ requireRecipientList: true });
+
+  it('is required in production unless explicitly waived, and not required elsewhere', () => {
+    expect(resolveCustodyConfig(env()).requireRecipientList).toBe(true);
+    expect(resolveCustodyConfig(env({ CUSTODY_ALLOW_OPEN_RECIPIENTS: 'true' })).requireRecipientList).toBe(false);
+    expect(resolveCustodyConfig(env({ CUSTODY_ALLOW_OPEN_RECIPIENTS: 'yes' })).requireRecipientList).toBe(true);   // exact value only
+    expect(resolveCustodyConfig(env({ NODE_ENV: 'development', CUSTODY_API_URL: 'http://localhost:3000' })).requireRecipientList).toBe(false);
+  });
+
+  it('pays when the recipient is on the key\'s list, whatever the case', async () => {
+    const { custody, b } = strict();
+    custody.agent.allowedRecipients = [ADDR.toLowerCase()];
+    await expect(b.broadcast(payout({ payeeAddress: '0x' + 'AB'.repeat(20) }))).resolves.toMatchObject({ txHash: hashFor('po_1') });
+    expect(custody.payments).toBe(1);
+  });
+
+  it('refuses an address that is not on the list WITHOUT asking, so custody\'s record of the agent stays clean', async () => {
+    const { custody, b } = strict();
+    custody.agent.allowedRecipients = ['0x' + 'cd'.repeat(20)];
+    await expect(b.broadcast(payout())).rejects.toThrow(/not on the custody agent key's recipient list.*issue a new key/s);
+    expect(posts(custody)).toHaveLength(0);
+    expect(custody.spends.size).toBe(0);                     // no 'refused' row was created at custody
+  });
+
+  it('refuses a key with no list in production, and says how to waive it deliberately', async () => {
+    const { custody, b } = strict();
+    custody.agent.allowedRecipients = null;
+    await expect(b.broadcast(payout())).rejects.toThrow(/no recipient list.*CUSTODY_ALLOW_OPEN_RECIPIENTS=true/s);
+    expect(posts(custody)).toHaveLength(0);
+  });
+
+  it('accepts an open list when the policy is waived (staging, or an explicit decision)', async () => {
+    const { custody, b } = setup({ requireRecipientList: false });
+    custody.agent.allowedRecipients = null;
+    await expect(b.broadcast(payout())).resolves.toMatchObject({ txHash: hashFor('po_1') });
+  });
+
+  it('refuses an expired key before asking, using real time', async () => {
+    const { custody, b } = strict();
+    custody.agent.allowedRecipients = [ADDR]; custody.agent.expiresAt = '2000-01-01T00:00:00.000Z';
+    await expect(b.broadcast(payout())).rejects.toThrow(/has expired/);
+    expect(posts(custody)).toHaveLength(0);
+  });
+
+  it('shows up in the readiness check: fixed list reported, open list a problem only where it is required', async () => {
+    const fixed = new StandInCustody(); fixed.agent.allowedRecipients = [ADDR, '0x' + 'cd'.repeat(20)];
+    const a = await checkCustodyReadiness({ ...CFG, requireRecipientList: true }, AGENT_KEY, 'USDC', { fetch: fixed.fetch, ...clock() });
+    expect(a.ok).toBe(true);
+    expect(a.info.join('\n')).toMatch(/Recipients\s+: fixed list of 2 addresses/);
+
+    const open = new StandInCustody();
+    const strictCheck = await checkCustodyReadiness({ ...CFG, requireRecipientList: true }, AGENT_KEY, 'USDC', { fetch: open.fetch, ...clock() });
+    expect(strictCheck.ok).toBe(false);
+    expect(strictCheck.problems.join(' ')).toMatch(/no recipient list/);
+    expect(strictCheck.info.join('\n')).toMatch(/Recipients\s+: OPEN/);
+    const lenient = await checkCustodyReadiness({ ...CFG, requireRecipientList: false }, AGENT_KEY, 'USDC', { fetch: open.fetch, ...clock() });
+    expect(lenient.ok).toBe(true);
   });
 });

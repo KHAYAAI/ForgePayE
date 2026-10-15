@@ -59,6 +59,11 @@ export interface CustodyConfig {
   chainId: number;
   /** Our own rolling 24-hour ceiling, independent of the limits custody holds on the agent key. */
   dailyMaxUsd: number;
+  /**
+   * Refuse an agent key that has no recipient list. On by default in production: with a fixed list a stolen key cannot pay
+   * anyone else, and changing where money goes then needs a person (a new key). Off only by explicit CUSTODY_ALLOW_OPEN_RECIPIENTS=true.
+   */
+  requireRecipientList: boolean;
   confirmations: number;
   /** How long one HTTP call may take. Signing a threshold transaction takes seconds, not milliseconds. */
   requestTimeoutMs: number;
@@ -121,6 +126,7 @@ export function resolveCustodyConfig(env: NodeJS.ProcessEnv = process.env): Cust
   return {
     baseUrl: url.origin + url.pathname.replace(/\/+$/, ''),
     chain, chainId, dailyMaxUsd,
+    requireRecipientList: isProductionLike(env) && env['CUSTODY_ALLOW_OPEN_RECIPIENTS'] !== 'true',
     confirmations: Math.max(1, positiveInt(env['PAYOUT_SIGNER_CONFIRMATIONS'], 1, 'PAYOUT_SIGNER_CONFIRMATIONS')),
     requestTimeoutMs: positiveInt(env['CUSTODY_REQUEST_TIMEOUT_MS'], 60_000, 'CUSTODY_REQUEST_TIMEOUT_MS'),
     waitMs: positiveInt(env['PAYOUT_SIGNER_WAIT_MS'], 180_000, 'PAYOUT_SIGNER_WAIT_MS'),
@@ -213,6 +219,32 @@ export class CustodyPayoutBroadcaster implements PayoutBroadcaster {
     return `/agent/transfers/${encodeURIComponent(payout.id)}?chainId=${this.cfg.chainId}`;
   }
 
+  /**
+   * The key must be alive, and the recipient must be on its list. Refused here, before asking, so that a refusal we could predict is
+   * not recorded in custody as a refused attempt: those records are part of an agent's track record and should reflect real misbehaviour.
+   */
+  private async checkAgent(payout: Payout): Promise<void> {
+    const me = await this.call('GET', '/agent/me');
+    if (me.status === 401) throw new Error('Custody rejected the agent key (invalid, revoked or expired). Refusing to send.');
+    if (me.status !== 200) throw new Error(`Could not read the custody agent key's limits (${replyMessage(me)}). Refusing to send.`);
+    // Wall-clock time, not the injectable timer used for poll deadlines.
+    if (me.json?.expiresAt && Date.parse(me.json.expiresAt) <= Date.now()) throw new Error('The custody agent key has expired. Refusing to send.');
+    const list: unknown = me.json?.allowedRecipients;
+    if (Array.isArray(list)) {
+      if (!list.map((r) => String(r).toLowerCase()).includes(payout.payeeAddress.toLowerCase())) {
+        throw new Error(
+          `Recipient ${payout.payeeAddress} is not on the custody agent key's recipient list, so payout ${payout.id} was not attempted. ` +
+          'A custody admin must issue a new key that includes this address (and the old key should then be revoked).',
+        );
+      }
+    } else if (this.cfg.requireRecipientList) {
+      throw new Error(
+        'The custody agent key has no recipient list, so it could pay any address. Refusing in production: ask a custody admin for a key with a fixed ' +
+        'list of furnisher payout addresses (set CUSTODY_ALLOW_OPEN_RECIPIENTS=true only if you accept that risk deliberately).',
+      );
+    }
+  }
+
   /** The token must be one this key may pay in, verified, on our chain, with the decimals this payout was priced with. */
   private async checkToken(payout: Payout): Promise<void> {
     const r = await this.call('GET', '/agent/tokens');
@@ -280,6 +312,7 @@ export class CustodyPayoutBroadcaster implements PayoutBroadcaster {
     try { units = BigInt(payout.amountUnits); } catch { throw new Error(`Payout ${payout.id} has an unreadable amount.`); }
     if (units <= 0n) throw new Error(`Payout ${payout.id} has no amount to send.`);
 
+    await this.checkAgent(payout);
     await this.checkToken(payout);
 
     // ── Ask custody to pay. One request, keyed by the payout id: asking again can only return this same payment.
@@ -421,6 +454,12 @@ export async function checkCustodyReadiness(
       info.push(`Key expires     : ${me.json.expiresAt ?? 'unknown'}`);
       if (Number.isFinite(left) && left <= 0) problems.push('The agent key has expired.');
       else if (Number.isFinite(left) && left < 7 * 86_400_000) problems.push('The agent key expires within 7 days; issue a new one before it does.');
+      const recipients: unknown = me.json.allowedRecipients;
+      if (Array.isArray(recipients)) info.push(`Recipients      : fixed list of ${recipients.length} address${recipients.length === 1 ? '' : 'es'}`);
+      else {
+        info.push('Recipients      : OPEN (the key could pay any address)');
+        if (cfg.requireRecipientList) problems.push('The agent key has no recipient list. In production the signer refuses such a key; ask a custody admin for one with a fixed list.');
+      }
       info.push(`Custody limits  : R${me.json.perTransferLimitZar ?? '?'} per payment, R${me.json.dailyLimitZar ?? '?'} per 24h, R${me.json.remaining24hZar ?? '?'} left now (rand, set by the custody admin)`);
     }
     const tk = await b['call']('GET', '/agent/tokens');

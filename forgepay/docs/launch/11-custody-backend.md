@@ -67,8 +67,7 @@ recorded late, unknown payment reconciled as failed). The full gateway suite pas
 
 - **Rand-only limits.** Custody values every payment in rand and limits the key in rand. Our payouts are in USD; the key's limits must be set with an FX
   margin, and our own USD ceiling stays the tighter control.
-- **Recipient list is fixed when the key is issued.** A new furnisher payout address needs a new key (or an unrestricted recipient list, which weakens the control).
-  Decide which. A dynamic approach is a change in custody, not here.
+- **Recipient list: decided, fixed in production.** See "The recipient list" below. Changing a furnisher's payout address is a deliberate, human step (a new key).
 - **In-flight without a hash.** If custody is still signing when our wait ends, the payout is failed with "do not re-issue; check custody for request id <id>".
   The seam's pending state needs a transaction hash, and there is none yet. Extending `submitPayout` to hold a hash-less pending state is a possible follow-up.
 - **A request in transit.** If our request is delayed in the network and custody receives it *after* we looked and found no record, it would still pay. The
@@ -78,6 +77,85 @@ recorded late, unknown payment reconciled as failed). The full gateway suite pas
   sums `submitted` payouts, so the hot-key signer's daily-ceiling check counts the current payout twice (headroom is effectively halved for the last
   payout of the day). The custody signer mirrors this for consistency; it errs on the safe side. Worth fixing in both together.
 
+## The recipient list (decision, 15 October)
+
+**Fixed list in production; open list only for staging, and only on purpose.** Payouts go to a small, known set of furnisher addresses. With a fixed
+list, a stolen agent key cannot pay anyone else, and changing where money goes needs a person (a new key). That friction is the control, not a defect.
+
+How it is enforced:
+- The signer **refuses a key with no recipient list** when `NODE_ENV` is production-like, unless `CUSTODY_ALLOW_OPEN_RECIPIENTS=true` is set exactly. The
+  preflight reports the same as a failure. Helm passes the variable through `config:`.
+- Before asking custody to pay, the signer checks the recipient against the list on the key (`GET /agent/me` returns it). A payout to an address that is not on
+  it is refused **without asking**, so custody's record of the agent is not filled with refusals we could have predicted. Those records are part of an agent's
+  track record, and the bureau reads them (below).
+- To add or change a furnisher address: a custody admin issues a new key whose list includes it (`scripts/issue-custody-agent-key.mjs`), the new key replaces the
+  mounted secret, then the old key is revoked.
+
+## Custody staging: what you do, and what is already built
+
+I cannot reach your staging deployment from my sandbox (its network proxy blocks it) and I have no custody admin credential, so these steps are yours. Everything
+around them is built.
+
+1. **Get an admin token** (a custody admin user): `POST /v1/auth/login` with email and password; if MFA is on, then `POST /v1/auth/mfa/verify` with the
+   challenge token and your code. The result's `accessToken` lasts an hour. Put it in `CUSTODY_ADMIN_TOKEN` in your shell. Never in a file in the repo or in chat.
+2. **Issue the agent key** with the script. It writes the key to a file readable only by you and never prints it:
+   ```
+   CUSTODY_ADMIN_TOKEN=… node scripts/issue-custody-agent-key.mjs \
+     --api-url https://<staging> --customer-id <custody customer id> --key-id <custody key id> \
+     --recipients <your test recipient address> --per-transfer-zar 50 --daily-zar 200 --expires-days 14 --out ./agent-key
+   ```
+   Add `--dry-run` first to see exactly what will be sent. Put the file's contents into your secret manager, then delete the file.
+3. **Staging needs an RPC for Sepolia on the custody api-gateway** (`EVM_RPC_11155111`) and the test token registered and verified there.
+4. **Add two secrets** to the GitHub environment `custody-staging` (Settings > Environments; add yourself as a required reviewer): `CUSTODY_CONTRACT_URL` and
+   `CUSTODY_CONTRACT_AGENT_KEY`. Then run the workflow *ForgePay Custody Contract (manual)*. Leave "allow_pay" off for the first run: it checks the API shapes only.
+5. **Then the cent-sized payment:** run it again with `allow_pay` on, `chain_id` 11155111, the token symbol, your recipient (must be on the key's list), and an
+   amount like 0.01. It pays once, asks again with the same id to prove it does not pay twice, and reads the status back. It refuses any mainnet chain id.
+6. **Then the gateway itself:** set the Helm values (`payout.mode: custody`, see `ci/custody-values.yaml`), run `npm run preflight:custody` in the pod, and let a
+   test payout through.
+
+## Step 2: custody's record into Mode 2
+
+**What custody exposes today (read from its source):** an admin route, `GET /organisations/{customerId}/agents/{agentId}`, returns the agent and its lifetime
+counts: payments, releases, refusals, and refusals grouped by reason. It has no timestamps (so no windows or trends). It sits behind a **user login that expires
+hourly** and a role check; there is no machine credential for read access. It does not say which wallet the agent pays from: that sits behind a *customer API key*,
+which can also sign payments, so it must not be handed to the bureau. The agent's own history (`GET /agent/transfers`) needs the agent's own key.
+
+**What that rules out:** the bureau pulling from custody. It would need a standing credential, and there would be no proof that a linked custody agent is the same
+agent as the bureau's: anyone could link an agent with a spotless record to their own.
+
+**What is built instead: a signed attestation.**
+- *Custody side (patch, `docs/launch/custody-patches/0001-agent-attestation.patch`, written and tested in a local clone of the custody repo, not applied there):*
+  `GET /organisations/{customerId}/agents/{agentId}/attestation`, admin-only, audited, returns a short-lived (7 days by default, 14 at most) ed25519-signed
+  statement: the counts, and the **address of the key the agent pays from**. No amounts, recipients or purposes. Off unless `AGENT_ATTESTATION_KEY_FILE` is set.
+  Tested with the custody repo's own jest: its full suite passes (57 suites, 615 tests) and its route-inventory guard check passes (161 routes, all guarded).
+- *Bureau side (this repo):* the operator submits the statement to `POST /v1/agents/{id}/custody-attestation`. That act is the consent. The bureau checks the
+  signature against custody's published key(s) (`CUSTODY_ATTESTATION_PUBLIC_KEYS`, several allowed so the key can be rotated), that the key address is the wallet
+  this bureau agent proved it controls, that the statement is fresh, short-lived and consistent, and, on a later one, that it is **newer and the lifetime counts
+  did not go down** (so an old, better record cannot be replayed over a worse one). `DELETE` withdraws consent and **erases** it, from memory and the database.
+- *Effect on the score:* it supplies the two Mode 2 inputs public chain data cannot: the success rate (payments that went through, of those attempted) and budget
+  compliance (attempts that stayed within the agent's budget; only the two budget refusal reasons count against it). A refusal is not a failed payment. Below 10
+  attempts a rate is left **unknown**, never a flattering 100%. An expired statement contributes nothing: unknown is never assumed good. The dual-score response
+  says whether a statement was used (`custodySource`) and why not when it was not.
+- It only adds to an agent that already has on-chain inputs; it does not create a Mode 2 score where there is no activity to score.
+
+**Turning it on:**
+1. Apply the patch to the custody repo (`git am docs/launch/custody-patches/0001-agent-attestation.patch`), generate the signing key and set
+   `AGENT_ATTESTATION_KEY_FILE` (instructions in the patch's `docs/agent-attestation.md`).
+2. Give the bureau the **public** key out of band: `CUSTODY_ATTESTATION_PUBLIC_KEYS`.
+3. The operator asks custody for a statement (`?subject=<bureau agent id>`) and submits it. The console screen for this is not built yet; today it is the API.
+
+**Verified:** 28 bureau tests (signature, every rejection reason, replay and regression rules, the signal math, the admin-only routes, the effect on the dual score,
+erasure on withdrawal) and a real-Postgres restart test; eight deliberate breaks of the security rules were each caught. **A compatibility test runs the real output of the
+custody issuer through the bureau's verifier**, so the two implementations agree on the format.
+
+**Not verified / open:**
+- The patch has not been applied to or deployed in the custody repo, and nothing has run against a live custody. I could not push to that repo and did not try.
+- The statement is valid for days, and nothing renews it: an operator must resubmit, or the signals lapse. Automating that (custody pushing statements) is future work.
+- The bureau trusts whoever holds custody's signing key. Protect that key like a custody key.
+- **POPIA:** this is personal-data processing in a credit context. The consent here is a submission by the operator, recorded with who and when. Whether that is
+  sufficient, how long to retain, and what the notice must say are for counsel.
+- No console screen yet.
+
 ## Custody's own status (from its documents, not re-verified here)
 
 Ready for supervised testnet or capped pilots; not for banks or uncapped funds. Its agent routes and MCP server have not been through a pentest round.
@@ -86,7 +164,7 @@ around January–February 2027 and Type II around April–May 2027. Treat the bu
 
 ## Next
 
-1. Run steps 1–5 above on custody staging and make one cent-sized Sepolia payment.
-2. Mode 2 from custody spend history: custody records every payment *and refusal* per agent, which would give the success-rate and budget-compliance
-   factors a real measurement. Needs the operator's consent and a look at what an admin route exposes.
-3. Refresh or replace the vendored custody tree so CI builds the same code this integrates with.
+1. Staging: steps 1–6 above (yours, then I can read the results and fix what they show).
+2. Apply and review the custody patch in the custody repo; deploy; turn on attestations with one design partner.
+3. A console screen for the operator to request and submit an attestation, and to withdraw it.
+4. Refresh or replace the vendored custody tree so CI builds the same code this integrates with.
