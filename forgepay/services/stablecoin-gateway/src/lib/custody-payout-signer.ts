@@ -268,7 +268,7 @@ export class CustodyPayoutBroadcaster implements PayoutBroadcaster {
     if (payout.amountUsdc > PAYOUT_ABSOLUTE_MAX_USD) {
       throw new Error(`Payout ${payout.id} is $${payout.amountUsdc}, above the absolute ceiling of $${PAYOUT_ABSOLUTE_MAX_USD}.`);
     }
-    const spent = await spentLast24hUsd();
+    const spent = await spentLast24hUsd(payout.id);
     if (spent + payout.amountUsdc > cfg.dailyMaxUsd) {
       throw new Error(
         `Payout ${payout.id} would take the trailing-24h total to $${(spent + payout.amountUsdc).toFixed(2)}, above the daily ceiling of ` +

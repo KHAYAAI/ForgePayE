@@ -10,8 +10,20 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
+// A stand-in ledger. `otherUsd` is spent by other payouts; `inFlight` is the payout being
+// sent, which submitPayout has already marked 'submitted' and so is in the ledger too.
+// Like the real query, the sum leaves out the id passed as $1.
+const ledger = vi.hoisted(() => ({
+  otherUsd: 0, inFlight: { id: '', usd: 0 }, queries: [] as Array<{ sql: string; params: unknown[] }>,
+}));
 vi.mock('../src/lib/db.js', () => ({
-  getDb: () => ({ query: vi.fn().mockResolvedValue({ rows: [{ total: '0' }] }) }),
+  getDb: () => ({
+    query: vi.fn(async (sql: string, params: unknown[] = []) => {
+      ledger.queries.push({ sql, params });
+      const inFlight = params[0] === ledger.inFlight.id ? 0 : ledger.inFlight.usd;
+      return { rows: [{ total: String(ledger.otherUsd + inFlight) }] };
+    }),
+  }),
 }));
 vi.mock('../src/lib/logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -47,6 +59,7 @@ function clearSignerEnv() {
 }
 
 beforeEach(() => {
+  ledger.otherUsd = 0; ledger.inFlight = { id: '', usd: 0 }; ledger.queries.length = 0;
   process.env = { ...ORIGINAL_ENV };
   clearSignerEnv();
   setPayoutBroadcaster(new UnconfiguredBroadcaster());
@@ -194,5 +207,36 @@ describe('refusals at broadcast time', () => {
     installPayoutSigner();
     await expect(currentBroadcaster().broadcast(payout({ amountUsdc: 1_000_000 })))
       .rejects.toThrow(/absolute ceiling/);
+  });
+});
+
+describe('the rolling 24h ceiling counts the payout being sent exactly once', () => {
+  const payout = (over: Record<string, unknown> = {}) => ({
+    id: 'p_1', externalId: 'ext_1', payeeId: 'contrib_aave',
+    payeeAddress: '0x1234567890123456789012345678901234567890', chain: 'base', amountUsdc: 10,
+    status: 'submitted' as const, reason: 'furnisher revenue share', requestedBy: 'agent-credit-bureau',
+    createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), ...over,
+  });
+
+  it('excludes the payout\'s own id from the sum', async () => {
+    configure(); installPayoutSigner();
+    await currentBroadcaster().broadcast(payout()).catch(() => undefined);
+    expect(ledger.queries[0]?.params).toEqual(['p_1']);
+    expect(ledger.queries[0]?.sql).toMatch(/id <> \$1/);
+  });
+
+  it('allows a payout that exactly fits the remaining headroom', async () => {
+    // $4000 already spent by others, $1000 in flight (already marked submitted): 4000 + 1000 = the 5000 ceiling.
+    configure(); installPayoutSigner();
+    ledger.otherUsd = 4000; ledger.inFlight = { id: 'p_1', usd: 1000 };
+    // It passes our ceiling and goes on to the chain, which is unreachable here; what matters is it is not refused as over the ceiling.
+    const err = await currentBroadcaster().broadcast(payout({ amountUsdc: 1000 })).then(() => '', (e: Error) => e.message);
+    expect(err).not.toMatch(/daily ceiling/);
+  });
+
+  it('refuses a payout one cent over the remaining headroom', async () => {
+    configure(); installPayoutSigner();
+    ledger.otherUsd = 4000; ledger.inFlight = { id: 'p_1', usd: 1000.01 };
+    await expect(currentBroadcaster().broadcast(payout({ amountUsdc: 1000.01 }))).rejects.toThrow(/daily ceiling/);
   });
 });

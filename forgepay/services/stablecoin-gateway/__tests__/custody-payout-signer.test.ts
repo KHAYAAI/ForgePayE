@@ -9,9 +9,16 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-const state = vi.hoisted(() => ({ spentUsd: 0, logs: [] as unknown[][] }));
+// `spentUsd` is spent by other payouts. `inFlight` is the payout being sent, which submitPayout has already
+// marked 'submitted', so it is in the ledger too; like the real query, the sum leaves out the id passed as $1.
+const state = vi.hoisted(() => ({ spentUsd: 0, inFlight: { id: '', usd: 0 }, queries: [] as unknown[][], logs: [] as unknown[][] }));
 vi.mock('../src/lib/db.js', () => ({
-  getDb: () => ({ query: vi.fn(async () => ({ rows: [{ total: String(state.spentUsd) }] })) }),
+  getDb: () => ({
+    query: vi.fn(async (_sql: string, params: unknown[] = []) => {
+      state.queries.push(params);
+      return { rows: [{ total: String(state.spentUsd + (params[0] === state.inFlight.id ? 0 : state.inFlight.usd)) }] };
+    }),
+  }),
 }));
 vi.mock('../src/lib/logger.js', () => ({
   logger: {
@@ -59,7 +66,7 @@ function setup(cfg: Partial<CustodyConfig> = {}) {
 
 const posts = (c: StandInCustody) => c.calls.filter((x) => x.method === 'POST');
 
-beforeEach(() => { state.spentUsd = 0; state.logs.length = 0; setPayoutBroadcaster(new UnconfiguredBroadcaster()); });
+beforeEach(() => { state.spentUsd = 0; state.inFlight = { id: '', usd: 0 }; state.queries.length = 0; state.logs.length = 0; setPayoutBroadcaster(new UnconfiguredBroadcaster()); });
 afterEach(() => { setPayoutBroadcaster(new UnconfiguredBroadcaster()); });
 
 // ── Configuration ───────────────────────────────────────────────────────────
@@ -276,6 +283,31 @@ describe('our own limits, held independently of custody\'s', () => {
       await expect(b.broadcast(payout(over))).rejects.toThrow(pattern);
       expect(custody.calls, JSON.stringify(over)).toHaveLength(0);
     }
+  });
+});
+
+describe('the rolling 24h ceiling counts the payout being sent exactly once', () => {
+  const sized = (usd: number) => payout({ amountUsdc: usd, amountUnits: String(Math.round(usd * 1e6)) });
+
+  it('excludes the payout\'s own id from the sum', async () => {
+    const { b } = setup();
+    await b.broadcast(payout());
+    expect(state.queries[0]).toEqual(['po_1']);
+  });
+
+  it('allows a payout that exactly fits the remaining headroom', async () => {
+    // $4000 spent by others, $1000 in flight and already marked submitted: 4000 + 1000 = the 5000 ceiling.
+    const { custody, b } = setup();
+    state.spentUsd = 4000; state.inFlight = { id: 'po_1', usd: 1000 };
+    await b.broadcast(sized(1000));
+    expect(custody.payments).toBe(1);
+  });
+
+  it('refuses a payout one cent over the remaining headroom, without any request', async () => {
+    const { custody, b } = setup();
+    state.spentUsd = 4000; state.inFlight = { id: 'po_1', usd: 1000.01 };
+    await expect(b.broadcast(sized(1000.01))).rejects.toThrow(/daily ceiling/);
+    expect(custody.calls).toHaveLength(0);
   });
 });
 

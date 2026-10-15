@@ -209,15 +209,20 @@ export function resolveSignerConfig(): SignerConfig {
  * Read from the ledger rather than an in-process counter, so a restart cannot
  * reset the cap — which would make the control worthless against exactly the
  * crash-loop it exists to bound.
+ *
+ * `excludePayoutId` leaves one payout out of the sum. `submitPayout` marks the row
+ * 'submitted' before it broadcasts, so a broadcaster checking its own payout would
+ * otherwise count it twice (once here, once as `payout.amountUsdc`).
  */
-export async function spentLast24hUsd(): Promise<number> {
+export async function spentLast24hUsd(excludePayoutId?: string): Promise<number> {
   const conn = await db();
   const res = await conn.query<{ total: string | null }>(
     `SELECT COALESCE(SUM(amount_usdc), 0) AS total
        FROM payouts
       WHERE status IN ('submitted', 'confirmed')
-        AND updated_at > NOW() - INTERVAL '24 hours'`,
-    [],
+        AND updated_at > NOW() - INTERVAL '24 hours'
+        AND ($1::uuid IS NULL OR id <> $1::uuid)`,
+    [excludePayoutId ?? null],
   );
   return Number(res.rows[0]?.total ?? 0);
 }
@@ -307,7 +312,7 @@ export class Erc20PayoutBroadcaster implements PayoutBroadcaster {
       );
     }
 
-    const spent = await spentLast24hUsd();
+    const spent = await spentLast24hUsd(payout.id);
     if (spent + payout.amountUsdc > cfg.dailyMaxUsd) {
       throw new Error(
         `Payout ${payout.id} would take the trailing-24h total to ` +
