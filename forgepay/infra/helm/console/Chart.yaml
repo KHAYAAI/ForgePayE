@@ -1,0 +1,11 @@
+apiVersion: v2
+name: console
+description: "ForgePay Console (apps/platform): custody, wallet, treasury and credit bureau screens. Deployed by image digest only."
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+maintainers:
+  - name: ForgePay Platform
+keywords:
+  - console
+  - nextjs

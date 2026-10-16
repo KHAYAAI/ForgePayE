@@ -1,0 +1,14 @@
+# Production settings for the console. Nothing secret, and no image: the digest is supplied by the deploy workflow.
+# The certificate ARN and host come from the workflow's environment variables (ACM_CERT_ARN, CONSOLE_HOST).
+replicaCount: 3
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+env:
+  NEXT_PUBLIC_APP_URL: https://console.myforgepay.com
+  FORGE_LAUNCHED_PRODUCTS: credit-bureau
+resources:
+  requests: { cpu: 500m, memory: 512Mi }
+  limits: { cpu: 1000m, memory: 1024Mi }

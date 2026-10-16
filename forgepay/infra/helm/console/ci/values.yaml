@@ -1,0 +1,12 @@
+# Used by CI to render the chart. No secrets: only the names of things that must exist beforehand.
+image:
+  repository: ghcr.io/example/forgepay-console
+  digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+secrets:
+  existingSecret: console-secrets
+ingress:
+  host: console.example.org
+  certificateArn: arn:aws:acm:us-east-1:111111111111:certificate/00000000-0000-0000-0000-000000000000
+networkPolicy:
+  enabled: true
+  allowIngressFromCidrs: ["10.0.0.0/16"]

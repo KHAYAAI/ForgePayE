@@ -334,6 +334,28 @@ jobs:
                   echo "ok      $name (custody mode refuses a hot key)"
                 fi
                 ;;
+              console)
+                # The console chart exists to deploy by digest. It must render with a digest and a named Secret, and must REFUSE to render
+                # without them, however it is asked: its bare defaults, no digest, a tag, a malformed digest, no Secret, no host.
+                check "$name (ci/values)" "$chart" -f "$chart/ci/values.yaml"
+                check "$name (ci/values + values-prod)" "$chart" -f "$chart/ci/values.yaml" -f "$chart/values-prod.yaml"
+                if helm template ci-release "$chart" > /dev/null 2>&1; then
+                  echo "::error title=helm::$name rendered with its default values: it must require a digest and a Secret"
+                  fail=1
+                fi
+                for bad in "image.digest=" "image.digest=sha256:abc" "image.digest=sha512:$(printf '0%.0s' $(seq 64))" "secrets.existingSecret=" "ingress.host="; do
+                  if helm template ci-release "$chart" -f "$chart/ci/values.yaml" --set-string "$bad" > /dev/null 2>&1; then
+                    echo "::error title=helm::$name accepted an unsafe value: $bad"
+                    fail=1
+                  fi
+                done
+                if helm template ci-release "$chart" -f "$chart/ci/values.yaml" --set-string image.digest= --set-string image.tag=1.2.3 > /dev/null 2>&1; then
+                  echo "::error title=helm::$name accepted a tag where a digest is required"
+                  fail=1
+                else
+                  echo "ok      $name (refuses a missing or malformed digest, a tag, no Secret, no host)"
+                fi
+                ;;
               openfireblocks)
                 # The chart's defaults must FAIL, and for the right reason: with no signer TLS secrets and no cert-manager it refuses to
                 # render rather than deploy the signer API unauthenticated. Checking that it still refuses protects the fail-closed

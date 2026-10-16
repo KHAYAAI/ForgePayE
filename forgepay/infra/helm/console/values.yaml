@@ -1,0 +1,62 @@
+# The ForgePay console (forgepay/apps/platform).
+#
+# Deployed BY DIGEST. The image is built, scanned and its digest recorded by .github/workflows/forgepay-bureau-images.yml; the deploy workflow
+# (.github/workflows/deploy-platform.yml) passes that exact digest in. A tag can move under you; a digest cannot. With requireDigest on
+# (the default) this chart will not render without one.
+image:
+  repository: ghcr.io/khayaai/forgepay-console   # no tag here on purpose
+  digest: ""                                       # sha256:<64 hex>, supplied at deploy time
+  tag: ""                                          # only honoured when requireDigest is false (local experiments)
+  requireDigest: true
+  pullPolicy: IfNotPresent
+imagePullSecrets: []                               # e.g. [{ name: ghcr-pull }] if the registry is private
+
+replicaCount: 2
+
+service:
+  port: 3000
+  targetPort: 3000
+
+# Everything the console reads that is NOT a secret. See infra/launch/bureau/launch.env.template (console section).
+env:
+  NODE_ENV: production
+  PORT: "3000"
+  HOSTNAME: "0.0.0.0"
+  NEXT_PUBLIC_APP_URL: https://console.myforgepay.com
+  AGENT_CREDIT_BUREAU_URL: http://agent-credit-bureau:3018
+  FORGE_LAUNCHED_PRODUCTS: credit-bureau
+
+# Secrets are NOT set here (the repo rule: no secrets in Helm values). Create a Kubernetes Secret out of band (from AWS Secrets Manager or
+# Vault) and name it here. It must hold at least JWT_SECRET, INTERNAL_WEBHOOK_SECRET, DATABASE_URL and the bureau admin key the console uses,
+# plus FORGE_OPERATOR_TENANT_ID, REDIS_URL and the SMTP and WorkOS settings you use. The pod will not start without the Secret, by design.
+secrets:
+  existingSecret: ""
+
+ingress:
+  enabled: true
+  className: alb
+  host: ""                    # e.g. console.myforgepay.com
+  certificateArn: ""          # ACM certificate ARN, in the region of the load balancer
+  scheme: internet-facing
+  extraAnnotations: {}
+
+resources:
+  requests: { cpu: 250m, memory: 384Mi }
+  limits: { cpu: 1000m, memory: 1024Mi }
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Off by default. With an ALB in IP-target mode, traffic reaches the pod from the VPC, so the rule needs your VPC CIDR(s).
+networkPolicy:
+  enabled: false
+  allowIngressFromCidrs: []   # e.g. ["10.0.0.0/16"]
+
+podAnnotations: {}

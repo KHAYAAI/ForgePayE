@@ -1,150 +1,150 @@
-name: Deploy ForgePay Platform
+name: Deploy ForgePay Console
 
-# MANUAL ONLY. Run it from the Actions tab ("Run workflow") when you mean to ship the console.
+# MANUAL ONLY, by digest, with short-lived AWS credentials, behind an approval.
 #
-# It used to run on every push to main and to the working branch that touched forgepay/apps/platform. That was unsafe once AWS secrets
-# exist: every such push on the branch would build an image and push it to the registry tagged `latest`, and every push to main would
-# also roll it out to the production cluster (the deploy job below runs only on main) with long-lived access keys and no approval.
-# Until then it simply failed at "Configure AWS credentials", which is the only thing that was stopping it.
+#   Deploys an image that .github/workflows/forgepay-bureau-images.yml already built and scanned. It does NOT build one: a second,
+#   unscanned build of the same code is how the thing you tested and the thing you shipped drift apart. Take the `console` line from that
+#   workflow's job summary: `ghcr.io/<owner>/forgepay-console@sha256:<64 hex>` and paste it into "image" when you run this.
 #
-# Still to do before this is used for real (see docs/launch/): deploy by image digest rather than `latest`, use OIDC role assumption
-# instead of long-lived keys, and put the deploy job behind a GitHub Environment with required reviewers (as forgepay-deploy.yml does
-# for production).
+# What it needs (none of it is a stored secret; see docs/launch/14-console-deploy.md for the exact AWS and GitHub setup):
+#   GitHub Environment "production"  with required reviewers, and its deployment branch limited to main. The deploy job waits for them.
+#   Environment variables:           AWS_DEPLOY_ROLE_ARN, AWS_REGION, EKS_CLUSTER_NAME, ACM_CERT_ARN, CONSOLE_HOST (K8S_NAMESPACE optional)
+#   An AWS IAM role GitHub can assume through OIDC, trusted only for this repository's `production` environment. No access keys exist.
+#
+# The first run should be a dry run (the default): it signs in, reaches the cluster, renders the chart and asks the cluster to validate it,
+# and changes nothing. Untick "dry_run" to deploy.
+
 on:
   workflow_dispatch:
+    inputs:
+      image:
+        description: "Image to deploy, by digest: ghcr.io/<owner>/forgepay-console@sha256:<64 hex>"
+        required: true
+        type: string
+      dry_run:
+        description: "Validate against the cluster but change nothing (untick to deploy)"
+        required: true
+        type: boolean
+        default: true
 
-env:
-  AWS_REGION: us-east-1
-  ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
-  IMAGE_NAME: forgepay/platform
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-console
+  cancel-in-progress: false      # never cancel a deploy part way
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    outputs:
-      image_tag: ${{ steps.meta.outputs.tags }}
-    steps:
-      - uses: actions/checkout@v3
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: 18
-          cache: npm
-          cache-dependency-path: forgepay/apps/platform/package-lock.json
-
-      - name: Install dependencies
-        run: npm install
-        working-directory: forgepay/apps/platform
-
-      - name: Build Next.js app
-        run: npm run build
-        working-directory: forgepay/apps/platform
-        env:
-          SKIP_ENV_VALIDATION: true
-
-      - name: Run type check
-        run: npm run type-check
-        working-directory: forgepay/apps/platform
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
-
-      - name: Extract metadata
-        id: meta
-        run: |
-          TAGS="${{ env.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
-          TAGS="${TAGS},${{ env.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
-          echo "tags=${TAGS}" >> $GITHUB_OUTPUT
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v4
-        with:
-          context: forgepay/apps/platform
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
   deploy:
-    needs: build
+    name: "Deploy console (${{ inputs.dry_run && 'dry run' || 'live' }})"
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     if: github.ref == 'refs/heads/main'
+    environment: production      # required reviewers are configured on this environment in GitHub
+    permissions:
+      contents: read
+      id-token: write            # lets GitHub issue the OIDC token AWS exchanges for a role; nothing else uses it
+    env:
+      IMAGE: ${{ inputs.image }}
+      DRY_RUN: ${{ inputs.dry_run }}
+      NAMESPACE: ${{ vars.K8S_NAMESPACE || 'forgepay' }}
+      CONSOLE_HOST: ${{ vars.CONSOLE_HOST }}
+      ACM_CERT_ARN: ${{ vars.ACM_CERT_ARN }}
+      AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
+      CONSOLE_SECRET_NAME: ${{ vars.CONSOLE_SECRET_NAME || 'console-secrets' }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
+      - name: Check the image reference and the settings
+        # Inputs reach the shell only through environment variables, never by being pasted into the script.
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$IMAGE" | grep -Eq '^[a-z0-9][a-z0-9.-]*(:[0-9]+)?/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$'; then
+            echo "::error::image must be a reference by digest: registry/path@sha256:<64 lowercase hex>. A tag is refused on purpose: it can move."
+            exit 1
+          fi
+          missing=0
+          for v in AWS_DEPLOY_ROLE_ARN AWS_REGION EKS_CLUSTER_NAME ACM_CERT_ARN CONSOLE_HOST; do
+            [ -n "${!v:-}" ] || { echo "::error::variable $v is not set on the production environment"; missing=1; }
+          done
+          exit "$missing"
+
+      - name: Sign in to AWS (OIDC, short-lived)
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: gha-console-${{ github.run_id }}
+          role-duration-seconds: 3600
 
-      - name: Update kubeconfig
-        run: |
-          aws eks update-kubeconfig --name forgepay-prod --region ${{ env.AWS_REGION }}
-
-      - name: Deploy to EKS
-        run: |
-          cd forgepay/infra/helm/platform
-          helm upgrade --install platform . \
-            --namespace forgepay \
-            --create-namespace \
-            --values values.yaml \
-            --values values-prod.yaml \
-            --set image.tag=${{ github.sha }}
-
-      - name: Wait for rollout
-        run: |
-          kubectl rollout status deployment/platform -n forgepay --timeout=5m
-
-      - name: Smoke test
-        run: |
-          kubectl run smoke-test --image=curlimages/curl --restart=Never -n forgepay -- \
-            curl -f http://platform/api/health || exit 1
-
-      - name: Notify Slack
-        if: success()
-        uses: slackapi/slack-github-action@v1
+      - uses: azure/setup-helm@v4
         with:
-          webhook-url: ${{ secrets.SLACK_OPS_WEBHOOK }}
-          payload: |
-            {
-              "text": "✅ ForgePay Platform deployed successfully",
-              "blocks": [
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "*✅ ForgePay Platform Deployed*\nCommit: ${{ github.sha }}\nAuthor: ${{ github.actor }}"
-                  }
-                }
-              ]
-            }
+          version: "3.15.0"
 
-      - name: Notify Slack on failure
-        if: failure()
-        uses: slackapi/slack-github-action@v1
-        with:
-          webhook-url: ${{ secrets.SLACK_OPS_WEBHOOK }}
-          payload: |
-            {
-              "text": "❌ ForgePay Platform deployment failed",
-              "blocks": [
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "*❌ ForgePay Platform Deployment Failed*\nCommit: ${{ github.sha }}\nAuthor: ${{ github.actor }}"
-                  }
-                }
-              ]
-            }
+      - name: Connect to the cluster
+        run: |
+          set -euo pipefail
+          aws sts get-caller-identity --query Arn --output text
+          aws eks update-kubeconfig --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION"
+          kubectl auth can-i create deployments -n "$NAMESPACE" >/dev/null || { echo "::error::the deploy role cannot manage deployments in namespace $NAMESPACE (check its EKS access entry)"; exit 1; }
+
+      - name: Deploy (or dry-run) the chart
+        run: |
+          set -euo pipefail
+          REPO="${IMAGE%@*}"; DIGEST="${IMAGE##*@}"
+          ARGS=(
+            console forgepay/infra/helm/console
+            --namespace "$NAMESPACE"
+            --values forgepay/infra/helm/console/values-prod.yaml
+            --set-string "image.repository=$REPO"
+            --set-string "image.digest=$DIGEST"
+            --set-string "ingress.host=$CONSOLE_HOST"
+            --set-string "ingress.certificateArn=$ACM_CERT_ARN"
+            --set-string "secrets.existingSecret=$CONSOLE_SECRET_NAME"
+          )
+          helm lint "${ARGS[@]:1}"
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "DRY RUN: asking the cluster to validate, changing nothing"
+            helm upgrade --install "${ARGS[@]}" --dry-run=server
+          else
+            # --atomic: if the new pods do not become ready in time, the release is rolled back to what was running before.
+            helm upgrade --install "${ARGS[@]}" --atomic --wait --timeout 10m
+          fi
+
+      - name: Prove the running pods use the approved digest
+        if: ${{ !inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          DIGEST="${IMAGE##*@}"
+          kubectl -n "$NAMESPACE" rollout status deployment/console --timeout=5m
+          running=$(kubectl -n "$NAMESPACE" get pods -l app.kubernetes.io/instance=console -o json \
+            | jq -r '.items[] | select(.metadata.deletionTimestamp == null) | .status.containerStatuses[] | select(.name=="console") | .imageID')
+          echo "$running"
+          [ -n "$running" ] || { echo "::error::no running console pods found"; exit 1; }
+          while IFS= read -r id; do
+            case "$id" in *"$DIGEST"*) ;; *) echo "::error::a running pod is not on the approved digest: $id"; exit 1 ;; esac
+          done <<< "$running"
+
+      - name: Check the public address answers
+        if: ${{ !inputs.dry_run }}
+        run: |
+          # Through the real load balancer, certificate and DNS, not a pod-to-pod shortcut. A new load balancer can take a few minutes.
+          for i in $(seq 1 18); do
+            if curl -fsS --max-time 10 "https://$CONSOLE_HOST/api/healthz" | grep -q '"status":"ok"'; then echo "healthy on try $i"; exit 0; fi
+            echo "not yet ($i/18)"; sleep 10
+          done
+          echo "::error::https://$CONSOLE_HOST/api/healthz did not answer. The release is deployed and healthy inside the cluster; check DNS, the load balancer and the certificate."
+          exit 1
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Console deploy (${{ inputs.dry_run && 'dry run, nothing changed' || 'live' }})"
+            echo "- image: \`$IMAGE\`"
+            echo "- commit of this workflow: \`${{ github.sha }}\`"
+            echo "- started by: ${{ github.actor }}; approved through the \`production\` environment"
+            echo "- result: ${{ job.status }}"
+          } >> "$GITHUB_STEP_SUMMARY"

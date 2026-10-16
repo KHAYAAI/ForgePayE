@@ -48,9 +48,27 @@ async function fetchJson<T>(url: string, headers: Record<string, string> = {}): 
 // whatever the bureau service itself was booted with (see
 // services/agent-credit-bureau/src/auth.ts) — the same dev fallback so
 // local dev works without configuring both sides separately.
-function bureauAuthHeaders(): Record<string, string> {
-  const key = process.env.BUREAU_ADMIN_API_KEY ?? 'dev-bureau-admin-key';
-  return { authorization: `Bearer ${key}` };
+let warnedNoBureauKey = false;
+let warnedNoTreasuryKey = false;
+
+/**
+ * The credential the console presents to the bureau.
+ *
+ * In production a missing BUREAU_ADMIN_API_KEY means NO credential is sent (the bureau then answers 401 and the screens read as unavailable).
+ * It used to fall back to `dev-bureau-admin-key`, which is published in this repository: a misconfigured deploy would have presented a key
+ * anyone can read. The fallback exists only for local development.
+ */
+export function bureauAuthHeaders(): Record<string, string> {
+  const key = process.env.BUREAU_ADMIN_API_KEY;
+  if (key) return { authorization: `Bearer ${key}` };
+  if (process.env.NODE_ENV === 'production') {
+    if (!warnedNoBureauKey) {
+      warnedNoBureauKey = true;
+      console.error('[console] BUREAU_ADMIN_API_KEY is not set: calls to the credit bureau will be refused until it is');
+    }
+    return {};
+  }
+  return { authorization: 'Bearer dev-bureau-admin-key' };
 }
 
 
@@ -60,9 +78,18 @@ function bureauAuthHeaders(): Record<string, string> {
 // as "treasury unreachable" regardless of whether the service was actually
 // up. In dev, enterprise-treasury accepts any non-empty key; in production
 // this must match one of its own VALID_API_KEYS.
-function treasuryAuthHeaders(): Record<string, string> {
-  const key = process.env.TREASURY_API_KEY ?? 'dev-console-treasury-key';
-  return { 'x-api-key': key };
+export function treasuryAuthHeaders(): Record<string, string> {
+  const key = process.env.TREASURY_API_KEY;
+  if (key) return { 'x-api-key': key };
+  // Same rule as the bureau credential above: in production, no key means no credential, never a published development key.
+  if (process.env.NODE_ENV === 'production') {
+    if (!warnedNoTreasuryKey) {
+      warnedNoTreasuryKey = true;
+      console.error('[console] TREASURY_API_KEY is not set: calls to enterprise-treasury will be refused until it is');
+    }
+    return {};
+  }
+  return { 'x-api-key': 'dev-console-treasury-key' };
 }
 
 export async function getTreasurySummary<T = Record<string, unknown>>(): Promise<LiveResult<T>> {
