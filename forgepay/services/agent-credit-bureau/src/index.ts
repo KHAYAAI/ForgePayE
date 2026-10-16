@@ -102,6 +102,7 @@ import type {
 import { creditGrade, GRADE_SCALE, INQUIRY_FEE_USD } from './grade';
 import { verifyAgent, sanctionsScreen } from './verify';
 import { operatorEligibility, verifyOperator } from './kyb';
+import { installKybProvider } from './kyb-didit';
 import { getChainClient, didToAddress } from './chain';
 import {
   indexerEnabled, parseChains, viemSource, solanaRpcSource, limitsFromEnv, setConfiguredChains, configuredChains, activityInputs,
@@ -109,7 +110,7 @@ import {
 } from './onchain-activity';
 import {
   verifyAttestation, refuseIfRegressive, custodySignals, getAttestation, saveAttestation, revokeAttestation,
-  attestationSummary,
+  attestationSummary, startRetentionSweep, stopRetentionSweep,
 } from './custody-attestation';
 import {
   runSettlement, startSettlementScheduler, hydrateSettlements,
@@ -2629,6 +2630,9 @@ async function main(): Promise<void> {
   await initPersistence();
   await hydrateSettlements();
 
+  // The company register used to verify operators. Without a key it stays the refusing default (the register reads as unavailable).
+  console.log(`[credit-bureau] company register: ${installKybProvider().note}`);
+
   // Fail at startup, not at the first request, if the indexer is switched on with a bad or missing chain list.
   if (indexerEnabled()) setConfiguredChains(parseChains(process.env['ONCHAIN_CHAINS']));
 
@@ -2636,6 +2640,7 @@ async function main(): Promise<void> {
     app.log.info('[credit-bureau] Shutting down...');
     stopWebhookWorker();
     stopIndexerWorker();
+    stopRetentionSweep();
     await app.close();
     process.exit(0);
   };
@@ -2646,6 +2651,9 @@ async function main(): Promise<void> {
 
   // Send queued webhook deliveries (and anything left pending by a restart).
   startWebhookWorker();
+
+  // Erase custody attestations that expired longer ago than the retention period.
+  startRetentionSweep();
 
   // Mode 2 activity indexer (off unless ONCHAIN_INDEXER_ENABLED=true).
   if (indexerEnabled()) {

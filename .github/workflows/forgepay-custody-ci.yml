@@ -335,7 +335,19 @@ jobs:
                 fi
                 ;;
               openfireblocks)
-                check "$name (defaults)" "$chart"
+                # The chart's defaults must FAIL, and for the right reason: with no signer TLS secrets and no cert-manager it refuses to
+                # render rather than deploy the signer API unauthenticated. Checking that it still refuses protects the fail-closed
+                # default; "defaults render" was the wrong expectation and kept this job red.
+                if out=$(helm template ci-release "$chart" 2>&1); then
+                  echo "::error title=helm::$name rendered with default values: it should refuse without signerApiTls secrets or certManager"
+                  fail=1
+                elif echo "$out" | grep -q "signerApiTls"; then
+                  echo "ok      $name (defaults refuse without signer TLS, as intended)"
+                else
+                  echo "::error title=helm::$name defaults failed for an unexpected reason"
+                  echo "$out"
+                  fail=1
+                fi
                 check "$name (ci/threshold-values)" "$chart" -f "$chart/ci/threshold-values.yaml"
                 ;;
               *)

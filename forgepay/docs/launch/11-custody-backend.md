@@ -124,7 +124,7 @@ which can also sign payments, so it must not be handed to the bureau. The agent'
 agent as the bureau's: anyone could link an agent with a spotless record to their own.
 
 **What is built instead: a signed attestation.**
-- *Custody side (patch, `docs/launch/custody-patches/0001-agent-attestation.patch`, written and tested in a local clone of the custody repo, not applied there):*
+- *Custody side (pushed 16 October as branch **`claude/agent-attestation`** on `KHAYAAI/openfireblocks`, commit `81c3728`, on top of `5b6ab125`; no pull request, not merged, not deployed. The same change is kept here as `docs/launch/custody-patches/0001-agent-attestation.patch`):*
   `GET /organisations/{customerId}/agents/{agentId}/attestation`, admin-only, audited, returns a short-lived (7 days by default, 14 at most) ed25519-signed
   statement: the counts, and the **address of the key the agent pays from**. No amounts, recipients or purposes. Off unless `AGENT_ATTESTATION_KEY_FILE` is set.
   Tested with the custody repo's own jest: its full suite passes (57 suites, 615 tests) and its route-inventory guard check passes (161 routes, all guarded).
@@ -139,22 +139,27 @@ agent as the bureau's: anyone could link an agent with a spotless record to thei
 - It only adds to an agent that already has on-chain inputs; it does not create a Mode 2 score where there is no activity to score.
 
 **Turning it on:**
-1. Apply the patch to the custody repo (`git am docs/launch/custody-patches/0001-agent-attestation.patch`), generate the signing key and set
-   `AGENT_ATTESTATION_KEY_FILE` (instructions in the patch's `docs/agent-attestation.md`).
+1. Review and merge `claude/agent-attestation` in the custody repo (or `git am` the patch), deploy it, generate the signing key and set
+   `AGENT_ATTESTATION_KEY_FILE` (instructions in that branch's `docs/agent-attestation.md`).
 2. Give the bureau the **public** key out of band: `CUSTODY_ATTESTATION_PUBLIC_KEYS`.
-3. The operator asks custody for a statement (`?subject=<bureau agent id>`) and submits it. The console screen for this is not built yet; today it is the API.
+3. The operator asks custody for a statement (`?subject=<bureau agent id>`) and submits it in the console: *Agent Credit Bureau > Custody data*. The screen requires
+   an explicit acknowledgement before it sends anything, shows how many days are left and when renewal is due, and has a withdraw-and-erase button. The acknowledgement
+   wording is provisional until counsel has seen it.
+4. **Retention:** a live statement is kept until it expires or consent is withdrawn; an expired one is erased by an hourly sweep after `CUSTODY_ATTESTATION_RETENTION_DAYS`
+   (default 30 is a proposal; 0 erases on expiry). Counsel's answer is a one-line setting. The questions are in `12-popia-custody-attestations.md`.
 
 **Verified:** 28 bureau tests (signature, every rejection reason, replay and regression rules, the signal math, the admin-only routes, the effect on the dual score,
 erasure on withdrawal) and a real-Postgres restart test; eight deliberate breaks of the security rules were each caught. **A compatibility test runs the real output of the
 custody issuer through the bureau's verifier**, so the two implementations agree on the format.
 
 **Not verified / open:**
-- The patch has not been applied to or deployed in the custody repo, and nothing has run against a live custody. I could not push to that repo and did not try.
-- The statement is valid for days, and nothing renews it: an operator must resubmit, or the signals lapse. Automating that (custody pushing statements) is future work.
+- The custody branch is not merged or deployed, and nothing has run against a live custody.
+- The statement is valid for days, and nothing renews it: an operator must resubmit, or the signals lapse. The console now shows when renewal is due, but automatic renewal
+  (custody pushing fresh statements under a standing, revocable consent) is future work and needs counsel's answer first (question 9 in `12`).
 - The bureau trusts whoever holds custody's signing key. Protect that key like a custody key.
-- **POPIA:** this is personal-data processing in a credit context. The consent here is a submission by the operator, recorded with who and when. Whether that is
-  sufficient, how long to retain, and what the notice must say are for counsel.
-- No console screen yet.
+- **POPIA:** this is personal-data processing in a credit context. The consent here is an explicit acknowledgement and submission by the operator, recorded with who and when.
+  Whether that is sufficient, how long to retain, what happens to reports already issued when consent is withdrawn, and what the notice must say are for counsel
+  (`12-popia-custody-attestations.md`).
 
 ## Custody's own status (from its documents, not re-verified here)
 

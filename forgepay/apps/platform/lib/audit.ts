@@ -37,7 +37,9 @@ export type AuditAction =
   | 'institution.approved'
   | 'institution.rejected'
   | 'institution.key_issued'
-  | 'institution.key_revoked';
+  | 'institution.key_revoked'
+  | 'custody.statement.submitted'
+  | 'custody.statement.withdrawn';
 
 export interface AuditEventInput {
   tenantId?: string | null;

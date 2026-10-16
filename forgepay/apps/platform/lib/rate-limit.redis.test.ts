@@ -51,5 +51,7 @@ describe('without Redis', () => {
     expect((await m.hit('x', 1, 5000)).allowed).toBe(true);
     expect((await m.hit('x', 1, 5000)).allowed).toBe(false);
     delete process.env.REDIS_URL;
-  });
+    // Each call may spend up to 2s trying to reach Redis before it falls back, so two calls can approach vitest's 5s default under load.
+    // The budget is explicit so a busy machine does not turn correct behaviour into a failure.
+  }, 20_000);
 });

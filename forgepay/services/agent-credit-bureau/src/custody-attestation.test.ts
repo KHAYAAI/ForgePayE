@@ -11,7 +11,8 @@ import { buildApp } from './index';
 import { getProfile } from './store';
 import type { AgentCreditProfile } from './types';
 import {
-  attestationKeys, custodySignals, getAttestation, hydrateAttestations, parsePayload, refuseIfRegressive, resetAttestations,
+  attestationKeys, attestationSummary, custodySignals, getAttestation, hydrateAttestations, parsePayload, purgeExpired, refuseIfRegressive, resetAttestations,
+  retentionDays,
   setAttestationPersistence, verifyAttestation, type AttestationPayload, type StoredAttestation,
 } from './custody-attestation';
 import { hydrateActivity, resetActivity, setConfiguredChains, type ChainConfig } from './onchain-activity';
@@ -167,6 +168,47 @@ describe('what Mode 2 takes from a statement', () => {
 
   it('gives nothing once the statement has expired: an unknown is never assumed good', () => {
     expect(custodySignals(stored(), Date.parse('2026-10-23T00:00:00.000Z'), 10)).toBeNull();
+  });
+});
+
+describe('retention and renewal', () => {
+  const DAY = 86_400_000;
+  const ENV30 = {} as NodeJS.ProcessEnv;
+
+  it('keeps a live statement, erases one only after the retention period past expiry, and tells the persistence layer', () => {
+    const removed: string[] = [];
+    setAttestationPersistence({ save: async () => undefined, remove: async (id) => { removed.push(id); } });
+    const exp = (days: number) => new Date(NOW + days * DAY).toISOString();
+    hydrateAttestations([
+      stored({ bureauAgentId: 'live', expiresAt: exp(3) }),
+      stored({ bureauAgentId: 'just_expired', expiresAt: exp(-1) }),
+      stored({ bureauAgentId: 'old', expiresAt: exp(-31) }),
+      stored({ bureauAgentId: 'edge', expiresAt: exp(-30) }),
+    ]);
+    expect(purgeExpired(NOW, ENV30).sort()).toEqual(['edge', 'old']);
+    expect(removed.sort()).toEqual(['edge', 'old']);
+    expect(getAttestation('live')).toBeDefined();
+    expect(getAttestation('just_expired')).toBeDefined();      // expired, so it scores nothing, but still inside the retention window
+    expect(getAttestation('old')).toBeUndefined();
+  });
+
+  it('retention is configurable, defaults to 30 days, and zero means erase on expiry', () => {
+    expect(retentionDays({} as NodeJS.ProcessEnv)).toBe(30);
+    expect(retentionDays({ CUSTODY_ATTESTATION_RETENTION_DAYS: '7' } as unknown as NodeJS.ProcessEnv)).toBe(7);
+    expect(retentionDays({ CUSTODY_ATTESTATION_RETENTION_DAYS: '0' } as unknown as NodeJS.ProcessEnv)).toBe(0);
+    expect(retentionDays({ CUSTODY_ATTESTATION_RETENTION_DAYS: 'abc' } as unknown as NodeJS.ProcessEnv)).toBe(30);
+    hydrateAttestations([stored({ bureauAgentId: 'x', expiresAt: new Date(NOW - 1000).toISOString() })]);
+    expect(purgeExpired(NOW, { CUSTODY_ATTESTATION_RETENTION_DAYS: '0' } as unknown as NodeJS.ProcessEnv)).toEqual(['x']);
+  });
+
+  it('shows how long is left, when renewal is due, and when an expired statement will be erased', () => {
+    const soon = attestationSummary(stored({ expiresAt: new Date(NOW + 1.5 * DAY).toISOString() }), NOW);
+    expect(soon).toMatchObject({ expired: false, expiresInDays: 2, renewalDue: true });
+    const fresh = attestationSummary(stored({ expiresAt: new Date(NOW + 6 * DAY).toISOString() }), NOW);
+    expect(fresh).toMatchObject({ expiresInDays: 6, renewalDue: false });
+    const gone = attestationSummary(stored({ expiresAt: new Date(NOW - DAY).toISOString() }), NOW);
+    expect(gone).toMatchObject({ expired: true, expiresInDays: 0, renewalDue: true });
+    expect(Date.parse(gone.erasedAfter)).toBe(NOW - DAY + 30 * DAY);
   });
 });
 

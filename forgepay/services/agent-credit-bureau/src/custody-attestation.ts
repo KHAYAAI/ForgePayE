@@ -92,6 +92,18 @@ export function attestationsEnabled(env: NodeJS.ProcessEnv = process.env): boole
   return attestationKeys(env).length > 0;
 }
 
+/**
+ * How long an EXPIRED statement is kept before it is erased, in days. The default is a proposal, not a legal conclusion: counsel decides what is
+ * proportionate (see docs/launch/12-popia-custody-attestations.md). A live statement is kept until it expires or consent is withdrawn.
+ */
+export function retentionDays(env: NodeJS.ProcessEnv = process.env): number {
+  const n = Number(env['CUSTODY_ATTESTATION_RETENTION_DAYS']);
+  return Number.isInteger(n) && n >= 0 ? n : 30;
+}
+
+/** How soon before expiry a statement is flagged as due for renewal. */
+export const RENEWAL_WARNING_MS = 2 * 24 * 60 * 60 * 1000;
+
 /** Fewest attempts before a rate is meaningful. One clean payment is not a 100% record. */
 export function minAttempts(env: NodeJS.ProcessEnv = process.env): number {
   const n = Number(env['CUSTODY_ATTESTATION_MIN_ATTEMPTS']);
@@ -284,6 +296,36 @@ export function revokeAttestation(bureauAgentId: string): boolean {
   return had;
 }
 
+/**
+ * Erase statements that expired more than the retention period ago. Returns the agent ids erased.
+ * Without this an expired statement, which no longer affects any score, would sit in the database indefinitely.
+ */
+export function purgeExpired(now: number = Date.now(), env: NodeJS.ProcessEnv = process.env): string[] {
+  const keepMs = retentionDays(env) * 86_400_000;
+  const erased: string[] = [];
+  for (const [id, a] of [...stored]) {
+    if (Date.parse(a.expiresAt) + keepMs <= now) { stored.delete(id); void persistence?.remove(id); erased.push(id); }
+  }
+  return erased;
+}
+
+let sweepTimer: NodeJS.Timeout | null = null;
+/** Purge now and then hourly. Errors are logged, never thrown into the process. */
+export function startRetentionSweep(intervalMs = 3_600_000): void {
+  if (sweepTimer) return;
+  const run = () => {
+    try { const n = purgeExpired().length; if (n > 0) console.log(`[custody-attestation] erased ${n} expired statement(s) past retention`); }
+    catch (e) { console.error('[custody-attestation] retention sweep failed', (e as Error).message); }
+  };
+  run();
+  sweepTimer = setInterval(run, intervalMs);
+  sweepTimer.unref();
+}
+export function stopRetentionSweep(): void {
+  if (sweepTimer) clearInterval(sweepTimer);
+  sweepTimer = null;
+}
+
 /** What may be shown about a link: no raw payload, no signature. */
 export function attestationSummary(a: StoredAttestation, now: number = Date.now()) {
   const sig = custodySignals(a, now);
@@ -295,6 +337,10 @@ export function attestationSummary(a: StoredAttestation, now: number = Date.now(
     issuedAt: a.issuedAt,
     expiresAt: a.expiresAt,
     expired: Date.parse(a.expiresAt) <= now,
+    // Whole days left (0 once expired), whether it is time to ask custody for a fresh one, and when an expired one will be erased.
+    expiresInDays: Math.max(0, Math.ceil((Date.parse(a.expiresAt) - now) / 86_400_000)),
+    renewalDue: Date.parse(a.expiresAt) - now <= RENEWAL_WARNING_MS,
+    erasedAfter: new Date(Date.parse(a.expiresAt) + retentionDays() * 86_400_000).toISOString(),
     receivedAt: a.receivedAt,
     submittedBy: a.submittedBy,
     ...(a.consentRef ? { consentRef: a.consentRef } : {}),
