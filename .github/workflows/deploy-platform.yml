@@ -1,11 +1,16 @@
 name: Deploy ForgePay Platform
 
+# MANUAL ONLY. Run it from the Actions tab ("Run workflow") when you mean to ship the console.
+#
+# It used to run on every push to main and to the working branch that touched forgepay/apps/platform. That was unsafe once AWS secrets
+# exist: every such push on the branch would build an image and push it to the registry tagged `latest`, and every push to main would
+# also roll it out to the production cluster (the deploy job below runs only on main) with long-lived access keys and no approval.
+# Until then it simply failed at "Configure AWS credentials", which is the only thing that was stopping it.
+#
+# Still to do before this is used for real (see docs/launch/): deploy by image digest rather than `latest`, use OIDC role assumption
+# instead of long-lived keys, and put the deploy job behind a GitHub Environment with required reviewers (as forgepay-deploy.yml does
+# for production).
 on:
-  push:
-    branches: [main, claude/forgepay-platform-design-gEkgE]
-    paths:
-      - 'forgepay/apps/platform/**'
-      - '.github/workflows/deploy-platform.yml'
   workflow_dispatch:
 
 env:
