@@ -12,8 +12,9 @@ import {
 import { currentKybProvider, operatorEligibility, setKybProvider, UnconfiguredKybProvider, verifyOperator } from './kyb';
 import type { AgentCreditProfile } from './types';
 
-const KEY = 'didit_test_key_0123456789abcdef';
-const CFG: DiditConfig = { apiKey: KEY, baseUrl: 'https://didit.example.org', timeoutMs: 5000, refuseSandbox: true, dailyMaxSelects: 20, cacheMs: 3_600_000 };
+// A made-up placeholder, deliberately word-like so it is not mistaken for a real credential by secret scanners.
+const FAKE_VALUE = 'placeholder-for-tests-not-a-real-secret';
+const CFG: DiditConfig = { apiKey: FAKE_VALUE, baseUrl: 'https://didit.example.org', timeoutMs: 5000, refuseSandbox: true, dailyMaxSelects: 20, cacheMs: 3_600_000 };
 
 const cand = (over: Record<string, unknown> = {}) => ({
   kyb_response_id: 'kyb-handle-1', name: 'ACME TRADING (PTY) LTD', registration_number: '2019/123456/07', status: 'active',
@@ -62,7 +63,7 @@ describe('a company found in the register', () => {
     expect(v.registry).toMatch(/\(ZA\)/);
     expect(d.searches()[0]!.body).toEqual({ country_code: 'ZA', registration_number: '2019/123456/07', name: 'Acme Trading (Pty) Ltd', search_type: 'contains' });
     expect(d.selects()[0]!.body).toEqual({ kyb_response_id: 'kyb-handle-1' });
-    for (const c of d.calls) { expect(c.headers[HEADER]).toBe(KEY); expect(JSON.stringify(c.body)).not.toContain(KEY); }
+    for (const c of d.calls) { expect(c.headers[HEADER]).toBe(FAKE_VALUE); expect(JSON.stringify(c.body)).not.toContain(FAKE_VALUE); }
     expect(d.selects()).toHaveLength(1);
   });
 
@@ -173,10 +174,10 @@ describe('sandbox answers', () => {
     const d = didit({ search: () => ({ status: 200, json: searchReply([cand({ kyb_response_id: 'sandbox-x', registration_number: 'SANDBOX-0001', name: 'Dev Co' })]) }),
       select: () => ({ status: 200, json: selectReply({ registration_number: 'SANDBOX-0001', company_name: 'Dev Co', country_code: 'ZA', registry_data: { sandbox: true } }) }) });
     expect((await d.make({ refuseSandbox: false }).lookup({ countryCode: 'ZA', legalName: 'Dev Co' })).status).toBe('verified');
-    expect(diditConfigFromEnv({ DIDIT_API_KEY: KEY, NODE_ENV: 'production' } as unknown as NodeJS.ProcessEnv)!.refuseSandbox).toBe(true);
-    expect(diditConfigFromEnv({ DIDIT_API_KEY: KEY, NODE_ENV: 'production', DIDIT_ALLOW_SANDBOX: 'true' } as unknown as NodeJS.ProcessEnv)!.refuseSandbox).toBe(false);
-    expect(diditConfigFromEnv({ DIDIT_API_KEY: KEY, NODE_ENV: 'development' } as unknown as NodeJS.ProcessEnv)!.refuseSandbox).toBe(false);
-    expect(diditConfigFromEnv({ DIDIT_API_KEY: KEY, NODE_ENV: 'production', DIDIT_ALLOW_SANDBOX: 'yes' } as unknown as NodeJS.ProcessEnv)!.refuseSandbox).toBe(true);   // exact value only
+    expect(diditConfigFromEnv({ DIDIT_API_KEY: FAKE_VALUE, NODE_ENV: 'production' } as unknown as NodeJS.ProcessEnv)!.refuseSandbox).toBe(true);
+    expect(diditConfigFromEnv({ DIDIT_API_KEY: FAKE_VALUE, NODE_ENV: 'production', DIDIT_ALLOW_SANDBOX: 'true' } as unknown as NodeJS.ProcessEnv)!.refuseSandbox).toBe(false);
+    expect(diditConfigFromEnv({ DIDIT_API_KEY: FAKE_VALUE, NODE_ENV: 'development' } as unknown as NodeJS.ProcessEnv)!.refuseSandbox).toBe(false);
+    expect(diditConfigFromEnv({ DIDIT_API_KEY: FAKE_VALUE, NODE_ENV: 'production', DIDIT_ALLOW_SANDBOX: 'yes' } as unknown as NodeJS.ProcessEnv)!.refuseSandbox).toBe(true);   // exact value only
   });
 });
 
@@ -200,7 +201,7 @@ describe('a failure is never a verdict on the company', () => {
       const v = await didit(opts).make().lookup(Q);
       expect(v.status).toBe('registry_unavailable');
       expect(v.registryStatus).toMatch(pattern);
-      expect(JSON.stringify(v)).not.toContain(KEY);
+      expect(JSON.stringify(v)).not.toContain(FAKE_VALUE);
     });
   }
 });
@@ -257,17 +258,17 @@ describe('configuration and installation', () => {
     expect(diditConfigFromEnv(env({}))).toBeNull();
     expect(installKybProvider(env({}))).toMatchObject({ installed: false });
     expect(currentKybProvider().name).toBe('unconfigured');
-    expect(() => diditConfigFromEnv(env({ DIDIT_API_KEY: KEY, DIDIT_BASE_URL: 'http://didit.example.org' }))).toThrow(/https/);
-    expect(() => diditConfigFromEnv(env({ DIDIT_API_KEY: KEY, DIDIT_BASE_URL: 'https://u:p@didit.example.org' }))).toThrow(/credentials/);
-    expect(() => diditConfigFromEnv(env({ DIDIT_API_KEY: KEY, DIDIT_KYB_DAILY_MAX_SELECTS: '0' }))).toThrow(DiditConfigError);
+    expect(() => diditConfigFromEnv(env({ DIDIT_API_KEY: FAKE_VALUE, DIDIT_BASE_URL: 'http://didit.example.org' }))).toThrow(/https/);
+    expect(() => diditConfigFromEnv(env({ DIDIT_API_KEY: FAKE_VALUE, DIDIT_BASE_URL: 'https://u:p@didit.example.org' }))).toThrow(/credentials/);
+    expect(() => diditConfigFromEnv(env({ DIDIT_API_KEY: FAKE_VALUE, DIDIT_KYB_DAILY_MAX_SELECTS: '0' }))).toThrow(DiditConfigError);
     expect(() => diditConfigFromEnv(env({ DIDIT_API_KEY_FILE: '/nonexistent/key' }))).toThrow(/could not be read/);
   });
 
   it('installs when a key is configured, with its limits, and the key is not in the description', () => {
-    const r = installKybProvider(env({ DIDIT_API_KEY: KEY }));
+    const r = installKybProvider(env({ DIDIT_API_KEY: FAKE_VALUE }));
     expect(r).toMatchObject({ installed: true, provider: 'didit' });
     expect(r.note).toMatch(/at most 20 paid lookups/);
-    expect(r.note).not.toContain(KEY);
+    expect(r.note).not.toContain(FAKE_VALUE);
     expect(currentKybProvider().name).toBe('didit');
   });
 });

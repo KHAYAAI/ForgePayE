@@ -6,7 +6,8 @@ import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 
 const SCRIPT = join(__dirname, '..', 'scripts', 'didit-kyb-smoke.mjs');
-const KEY = 'didit_smoke_key_0123456789';
+// A made-up placeholder, deliberately word-like so it is not mistaken for a real credential by secret scanners.
+const FAKE_VALUE = 'placeholder-for-tests-not-a-real-secret';
 let server: http.Server | undefined;
 afterEach(async () => { await new Promise<void>((r) => (server ? server.close(() => r()) : r())); server = undefined; });
 
@@ -33,22 +34,22 @@ const select = { kyb_registry: { company_name: 'ACME', registration_number: '1',
 describe('the Didit smoke check', () => {
   it('passes on the expected shapes, sends the key only as the header, and does not pay without --select', async () => {
     const s = await stub((p) => (p === '/v3/kyb/search/' ? { status: 200, json: search([cand()]) } : { status: 200, json: select }));
-    const r = await run(['--country', 'ZA', '--name', 'Acme'], { DIDIT_API_KEY: KEY, DIDIT_BASE_URL: s.url });
+    const r = await run(['--country', 'ZA', '--name', 'Acme'], { DIDIT_API_KEY: FAKE_VALUE, DIDIT_BASE_URL: s.url });
     expect(r.code).toBe(0);
     expect(r.out).toContain('All checks passed');
     expect(s.seen.map((x) => x.path)).toEqual(['/v3/kyb/search/']);
-    expect(s.seen[0]!.key).toBe(KEY);
-    expect(r.out).not.toContain(KEY);
+    expect(s.seen[0]!.key).toBe(FAKE_VALUE);
+    expect(r.out).not.toContain(FAKE_VALUE);
   });
 
   it('pays for exactly one select when asked, and only if there is exactly one candidate', async () => {
     const one = await stub((p) => (p === '/v3/kyb/search/' ? { status: 200, json: search([cand()]) } : { status: 200, json: select }));
-    const a = await run(['--country', 'ZA', '--name', 'Acme', '--select'], { DIDIT_API_KEY: KEY, DIDIT_BASE_URL: one.url });
+    const a = await run(['--country', 'ZA', '--name', 'Acme', '--select'], { DIDIT_API_KEY: FAKE_VALUE, DIDIT_BASE_URL: one.url });
     expect(a.code).toBe(0);
     expect(one.seen.map((x) => x.path)).toEqual(['/v3/kyb/search/', '/v3/kyb/select/']);
     await new Promise<void>((r) => server!.close(() => r()));
     const two = await stub(() => ({ status: 200, json: search([cand(), cand({ kyb_response_id: 'h2' })]) }));
-    const b = await run(['--country', 'ZA', '--name', 'Acme', '--select'], { DIDIT_API_KEY: KEY, DIDIT_BASE_URL: two.url });
+    const b = await run(['--country', 'ZA', '--name', 'Acme', '--select'], { DIDIT_API_KEY: FAKE_VALUE, DIDIT_BASE_URL: two.url });
     expect(b.code).toBe(1);
     expect(b.out).toMatch(/exactly one candidate/);
     expect(two.seen.map((x) => x.path)).toEqual(['/v3/kyb/search/']);
@@ -56,19 +57,19 @@ describe('the Didit smoke check', () => {
 
   it('flags a sandbox answer, and explains a rejected key or a wrong path', async () => {
     const sb = await stub(() => ({ status: 200, json: search([cand({ kyb_response_id: 'sandbox-kyb-response-x', registration_number: 'SANDBOX-0001' })]) }));
-    const a = await run(['--country', 'ZA', '--name', 'Acme'], { DIDIT_API_KEY: KEY, DIDIT_BASE_URL: sb.url });
+    const a = await run(['--country', 'ZA', '--name', 'Acme'], { DIDIT_API_KEY: FAKE_VALUE, DIDIT_BASE_URL: sb.url });
     expect(a.out).toMatch(/SANDBOX/);
     await new Promise<void>((r) => server!.close(() => r()));
     const denied = await stub(() => ({ status: 401, json: {} }));
-    const b = await run(['--country', 'ZA', '--name', 'Acme'], { DIDIT_API_KEY: KEY, DIDIT_BASE_URL: denied.url });
+    const b = await run(['--country', 'ZA', '--name', 'Acme'], { DIDIT_API_KEY: FAKE_VALUE, DIDIT_BASE_URL: denied.url });
     expect(b.code).toBe(1);
     expect(b.out).toMatch(/HTTP 401.*header name/s);
-    expect(b.out).not.toContain(KEY);
+    expect(b.out).not.toContain(FAKE_VALUE);
   });
 
   it('flags a changed shape, and refuses to run without a key', async () => {
     const odd = await stub(() => ({ status: 200, json: { kyb_registry: { companies: [{ name: 'x' }], search_resolved: true } } }));
-    const a = await run(['--country', 'ZA', '--name', 'Acme'], { DIDIT_API_KEY: KEY, DIDIT_BASE_URL: odd.url });
+    const a = await run(['--country', 'ZA', '--name', 'Acme'], { DIDIT_API_KEY: FAKE_VALUE, DIDIT_BASE_URL: odd.url });
     expect(a.code).toBe(1);
     expect(a.out).toMatch(/kyb_response_id" is missing/);
     expect((await run(['--country', 'ZA', '--name', 'Acme'], {})).out).toMatch(/DIDIT_API_KEY is not set/);
