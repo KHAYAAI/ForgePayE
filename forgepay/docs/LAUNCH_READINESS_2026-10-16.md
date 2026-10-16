@@ -39,7 +39,9 @@ exist yet, runs that have never happened, and two outside sign-offs. I cannot sh
 
 **Did not move:** every external gate. No new environment, run, review, sign-off or partner exists because of this work. It removes a way for the launch to go wrong; it does not bring the date forward.
 
-**Still unproven, by design of the sandbox I work in:** signing and verification have never run (they need GitHub and Sigstore); nothing has touched AWS; the Didit calls are unconfirmed; custody payouts have not run against real custody. The first real runs are the tests, and they will find something.
+**Proven in CI on 16 October:** all eight images were scanned, **signed keylessly, and verified against their own signature** in the real pipeline. So the signing mechanism and identity format work.
+
+**Still unproven:** the deploy workflow itself (it has never executed), its check of the `main` identity (that identity does not exist until images are built from `main`), anything that touches AWS, the Didit calls, and custody payouts against real custody. The first real runs are the tests, and they will find something.
 
 ## The critical path, in order
 

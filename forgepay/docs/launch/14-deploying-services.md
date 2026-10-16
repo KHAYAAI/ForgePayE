@@ -109,7 +109,8 @@ scans first. There is no signing key to steal. It is recorded in the public Sigs
 - 98 third-party action references are pinned to commit SHAs, and a CI job fails on any new unpinned one.
 
 **Not checked, and only the first real runs can show:**
-- **Signing and verification have never run.** Keyless signing needs GitHub's OIDC token and the public Sigstore services; neither exists in my sandbox. The images workflow verifies its own signature right after making it, so the first push to the branch tests the signing identity, and a mistake shows up there, not on deploy day.
+- **Signing and its self-check have run, in CI** (16 October, commit `5d82adc0`): all eight image jobs scanned, signed keylessly, and verified their own signature straight away, using the same identity format the deploy expects. They signed as the images workflow **on the working branch**.
+- **The deploy workflow's own verification has not run**, and cannot yet: it demands the identity of the images workflow **on `main`**, which does not exist until images are built from `main`. That, and the deploy workflow as a whole, are first exercised by the first dry run.
 - Everything about AWS: the role assuming through OIDC, reaching the cluster, being allowed in, pods starting with your Secret, the public check. A dry run exercises the first four without changing anything.
 - Images built from the working branch are signed with that branch's identity, and the deploy workflow accepts only `main`. **Nothing can be deployed to production until this work is on `main` and the images workflow has run there.** That is the intended gate, not a defect.
 
