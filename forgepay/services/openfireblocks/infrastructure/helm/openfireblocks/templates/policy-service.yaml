@@ -22,7 +22,7 @@ spec:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
         - name: policy-service
-          image: {{ include "ofb.image" (dict "root" . "image" .Values.policyService.image "tag" .Values.policyService.tag) }}
+          image: {{ include "ofb.image" (dict "root" . "image" .Values.policyService.image "tag" .Values.policyService.tag "digest" .Values.policyService.digest) }}
           imagePullPolicy: {{ .Values.imagePullPolicy }}
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}

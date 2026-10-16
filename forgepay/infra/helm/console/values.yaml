@@ -1,7 +1,7 @@
 # The ForgePay console (forgepay/apps/platform).
 #
 # Deployed BY DIGEST. The image is built, scanned and its digest recorded by .github/workflows/forgepay-bureau-images.yml; the deploy workflow
-# (.github/workflows/deploy-platform.yml) passes that exact digest in. A tag can move under you; a digest cannot. With requireDigest on
+# (.github/workflows/deploy-service.yml) passes that exact digest in. A tag can move under you; a digest cannot. With requireDigest on
 # (the default) this chart will not render without one.
 image:
   repository: ghcr.io/khayaai/forgepay-console   # no tag here on purpose

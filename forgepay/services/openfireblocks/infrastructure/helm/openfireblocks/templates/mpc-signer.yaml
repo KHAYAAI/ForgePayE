@@ -23,7 +23,7 @@ spec:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
         - name: mpc-signer
-          image: {{ include "ofb.image" (dict "root" . "image" .Values.mpcSigner.image "tag" .Values.mpcSigner.tag) }}
+          image: {{ include "ofb.image" (dict "root" . "image" .Values.mpcSigner.image "tag" .Values.mpcSigner.tag "digest" .Values.mpcSigner.digest) }}
           imagePullPolicy: {{ .Values.imagePullPolicy }}
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}

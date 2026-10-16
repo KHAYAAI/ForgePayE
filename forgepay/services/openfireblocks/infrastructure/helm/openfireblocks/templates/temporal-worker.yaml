@@ -22,7 +22,7 @@ spec:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
         - name: temporal-worker
-          image: {{ include "ofb.image" (dict "root" . "image" .Values.temporalWorker.image "tag" .Values.temporalWorker.tag) }}
+          image: {{ include "ofb.image" (dict "root" . "image" .Values.temporalWorker.image "tag" .Values.temporalWorker.tag "digest" .Values.temporalWorker.digest) }}
           imagePullPolicy: {{ .Values.imagePullPolicy }}
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}

@@ -4,6 +4,12 @@ name: "ForgePay — Bureau and custody images (build, scan, publish by digest)"
 # commit SHA. Deploy by DIGEST (printed in the job summary), never by a branch tag: a branch tag moves.
 # Pushing happens only from the release branch or main, never from a pull request.
 #
+# SIGNING. After an image passes the scan it is signed with cosign, keyless: the signature is made with a short-lived certificate that
+# GitHub's OIDC token earns for THIS workflow on THIS ref, and is recorded in the public Sigstore transparency log. There is no signing key
+# to steal or leak. The deploy workflow (deploy-service.yml) refuses any image whose signature is not from this workflow on main, so a valid
+# signature means "built by our pipeline, from the release branch, and it passed the scan". The job checks its own signature straight after
+# making it, so a mistake in the identity shows up here and not on deploy day.
+#
 # NOT VERIFIED: this workflow has not run. The Docker daemon was not available where it was written, so no
 # image has been built from these Dockerfiles. The first run is the first test; expect to fix something.
 
@@ -49,20 +55,25 @@ jobs:
           - { name: ofb-policy-service, context: forgepay/services/openfireblocks/services/policy-service }
           - { name: ofb-temporal-worker, context: forgepay/services/openfireblocks/services/temporal-worker }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: docker/setup-buildx-action@v3
+      - name: Lower-case the image prefix
+        # Registry repository names must be lower case; the owner is spelled KHAYAAI. The digest lines printed below are meant to be pasted
+        # into the deploy workflow, which expects the lower-case form.
+        run: echo "IMAGE_PREFIX=${IMAGE_PREFIX,,}" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Log in (publishing builds only)
         if: ${{ github.event_name != 'pull_request' }}
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
           images: ${{ env.IMAGE_PREFIX }}-${{ matrix.name }}
           tags: |
@@ -70,7 +81,7 @@ jobs:
 
       - name: Build (and push, except on pull requests)
         id: build
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.file || format('{0}/Dockerfile', matrix.context) }}
@@ -88,7 +99,8 @@ jobs:
       - name: Scan (Trivy)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0 (pinned by commit; tag 0.24.0 no longer resolves)
         with:
-          image-ref: ${{ steps.meta.outputs.tags }}
+          # By digest for a published image, so what is scanned is exactly what was pushed and will be signed (a tag could move between).
+          image-ref: ${{ github.event_name != 'pull_request' && format('{0}-{1}@{2}', env.IMAGE_PREFIX, matrix.name, steps.build.outputs.digest) || steps.meta.outputs.tags }}
           format: sarif
           output: trivy-${{ matrix.name }}.sarif
           severity: CRITICAL
@@ -100,13 +112,39 @@ jobs:
 
       - name: Upload scan results
         if: ${{ always() && hashFiles(format('trivy-{0}.sarif', matrix.name)) != '' }}
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@ce5e7eeac396d720fe2d802714996c8ce561e311 # v3
         with:
           sarif_file: trivy-${{ matrix.name }}.sarif
           category: trivy-${{ matrix.name }}
 
+      - name: Install cosign
+        if: ${{ github.event_name != 'pull_request' }}
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
+        with:
+          cosign-release: "v2.4.1"
+
+      # Reached only if the scan above passed (a failing step stops the job), so the signature carries that meaning.
+      - name: Sign the image (keyless)
+        if: ${{ github.event_name != 'pull_request' }}
+        env:
+          REF: ${{ env.IMAGE_PREFIX }}-${{ matrix.name }}@${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "$REF"
+
+      - name: Check the signature verifies the way the deploy will check it
+        if: ${{ github.event_name != 'pull_request' }}
+        env:
+          REF: ${{ env.IMAGE_PREFIX }}-${{ matrix.name }}@${{ steps.build.outputs.digest }}
+          WANT: https://github.com/${{ github.workflow_ref }}
+        run: |
+          set -euo pipefail
+          cosign verify "$REF" --certificate-identity "$WANT" --certificate-oidc-issuer https://token.actions.githubusercontent.com > /dev/null
+
+      # Last on purpose: the only digest ever listed is one that passed the scan, was signed, and verified.
       - name: Record the digest to deploy
         if: ${{ github.event_name != 'pull_request' }}
         run: |
-          echo "### ${{ matrix.name }}" >> "$GITHUB_STEP_SUMMARY"
-          echo '`${{ env.IMAGE_PREFIX }}-${{ matrix.name }}@${{ steps.build.outputs.digest }}`' >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "### ${{ matrix.name }}"
+            echo '`${{ env.IMAGE_PREFIX }}-${{ matrix.name }}@${{ steps.build.outputs.digest }}`'
+            echo "signed and verified (identity: \`https://github.com/${{ github.workflow_ref }}\`)"
+          } >> "$GITHUB_STEP_SUMMARY"

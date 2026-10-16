@@ -47,7 +47,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: stablecoin-gateway
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          image: {{ include "stablecoin-gateway.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http

@@ -3,6 +3,10 @@ image:
   repository: forgepay/agent-credit-bureau
   pullPolicy: IfNotPresent
   tag: 0.1.0
+  # Production deploys by DIGEST (sha256:<64 hex>), supplied by the deploy workflow. requireDigest makes the chart refuse to render without
+  # one; it is off here so existing installs and the umbrella chart keep working, and the deploy workflow turns it on.
+  digest: ""
+  requireDigest: false
 service:
   type: ClusterIP
   port: 3018

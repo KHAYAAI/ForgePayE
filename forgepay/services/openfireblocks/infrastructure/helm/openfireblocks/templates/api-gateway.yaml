@@ -33,7 +33,7 @@ spec:
       {{- end }}
       containers:
         - name: api-gateway
-          image: {{ include "ofb.image" (dict "root" . "image" .Values.apiGateway.image "tag" .Values.apiGateway.tag) }}
+          image: {{ include "ofb.image" (dict "root" . "image" .Values.apiGateway.image "tag" .Values.apiGateway.tag "digest" .Values.apiGateway.digest) }}
           imagePullPolicy: {{ .Values.imagePullPolicy }}
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}

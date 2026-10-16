@@ -71,9 +71,9 @@ jobs:
           --health-timeout 3s
           --health-retries 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "20"
           cache: "npm"
@@ -112,9 +112,9 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "20"
           cache: "npm"
@@ -178,9 +178,9 @@ jobs:
           --health-timeout 3s
           --health-retries 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22" # the image is node:22-alpine (Dockerfile)
           cache: "npm"
@@ -201,8 +201,8 @@ jobs:
       run:
         working-directory: forgepay/services/compliance-monitor
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
           cache: pip
@@ -227,9 +227,9 @@ jobs:
           --health-timeout 3s
           --health-retries 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
           cache: "npm"
@@ -251,9 +251,9 @@ jobs:
       run:
         working-directory: forgepay/services/openfireblocks/services/mpc-signer
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: forgepay/services/openfireblocks/services/mpc-signer/go.mod
           cache-dependency-path: forgepay/services/openfireblocks/services/mpc-signer/go.sum
@@ -269,9 +269,9 @@ jobs:
     name: "helm — lint + template all charts"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
         with:
           version: "3.15.0"
 
@@ -294,6 +294,30 @@ jobs:
               echo "::error title=helm::$label failed"
               cat "$RUNNER_TEMP/lint.log" "$RUNNER_TEMP/template.log"
               fail=1
+            fi
+          }
+
+          # Deploy by digest. Each chart that can run production workloads takes image.digest and refuses to render, when image.requireDigest
+          # is on, without a valid sha256 digest. These two helpers hold the checks so every chart is held to the same rule.
+          D="sha256:$(printf 'ab%.0s' $(seq 32))"
+          # digest_ok <label> <expected-image-fragment> <chart> [helm args...]: renders, and the image is pinned to the digest.
+          digest_ok() {
+            local label=$1 frag=$2 chart=$3; shift 3
+            if out=$(helm template ci-release "$chart" "$@" 2>&1) && echo "$out" | grep -q "image: \"\?[^ \"]*${frag}[^ \"]*@${D}"; then
+              echo "ok      $label"
+            else
+              echo "::error title=helm::$label did not render a digest-pinned image"; echo "$out" | head -5; fail=1
+            fi
+          }
+          # digest_refused <label> <expected-message> <chart> [helm args...]: must fail to render, for that reason.
+          digest_refused() {
+            local label=$1 want=$2 chart=$3; shift 3
+            if out=$(helm template ci-release "$chart" "$@" 2>&1); then
+              echo "::error title=helm::$label rendered but should have been refused"; fail=1
+            elif echo "$out" | grep -q "$want"; then
+              echo "ok      $label (refused)"
+            else
+              echo "::error title=helm::$label was refused for the wrong reason"; echo "$out" | head -3; fail=1
             fi
           }
 
@@ -321,11 +345,17 @@ jobs:
                 check "$name (init phase)" "$chart" -f "$chart/values-node3.yaml" --set init.enabled=true --set serve.enabled=false
                 check "$name (preflight job phase)" "$chart" -f "$chart/values-node2.yaml" --set-file cluster.json="$cluster" \
                   --set serve.enabled=false --set preflight.job.enabled=true
+                digest_ok "$name (by digest)" "mpc-node" "$chart" -f "$chart/values-node1.yaml" --set-file cluster.json="$cluster" --set image.requireDigest=true --set-string image.digest="$D"
+                digest_refused "$name (digest required, none given)" "sha256 digest" "$chart" -f "$chart/values-node1.yaml" --set-file cluster.json="$cluster" --set image.requireDigest=true
+                digest_refused "$name (digest malformed)" "sha256 digest" "$chart" -f "$chart/values-node1.yaml" --set-file cluster.json="$cluster" --set image.requireDigest=true --set-string image.digest=sha256:abc
                 ;;
               stablecoin-gateway)
                 check "$name (defaults)" "$chart"
                 check "$name (ci/production-values)" "$chart" -f "$chart/ci/production-values.yaml"
                 check "$name (ci/custody-values)" "$chart" -f "$chart/ci/custody-values.yaml"
+                digest_ok "$name (by digest)" "stablecoin-gateway" "$chart" --set image.requireDigest=true --set-string image.digest="$D"
+                digest_refused "$name (digest required, none given)" "sha256 digest" "$chart" --set image.requireDigest=true
+                digest_refused "$name (digest malformed)" "sha256 digest" "$chart" --set image.requireDigest=true --set-string image.digest=sha256:abc
                 # Custody mode exists so the pod holds no key: the chart must refuse it beside a hot-wallet key secret.
                 if helm template ci-release "$chart" -f "$chart/ci/custody-values.yaml" --set payout.keySecret.name=sgw-payout-signer-key > /dev/null 2>&1; then
                   echo "::error title=helm::$name accepted custody mode together with a hot-wallet key secret"
@@ -333,6 +363,12 @@ jobs:
                 else
                   echo "ok      $name (custody mode refuses a hot key)"
                 fi
+                ;;
+              agent-credit-bureau)
+                check "$name (defaults)" "$chart"
+                digest_ok "$name (by digest)" "agent-credit-bureau" "$chart" --set image.requireDigest=true --set-string image.digest="$D"
+                digest_refused "$name (digest required, none given)" "sha256 digest" "$chart" --set image.requireDigest=true
+                digest_refused "$name (digest malformed)" "sha256 digest" "$chart" --set image.requireDigest=true --set-string image.digest=sha256:abc
                 ;;
               console)
                 # The console chart exists to deploy by digest. It must render with a digest and a named Secret, and must REFUSE to render
@@ -371,6 +407,10 @@ jobs:
                   fail=1
                 fi
                 check "$name (ci/threshold-values)" "$chart" -f "$chart/ci/threshold-values.yaml"
+                digest_ok "$name (all components by digest)" "api-gateway" "$chart" -f "$chart/ci/threshold-values.yaml" --set requireDigests=true \
+                  --set-string apiGateway.digest="$D" --set-string mpcSigner.digest="$D" --set-string policyService.digest="$D" --set-string temporalWorker.digest="$D"
+                digest_refused "$name (digests required, none given)" "requireDigests is on" "$chart" -f "$chart/ci/threshold-values.yaml" --set requireDigests=true
+                digest_refused "$name (one component digest malformed)" "must be sha256" "$chart" -f "$chart/ci/threshold-values.yaml" --set-string apiGateway.digest=sha256:zz
                 ;;
               *)
                 check "$name" "$chart"
@@ -387,9 +427,9 @@ jobs:
     name: "terraform — fmt + validate"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
         with:
           terraform_version: "1.9.8"
 
@@ -423,9 +463,9 @@ jobs:
       run:
         working-directory: forgepay/services/openfireblocks/services/mpc-signer
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: forgepay/services/openfireblocks/services/mpc-signer/go.mod
           cache-dependency-path: forgepay/services/openfireblocks/services/mpc-signer/go.sum
@@ -448,9 +488,9 @@ jobs:
       run:
         working-directory: ${{ matrix.dir }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "20"
 
@@ -465,11 +505,11 @@ jobs:
       contents: read
       pull-requests: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
 
-      - uses: gitleaks/gitleaks-action@v2
+      - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}

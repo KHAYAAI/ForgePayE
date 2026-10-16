@@ -1,6 +1,9 @@
 # Default values for the OpenFireblocks chart.
 
 imageRegistry: openfireblocks
+# Deploy by DIGEST. With requireDigests on, the chart refuses to render unless every component below has a sha256 digest. Off by default so
+# existing installs keep working; turn it on for production.
+requireDigests: false
 imagePullPolicy: IfNotPresent
 imagePullSecrets: []
 
@@ -34,6 +37,7 @@ apiGateway:
   enabled: true
   image: api-gateway
   tag: latest
+  digest: ""   # sha256:<64 hex>; required when requireDigests is on
   replicas: 3
   port: 3000
   resources:
@@ -87,6 +91,7 @@ mpcSigner:
   enabled: true
   image: mpc-signer
   tag: latest
+  digest: ""   # sha256:<64 hex>; required when requireDigests is on
   replicas: 3
   port: 8080
   resources:
@@ -128,6 +133,7 @@ policyService:
   enabled: true
   image: policy-service
   tag: latest
+  digest: ""   # sha256:<64 hex>; required when requireDigests is on
   replicas: 2
   port: 8081
   resources:
@@ -141,6 +147,7 @@ temporalWorker:
   enabled: true
   image: temporal-worker
   tag: latest
+  digest: ""   # sha256:<64 hex>; required when requireDigests is on
   replicas: 2
   resources:
     requests: { cpu: 100m, memory: 128Mi }

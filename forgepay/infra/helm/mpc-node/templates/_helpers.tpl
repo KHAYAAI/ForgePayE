@@ -40,7 +40,11 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{- define "mpc-node.image" -}}
-{{- printf "%s:%s" .Values.image.repository (default .Chart.AppVersion .Values.image.tag) }}
+{{- if .Values.image.digest -}}
+{{- printf "%s@%s" .Values.image.repository .Values.image.digest -}}
+{{- else -}}
+{{- printf "%s:%s" .Values.image.repository (default .Chart.AppVersion .Values.image.tag) -}}
+{{- end -}}
 {{- end }}
 
 {{- define "mpc-node.tlsSecretName" -}}
@@ -265,6 +269,11 @@ vault.hashicorp.com/role: {{ required "seal.vault.agent.role is required with se
 
 {{/* Fail early, with a readable message, on combinations that would produce a node that cannot start or is unsafe. */}}
 {{- define "mpc-node.validate" -}}
+{{- if .Values.image.requireDigest }}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" (.Values.image.digest | default "")) }}
+{{- fail "image.digest must be a sha256 digest (sha256:<64 hex characters>) when image.requireDigest is on: a key-holding node is deployed by digest, never by a tag that can move" }}
+{{- end }}
+{{- end }}
 {{- if not .Values.node.id }}{{ fail "node.id is required (e.g. node1); it must equal the node's certificate CN and its entry in cluster.json" }}{{ end }}
 {{- if and .Values.init.enabled .Values.serve.enabled }}{{ fail "init.enabled and serve.enabled cannot both be true: run the one-time init first (serve.enabled=false), collect the identity, then upgrade with init.enabled=false serve.enabled=true" }}{{ end }}
 {{- if .Values.init.enabled }}

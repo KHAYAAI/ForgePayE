@@ -10,7 +10,12 @@ fullnameOverride: ""
 
 image:
   repository: forge/mpc-node # built from services/openfireblocks/services/mpc-signer/Dockerfile.node
-  tag: "" # defaults to the chart appVersion; pin a digest-backed tag in production
+  tag: "" # defaults to the chart appVersion
+  # A node that holds a key share is deployed by DIGEST (sha256:<64 hex>). requireDigest makes the chart refuse to render without one; it is
+  # off by default so existing installs keep working. Turn it on for every real node, and verify the image signature first
+  # (scripts/verify-image-signature.sh).
+  digest: ""
+  requireDigest: false
   pullPolicy: IfNotPresent
 imagePullSecrets: []
 

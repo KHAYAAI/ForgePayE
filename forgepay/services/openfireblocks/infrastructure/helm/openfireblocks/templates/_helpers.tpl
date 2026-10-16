@@ -12,7 +12,17 @@ helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
 
 {{/* Image reference for a component: registry/image:tag */}}
 {{- define "ofb.image" -}}
+{{- if .digest -}}
+{{- printf "%s/%s@%s" .root.Values.imageRegistry .image .digest -}}
+{{- else -}}
+{{- if .root.Values.requireDigests -}}
+{{- fail "requireDigests is on, so every component needs a digest (apiGateway.digest, mpcSigner.digest, policyService.digest, temporalWorker.digest): custody is deployed by digest, never by a tag that can move" -}}
+{{- end -}}
 {{- printf "%s/%s:%s" .root.Values.imageRegistry .image .tag -}}
+{{- end -}}
+{{- if and .digest (not (regexMatch "^sha256:[0-9a-f]{64}$" .digest)) -}}
+{{- fail (printf "a component digest must be sha256:<64 hex characters>, got %q" .digest) -}}
+{{- end -}}
 {{- end -}}
 
 {{/* Mutual TLS to the signer: whether it is on, and the Secrets that carry the two certificates. */}}

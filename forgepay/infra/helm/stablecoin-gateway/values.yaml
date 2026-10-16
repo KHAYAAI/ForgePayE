@@ -20,6 +20,11 @@ leaderLock:
 image:
   repository: forgepay/stablecoin-gateway
   tag: latest
+  # Production deploys by DIGEST (sha256:<64 hex>), which the deploy workflow supplies; a tag can move, a digest cannot.
+  # requireDigest makes the chart refuse to render without one. It is off here so existing installs and examples keep working,
+  # and the deploy workflow turns it on.
+  digest: ""
+  requireDigest: false
   pullPolicy: IfNotPresent
 imagePullSecrets: []
 

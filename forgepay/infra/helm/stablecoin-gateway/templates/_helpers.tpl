@@ -72,10 +72,24 @@ Whether more than one replica can ever run.
 {{- if or .Values.autoscaling.enabled (gt (int .Values.replicaCount) 1) }}true{{ else }}false{{ end }}
 {{- end }}
 
+{{/* The image reference: by digest when one is given, otherwise by tag. */}}
+{{- define "stablecoin-gateway.image" -}}
+{{- if .Values.image.digest -}}
+{{- printf "%s@%s" .Values.image.repository .Values.image.digest -}}
+{{- else -}}
+{{- printf "%s:%s" .Values.image.repository .Values.image.tag -}}
+{{- end -}}
+{{- end }}
+
 {{/*
 Refuse configurations that would put money-moving workers in more than one place, or enable a worker without its key.
 */}}
 {{- define "stablecoin-gateway.validate" -}}
+{{- if .Values.image.requireDigest }}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" (.Values.image.digest | default "")) }}
+{{- fail "image.digest must be a sha256 digest (sha256:<64 hex characters>) when image.requireDigest is on: this service moves money and is deployed by digest, never by a tag that can move" }}
+{{- end }}
+{{- end }}
 {{- if and (eq (include "stablecoin-gateway.multiReplica" .) "true") (not .Values.leaderLock.enabled) }}
 {{- fail "replicaCount > 1 (or autoscaling) requires leaderLock.enabled=true: the settlement, payout, sweeper and treasury workers must run in exactly ONE replica. With leaderLock.enabled=false set replicaCount=1 and autoscaling.enabled=false." }}
 {{- end }}

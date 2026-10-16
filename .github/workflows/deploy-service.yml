@@ -1,0 +1,225 @@
+name: Deploy ForgePay service
+
+# MANUAL ONLY. By digest, only for images our own pipeline signed, with short-lived AWS credentials, behind an approval.
+#
+#   Deploys an image that .github/workflows/forgepay-bureau-images.yml already built, scanned AND signed. It does not build one: a second,
+#   unscanned build of the same code is how the thing you tested and the thing you shipped drift apart. Take the line for your service from
+#   that workflow's job summary: `ghcr.io/<owner>/forgepay-<service>@sha256:<64 hex>` and paste it into "image".
+#
+#   Before it touches AWS it checks, in order: the reference is a digest (never a tag); it is the repository expected for the service you chose
+#   (so the console's image cannot be deployed as the gateway); and the image's signature verifies as made by the images workflow on the
+#   release ref (main by default). A digest says "this exact image"; the signature says "built, and passed the scan, in our pipeline".
+#
+# What it needs (none of it a stored secret; see docs/launch/14-deploying-services.md for the exact AWS and GitHub setup):
+#   GitHub Environment "production"  with required reviewers, and its deployment branch limited to main. The deploy job waits for them.
+#   Environment variables:           AWS_DEPLOY_ROLE_ARN, AWS_REGION, EKS_CLUSTER_NAME  (console also: ACM_CERT_ARN, CONSOLE_HOST)
+#                                    optional: K8S_NAMESPACE, CONSOLE_SECRET_NAME, IMAGE_SIGNER_REF (default refs/heads/main)
+#   An AWS IAM role GitHub can assume through OIDC, trusted only for this repository's `production` environment. No access keys exist.
+#
+# The first run should be a dry run (the default): it verifies the signature, signs in, reaches the cluster, renders the chart and asks the
+# cluster to validate it, and changes nothing. Untick "dry_run" to deploy.
+
+on:
+  workflow_dispatch:
+    inputs:
+      service:
+        description: "Which service to deploy"
+        required: true
+        type: choice
+        options:
+          - console
+          - agent-credit-bureau
+          - stablecoin-gateway
+      image:
+        description: "Image to deploy, by digest: ghcr.io/<owner>/forgepay-<service>@sha256:<64 hex>"
+        required: true
+        type: string
+      dry_run:
+        description: "Validate against the cluster but change nothing (untick to deploy)"
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-${{ inputs.service }}
+  cancel-in-progress: false      # never cancel a deploy part way
+
+jobs:
+  deploy:
+    name: "Deploy ${{ inputs.service }} (${{ inputs.dry_run && 'dry run' || 'live' }})"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.ref == 'refs/heads/main'
+    environment: production      # required reviewers are configured on this environment in GitHub
+    permissions:
+      contents: read
+      packages: read             # to read the image's signature from the registry
+      id-token: write            # lets GitHub issue the OIDC token AWS exchanges for a role; nothing else uses it
+    env:
+      SERVICE: ${{ inputs.service }}
+      IMAGE: ${{ inputs.image }}
+      DRY_RUN: ${{ inputs.dry_run }}
+      OWNER: ${{ github.repository_owner }}
+      REPO_FULL: ${{ github.repository }}
+      SIGNER_REF: ${{ vars.IMAGE_SIGNER_REF || 'refs/heads/main' }}
+      NAMESPACE: ${{ vars.K8S_NAMESPACE || 'forgepay' }}
+      AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
+      CONSOLE_HOST: ${{ vars.CONSOLE_HOST }}
+      ACM_CERT_ARN: ${{ vars.ACM_CERT_ARN }}
+      CONSOLE_SECRET_NAME: ${{ vars.CONSOLE_SECRET_NAME || 'console-secrets' }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Work out what is being deployed
+        # Inputs reach the shell only through environment variables, never by being pasted into the script.
+        run: |
+          set -euo pipefail
+          case "$SERVICE" in
+            console)
+              CHART=forgepay/infra/helm/console; RELEASE=console; IMAGE_NAME=console
+              SELECTOR='app.kubernetes.io/instance=console'; PUBLIC=true ;;
+            agent-credit-bureau)
+              CHART=forgepay/infra/helm/agent-credit-bureau; RELEASE=bureau; IMAGE_NAME=agent-credit-bureau
+              SELECTOR='app=agent-credit-bureau'; PUBLIC=false ;;
+            stablecoin-gateway)
+              CHART=forgepay/infra/helm/stablecoin-gateway; RELEASE=stablecoin-gateway; IMAGE_NAME=stablecoin-gateway
+              SELECTOR='app.kubernetes.io/instance=stablecoin-gateway'; PUBLIC=false ;;
+            *) echo "::error::unknown service $SERVICE"; exit 1 ;;
+          esac
+          OWNER_LC=$(printf '%s' "$OWNER" | tr '[:upper:]' '[:lower:]')
+          {
+            echo "CHART=$CHART"; echo "RELEASE=$RELEASE"; echo "SELECTOR=$SELECTOR"; echo "PUBLIC=$PUBLIC"
+            echo "EXPECTED_REPO=ghcr.io/${OWNER_LC}/forgepay-${IMAGE_NAME}"
+          } >> "$GITHUB_ENV"
+
+      - name: Check the image reference and the settings
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$IMAGE" | grep -Eq '^[a-z0-9][a-z0-9.-]*(:[0-9]+)?/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$'; then
+            echo "::error::image must be a reference by digest: registry/path@sha256:<64 lowercase hex>. A tag is refused on purpose: it can move."
+            exit 1
+          fi
+          if [ "${IMAGE%@*}" != "$EXPECTED_REPO" ]; then
+            echo "::error::for $SERVICE the image must be in $EXPECTED_REPO, not ${IMAGE%@*}. Paste the line for $SERVICE from the images workflow summary."
+            exit 1
+          fi
+          need="AWS_DEPLOY_ROLE_ARN AWS_REGION EKS_CLUSTER_NAME"
+          [ "$PUBLIC" = "true" ] && need="$need ACM_CERT_ARN CONSOLE_HOST"
+          missing=0
+          for v in $need; do
+            [ -n "${!v:-}" ] || { echo "::error::variable $v is not set on the production environment"; missing=1; }
+          done
+          exit "$missing"
+
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
+        with:
+          cosign-release: "v2.4.1"
+
+      - name: Verify the image was signed by our images workflow
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin >/dev/null
+          WANT="https://github.com/${REPO_FULL}/.github/workflows/forgepay-bureau-images.yml@${SIGNER_REF}"
+          echo "expecting a signature made by: $WANT"
+          cosign verify "$IMAGE" \
+            --certificate-identity "$WANT" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com > /dev/null \
+            || { echo "::error::no valid signature from the images workflow on $SIGNER_REF. Build it from the release branch, or the image was not produced by our pipeline. Nothing was deployed."; exit 1; }
+          echo "signature verified"
+
+      - name: Sign in to AWS (OIDC, short-lived)
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: gha-${{ inputs.service }}-${{ github.run_id }}
+          role-duration-seconds: 3600
+
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
+        with:
+          version: "3.15.0"
+
+      - name: Connect to the cluster
+        run: |
+          set -euo pipefail
+          aws sts get-caller-identity --query Arn --output text
+          aws eks update-kubeconfig --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION"
+          kubectl auth can-i create deployments -n "$NAMESPACE" >/dev/null || { echo "::error::the deploy role cannot manage deployments in namespace $NAMESPACE (check its EKS access entry)"; exit 1; }
+
+      - name: Deploy (or dry-run) the chart
+        run: |
+          set -euo pipefail
+          REPO="${IMAGE%@*}"; DIGEST="${IMAGE##*@}"
+          ARGS=(
+            "$RELEASE" "$CHART"
+            --namespace "$NAMESPACE"
+            --set-string "image.repository=$REPO"
+            --set-string "image.digest=$DIGEST"
+            --set "image.requireDigest=true"
+          )
+          if [ -f "$CHART/values-prod.yaml" ]; then
+            ARGS+=(--values "$CHART/values-prod.yaml")
+          else
+            echo "::warning::$CHART/values-prod.yaml does not exist, so the chart's own defaults are used. Check they are what production needs."
+          fi
+          if [ "$SERVICE" = "console" ]; then
+            ARGS+=(
+              --set-string "ingress.host=$CONSOLE_HOST"
+              --set-string "ingress.certificateArn=$ACM_CERT_ARN"
+              --set-string "secrets.existingSecret=$CONSOLE_SECRET_NAME"
+            )
+          fi
+          helm lint "${ARGS[@]:1}"
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "DRY RUN: asking the cluster to validate, changing nothing"
+            helm upgrade --install "${ARGS[@]}" --dry-run=server
+          else
+            # --atomic: if the new pods do not become ready in time, the release is rolled back to what was running before.
+            helm upgrade --install "${ARGS[@]}" --atomic --wait --timeout 10m
+          fi
+
+      - name: Prove the running pods use the approved digest
+        if: ${{ !inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          DIGEST="${IMAGE##*@}"; REPO="${IMAGE%@*}"
+          for d in $(kubectl -n "$NAMESPACE" get deployments -l "$SELECTOR" -o name); do
+            kubectl -n "$NAMESPACE" rollout status "$d" --timeout=5m
+          done
+          running=$(kubectl -n "$NAMESPACE" get pods -l "$SELECTOR" -o json \
+            | jq -r --arg repo "$REPO" '.items[] | select(.metadata.deletionTimestamp == null) | .status.containerStatuses[] | select(.image | startswith($repo)) | .imageID')
+          echo "$running"
+          [ -n "$running" ] || { echo "::error::no running pods found for $SERVICE"; exit 1; }
+          while IFS= read -r id; do
+            case "$id" in *"$DIGEST"*) ;; *) echo "::error::a running pod is not on the approved digest: $id"; exit 1 ;; esac
+          done <<< "$running"
+
+      - name: Check the public address answers
+        if: ${{ !inputs.dry_run && env.PUBLIC == 'true' }}
+        run: |
+          # Through the real load balancer, certificate and DNS, not a pod-to-pod shortcut. A new load balancer can take a few minutes.
+          for i in $(seq 1 18); do
+            if curl -fsS --max-time 10 "https://$CONSOLE_HOST/api/healthz" | grep -q '"status":"ok"'; then echo "healthy on try $i"; exit 0; fi
+            echo "not yet ($i/18)"; sleep 10
+          done
+          echo "::error::https://$CONSOLE_HOST/api/healthz did not answer. The release is deployed and healthy inside the cluster; check DNS, the load balancer and the certificate."
+          exit 1
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### ${SERVICE} deploy (${{ inputs.dry_run && 'dry run, nothing changed' || 'live' }})"
+            echo "- image: \`$IMAGE\`"
+            echo "- signature: verified as made by the images workflow on \`$SIGNER_REF\`"
+            echo "- commit of this workflow: \`${{ github.sha }}\`"
+            echo "- started by: ${{ github.actor }}; approved through the \`production\` environment"
+            echo "- result: ${{ job.status }}"
+          } >> "$GITHUB_STEP_SUMMARY"
