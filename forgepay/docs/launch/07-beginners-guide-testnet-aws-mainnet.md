@@ -81,6 +81,9 @@ it fails closed.
 
 ## Stage 2: AWS and your domain (a few days, mostly waiting)
 
+> **Updated 17 October.** For a true click-by-click walk-through of this stage, follow `15-aws-start-here.md`. Two statements below were out of date and are corrected in place:
+> the console now **has** a chart (`infra/helm/console`, deployed by the *Deploy ForgePay service* workflow), and the certificate for a load balancer must be in the **cluster's** region.
+
 **Goal:** a staging copy of the bureau on AWS that you can reach over the internet at a real name. Staging first, always.
 
 ### 2a. The AWS account
@@ -97,8 +100,8 @@ it fails closed.
 
 1. In Route 53 create a **hosted zone** for `myforgepay.com`. Copy its four name servers.
 2. At your domain registrar, set the domain's name servers to those four. DNS can take hours to switch.
-3. In **ACM** (region us-east-1) request a certificate for `myforgepay.com` and `*.myforgepay.com`, using **DNS validation**; add the
-   records ACM gives you in Route 53. Wait for status *Issued*.
+3. In **ACM** request a certificate for `myforgepay.com` and `*.myforgepay.com`, using **DNS validation**; add the records ACM gives you in Route 53. Wait for status *Issued*.
+   **Region matters:** the certificate for the console's load balancer must be in the **same region as the cluster**. A certificate in `us-east-1` is needed only for CloudFront (the marketing website).
 4. Mailboxes: set up the addresses the code uses (for example `noreply@myforgepay.com`) with your mail provider.
 
 ### 2c. Secrets
@@ -153,7 +156,7 @@ helm upgrade --install bureau forgepay/infra/helm/agent-credit-bureau -n forgepa
   --set image.tag=<the digest or tag from the workflow summary>
 ```
 
-5. **The console**, after the bureau is healthy. Check which chart under `infra/helm/` deploys `apps/platform` (look at `dashboard` and `forgepay-stack`) before installing: that mapping has not been confirmed. Its image is built by the same workflow.
+5. **The console**, after the bureau is healthy: chart `infra/helm/console` (the `dashboard` chart is the older merchant portal, not the console). Deploy it with the *Deploy ForgePay service* workflow (`docs/launch/14-deploying-services.md`); its image is built, scanned and signed by the images workflow.
 6. In Route 53 point the staging names (for example `console.staging.af.myforgepay.com`) at the load balancer. Use the production names (`console.myforgepay.com`, `api.myforgepay.com`) only in the production account.
 
 ### 2f. Check staging
