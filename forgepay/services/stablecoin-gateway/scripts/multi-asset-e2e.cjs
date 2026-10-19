@@ -155,9 +155,12 @@ let db;
   const over = await settle(w.body.receipt_id, 'confirmed');
   check('an overpayment in the right token confirms, recording what arrived', !!over && over.received_units === '6000000');
 
-  // Arrives just after expiry but inside the grace period: seen while the deposit is still open.
+  // Arrives just after expiry but inside the grace period (4 s here): seen while the deposit is still open.
+  // Block timestamps are whole seconds and expiry is compared as a whole second (see __tests__/settlement-expiry-boundary.test.ts), so a payment
+  // in the SAME second as the expiry counts as on time. Expiring only 0.3 s ago crossed a second boundary only some of the time, which made this
+  // check fail about one night in four. 1.5 s guarantees the payment's block is in a later second, and still leaves 2.5 s of the grace period.
   const late = await api('POST', '/x402/pay', { resource_url: 'bureau:topup:req4', merchant_id: 'forgepay-credit-bureau', amount_usd: 5, asset: 'OUSD' });
-  await db.query(`UPDATE stablecoin_deposits SET expires_at = now() - interval '300 milliseconds' WHERE id=$1`, [late.body.deposit_id]);
+  await db.query(`UPDATE stablecoin_deposits SET expires_at = now() - interval '1500 milliseconds' WHERE id=$1`, [late.body.deposit_id]);
   await sleep(400);
   await pay('OUSD', late.body.pay_to, 5_000_000n); await mine(3);
   const exp = await settle(late.body.receipt_id, 'expired');
