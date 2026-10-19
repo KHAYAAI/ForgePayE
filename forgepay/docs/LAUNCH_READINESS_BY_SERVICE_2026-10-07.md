@@ -12,7 +12,7 @@ components that are missing before it can run for real customers.
 - **Inspected today by survey only** (source search, route lists, persistence and stub markers, not run): agent-credit-lines,
   agent-decision-framework, agent-identity, bank-whitelabel, chain-sync, crypto-gateway, liquidity-forecaster. Treat these entries as
   "what the code says", not "what I observed".
-- **Not examined:** the Hyperswitch Rust core at the repository root, the on-chain contracts (never deployed), the VS Code extension and
+- **Not examined:** the Hyperswitch Rust core at the repository root, the on-chain contracts (CORRECTED 19 Oct: the five-contract stack was deployed to Base Sepolia on 2 Sep 2026, see on-chain/broadcast/Deploy.s.sol/84532/run-latest.json; not on mainnet; shielded contracts never deployed), the VS Code extension and
   most SDK-adjacent packages beyond what is stated.
 - A passing test suite means the service does what its authors checked. It is not a security review, a load test, or proof it works
   against real partners. "Production ready" needs five things (runs for real, money reconciles, reviewed, allowed, operated); see
