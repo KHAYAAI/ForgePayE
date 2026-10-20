@@ -27,7 +27,7 @@ Gathered 19 October 2026 on branch `claude/forgepay-platform-design-gEkgE`:
 | Gateway end-to-end against real Postgres and a local chain | 115/115, three clean full runs after the flake fix |
 | CI at the previous head | 31 jobs success, 2 failing (below), 2 skipped |
 | CI at the head of the flake-fix commit (`193e210b`) when last read | 39 success, 18 in progress, 3 failing (advisory), 2 queued. **Not yet settled; re-read before relying on it** |
-| Production-dependency audit (`npm audit --omit=dev`) | bureau 0 findings; gateway 4 high + 2 moderate; console 1 high + 1 moderate (details in section 5) |
+| Production-dependency audit (`npm audit --omit=dev`) | 19 Oct: gateway 4 high + 2 moderate, console 1 high + 1 moderate. **20 Oct, after upgrades: 0 findings in bureau, gateway and console** (section 5) |
 
 What these do **not** show: that anything works on AWS, against a real acquirer, a real custody backend, a real sanctions feed, a real company register, or real users. A passing suite shows the code does what its authors checked. It is not a security review, a load test, or proof against partners.
 
@@ -75,13 +75,13 @@ Pre-gates (steps 4–16), where most of the real calendar time is:
 
 ### Console (`apps/platform`)
 
-83 tests pass. Custody attestation screen, institution onboarding and wallet binding exist. Published-key fallbacks were removed: with no credential in production it now refuses rather than using a baked-in key. The console has its own Helm chart and deploy path (new this week), which has never been installed on a cluster. Production audit shows one high and one moderate finding (section 5).
+83 tests pass. Custody attestation screen, institution onboarding and wallet binding exist. Published-key fallbacks were removed: with no credential in production it now refuses rather than using a baked-in key. The console has its own Helm chart and deploy path (new this week), which has never been installed on a cluster. Now on Next 16; production audit is clean (section 5).
 
 ### Stablecoin gateway — the bureau's payment rail
 
 233 tests, 115-check e2e, 19/19 smoke on a local chain. Payouts can be signed by a hot key or sent through FORGE custody (`PAYOUT_SIGNER_MODE=custody`, recipient list required in production, ambiguous results resolved by status lookup, reply mismatch refused). Settlement timing is compared in whole seconds with deterministic boundary tests.
 
-**Not proven:** any run against a real chain through a deployed service; custody payouts against a real custody backend; KMS key wrapping against real KMS. A daily-payout-ceiling double-count issue was found and has been handed off as a separate task, not fixed. Production audit shows four high and two moderate findings (section 5).
+**Not proven:** any run against a real chain through a deployed service; custody payouts against a real custody backend; KMS key wrapping against real KMS. A daily-payout-ceiling double-count issue was found and has been handed off as a separate task, not fixed. Production audit is clean after the 20 October upgrade (section 5).
 
 ### Compliance monitor
 
@@ -115,15 +115,15 @@ Static marketing site; not re-inspected today.
 
 **Supply chain.** Images are built, Trivy-scanned by digest, signed keylessly with cosign, self-verified, then listed by digest. The deploy workflow checks the digest format, the expected repository, and the cosign identity (`…/forgepay-bureau-images.yml@refs/heads/main`) **before** any AWS credential is used; uses OIDC (no stored AWS keys); waits for a human approver in the `production` GitHub Environment; defaults to a dry run; installs atomically; and proves the running pods are on the approved digest. Charts can refuse to render without a digest. Third-party actions are pinned to commit SHAs (98 references) with a CI guard, and Dependabot proposes weekly updates. **Gaps:** nothing here has run against a cluster; no in-cluster admission control re-checks signatures; the real custody repository's charts have not been switched to digests.
 
-**Dependency advisories (production dependencies only).**
+**Dependency advisories (production dependencies only).** On 20 October the gateway and console were upgraded and `npm audit --omit=dev` now reports **0 findings for the bureau, the gateway and the console**.
 
-| Package | Findings | Direct packages |
+| Package | Before | Change |
 |---|---|---|
-| agent-credit-bureau | none | — |
-| stablecoin-gateway | 4 high, 2 moderate | `fastify` (high), `ethers`, `uuid` (moderate); transitive `fast-uri`, `find-my-way`, `ws` (high) |
-| console | 1 high, 1 moderate | `next` (moderate); transitive `postcss` (high) |
+| stablecoin-gateway | 4 high, 2 moderate | `fastify`, `ethers`, `ws`, `fast-uri`, `find-my-way` to patched versions in range; `uuid` 10 to 11.1.1 (not imported by the source). Fastify now treats a bare number `trustProxy` as "trust nothing", which would have put every client behind the load balancer on one rate-limit key; the gateway now passes a hop function (as the bureau already did) and a test covers forged `X-Forwarded-For` |
+| console | 1 high, 1 moderate | `next` 15.5 to 16.4.2 (only fixed in 16). Typecheck, 83 tests and the production build pass locally. Not yet exercised in a browser or a container |
+| agent-credit-bureau | none | none |
 
-Fixes are reported as available for all of them. I have **not** assessed reachability or applied the upgrades; the gateway moves money, so these should be triaged and fixed before the review firm freezes a tag. The CI jobs "npm audit" and the Go vulnerability scan are non-blocking and red, which is why these did not stop the build.
+Only the audit's *production* view was checked; dev-only dependencies and the other services were not. The non-blocking "npm audit" CI jobs should be re-read on the new commit.
 
 **CI state.** The inherited upstream Hyperswitch scheduled workflows (the nightly tag and the Postman run) fail on this fork; they are not ForgePay's. The flaky nightly end-to-end test (two sequential Redis fallback calls near a 5 s limit) was fixed with an explicit timeout and verified locally three times; it is **verified in CI only after the next nightly run**.
 

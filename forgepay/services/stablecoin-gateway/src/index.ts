@@ -70,9 +70,11 @@ import apiKeyAuth from './plugins/api-key-auth.js';
  * X-Forwarded-For entries are believed. Trusting the header blindly lets any client pick its own rate-limit
  * key (and so evade the limit) by sending a different one on each request.
  */
-export function trustedProxyHops(env: NodeJS.ProcessEnv = process.env): number | false {
+export function trustedProxyHops(env: NodeJS.ProcessEnv = process.env): false | ((address: string, hop: number) => boolean) {
   const n = Number(env['TRUST_PROXY_HOPS'] ?? 0);
-  return Number.isInteger(n) && n > 0 ? n : false;
+  // A function, not the bare number: fastify >= 5.12.5 treats a number as `false`, so every client would
+  // share the load balancer's address and one caller could exhaust the limit for all.
+  return Number.isInteger(n) && n > 0 ? (_address, hop) => hop < n : false;
 }
 
 export async function buildApp() {

@@ -27,7 +27,7 @@
     "pino": "^9.2.0",
     "pino-pretty": "^11.2.1",
     "prom-client": "^15.1.0",
-    "uuid": "^10.0.0"
+    "uuid": "^11.1.1"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

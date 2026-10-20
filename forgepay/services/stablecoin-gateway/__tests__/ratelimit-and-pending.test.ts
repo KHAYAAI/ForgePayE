@@ -38,9 +38,19 @@ describe('rate limit cannot be dodged with a forged X-Forwarded-For (was: keyed 
 
   it('only the configured number of proxy hops is trusted', async () => {
     const { trustedProxyHops } = await import('../src/index.js');
-    expect(trustedProxyHops({})).toBe(false);
-    expect(trustedProxyHops({ TRUST_PROXY_HOPS: '1' })).toBe(1);
-    expect(trustedProxyHops({ TRUST_PROXY_HOPS: 'yes' })).toBe(false);
+    const { default: Fastify } = await import('fastify');
+    const clientIp = async (env: NodeJS.ProcessEnv, xff: string): Promise<string> => {
+      const f = Fastify({ trustProxy: trustedProxyHops(env) });
+      f.get('/ip', async (r) => r.ip);
+      const res = await f.inject({ url: '/ip', headers: { 'x-forwarded-for': xff }, remoteAddress: '10.0.0.1' });
+      await f.close();
+      return res.body;
+    };
+    expect(await clientIp({}, '203.0.113.9')).toBe('10.0.0.1');
+    expect(await clientIp({ TRUST_PROXY_HOPS: 'yes' }, '203.0.113.9')).toBe('10.0.0.1');
+    expect(await clientIp({ TRUST_PROXY_HOPS: '1' }, '203.0.113.9')).toBe('203.0.113.9');
+    // extra forged entries to the left of the proxy's own view never become the client
+    expect(await clientIp({ TRUST_PROXY_HOPS: '1' }, '198.51.100.7, 203.0.113.9')).toBe('203.0.113.9');
   });
 });
 
