@@ -6,7 +6,11 @@ COPY package*.json ./
 RUN npm ci
 
 COPY . .
-RUN npm run build
+# Source maps are not shipped. Next 16 writes server source maps that embed library source, including placeholder strings shaped
+# like credentials (a WorkOS SDK error message and doc example), which the image scan rightly treats as secrets; they also hand
+# anyone with the image our full server source. Stack traces in production lose original line numbers; nothing else changes.
+RUN npm run build \
+ && find .next -name '*.map' -type f -delete
 
 # Production image
 FROM node:22-alpine
