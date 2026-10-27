@@ -295,10 +295,13 @@ __pycache__/
 venv/
 .mypy_cache/
 .ruff_cache/
-# None of this repo's Python services commit a lock file (each environment
+# Most of this repo's Python services do not commit a lock file (each environment
 # resolves its own from pyproject.toml's version constraints) — this just
 # stops locally-generated ones from showing up as untracked noise.
 poetry.lock
+# Exception: services that ship a signed production image lock their dependencies, so the image that was scanned and signed
+# is rebuilt from the same versions every time (an unlocked build can resolve differently from one day to the next).
+!forgepay/services/compliance-monitor/poetry.lock
 
 # Terraform provider cache / local state
 .terraform/

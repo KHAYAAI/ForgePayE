@@ -10,11 +10,14 @@ name: Deploy ForgePay service
 #   (so the console's image cannot be deployed as the gateway); and the image's signature verifies as made by the images workflow on the
 #   release ref (main by default). A digest says "this exact image"; the signature says "built, and passed the scan, in our pipeline".
 #
-# What it needs (none of it a stored secret; see docs/launch/14-deploying-services.md for the exact AWS and GitHub setup):
-#   GitHub Environment "production"  with required reviewers, and its deployment branch limited to main. The deploy job waits for them.
+# Targets: "staging" or "production", each a GitHub Environment of that name holding its own variables (so staging points at the
+#   staging AWS account and cluster, production at production's). The chart's values-staging.yaml or values-prod.yaml is applied.
+#
+# What it needs, per target (none of it a stored secret; see docs/launch/14-deploying-services.md for the exact AWS and GitHub setup):
+#   GitHub Environment "staging" / "production"  with required reviewers, and its deployment branch limited to main. The job waits for them.
 #   Environment variables:           AWS_DEPLOY_ROLE_ARN, AWS_REGION, EKS_CLUSTER_NAME  (console also: ACM_CERT_ARN, CONSOLE_HOST)
 #                                    optional: K8S_NAMESPACE, CONSOLE_SECRET_NAME, IMAGE_SIGNER_REF (default refs/heads/main)
-#   An AWS IAM role GitHub can assume through OIDC, trusted only for this repository's `production` environment. No access keys exist.
+#   An AWS IAM role GitHub can assume through OIDC, trusted only for this repository's environment of the same name. No access keys exist.
 #
 # The first run should be a dry run (the default): it verifies the signature, signs in, reaches the cluster, renders the chart and asks the
 # cluster to validate it, and changes nothing. Untick "dry_run" to deploy.
@@ -22,6 +25,14 @@ name: Deploy ForgePay service
 on:
   workflow_dispatch:
     inputs:
+      target:
+        description: "Where to deploy (each is its own GitHub Environment, AWS account and cluster)"
+        required: true
+        type: choice
+        default: staging
+        options:
+          - staging
+          - production
       service:
         description: "Which service to deploy"
         required: true
@@ -30,6 +41,7 @@ on:
           - console
           - agent-credit-bureau
           - stablecoin-gateway
+          - compliance-monitor
       image:
         description: "Image to deploy, by digest: ghcr.io/<owner>/forgepay-<service>@sha256:<64 hex>"
         required: true
@@ -44,22 +56,23 @@ permissions:
   contents: read
 
 concurrency:
-  group: deploy-${{ inputs.service }}
+  group: deploy-${{ inputs.target }}-${{ inputs.service }}
   cancel-in-progress: false      # never cancel a deploy part way
 
 jobs:
   deploy:
-    name: "Deploy ${{ inputs.service }} (${{ inputs.dry_run && 'dry run' || 'live' }})"
+    name: "Deploy ${{ inputs.service }} to ${{ inputs.target }} (${{ inputs.dry_run && 'dry run' || 'live' }})"
     runs-on: ubuntu-latest
     timeout-minutes: 30
     if: github.ref == 'refs/heads/main'
-    environment: production      # required reviewers are configured on this environment in GitHub
+    environment: ${{ inputs.target }}   # staging or production; required reviewers are configured on each environment in GitHub
     permissions:
       contents: read
       packages: read             # to read the image's signature from the registry
       id-token: write            # lets GitHub issue the OIDC token AWS exchanges for a role; nothing else uses it
     env:
       SERVICE: ${{ inputs.service }}
+      TARGET: ${{ inputs.target }}
       IMAGE: ${{ inputs.image }}
       DRY_RUN: ${{ inputs.dry_run }}
       OWNER: ${{ github.repository_owner }}
@@ -89,10 +102,19 @@ jobs:
             stablecoin-gateway)
               CHART=forgepay/infra/helm/stablecoin-gateway; RELEASE=stablecoin-gateway; IMAGE_NAME=stablecoin-gateway
               SELECTOR='app.kubernetes.io/instance=stablecoin-gateway'; PUBLIC=false ;;
+            compliance-monitor)
+              CHART=forgepay/infra/helm/compliance-monitor; RELEASE=compliance-monitor; IMAGE_NAME=compliance-monitor
+              SELECTOR='app.kubernetes.io/instance=compliance-monitor'; PUBLIC=false ;;
             *) echo "::error::unknown service $SERVICE"; exit 1 ;;
           esac
           OWNER_LC=$(printf '%s' "$OWNER" | tr '[:upper:]' '[:lower:]')
+          case "$TARGET" in
+            staging) VALUES_FILE="$CHART/values-staging.yaml" ;;
+            production) VALUES_FILE="$CHART/values-prod.yaml" ;;
+            *) echo "::error::unknown target $TARGET"; exit 1 ;;
+          esac
           {
+            echo "VALUES_FILE=$VALUES_FILE"
             echo "CHART=$CHART"; echo "RELEASE=$RELEASE"; echo "SELECTOR=$SELECTOR"; echo "PUBLIC=$PUBLIC"
             echo "EXPECTED_REPO=ghcr.io/${OWNER_LC}/forgepay-${IMAGE_NAME}"
           } >> "$GITHUB_ENV"
@@ -112,7 +134,7 @@ jobs:
           [ "$PUBLIC" = "true" ] && need="$need ACM_CERT_ARN CONSOLE_HOST"
           missing=0
           for v in $need; do
-            [ -n "${!v:-}" ] || { echo "::error::variable $v is not set on the production environment"; missing=1; }
+            [ -n "${!v:-}" ] || { echo "::error::variable $v is not set on the $TARGET environment"; missing=1; }
           done
           exit "$missing"
 
@@ -164,10 +186,10 @@ jobs:
             --set-string "image.digest=$DIGEST"
             --set "image.requireDigest=true"
           )
-          if [ -f "$CHART/values-prod.yaml" ]; then
-            ARGS+=(--values "$CHART/values-prod.yaml")
+          if [ -f "$VALUES_FILE" ]; then
+            ARGS+=(--values "$VALUES_FILE")
           else
-            echo "::warning::$CHART/values-prod.yaml does not exist, so the chart's own defaults are used. Check they are what production needs."
+            echo "::warning::$VALUES_FILE does not exist, so the chart's own defaults are used. Check they are what $TARGET needs."
           fi
           if [ "$SERVICE" = "console" ]; then
             ARGS+=(
@@ -216,10 +238,10 @@ jobs:
         if: always()
         run: |
           {
-            echo "### ${SERVICE} deploy (${{ inputs.dry_run && 'dry run, nothing changed' || 'live' }})"
+            echo "### ${SERVICE} deploy to ${TARGET} (${{ inputs.dry_run && 'dry run, nothing changed' || 'live' }})"
             echo "- image: \`$IMAGE\`"
             echo "- signature: verified as made by the images workflow on \`$SIGNER_REF\`"
             echo "- commit of this workflow: \`${{ github.sha }}\`"
-            echo "- started by: ${{ github.actor }}; approved through the \`production\` environment"
+            echo "- started by: ${{ github.actor }}; approved through the \`${TARGET}\` environment"
             echo "- result: ${{ job.status }}"
           } >> "$GITHUB_STEP_SUMMARY"

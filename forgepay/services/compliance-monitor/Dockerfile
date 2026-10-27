@@ -25,8 +25,10 @@ WORKDIR /app
 COPY --from=builder --chown=app:python /app/.venv /app/.venv
 ENV PATH="/app/.venv/bin:$PATH"
 
-# Copy application source
+# Copy application source, and the database migrations (run by the chart's migration job: `alembic upgrade head`)
 COPY --chown=app:python src/ ./src/
+COPY --chown=app:python alembic/ ./alembic/
+COPY --chown=app:python alembic.ini ./
 
 USER app
 

@@ -1,0 +1,74 @@
+# STAGING settings for the stablecoin gateway, on BASE SEPOLIA (testnet): production-shaped (NODE_ENV=production), one replica,
+# internal only, limits even smaller than the first-launch values in ci/launch-values.yaml. Test USDC only; no real money.
+# Nothing secret here and no image: the digest is supplied by the deploy workflow. Replace every REPLACE- value.
+#
+# The Secret named by secretRef (forgepay-stablecoin-gateway-secrets) must exist first, holding POSTGRES_PASSWORD,
+# INTERNAL_WEBHOOK_SECRET, VALID_API_KEYS, BASE_RPC_URL and PAYOUT_SIGNER_RPC_URL (Base Sepolia RPC URLs: provider URLs carry keys,
+# so they live in the Secret). The wallet key Secrets named below must exist too: throwaway TESTNET wallets, never production keys.
+replicaCount: 1
+leaderLock:
+  enabled: true
+global:
+  postgresql:
+    host: REPLACE-WITH-RDS-ENDPOINT
+    port: 5432
+    database: stablecoin_gateway
+    user: stablecoin_gateway
+  redis:
+    url: rediss://REPLACE-WITH-ELASTICACHE-PRIMARY-ENDPOINT:6379
+config:
+  CORS_ALLOWED_ORIGINS: https://console.staging.myforgepay.com
+  TRUST_PROXY_HOPS: "0"                 # no proxy in front: internal only
+  # Managed Postgres refuses unencrypted connections. no-verify encrypts without checking the server certificate: staging inside the
+  # VPC only. Production must verify it (see docs/launch/16-wave1-staging.md).
+  PGSSLMODE: no-verify
+  # Base Sepolia instead of Base: the same chain name, the testnet's id and its USDC. Confirm the USDC address on Circle's own
+  # documentation before the first deposit.
+  DEPOSIT_MONITOR_CHAINS: base
+  BASE_CHAIN_ID: "84532"
+  ASSETS_ENABLED: USDC
+  ASSET_USDC_BASE: "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+  # Outbound: a person approves and submits every payout.
+  PAYOUT_SIGNER_CHAIN: base-sepolia
+  PAYOUT_AUTO_APPROVE_MAX_USD: "0"
+  PAYOUT_ABSOLUTE_MAX_USD: "25"
+  PAYOUT_SIGNER_DAILY_MAX_USD: "50"
+  SWEEP_CHAIN_ID_BASE: "84532"
+  SWEEP_MIN_USD: "1"
+  SWEEP_MAX_GAS_GWEI: "5"
+  FX_FEED_ENABLED: "false"
+  ALERT_ENV: staging
+keyWrap:
+  provider: awskms
+  awskms:
+    keyId: REPLACE-WITH-STAGING-DEPOSIT-KEY-ARN
+    region: REPLACE-WITH-REGION
+payout:
+  signerEnabled: true
+  autoSubmit: false                     # an operator calls POST /payouts/:id/submit
+  keySecret: { name: sgw-payout-signer-key, key: key }
+sweep:
+  enabled: true
+  treasuryAddress: REPLACE-WITH-TESTNET-OPERATING-WALLET-ADDRESS
+  gasKeySecret: { name: sgw-sweep-gas-key, key: key }
+treasury:
+  enabled: false                        # turn on after the first deposit, sweep and payout have passed
+alerts:
+  webhookSecret: { name: sgw-alerts, key: webhook-url }
+autoscaling:
+  enabled: false
+serviceMonitor:
+  enabled: false                        # needs the Prometheus operator's CRDs; staging does not install them yet
+networkPolicy:
+  enabled: true
+  # Managed Postgres (RDS) and Redis (ElastiCache) live in the VPC, outside the cluster. 10.30.0.0/16 is the eu-west-2 staging VPC in
+  # infra/staging/terraform/eu-west-2.tfvars; use the vpc_cidr of the region you actually build in.
+  extraEgress:
+    - to:
+        - ipBlock:
+            cidr: 10.30.0.0/16
+      ports:
+        - protocol: TCP
+          port: 5432
+        - protocol: TCP
+          port: 6379

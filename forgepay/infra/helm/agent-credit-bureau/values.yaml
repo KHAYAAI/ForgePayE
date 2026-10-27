@@ -78,3 +78,6 @@ networkPolicy:
   allowIngressFromIngressController: false
   ingressControllerNamespace: ingress-nginx
   monitoringNamespace: monitoring
+  # Extra egress rules (raw NetworkPolicy egress entries), e.g. the VPC range on 5432/6379 for a managed Postgres and Redis,
+  # which sit outside the cluster and are not reached by the same-namespace rule above.
+  extraEgress: []

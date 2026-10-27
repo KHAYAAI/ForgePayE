@@ -1,0 +1,38 @@
+# STAGING settings for the credit bureau: production-shaped (NODE_ENV=production), one replica, internal only for now. Nothing secret
+# here and no image: the digest is supplied by the deploy workflow.
+#
+# The Secret <release>-agent-credit-bureau-secrets (release "bureau": bureau-agent-credit-bureau-secrets) must exist first; the list is in
+# docs/launch/16-wave1-staging.md. For a managed Postgres put TLS in the URL:
+#   DATABASE_URL=postgres://bureau:<password>@<rds-endpoint>:5432/bureau?sslmode=no-verify
+# no-verify encrypts but does not check the server certificate: staging inside the VPC only (production must verify it).
+replicaCount: 1
+autoscaling:
+  enabled: false
+env:
+  NODE_ENV: production
+  LOG_LEVEL: info
+  CORS_ORIGIN: https://console.staging.myforgepay.com
+  COMPLIANCE_MONITOR_URL: http://compliance-monitor:8003
+  STABLECOIN_GATEWAY_URL: http://stablecoin-gateway:8020
+  BUREAU_ENABLED_ASSETS: USDC
+  # No proxy in front yet (no public address); set to the number of proxies when an ingress is added.
+  TRUST_PROXY_HOPS: '0'
+resources:
+  requests: { cpu: 200m, memory: 256Mi }
+  limits: { cpu: 600m, memory: 768Mi }
+serviceMonitor:
+  enabled: false        # needs the Prometheus operator's CRDs; staging does not install them yet
+networkPolicy:
+  enabled: true
+  allowIngressFromIngressController: false
+  # Managed Postgres (RDS) and Redis (ElastiCache) live in the VPC, outside the cluster. 10.30.0.0/16 is the eu-west-2 staging VPC in
+  # infra/staging/terraform/eu-west-2.tfvars; use the vpc_cidr of the region you actually build in.
+  extraEgress:
+    - to:
+        - ipBlock:
+            cidr: 10.30.0.0/16
+      ports:
+        - protocol: TCP
+          port: 5432
+        - protocol: TCP
+          port: 6379

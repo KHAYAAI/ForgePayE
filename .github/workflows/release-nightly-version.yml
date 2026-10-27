@@ -24,6 +24,9 @@ env:
 jobs:
   update-postman-collections:
     name: Update Postman collection JSON files
+    # Upstream Hyperswitch release automation. It needs the upstream's AUTO_RELEASE_PAT and tags upstream's main; on this fork it
+    # can only fail (it did every weekday), so it runs only in the upstream repository. create-nightly-tag depends on it.
+    if: github.repository == 'juspay/hyperswitch'
     runs-on: ubuntu-latest
 
     steps:

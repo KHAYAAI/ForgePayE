@@ -1,0 +1,14 @@
+# STAGING settings for the console. Nothing secret, and no image: the digest is supplied by the deploy workflow. The certificate
+# ARN and host come from the staging environment's variables (ACM_CERT_ARN, CONSOLE_HOST, e.g. console.staging.myforgepay.com).
+replicaCount: 1
+autoscaling:
+  enabled: false
+podDisruptionBudget:
+  enabled: false        # with one replica a minAvailable of 1 would block node drains
+env:
+  NEXT_PUBLIC_APP_URL: https://console.staging.myforgepay.com
+  AGENT_CREDIT_BUREAU_URL: http://agent-credit-bureau:3018
+  FORGE_LAUNCHED_PRODUCTS: credit-bureau
+resources:
+  requests: { cpu: 250m, memory: 384Mi }
+  limits: { cpu: 1000m, memory: 1024Mi }

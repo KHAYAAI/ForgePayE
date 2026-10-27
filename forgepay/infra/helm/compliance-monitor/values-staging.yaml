@@ -1,0 +1,42 @@
+# STAGING settings for the compliance monitor: production-shaped (ENVIRONMENT=production, so every production check applies), one
+# replica, internal only. Nothing secret here and no image: the digest is supplied by the deploy workflow.
+#
+# The Secret named by existingSecret (default compliance-monitor-secrets) must exist first. For a managed Postgres put TLS in the URL:
+#   DATABASE_URL=postgresql+asyncpg://compliance_monitor:<password>@<rds-endpoint>:5432/compliance_monitor?ssl=require
+# ssl=require encrypts but does not check the server certificate. That is acceptable for staging inside the VPC only; see
+# docs/launch/16-wave1-staging.md (production must verify the certificate).
+replicaCount: 1
+env:
+  ENVIRONMENT: production
+  LOG_LEVEL: INFO
+  CORS_ORIGINS: https://console.staging.myforgepay.com
+  # South Africa's TFS list, from the copy shipped in the image (taken 6 Oct 2026). It stops clearing anyone 720 hours after that,
+  # on 5 Nov 2026: replace the file and this date, or set ZA_TFS_URL to the live FIC download once it is confirmed to load.
+  ZA_TFS_URL: file:///app/src/data/za_tfs_snapshot.xml
+  ZA_TFS_SNAPSHOT_AT: "2026-10-06T07:23:00Z"
+  ZA_TFS_MAX_AGE_HOURS: "720"
+  # The UK list has no default URL (it moved to the FCDO UK Sanctions List). Set UK_SANCTIONS_URL here once the current CSV URL and
+  # its column names are confirmed against a live file.
+  PAYMENT_ENGINE_URL: ""
+  AUDIT_SERVICE_URL: ""
+resources:
+  requests: { cpu: 200m, memory: 512Mi }
+  limits: { cpu: 800m, memory: 1536Mi }
+monitoring:
+  enabled: false
+  serviceMonitor:
+    enabled: false      # needs the Prometheus operator's CRDs; staging does not install them yet
+networkPolicy:
+  enabled: true
+  allowIngressFromIngressController: false
+  # Managed Postgres (RDS) and Redis (ElastiCache) live in the VPC, outside the cluster. 10.30.0.0/16 is the eu-west-2 staging VPC in
+  # infra/staging/terraform/eu-west-2.tfvars; use the vpc_cidr of the region you actually build in.
+  extraEgress:
+    - to:
+        - ipBlock:
+            cidr: 10.30.0.0/16
+      ports:
+        - protocol: TCP
+          port: 5432
+        - protocol: TCP
+          port: 6379

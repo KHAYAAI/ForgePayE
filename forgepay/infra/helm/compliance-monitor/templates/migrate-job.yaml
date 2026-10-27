@@ -1,0 +1,45 @@
+{{- if .Values.migrations.enabled }}
+{{- include "compliance-monitor.validate" . }}
+# Brings the database schema up to date before the new version starts. A Helm hook, so it runs before install and before every
+# upgrade, and a failed migration stops the release (and, with --atomic, rolls it back) instead of starting pods against an old schema.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "compliance-monitor.fullname" . }}-migrate
+  labels:
+    {{- include "compliance-monitor.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrate
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: {{ .Values.migrations.backoffLimit }}
+  activeDeadlineSeconds: {{ .Values.migrations.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "compliance-monitor.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}-migrate
+    spec:
+      restartPolicy: Never
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: migrate
+          image: {{ include "compliance-monitor.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["alembic", "upgrade", "head"]
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          envFrom:
+            - secretRef:
+                name: {{ .Values.existingSecret }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+{{- end }}

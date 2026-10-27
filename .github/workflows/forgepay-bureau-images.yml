@@ -20,6 +20,7 @@ on:
       - "forgepay/services/stablecoin-gateway/**"
       - "forgepay/services/agent-credit-bureau/**"
       - "forgepay/apps/platform/**"
+      - "forgepay/services/compliance-monitor/**"
       - "forgepay/services/openfireblocks/services/**"
       - ".github/workflows/forgepay-bureau-images.yml"
   pull_request:
@@ -27,6 +28,7 @@ on:
       - "forgepay/services/stablecoin-gateway/**"
       - "forgepay/services/agent-credit-bureau/**"
       - "forgepay/apps/platform/**"
+      - "forgepay/services/compliance-monitor/**"
       - "forgepay/services/openfireblocks/services/**"
   workflow_dispatch:
 
@@ -49,6 +51,7 @@ jobs:
           - { name: stablecoin-gateway, context: forgepay/services/stablecoin-gateway }
           - { name: agent-credit-bureau, context: forgepay/services/agent-credit-bureau }
           - { name: console, context: forgepay/apps/platform }
+          - { name: compliance-monitor, context: forgepay/services/compliance-monitor }
           - { name: ofb-api-gateway, context: forgepay/services/openfireblocks/services/api-gateway }
           - { name: ofb-mpc-signer, context: forgepay/services/openfireblocks/services/mpc-signer }
           - { name: ofb-mpc-node, context: forgepay/services/openfireblocks/services/mpc-signer, file: forgepay/services/openfireblocks/services/mpc-signer/Dockerfile.node }

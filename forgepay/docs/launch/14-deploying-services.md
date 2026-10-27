@@ -1,6 +1,6 @@
 # Deploying services: what the workflow expects
 
-**16 October 2026.** `.github/workflows/deploy-service.yml` deploys the **console, the credit bureau or the stablecoin gateway** to Kubernetes. It is manual, by image
+**16 October 2026; updated 27 October** (staging target, compliance monitor). `.github/workflows/deploy-service.yml` deploys the **console, the credit bureau, the stablecoin gateway or the compliance monitor** to Kubernetes, in **staging** or **production**. It is manual, by image
 digest, only for images our own pipeline **signed**, with short-lived AWS credentials, behind an approval. This page is the contract: what GitHub and AWS must provide.
 The AWS build-out itself is yours; nothing here creates anything.
 
@@ -8,10 +8,10 @@ The AWS build-out itself is yours; nothing here creates anything.
 
 1. `forgepay-bureau-images.yml` builds each image, **scans** it, then **signs** it (cosign, keyless) and checks its own signature. Only then does it list the image reference in its job
    summary: `ghcr.io/<owner>/forgepay-<service>@sha256:<64 hex>`. So a listed digest has been built by that workflow and has passed the scan.
-2. Actions > *Deploy ForgePay service* > Run workflow. Choose the `service`, paste its reference as `image`. **Leave `dry_run` ticked the first time.**
+2. Actions > *Deploy ForgePay service* > Run workflow. Choose the `target` (**staging** first), the `service`, and paste its reference as `image`. **Leave `dry_run` ticked the first time.**
 3. **Before it touches AWS** it checks, in order: the reference is a digest (never a tag); it is the repository expected for the service you chose; and the image's **signature verifies
    as made by the images workflow on `main`** (override with the `IMAGE_SIGNER_REF` variable). An image built on a working branch, or by anything else, is refused here and nothing is deployed.
-4. The job waits for a reviewer on the `production` environment, then signs in to AWS by OIDC (no stored keys), connects to the cluster, and runs `helm upgrade --install`.
+4. The job waits for a reviewer on the target's environment (`staging` or `production`), then signs in to AWS by OIDC (no stored keys), connects to the cluster, and runs `helm upgrade --install`.
    A dry run only asks the cluster to validate (`--dry-run=server`) and changes nothing. A live run uses `--atomic`: if the new pods are not ready in ten minutes it rolls back.
 5. A live run then checks that **every running pod's image ID contains the approved digest**; for the console it also checks that `https://<CONSOLE_HOST>/api/healthz` answers through the real load balancer.
 
@@ -19,7 +19,11 @@ The AWS build-out itself is yours; nothing here creates anything.
 |---|---|---|---|
 | `console` | `infra/helm/console` | `console` | needs `ACM_CERT_ARN`, `CONSOLE_HOST`; secrets from the Kubernetes Secret named by `CONSOLE_SECRET_NAME` |
 | `agent-credit-bureau` | `infra/helm/agent-credit-bureau` | `bureau` | secrets from `bureau-agent-credit-bureau-secrets`; see `infra/launch/bureau/` |
-| `stablecoin-gateway` | `infra/helm/stablecoin-gateway` | `stablecoin-gateway` | a `values-prod.yaml` beside the chart is used if present; **otherwise the chart's own defaults, and the run warns** |
+| `stablecoin-gateway` | `infra/helm/stablecoin-gateway` | `stablecoin-gateway` | secrets from `forgepay-stablecoin-gateway-secrets` plus the wallet key Secrets |
+| `compliance-monitor` | `infra/helm/compliance-monitor` | `compliance-monitor` | secrets from `compliance-monitor-secrets`; runs `alembic upgrade head` as a pre-install/pre-upgrade Job |
+
+The chart's `values-staging.yaml` (target `staging`) or `values-prod.yaml` (target `production`) is applied. If the file does not exist the chart's own defaults are used **and the run warns**.
+Today every wave-1 chart has `values-staging.yaml`; only the console has `values-prod.yaml`. The staging checklist is `16-wave1-staging.md`.
 
 Each chart refuses to render, when `image.requireDigest` is on (the workflow turns it on), without a valid `sha256:<64 hex>`. They are off by default in the charts so existing installs and examples are unchanged.
 
@@ -37,9 +41,9 @@ scans first. There is no signing key to steal. It is recorded in the public Sigs
 
 ## GitHub
 
-- **Environment `production`** (Settings > Environments): add **required reviewers** and limit **deployment branches to `main`**. Without reviewers nothing waits for anyone;
-  the workflow cannot enforce that for you.
-- **Variables on that environment** (not secrets; none of these is sensitive):
+- **Environments `staging` and `production`** (Settings > Environments): on each, add **required reviewers** and limit **deployment branches to `main`**. Without reviewers nothing
+  waits for anyone; the workflow cannot enforce that for you. Each environment carries its own variables, so staging points at the staging account and cluster.
+- **Variables on each environment** (not secrets; none of these is sensitive). Production examples below; staging uses its own account's role, `forgepay-staging` and `console.staging.myforgepay.com`:
 
   | Variable | Example |
   |---|---|
@@ -58,7 +62,7 @@ scans first. There is no signing key to steal. It is recorded in the public Sigs
 ## AWS
 
 1. **OIDC identity provider**: URL `https://token.actions.githubusercontent.com`, audience `sts.amazonaws.com`.
-2. **IAM role** with this **trust policy**. The `sub` condition is what limits it to this repository's `production` environment; do not loosen it to a wildcard. IAM compares it case-sensitively, so write the owner and repository exactly as GitHub spells them (`KHAYAAI/ForgePayE`); a wrong-case name is the commonest reason the role cannot be assumed:
+2. **IAM role** with this **trust policy**, one per account: the staging account's role trusts `environment:staging`, production's trusts `environment:production`. The `sub` condition is what limits it to that environment; do not loosen it to a wildcard. IAM compares it case-sensitively, so write the owner and repository exactly as GitHub spells them (`KHAYAAI/ForgePayE`); a wrong-case name is the commonest reason the role cannot be assumed:
    ```json
    {
      "Version": "2012-10-17",

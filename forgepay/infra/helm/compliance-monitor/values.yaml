@@ -1,8 +1,23 @@
-replicaCount: 3
+# One replica unless a values file says otherwise. Each replica loads the sanctions lists itself.
+replicaCount: 1
 image:
   repository: forgepay/compliance-monitor
   tag: 0.1.0
   pullPolicy: IfNotPresent
+  # Production deploys by DIGEST (sha256:<64 hex>), supplied by the deploy workflow. requireDigest makes the chart refuse to render
+  # without one; it is off here so the umbrella chart keeps working, and the deploy workflow turns it on.
+  digest: ""
+  requireDigest: false
+# Secrets are NOT set here. The pod reads them from this Kubernetes Secret (made from AWS Secrets Manager or Vault), which must exist
+# before install: DATABASE_URL (postgresql+asyncpg://...; use a password without '%'), REDIS_URL (rediss://... for a managed Redis),
+# JWT_SECRET (>= 32 characters), INTERNAL_SERVICE_SECRET, and SERVICE_API_KEY_HASHES ("<sha256 of the bureau's key>:bureau",
+# comma-separated, one per calling service). The service refuses to start in production without them.
+existingSecret: compliance-monitor-secrets
+# Database migrations (`alembic upgrade head`) run as a Job before every install and upgrade, with the same image and Secret.
+migrations:
+  enabled: true
+  backoffLimit: 1
+  activeDeadlineSeconds: 300
 service:
   type: ClusterIP
   port: 8003
@@ -14,7 +29,6 @@ env:
   LOG_LEVEL: INFO
   PAYMENT_ENGINE_URL: http://payment-engine:8080
   AUDIT_SERVICE_URL: http://bank-whitelabel:8005
-  REDIS_URL: redis://compliance-monitor-redis:6379/2
   OFAC_FEED_URL: https://www.treasury.gov/ofac/downloads/ssi/
   OFAC_CACHE_TTL: '86400'
   OFAC_SDN_URL: https://www.treasury.gov/ofac/downloads/sdn.xml
@@ -27,19 +41,15 @@ env:
   SAR_AUTO_THRESHOLD_SCORE: '50'
   FUZZY_MATCH_THRESHOLD: '0.85'
   CORS_ORIGINS: https://dashboard.myforgepay.com,https://console.myforgepay.com
-secrets:
-  JWT_SECRET: ''
-  INTERNAL_SERVICE_SECRET: ''
-  CHAINALYSIS_API_KEY: ''
-  ELLIPTIC_API_KEY: ''
 podAnnotations:
   prometheus.io/scrape: 'true'
   prometheus.io/port: '8003'
   prometheus.io/path: /metrics
 podSecurityContext:
   runAsNonRoot: true
-  runAsUser: 1000
-  fsGroup: 1000
+  runAsUser: 1001      # the image's own non-root user
+  runAsGroup: 1001
+  fsGroup: 1001
 securityContext:
   allowPrivilegeEscalation: false
   readOnlyRootFilesystem: true
@@ -71,23 +81,13 @@ readinessProbe:
   periodSeconds: 5
   timeoutSeconds: 3
   failureThreshold: 2
+# The chart has no HorizontalPodAutoscaler: replicas are set by replicaCount. (This used to say enabled: true, which only left the
+# Deployment without a replica count.)
 autoscaling:
-  enabled: true
-  minReplicas: 3
-  maxReplicas: 5
-  targetCPUUtilizationPercentage: 70
-  targetMemoryUtilizationPercentage: 80
-redis:
-  enabled: true
-  architecture: standalone
-  auth:
-    enabled: true
-    password: ''
-  persistence:
-    enabled: true
-    size: 2Gi
+  enabled: false
+# Internal only: the bureau and the gateway call it inside the cluster. Nothing outside should reach a sanctions screen directly.
 ingress:
-  enabled: true
+  enabled: false
   className: nginx
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-prod
@@ -112,8 +112,9 @@ monitoring:
     interval: 30s
     scrapeTimeout: 10s
 
+# Turn on together with replicaCount >= 2: with one replica a minAvailable of 1 blocks every node drain.
 podDisruptionBudget:
-  enabled: true
+  enabled: false
   minAvailable: 1
 
 networkPolicy:
@@ -121,3 +122,6 @@ networkPolicy:
   allowIngressFromIngressController: true
   ingressControllerNamespace: ingress-nginx
   monitoringNamespace: monitoring
+  # Extra egress rules (raw NetworkPolicy egress entries), e.g. the VPC range on 5432/6379 for a managed Postgres and Redis,
+  # which sit outside the cluster and are not reached by the same-namespace rule above.
+  extraEgress: []

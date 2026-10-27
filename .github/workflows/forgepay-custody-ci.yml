@@ -353,6 +353,7 @@ jobs:
                 check "$name (defaults)" "$chart"
                 check "$name (ci/production-values)" "$chart" -f "$chart/ci/production-values.yaml"
                 check "$name (ci/custody-values)" "$chart" -f "$chart/ci/custody-values.yaml"
+                check "$name (values-staging)" "$chart" -f "$chart/values-staging.yaml"
                 digest_ok "$name (by digest)" "stablecoin-gateway" "$chart" --set image.requireDigest=true --set-string image.digest="$D"
                 digest_refused "$name (digest required, none given)" "sha256 digest" "$chart" --set image.requireDigest=true
                 digest_refused "$name (digest malformed)" "sha256 digest" "$chart" --set image.requireDigest=true --set-string image.digest=sha256:abc
@@ -366,15 +367,31 @@ jobs:
                 ;;
               agent-credit-bureau)
                 check "$name (defaults)" "$chart"
+                check "$name (values-staging)" "$chart" -f "$chart/values-staging.yaml"
                 digest_ok "$name (by digest)" "agent-credit-bureau" "$chart" --set image.requireDigest=true --set-string image.digest="$D"
                 digest_refused "$name (digest required, none given)" "sha256 digest" "$chart" --set image.requireDigest=true
                 digest_refused "$name (digest malformed)" "sha256 digest" "$chart" --set image.requireDigest=true --set-string image.digest=sha256:abc
+                ;;
+              compliance-monitor)
+                check "$name (defaults)" "$chart"
+                check "$name (values-staging)" "$chart" -f "$chart/values-staging.yaml"
+                digest_ok "$name (by digest)" "compliance-monitor" "$chart" -f "$chart/values-staging.yaml" --set image.requireDigest=true --set-string image.digest="$D"
+                digest_refused "$name (digest required, none given)" "sha256 digest" "$chart" --set image.requireDigest=true
+                digest_refused "$name (digest malformed)" "sha256 digest" "$chart" --set image.requireDigest=true --set-string image.digest=sha256:abc
+                digest_refused "$name (no Secret named)" "existingSecret must name" "$chart" --set-string existingSecret=
+                # Internal only: a sanctions screen must not get a public address by default.
+                if helm template ci-release "$chart" | grep -q "^kind: Ingress"; then
+                  echo "::error title=helm::$name renders an Ingress by default"; fail=1
+                else
+                  echo "ok      $name (no public address by default)"
+                fi
                 ;;
               console)
                 # The console chart exists to deploy by digest. It must render with a digest and a named Secret, and must REFUSE to render
                 # without them, however it is asked: its bare defaults, no digest, a tag, a malformed digest, no Secret, no host.
                 check "$name (ci/values)" "$chart" -f "$chart/ci/values.yaml"
                 check "$name (ci/values + values-prod)" "$chart" -f "$chart/ci/values.yaml" -f "$chart/values-prod.yaml"
+                check "$name (ci/values + values-staging)" "$chart" -f "$chart/ci/values.yaml" -f "$chart/values-staging.yaml"
                 if helm template ci-release "$chart" > /dev/null 2>&1; then
                   echo "::error title=helm::$name rendered with its default values: it must require a digest and a Secret"
                   fail=1

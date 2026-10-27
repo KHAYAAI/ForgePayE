@@ -48,6 +48,9 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
+    {{- with .Values.networkPolicy.extraEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
     # External HTTPS APIs (payment gateways, chain RPCs, KYC providers, etc).
     # namespaceSelector/podSelector peers only ever match in-cluster pods —
     # reaching the actual public internet requires an ipBlock rule.
