@@ -15,11 +15,11 @@ Most companies run money through five disconnected systems — a card processor,
 
 ## Status — read this first
 
-**Nothing here is live, and no real money has been processed.** There is no production or staging environment yet. What exists is a large, tested codebase and the machinery to deploy it safely. This table is deliberately conservative; the evidence behind each line is in [`forgepay/docs/LAUNCH_READINESS_2026-10-19.md`](./forgepay/docs/LAUNCH_READINESS_2026-10-19.md).
+**Nothing here is live, and no real money has been processed.** No staging or production environment exists yet; the AWS build-out has started (account security, staging region chosen: Stockholm, `eu-north-1`). What exists is a large, tested codebase and the machinery to deploy it safely. This table is deliberately conservative; the evidence behind each line is in [`forgepay/docs/LAUNCH_READINESS_2026-10-19.md`](./forgepay/docs/LAUNCH_READINESS_2026-10-19.md), and progress since then is under [Road to launch](#road-to-launch).
 
-| Product | What it is | Where it stands (19 Oct 2026) |
+| Product | What it is | Where it stands (28 Oct 2026) |
 |---|---|---|
-| **FORGE Credit Bureau** | Dual-mode reputation scores for AI agents (Mode 1: rules from reported payment history; Mode 2: on-chain activity, read from an agent's own wallet), lender and furnisher APIs with per-institution keys, rate limits and signed webhooks, single-use consent, disputes, billing, a lender sandbox, operator verification against a company register | **The first launch target.** Code complete and tested; never deployed to a cloud environment. Soft launch needs the AWS environments, the live runs, an independent review and counsel's answers |
+| **FORGE Credit Bureau** | Dual-mode reputation scores for AI agents (Mode 1: rules from reported payment history; Mode 2: on-chain activity, read from an agent's own wallet), lender and furnisher APIs with per-institution keys, rate limits and signed webhooks, single-use consent, disputes, billing, a lender sandbox, operator verification against a company register | **The first launch target.** Code complete and tested; signed images build in CI for it and the three services it depends on (compliance monitor, stablecoin gateway, console). Never deployed to a cloud environment. Soft launch needs the AWS environments, the live runs, an independent review and counsel's answers |
 | **FORGE Custody** | Threshold-signature key custody (2-of-3 by default; ECDSA and Ed25519), policy and approvals, an agent-payments API | **Testnet and capped pilots only.** The backend lives in its own repository, [`KHAYAAI/openfireblocks`](https://github.com/KHAYAAI/openfireblocks) (Elastic License 2.0). The copy under `forgepay/services/openfireblocks` is an older, smaller vendored tree. Not audited |
 | **FORGE Payments** | Card, bank, stablecoin and x402 machine-payment checkout (Hyperswitch core, `unified-router`, `stablecoin-gateway`, `mor-layer`, `billing-engine`) | Built; the stablecoin gateway passes a full local end-to-end (115 checks). **Never run against a real acquirer or bank.** Website checkout is closed by default (per the 7 October audit) |
 | **FORGE Treasury** | Cash position, netting, approvals | Reads and approvals work and persist; **settlement, yield and tokenised-asset execution do not exist yet** |
@@ -68,10 +68,29 @@ forgepay/
 
 - **CI** (`.github/workflows/forgepay-*.yml`): typecheck, tests, real-Postgres jobs for the services that persist state, Helm lint and render for every chart, Terraform validate, a blocking secret scan, and a check that every third-party GitHub Action is pinned to a commit.
 - **Images** are built, **scanned** (Trivy, blocking on fixable critical findings), then **signed keylessly** (cosign) and listed by digest.
-- **Deploys** are manual (`deploy-service.yml`), by digest only, refuse any image not signed by the images workflow on `main`, use short-lived AWS credentials through OIDC (no stored keys), wait for a human approver, default to a dry run, roll back on failure and verify the running pods are on the approved digest. The charts refuse to render without a valid digest when asked to.
+- **Deploys** are manual (`deploy-service.yml`), to **staging** or **production** (each its own GitHub environment, AWS account and values file), by digest only, refuse any image not signed by the images workflow on `main`, use short-lived AWS credentials through OIDC (no stored keys), wait for a human approver, default to a dry run, roll back on failure and verify the running pods are on the approved digest. The charts refuse to render without a valid digest when asked to.
 - **Secrets** never live in the repository or in Helm values; services refuse to start in production with a missing or placeholder secret. See [`forgepay/docs/launch/14-deploying-services.md`](./forgepay/docs/launch/14-deploying-services.md).
 
 None of the deploy path has yet run end to end against a real cluster.
+
+## Road to launch
+
+The bureau launches first, with the three services it needs (wave 1). Tracked step by step in [`forgepay/docs/launch/16-wave1-staging.md`](./forgepay/docs/launch/16-wave1-staging.md).
+
+| Step | State (28 Oct 2026) |
+|---|---|
+| Code for the bureau and its dependencies | Done; tested locally and in CI |
+| Build, scan, sign and digest-only deploy pipeline | Done; all four wave-1 images build, pass the scan and are signed in CI |
+| Staging configuration (Stockholm, Base Sepolia testnet USDC, tiny limits, secret lists) | Done; Terraform validated in CI |
+| AWS account secured, everyday admin login, audit trail | In progress |
+| Separate staging account, domain zone (`myforgepay.com` is in Route 53) and certificate | Next |
+| Build staging (network, Kubernetes 1.35, Postgres 16, Redis, keys), cluster add-ons | Not started |
+| Merge to `main`, first dry-run deploy, wave 1 deployed and proven in staging | Not started |
+| **Level 0: sandbox pilot** for lenders (synthetic data) | Roughly 2–3 weeks away if the AWS work keeps moving; also needs a public address for the bureau |
+| **Level 1: testnet money path** (Base Sepolia, through the deployed stack) | Shortly after level 0 |
+| **Level 2: capped real-money soft launch** | About 2–4 months; set by the independent review and counsel (neither engaged yet), plus on-call and a second deploy approver |
+
+**Deadline:** the South Africa sanctions list copy in the compliance monitor expires on **5 November 2026**; after that, screening refuses everyone until it is replaced.
 
 ## Quickstart (local development)
 
@@ -100,6 +119,7 @@ Most services document their environment in `.env.example` and refuse to boot in
 **Where to start**
 - [`forgepay/docs/LAUNCH_READINESS_2026-10-19.md`](./forgepay/docs/LAUNCH_READINESS_2026-10-19.md) — the current, detailed readiness assessment: gates, evidence, risks, timeline
 - [`forgepay/docs/launch/00-LAUNCH-STEPS.md`](./forgepay/docs/launch/00-LAUNCH-STEPS.md) — the bureau launch, step by step
+- [`forgepay/docs/launch/16-wave1-staging.md`](./forgepay/docs/launch/16-wave1-staging.md) — the staging checklist: what is needed, deploy order, secrets per service, known gaps
 - [`forgepay/docs/launch/15-aws-start-here.md`](./forgepay/docs/launch/15-aws-start-here.md) — the AWS build-out, for a first-timer
 - [`forgepay/docs/launch/14-deploying-services.md`](./forgepay/docs/launch/14-deploying-services.md) — the deploy workflow and what GitHub and AWS must provide
 
