@@ -16,11 +16,11 @@ The account alone is not enough. In order:
 | A2 | Region chosen: **`eu-north-1` (Stockholm)**, 28 October 2026. VPC `10.40.0.0/16` (`infra/staging/terraform/eu-north-1.tfvars`); the staging values' egress rules match it. The console's ACM certificate must be issued in `eu-north-1` | Fixes the VPC range and where everything is built | [x] 28 Oct |
 | A3 | A separate **staging account** under AWS Organizations | Mistakes in staging cannot touch production, and its bill is separate | [ ] |
 | A4 | Tools on your computer: AWS CLI v2, Terraform 1.6+, kubectl, Helm 3.15 | To run the plan and reach the cluster | [ ] |
-| A5 | `myforgepay.com` DNS in Route 53 (or a `staging.myforgepay.com` zone delegated to it) and an ACM certificate for `console.staging.myforgepay.com` in the cluster's region | The console's public address | [ ] |
+| A5 | `myforgepay.com` is registered in Route 53 in the main account (confirmed 28 Oct). Still to do: a `staging.myforgepay.com` zone in the staging account, delegated from the main zone, and an ACM certificate for `console.staging.myforgepay.com` **in eu-north-1** | The console's public address | [ ] |
 | A6 | A **Base Sepolia RPC provider** account (Alchemy, QuickNode, Coinbase CDP or similar) and an API key | The public endpoint is rate-limited; the key goes in a Secret, never in a values file | [ ] |
 | A7 | Three **throwaway testnet wallets** (payout, sweep gas, operating), funded from faucets: Base Sepolia ETH, and test USDC from Circle's faucet | The testnet runs. Never reuse these for production | [ ] |
 | A8 | An **alert destination**: a Slack incoming webhook, or PagerDuty | Gate 21: a person must receive alerts | [ ] |
-| A9 | A **second person** who can approve deploys (GitHub reviewer) | The approval gate is meaningless if you approve your own deploys | [ ] |
+| A9 | A **second person** who can approve deploys (GitHub reviewer). As of 28 Oct the founder is the only approver: acceptable for **staging**; a second person is required before any **production** deploy | The approval gate is meaningless if you approve your own deploys | [ ] |
 | A10 | Rotate the Didit API key that was pasted into chat on 14 October | It must be treated as exposed | [ ] |
 
 Never paste a password, key or wallet secret into chat, a ticket or this repository. Tell me what a screen says, not the secret on it.
