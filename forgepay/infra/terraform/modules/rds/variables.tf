@@ -19,8 +19,10 @@ variable "enable_enhanced_monitoring" {
   default = true
 }
 variable "engine_version" {
-  type    = string
-  default = "16.4"
+  type = string
+  # Major version only: AWS picks its current default 16.x minor, and minor upgrades are applied in the maintenance window.
+  # A pinned minor (this used to say "16.4") stops working when AWS deprecates it: a new database cannot be created on it.
+  default = "16"
 }
 variable "tags" {
   type    = map(string)

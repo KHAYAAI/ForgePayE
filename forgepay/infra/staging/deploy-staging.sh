@@ -3,7 +3,7 @@
 # ForgePay Staging Deployment Script
 # =============================================================================
 # Usage:
-#   ./deploy-staging.sh [af-south-1|us-east-1|eu-west-2] [OPTIONS]
+#   ./deploy-staging.sh [eu-north-1|af-south-1|us-east-1|eu-west-2] [OPTIONS]
 #
 # Options:
 #   --skip-terraform      Skip Terraform apply (use existing infra)
@@ -103,9 +103,9 @@ REGION="$1"
 shift
 
 case "${REGION}" in
-  af-south-1|us-east-1|eu-west-2) ;;
+  eu-north-1|af-south-1|us-east-1|eu-west-2) ;;
   --help|-h) usage ;;
-  *) die "Invalid region '${REGION}'. Must be one of: af-south-1, us-east-1, eu-west-2" ;;
+  *) die "Invalid region '${REGION}'. Must be one of: eu-north-1, af-south-1, us-east-1, eu-west-2" ;;
 esac
 
 while [[ $# -gt 0 ]]; do
@@ -132,6 +132,7 @@ TF_LOCKS_TABLE="forgepay-terraform-locks-${REGION}"
 TF_STATE_KEY="forgepay/staging/${REGION}/terraform.tfstate"
 
 case "${REGION}" in
+  eu-north-1) BASE_DOMAIN="staging.myforgepay.com" ;;   # the primary staging region (chosen 28 Oct 2026)
   af-south-1) BASE_DOMAIN="staging.af.myforgepay.com" ;;
   us-east-1)  BASE_DOMAIN="staging.us.myforgepay.com" ;;
   eu-west-2)  BASE_DOMAIN="staging.eu.myforgepay.com" ;;

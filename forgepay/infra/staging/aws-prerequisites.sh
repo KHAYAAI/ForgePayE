@@ -6,7 +6,7 @@
 # Safe to run multiple times (idempotent).
 #
 # Usage:
-#   ./aws-prerequisites.sh [af-south-1|us-east-1|eu-west-2]
+#   ./aws-prerequisites.sh [eu-north-1|af-south-1|us-east-1|eu-west-2]
 #
 # What this creates:
 #   - S3 bucket for Terraform state (versioning + AES-256 encryption)
@@ -30,13 +30,13 @@ set -euo pipefail
 
 REGION="${1:-}"
 if [[ -z "${REGION}" ]]; then
-  echo "Usage: $0 [af-south-1|us-east-1|eu-west-2]"
+  echo "Usage: $0 [eu-north-1|af-south-1|us-east-1|eu-west-2]"
   exit 1
 fi
 
 case "${REGION}" in
-  af-south-1|us-east-1|eu-west-2) ;;
-  *) echo "ERROR: Invalid region '${REGION}'. Must be one of: af-south-1, us-east-1, eu-west-2"; exit 1 ;;
+  eu-north-1|af-south-1|us-east-1|eu-west-2) ;;
+  *) echo "ERROR: Invalid region '${REGION}'. Must be one of: eu-north-1, af-south-1, us-east-1, eu-west-2"; exit 1 ;;
 esac
 
 # Derived names

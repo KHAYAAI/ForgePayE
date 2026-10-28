@@ -26,3 +26,9 @@ variable "tags" {
   type    = map(string)
   default = {}
 }
+
+variable "node_ami_type" {
+  description = "EKS managed node group AMI type"
+  type        = string
+  default     = "AL2023_x86_64_STANDARD"
+}

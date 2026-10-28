@@ -1,7 +1,7 @@
 # ForgePay Staging Deployment Guide
 
 This guide covers deploying ForgePay to a staging environment on AWS. Three regions are
-supported: `af-south-1` (primary staging), `us-east-1`, and `eu-west-2`.
+supported: `eu-north-1` (Stockholm, the primary staging region since 28 October 2026), `af-south-1`, `us-east-1` and `eu-west-2`.
 
 ---
 

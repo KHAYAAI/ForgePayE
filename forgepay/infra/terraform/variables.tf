@@ -27,9 +27,11 @@ variable "availability_zones" {
 
 # EKS Configuration
 variable "kubernetes_version" {
+  # A version EKS still offers under standard support (see the EKS Kubernetes release calendar). 1.29 was the default here and is
+  # past even extended support, so a new cluster could not be created on it. 1.35: standard support until 27 March 2027.
   description = "Kubernetes version for EKS"
   type        = string
-  default     = "1.29"
+  default     = "1.35"
 }
 
 variable "eks_node_desired_size" {

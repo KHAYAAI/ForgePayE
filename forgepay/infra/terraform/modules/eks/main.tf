@@ -62,6 +62,13 @@ resource "aws_eks_cluster" "this" {
   role_arn = aws_iam_role.cluster.arn
   version  = var.cluster_version
 
+  # Access entries (EKS API) as well as the aws-auth ConfigMap. The deploy workflow's role is granted cluster access by an access
+  # entry (docs/launch/14-deploying-services.md), which needs this mode. Whoever creates the cluster starts as its admin.
+  access_config {
+    authentication_mode                         = "API_AND_CONFIG_MAP"
+    bootstrap_cluster_creator_admin_permissions = true
+  }
+
   vpc_config {
     subnet_ids              = var.subnet_ids
     endpoint_private_access = true
@@ -79,6 +86,9 @@ resource "aws_eks_node_group" "this" {
   node_role_arn   = aws_iam_role.node.arn
   subnet_ids      = var.subnet_ids
   instance_types  = var.node_instance_types
+  # Amazon Linux 2023. Amazon Linux 2 node images are not published for current Kubernetes versions, so leaving this to the old
+  # default could fail to create the node group.
+  ami_type = var.node_ami_type
 
   scaling_config {
     desired_size = var.node_desired_size

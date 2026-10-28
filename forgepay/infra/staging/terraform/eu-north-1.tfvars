@@ -1,0 +1,75 @@
+# =============================================================================
+# Terraform Variables — eu-north-1 (Stockholm) Staging
+# =============================================================================
+# Usage:
+#   terraform -chdir=forgepay/infra/terraform \
+#     init -backend-config="region=eu-north-1" \
+#          -backend-config="bucket=forgepay-terraform-state-eu-north-1" \
+#          -backend-config="key=forgepay/staging/eu-north-1/terraform.tfstate" \
+#          -backend-config="dynamodb_table=forgepay-terraform-locks-eu-north-1"
+#   terraform apply -var-file="../../staging/terraform/eu-north-1.tfvars"
+#
+# Chosen 28 October 2026 as the staging region. Staging holds TEST data only. Where real South African personal data may live
+# (POPIA cross-border rules) is a question for counsel before production, not settled by this choice.
+# GDPR: log retention below is set with EU rules in mind (update log_retention_days as needed).
+
+# ── Region & Environment ─────────────────────────────────────────────────────
+aws_region  = "eu-north-1"
+environment = "staging"
+
+# ── Networking ───────────────────────────────────────────────────────────────
+vpc_cidr = "10.40.0.0/16" # Different CIDR from other staging regions (eu-west-2 uses 10.30)
+
+# eu-north-1 has 3 AZs
+availability_zones = ["eu-north-1a", "eu-north-1b", "eu-north-1c"]
+
+enable_nat_gateway = true
+single_nat_gateway = true
+
+# ── EKS Cluster ──────────────────────────────────────────────────────────────
+kubernetes_version = "1.35" # 1.29 is past EKS extended support; see variables.tf
+
+eks_node_instance_types = ["t3.xlarge"]
+
+eks_node_desired_size = 3
+eks_node_min_size     = 2
+eks_node_max_size     = 5
+
+# ── RDS PostgreSQL ───────────────────────────────────────────────────────────
+db_instance_class        = "db.t3.large"
+db_allocated_storage     = 50
+db_backup_retention_days = 7
+db_multi_az              = false
+
+# db_username / db_password injected via TF_VAR_ env vars at apply time.
+
+# ── Redis (ElastiCache) ───────────────────────────────────────────────────────
+redis_engine_version       = "7.0"
+redis_node_type            = "cache.t3.medium"
+redis_num_nodes            = 1
+redis_parameter_group_name = "default.redis7"
+redis_automatic_failover   = false
+
+# ── Vault ────────────────────────────────────────────────────────────────────
+vault_namespace = "forgepay-staging"
+vault_addr      = "https://vault.staging.myforgepay.com"
+
+# ── S3 / State ───────────────────────────────────────────────────────────────
+tf_state_bucket = "forgepay-terraform-state-eu-north-1"
+tf_locks_table  = "forgepay-terraform-locks-eu-north-1"
+
+# ── CloudFront / ACM ─────────────────────────────────────────────────────────
+# CloudFront requires ACM certs to be in us-east-1 regardless of stack region.
+acm_certificate_arn = "arn:aws:acm:us-east-1:ACCOUNT_ID:certificate/CERT_ID"
+
+cloudfront_allowed_origins = [
+  "staging.myforgepay.com",
+  "api.staging.myforgepay.com",
+  "checkout.staging.myforgepay.com",
+  "dashboard.staging.myforgepay.com",
+]
+
+# ── Monitoring ────────────────────────────────────────────────────────────────
+# GDPR: consider 30 days minimum for EU compliance audit trails
+log_retention_days = 30
+alert_email        = "devops@myforgepay.com"

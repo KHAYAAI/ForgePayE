@@ -25,12 +25,12 @@ serviceMonitor:
 networkPolicy:
   enabled: true
   allowIngressFromIngressController: false
-  # Managed Postgres (RDS) and Redis (ElastiCache) live in the VPC, outside the cluster. 10.30.0.0/16 is the eu-west-2 staging VPC in
-  # infra/staging/terraform/eu-west-2.tfvars; use the vpc_cidr of the region you actually build in.
+  # Managed Postgres (RDS) and Redis (ElastiCache) live in the VPC, outside the cluster. 10.40.0.0/16 is the eu-north-1 (Stockholm) staging VPC in
+  # infra/staging/terraform/eu-north-1.tfvars; change both together.
   extraEgress:
     - to:
         - ipBlock:
-            cidr: 10.30.0.0/16
+            cidr: 10.40.0.0/16
       ports:
         - protocol: TCP
           port: 5432

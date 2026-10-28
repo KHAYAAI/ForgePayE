@@ -28,7 +28,7 @@ Phase 8  First dry-run deploy               (an hour)
 
 | Decision | My recommendation | Why |
 |---|---|---|
-| **Region for staging** | **`eu-west-2` (London)** | Every service is available and no opt-in is needed. The repo's scripts also support `af-south-1` (Cape Town) and `us-east-1`. Staging holds only test data, so the legal question of where *real* South African data may live (POPIA) can wait for counsel before **production**. `af-south-1` must be switched on by hand and costs more. |
+| **Region for staging** | **Chosen 28 Oct: `eu-north-1` (Stockholm).** (Recommended was `eu-west-2` (London); both work.) | Every service is available and no opt-in is needed. The repo's scripts also support `af-south-1` (Cape Town) and `us-east-1`. Staging holds only test data, so the legal question of where *real* South African data may live (POPIA) can wait for counsel before **production**. `af-south-1` must be switched on by hand and costs more. |
 | **Where your sign-in directory lives** (IAM Identity Center "home region") | The **same region** you picked | It is hard to move later. |
 | **Who approves production deploys** | A **second person** | The deploy workflow waits for a reviewer. If you are the only person, you approve your own deploys, which defeats the point; a second trusted person (even part-time) is much better. |
 | **Domain** | `myforgepay.com`, with DNS moved to AWS Route 53 in phase 4 | The deploy needs a real name and a certificate. |

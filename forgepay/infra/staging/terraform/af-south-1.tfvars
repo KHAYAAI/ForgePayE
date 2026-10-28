@@ -25,7 +25,7 @@ enable_nat_gateway = true
 single_nat_gateway = true
 
 # ── EKS Cluster ──────────────────────────────────────────────────────────────
-kubernetes_version = "1.29"
+kubernetes_version = "1.35"   # 1.29 is past EKS extended support; see variables.tf
 
 # Staging uses t3.xlarge (4 vCPU / 16 GB) — sufficient for all 21 services at 1 replica each
 eks_node_instance_types = ["t3.xlarge"]

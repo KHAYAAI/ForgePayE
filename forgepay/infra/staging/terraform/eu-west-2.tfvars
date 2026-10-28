@@ -26,7 +26,7 @@ enable_nat_gateway = true
 single_nat_gateway = true
 
 # ── EKS Cluster ──────────────────────────────────────────────────────────────
-kubernetes_version = "1.29"
+kubernetes_version = "1.35"   # 1.29 is past EKS extended support; see variables.tf
 
 eks_node_instance_types = ["t3.xlarge"]
 

@@ -12,8 +12,8 @@ The account alone is not enough. In order:
 
 | # | Item | Why | Done |
 |---|---|---|---|
-| A1 | Account secured: MFA on root, no root access keys, budget alerts, an everyday admin login (IAM Identity Center), CloudTrail on | Phase 1 of `15-aws-start-here.md`. Everything later runs under that admin login | [ ] |
-| A2 | Region chosen (recommended `eu-west-2`) | Fixes the VPC range in `infra/staging/terraform/<region>.tfvars` and the staging values' egress rule | [ ] |
+| A1 | Account secured: MFA on root, no root access keys, budget alerts, an everyday admin login (IAM Identity Center), CloudTrail on | Phase 1 of `15-aws-start-here.md`. Everything later runs under that admin login | [ ] (region given; the other checks not yet reported) |
+| A2 | Region chosen: **`eu-north-1` (Stockholm)**, 28 October 2026. VPC `10.40.0.0/16` (`infra/staging/terraform/eu-north-1.tfvars`); the staging values' egress rules match it. The console's ACM certificate must be issued in `eu-north-1` | Fixes the VPC range and where everything is built | [x] 28 Oct |
 | A3 | A separate **staging account** under AWS Organizations | Mistakes in staging cannot touch production, and its bill is separate | [ ] |
 | A4 | Tools on your computer: AWS CLI v2, Terraform 1.6+, kubectl, Helm 3.15 | To run the plan and reach the cluster | [ ] |
 | A5 | `myforgepay.com` DNS in Route 53 (or a `staging.myforgepay.com` zone delegated to it) and an ACM certificate for `console.staging.myforgepay.com` in the cluster's region | The console's public address | [ ] |
@@ -78,7 +78,15 @@ Generate each random value separately: `openssl rand -hex 32`. No two secrets ma
 - **agent-credit-bureau:** `preflight.mjs` passes; a sandbox lender pulls a report with consent; a tier change sends a signed webhook.
 - **console:** `https://console.staging.myforgepay.com/api/healthz` answers through the load balancer; an operator can sign in and onboard an institution.
 
-## E. Known gaps found while preparing this (not yet fixed)
+## E. Known gaps found while preparing this
+
+Fixed 28 October, before anything was built (each would have stopped the build): the Terraform asked for **Kubernetes 1.29**, past even EKS extended
+support (now 1.35, standard support to 27 March 2027); for **Postgres 16.4**, which AWS has deprecated (now "16", AWS's current 16.x); and for
+worker nodes without an OS image type (now Amazon Linux 2023, which current Kubernetes versions need). The cluster also now accepts **access
+entries**, which the deploy role's cluster access depends on. Checked locally with `terraform fmt`; `terraform validate` runs in CI (the
+provider registry is not reachable from where this was prepared).
+
+Still open:
 
 | Gap | Effect | Plan |
 |---|---|---|

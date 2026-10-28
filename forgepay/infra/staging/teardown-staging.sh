@@ -6,7 +6,7 @@
 # Runs helm uninstall first, then terraform destroy.
 #
 # Usage:
-#   ./teardown-staging.sh [af-south-1|us-east-1|eu-west-2] [OPTIONS]
+#   ./teardown-staging.sh [eu-north-1|af-south-1|us-east-1|eu-west-2] [OPTIONS]
 #
 # Options:
 #   --skip-helm-uninstall  Skip Helm uninstall (resources already removed)
@@ -87,9 +87,9 @@ REGION="$1"
 shift
 
 case "${REGION}" in
-  af-south-1|us-east-1|eu-west-2) ;;
+  eu-north-1|af-south-1|us-east-1|eu-west-2) ;;
   --help|-h) usage ;;
-  *) die "Invalid region '${REGION}'. Must be one of: af-south-1, us-east-1, eu-west-2" ;;
+  *) die "Invalid region '${REGION}'. Must be one of: eu-north-1, af-south-1, us-east-1, eu-west-2" ;;
 esac
 
 while [[ $# -gt 0 ]]; do
