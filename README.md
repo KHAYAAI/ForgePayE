@@ -130,6 +130,7 @@ Most services document their environment in `.env.example` and refuse to boot in
 
 **Operations and review**
 - [`05-operations-runbook.md`](./forgepay/docs/launch/05-operations-runbook.md), [`04-conservative-launch.md`](./forgepay/docs/launch/04-conservative-launch.md), [`01-review-engagement.md`](./forgepay/docs/launch/01-review-engagement.md), [`forgepay/docs/security-review/`](./forgepay/docs/security-review)
+- [`forgepay/docs/LEDGER_LAYER_PLAN.md`](./forgepay/docs/LEDGER_LAYER_PLAN.md) — planned: an append-only, hash-chained event log and a double-entry balance ledger under the Revenue Ontology
 - [`forgepay/docs/PLATFORM_OVERVIEW.md`](./forgepay/docs/PLATFORM_OVERVIEW.md) — architecture; [`forgepay/docs/PRICING_STRATEGY.md`](./forgepay/docs/PRICING_STRATEGY.md) / [`config/pricing.yaml`](./forgepay/config/pricing.yaml) — pricing source of truth
 
 [`CLAUDE.md`](./CLAUDE.md) holds the rules for working in this repository (branch, upstream pins, security rules).
