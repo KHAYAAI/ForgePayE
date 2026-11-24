@@ -2647,7 +2647,8 @@ async function main(): Promise<void> {
   process.on('SIGTERM', shutdown);
   process.on('SIGINT',  shutdown);
 
-  await app.listen({ port: PORT, host: '0.0.0.0' });
+  // LISTEN_HOST '::' accepts IPv6 as well as IPv4 (Fly.io's private network is IPv6-only); the default stays IPv4 as before.
+  await app.listen({ port: PORT, host: process.env['LISTEN_HOST'] || '0.0.0.0' });
 
   // Send queued webhook deliveries (and anything left pending by a restart).
   startWebhookWorker();

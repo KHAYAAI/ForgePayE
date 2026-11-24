@@ -1,6 +1,8 @@
 # Wave 1 in staging: the bureau launch path
 
 **27 October 2026.** The tracked checklist for deploying the four wave-1 services to **staging** and running them on **Base Sepolia**.
+
+> **24 November 2026: staging moved to Fly.io** (`17-fly-staging.md`); this document's AWS parts (A1–A5, B) are now **production preparation**. Sections C (deploy order), D (per-service proofs and secrets) and E (gaps) apply to Fly staging as well.
 Wave 1 is the credit bureau and what it depends on: **compliance-monitor, stablecoin-gateway, agent-credit-bureau, console**. Later waves (custody, payments)
 reuse everything in parts A to C and only repeat part D for each service.
 

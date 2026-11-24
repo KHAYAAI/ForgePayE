@@ -1,0 +1,190 @@
+name: Deploy ForgePay service to Fly.io (staging)
+
+# MANUAL ONLY. Staging on Fly.io, by digest, only for images our own pipeline signed, behind an approval. Production stays on AWS
+# (deploy-service.yml). See docs/launch/17-fly-staging.md.
+#
+#   Deploys an image that .github/workflows/forgepay-bureau-images.yml already built, scanned AND signed. Take the line for your service from
+#   that workflow's job summary: `ghcr.io/<owner>/forgepay-<service>@sha256:<64 hex>` and paste it into "image".
+#
+#   Before it touches Fly it checks, in order: the reference is a digest (never a tag); it is the repository expected for the service you
+#   chose; and its signature verifies as made by the images workflow on main (override with IMAGE_SIGNER_REF). It then checks the Fly app:
+#   that it exists, that every secret the service needs is set (by name; values are never read), and that a private service has no public IP.
+#   A live run copies the image to Fly's registry unchanged (same digest), deploys it, and proves the running machines are on that digest.
+#
+# What it needs:
+#   GitHub Environment "staging"   with required reviewers and deployments limited to main.
+#   Secret on that environment:    FLY_API_TOKEN, a deploy token for the Fly organization that holds ONLY the staging apps.
+#   Optional variable:             IMAGE_SIGNER_REF (default refs/heads/main)
+
+on:
+  workflow_dispatch:
+    inputs:
+      service:
+        description: "Which service to deploy"
+        required: true
+        type: choice
+        options:
+          - compliance-monitor
+          - stablecoin-gateway
+          - agent-credit-bureau
+          - console
+      image:
+        description: "Image to deploy, by digest: ghcr.io/<owner>/forgepay-<service>@sha256:<64 hex>"
+        required: true
+        type: string
+      dry_run:
+        description: "Check everything but change nothing (untick to deploy)"
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-fly-${{ inputs.service }}
+  cancel-in-progress: false      # never cancel a deploy part way
+
+jobs:
+  deploy:
+    name: "Deploy ${{ inputs.service }} to Fly.io staging (${{ inputs.dry_run && 'dry run' || 'live' }})"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.ref == 'refs/heads/main'
+    environment: staging         # required reviewers are configured on this environment in GitHub
+    permissions:
+      contents: read
+      packages: read             # to read the image and its signature from the registry
+    env:
+      SERVICE: ${{ inputs.service }}
+      IMAGE: ${{ inputs.image }}
+      DRY_RUN: ${{ inputs.dry_run }}
+      OWNER: ${{ github.repository_owner }}
+      REPO_FULL: ${{ github.repository }}
+      SIGNER_REF: ${{ vars.IMAGE_SIGNER_REF || 'refs/heads/main' }}
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Work out what is being deployed
+        # Inputs reach the shell only through environment variables, never by being pasted into the script.
+        run: |
+          set -euo pipefail
+          CONFIG="forgepay/infra/fly/$SERVICE/fly.toml"
+          [ -f "$CONFIG" ] || { echo "::error::no Fly config for $SERVICE at $CONFIG"; exit 1; }
+          APP=$(python3 -I -c 'import sys,tomllib; print(tomllib.load(open(sys.argv[1],"rb"))["app"])' "$CONFIG")
+          PUBLIC=$(python3 -I -c 'import sys,tomllib; d=tomllib.load(open(sys.argv[1],"rb")); print("true" if ("http_service" in d or "services" in d) else "false")' "$CONFIG")
+          # Secrets each service refuses to start without (names only). Kept in step with docs/launch/17-fly-staging.md.
+          case "$SERVICE" in
+            compliance-monitor) NEED="DATABASE_URL REDIS_URL JWT_SECRET INTERNAL_SERVICE_SECRET SERVICE_API_KEY_HASHES" ;;
+            stablecoin-gateway) NEED="POSTGRES_HOST POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD REDIS_URL INTERNAL_WEBHOOK_SECRET VALID_API_KEYS BASE_RPC_URL PAYOUT_SIGNER_RPC_URL PAYOUT_SIGNER_PRIVATE_KEY SWEEP_GAS_PRIVATE_KEY SWEEP_TREASURY_ADDRESS PRIVATE_KEY_ENCRYPTION_KEY" ;;
+            agent-credit-bureau) NEED="DATABASE_URL REDIS_URL BUREAU_ADMIN_API_KEY CONSENT_SIGNING_SECRET WEBHOOK_SIGNING_MASTER COMPLIANCE_MONITOR_API_KEY" ;;
+            console) NEED="JWT_SECRET DATABASE_URL BUREAU_ADMIN_API_KEY INTERNAL_WEBHOOK_SECRET" ;;
+            *) echo "::error::unknown service $SERVICE"; exit 1 ;;
+          esac
+          OWNER_LC=$(printf '%s' "$OWNER" | tr '[:upper:]' '[:lower:]')
+          {
+            echo "CONFIG=$CONFIG"; echo "APP=$APP"; echo "PUBLIC=$PUBLIC"; echo "NEED=$NEED"
+            echo "EXPECTED_REPO=ghcr.io/${OWNER_LC}/forgepay-${SERVICE}"
+          } >> "$GITHUB_ENV"
+
+      - name: Check the image reference and the token
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$IMAGE" | grep -Eq '^[a-z0-9][a-z0-9.-]*(:[0-9]+)?/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$'; then
+            echo "::error::image must be a reference by digest: registry/path@sha256:<64 lowercase hex>. A tag is refused on purpose: it can move."
+            exit 1
+          fi
+          if [ "${IMAGE%@*}" != "$EXPECTED_REPO" ]; then
+            echo "::error::for $SERVICE the image must be in $EXPECTED_REPO, not ${IMAGE%@*}. Paste the line for $SERVICE from the images workflow summary."
+            exit 1
+          fi
+          [ -n "$FLY_API_TOKEN" ] || { echo "::error::secret FLY_API_TOKEN is not set on the staging environment"; exit 1; }
+
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
+        with:
+          cosign-release: "v2.4.1"
+
+      - name: Verify the image was signed by our images workflow
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin >/dev/null
+          WANT="https://github.com/${REPO_FULL}/.github/workflows/forgepay-bureau-images.yml@${SIGNER_REF}"
+          echo "expecting a signature made by: $WANT"
+          cosign verify "$IMAGE" \
+            --certificate-identity "$WANT" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com > /dev/null \
+            || { echo "::error::no valid signature from the images workflow on $SIGNER_REF. Build it from main, or the image was not produced by our pipeline. Nothing was deployed."; exit 1; }
+          echo "signature verified"
+
+      - uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1 # 1.6
+
+      - name: Check the Fly app, its secrets and its exposure
+        run: |
+          set -euo pipefail
+          flyctl status -a "$APP" > /dev/null || { echo "::error::Fly app $APP does not exist or the token cannot see it (create it first: docs/launch/17-fly-staging.md)"; exit 1; }
+          flyctl config validate -c "$CONFIG"
+          have=$(flyctl secrets list -a "$APP" --json | jq -r '.[].name // .[].Name')
+          missing=0
+          for s in $NEED; do
+            printf '%s\n' "$have" | grep -qx "$s" || { echo "::error::secret $s is not set on $APP"; missing=1; }
+          done
+          [ "$missing" = 0 ] || exit 1
+          echo "all $(echo $NEED | wc -w) required secrets are set (names checked, values never read)"
+          if [ "$PUBLIC" = "false" ]; then
+            ips=$(flyctl ips list -a "$APP" --json | jq -r '[.[] | select((.Type // .type) != "private_v6")] | length')
+            [ "$ips" = "0" ] || { echo "::error::$APP must be private, but it has $ips public IP address(es). Release them: flyctl ips release <address> -a $APP"; exit 1; }
+            echo "$APP has no public address"
+          fi
+
+      - uses: imjasonh/setup-crane@feee3b6bb0d4c68370f256a4502498c9227e5c6b # v0.7
+
+      - name: Copy the signed image to Fly's registry (same digest) and deploy
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          DIGEST="${IMAGE##*@}"
+          printf '%s' "$GH_TOKEN" | crane auth login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          flyctl auth docker
+          # crane copies manifests byte for byte, so the digest in Fly's registry is the one that was scanned and signed.
+          crane copy "$IMAGE" "registry.fly.io/$APP:deploy-${DIGEST#sha256:}"
+          crane digest "registry.fly.io/$APP@$DIGEST" > /dev/null
+          flyctl deploy -c "$CONFIG" --image "registry.fly.io/$APP@$DIGEST" --strategy rolling --wait-timeout 10m
+
+      - name: Prove the running machines use the approved digest
+        if: ${{ !inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          DIGEST="${IMAGE##*@}"
+          digests=$(flyctl machines list -a "$APP" --json | jq -r '.[] | select(.state != "destroyed") | (.image_ref.digest // .config.image)')
+          echo "$digests"
+          [ -n "$digests" ] || { echo "::error::no machines found for $APP"; exit 1; }
+          while IFS= read -r d; do
+            case "$d" in *"$DIGEST"*) ;; *) echo "::error::a machine is not on the approved digest: $d"; exit 1 ;; esac
+          done <<< "$digests"
+
+      - name: Check the public address answers
+        if: ${{ !inputs.dry_run && env.PUBLIC == 'true' }}
+        run: |
+          for i in $(seq 1 18); do
+            if curl -fsS --max-time 10 "https://$APP.fly.dev/api/healthz" | grep -q '"status":"ok"'; then echo "healthy on try $i"; exit 0; fi
+            echo "not yet ($i/18)"; sleep 10
+          done
+          echo "::error::https://$APP.fly.dev/api/healthz did not answer"
+          exit 1
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### ${SERVICE} to Fly.io staging (${{ inputs.dry_run && 'dry run, nothing changed' || 'live' }})"
+            echo "- app: \`$APP\`; image: \`$IMAGE\`"
+            echo "- signature: verified as made by the images workflow on \`$SIGNER_REF\`"
+            echo "- started by: ${{ github.actor }}; approved through the \`staging\` environment"
+            echo "- rollback: run this workflow again with the previous digest"
+            echo "- result: ${{ job.status }}"
+          } >> "$GITHUB_STEP_SUMMARY"

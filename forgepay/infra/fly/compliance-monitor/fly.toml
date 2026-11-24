@@ -1,0 +1,49 @@
+# STAGING on Fly.io: compliance monitor. Production-shaped (ENVIRONMENT=production), private: no public address.
+# Deployed only by .github/workflows/deploy-fly.yml, by digest, from an image our pipeline signed. Secrets (never here):
+#   DATABASE_URL, REDIS_URL, JWT_SECRET, INTERNAL_SERVICE_SECRET, SERVICE_API_KEY_HASHES  -> `fly secrets set` (docs/launch/17-fly-staging.md)
+app = "forgepay-stg-compliance"
+primary_region = "arn"                 # Stockholm
+
+[deploy]
+  # Brings the schema up to date in a temporary machine before the new version starts; a failure stops the deploy.
+  release_command = "alembic upgrade head"
+  strategy = "rolling"
+
+[processes]
+  # As the image's own command, but listening on :: so other apps can reach it over Fly's private (IPv6) network.
+  app = "uvicorn src.main:app --host :: --port 8003 --workers 2 --log-level info"
+
+[env]
+  ENVIRONMENT = "production"
+  PORT = "8003"
+  LOG_LEVEL = "INFO"
+  CORS_ORIGINS = "https://console.staging.myforgepay.com"
+  OFAC_FEED_URL = "https://www.treasury.gov/ofac/downloads/ssi/"
+  OFAC_SDN_URL = "https://www.treasury.gov/ofac/downloads/sdn.xml"
+  OFAC_CACHE_TTL = "86400"
+  OFAC_REFRESH_CRON = "0 2 * * *"
+  EU_SANCTIONS_URL = "https://webgate.ec.europa.eu/fsd/fsf/public/files/xmlFullSanctionsList_1_1/content"
+  EU_SANCTIONS_REFRESH_CRON = "0 3 * * *"
+  HIGH_RISK_COUNTRIES = "IR,KP,SY,CU,RU,BY,MM,SD,YE"
+  STRUCTURING_THRESHOLD_USD = "10000.0"
+  LARGE_TRANSACTION_THRESHOLD_USD = "50000.0"
+  SAR_AUTO_THRESHOLD_SCORE = "50"
+  FUZZY_MATCH_THRESHOLD = "0.85"
+  # South Africa's TFS list: the copy in the image was taken 6 Oct 2026 and EXPIRED on 5 Nov 2026 (720 h). Until it is replaced (new file
+  # and new date) or ZA_TFS_URL points at a live FIC download proven to load, screening refuses everyone. That is safe, and it blocks.
+  ZA_TFS_URL = "file:///app/src/data/za_tfs_snapshot.xml"
+  ZA_TFS_SNAPSHOT_AT = "2026-10-06T07:23:00Z"
+  ZA_TFS_MAX_AGE_HOURS = "720"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"                       # the sanctions lists are held in memory
+
+[checks]
+  [checks.health]
+    type = "http"
+    port = 8003
+    path = "/health"
+    interval = "15s"
+    timeout = "5s"
+    grace_period = "60s"

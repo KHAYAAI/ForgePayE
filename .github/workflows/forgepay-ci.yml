@@ -30,6 +30,8 @@ on:
     paths:
       - "forgepay/**"
       - ".github/workflows/forgepay-ci.yml"
+      - ".github/workflows/deploy-fly.yml"
+      - ".github/scripts/check_fly_configs.py"
   pull_request:
     branches: ["main"]
     paths:
@@ -53,6 +55,14 @@ jobs:
         run: python3 .github/scripts/test_pin_actions.py
       - name: Every third-party action in our workflows is pinned to a commit
         run: python3 .github/scripts/pin_actions.py --check
+
+  fly-configs:
+    name: "fly.io staging configs — private by default, no secrets"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Fly configs parse, only the console is public, nothing secret in [env]
+        run: python3 .github/scripts/check_fly_configs.py
 
   # ── Platform deployment invariants ──────────────────────────────────────────
   # Cross-service guards for the faults that made services unbootable while

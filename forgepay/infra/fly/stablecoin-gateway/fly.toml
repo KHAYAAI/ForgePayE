@@ -1,0 +1,55 @@
+# STAGING on Fly.io: stablecoin gateway on BASE SEPOLIA (testnet USDC only). Production-shaped (NODE_ENV=production), private.
+# Deployed only by .github/workflows/deploy-fly.yml, by digest, from an image our pipeline signed. Secrets (never here):
+#   POSTGRES_HOST, POSTGRES_PORT, POSTGRES_DB, POSTGRES_USER, POSTGRES_PASSWORD, REDIS_URL, INTERNAL_WEBHOOK_SECRET, VALID_API_KEYS,
+#   BASE_RPC_URL, PAYOUT_SIGNER_RPC_URL, PAYOUT_SIGNER_PRIVATE_KEY, SWEEP_GAS_PRIVATE_KEY, SWEEP_TREASURY_ADDRESS,
+#   PRIVATE_KEY_ENCRYPTION_KEY, ALERT_WEBHOOK_URL                -> `fly secrets set` (docs/launch/17-fly-staging.md)
+# Wallet keys are THROWAWAY TESTNET keys. Production stays on AWS with KMS key wrapping and mounted key files.
+app = "forgepay-stg-gateway"
+primary_region = "arn"
+
+[deploy]
+  strategy = "rolling"                 # the gateway migrates its own database before it opens its port
+
+[env]
+  NODE_ENV = "production"
+  LOG_LEVEL = "info"
+  PORT = "8020"
+  LISTEN_HOST = "::"                   # reachable over Fly's private IPv6 network
+  TRUST_PROXY_HOPS = "0"               # no proxy in front: private only
+  CORS_ALLOWED_ORIGINS = "https://console.staging.myforgepay.com"
+  LEADER_LOCK_ENABLED = "true"         # needs a DIRECT Postgres connection, not a transaction pooler
+  PGSSLMODE = "no-verify"              # encrypted, certificate not checked: staging only
+  # Base Sepolia instead of Base: same chain name, the testnet's id and its USDC (confirm on Circle's documentation before the first deposit).
+  DEPOSIT_MONITOR_CHAINS = "base"
+  BASE_CHAIN_ID = "84532"
+  ASSETS_ENABLED = "USDC"
+  ASSET_USDC_BASE = "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+  # Outbound: a person approves and submits every payout; tiny caps.
+  PAYOUT_SIGNER_ENABLED = "true"
+  PAYOUT_SIGNER_CHAIN = "base-sepolia"
+  PAYOUT_AUTO_SUBMIT = "false"
+  PAYOUT_AUTO_APPROVE_MAX_USD = "0"
+  PAYOUT_ABSOLUTE_MAX_USD = "25"
+  PAYOUT_SIGNER_DAILY_MAX_USD = "50"
+  SWEEP_ENABLED = "true"
+  SWEEP_MIN_USD = "1"
+  SWEEP_MAX_GAS_GWEI = "5"
+  TREASURY_MANAGER_ENABLED = "false"
+  FX_FEED_ENABLED = "false"
+  # Deposit keys are wrapped with PRIVATE_KEY_ENCRYPTION_KEY (a Fly secret). Allowed in production mode with a warning; acceptable for
+  # testnet staging only. Production uses awskms.
+  KEY_WRAP_PROVIDER = "env"
+  ALERT_ENV = "staging"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+
+[checks]
+  [checks.ready]
+    type = "http"
+    port = 8020
+    path = "/readyz"
+    interval = "15s"
+    timeout = "5s"
+    grace_period = "120s"              # migrations and the start-up check of the USDC contract run first

@@ -33,7 +33,7 @@ config:
   PAYOUT_AUTO_APPROVE_MAX_USD: "0"
   PAYOUT_ABSOLUTE_MAX_USD: "25"
   PAYOUT_SIGNER_DAILY_MAX_USD: "50"
-  SWEEP_CHAIN_ID_BASE: "84532"
+  # No SWEEP_CHAIN_ID_BASE: the gateway refuses it in production, and without it the sweeper reads the network from the RPC.
   SWEEP_MIN_USD: "1"
   SWEEP_MAX_GAS_GWEI: "5"
   FX_FEED_ENABLED: "false"

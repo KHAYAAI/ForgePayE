@@ -15,9 +15,9 @@ Most companies run money through five disconnected systems — a card processor,
 
 ## Status — read this first
 
-**Nothing here is live, and no real money has been processed.** No staging or production environment exists yet; the AWS build-out has started (account security, staging region chosen: Stockholm, `eu-north-1`). What exists is a large, tested codebase and the machinery to deploy it safely. This table is deliberately conservative; the evidence behind each line is in [`forgepay/docs/LAUNCH_READINESS_2026-10-19.md`](./forgepay/docs/LAUNCH_READINESS_2026-10-19.md), and progress since then is under [Road to launch](#road-to-launch).
+**Nothing here is live, and no real money has been processed.** No staging or production environment exists yet. Staging will run on **Fly.io** in Stockholm (configs and a signed-image deploy workflow are ready); **production stays on AWS** (prepared, `eu-north-1`). What exists is a large, tested codebase and the machinery to deploy it safely. This table is deliberately conservative; the evidence behind each line is in [`forgepay/docs/LAUNCH_READINESS_2026-10-19.md`](./forgepay/docs/LAUNCH_READINESS_2026-10-19.md), and progress since then is under [Road to launch](#road-to-launch).
 
-| Product | What it is | Where it stands (28 Oct 2026) |
+| Product | What it is | Where it stands (24 Nov 2026) |
 |---|---|---|
 | **FORGE Credit Bureau** | Dual-mode reputation scores for AI agents (Mode 1: rules from reported payment history; Mode 2: on-chain activity, read from an agent's own wallet), lender and furnisher APIs with per-institution keys, rate limits and signed webhooks, single-use consent, disputes, billing, a lender sandbox, operator verification against a company register | **The first launch target.** Code complete and tested; signed images build in CI for it and the three services it depends on (compliance monitor, stablecoin gateway, console). Never deployed to a cloud environment. Soft launch needs the AWS environments, the live runs, an independent review and counsel's answers |
 | **FORGE Custody** | Threshold-signature key custody (2-of-3 by default; ECDSA and Ed25519), policy and approvals, an agent-payments API | **Testnet and capped pilots only.** The backend lives in its own repository, [`KHAYAAI/openfireblocks`](https://github.com/KHAYAAI/openfireblocks) (Elastic License 2.0). The copy under `forgepay/services/openfireblocks` is an older, smaller vendored tree. Not audited |
@@ -77,20 +77,20 @@ None of the deploy path has yet run end to end against a real cluster.
 
 The bureau launches first, with the three services it needs (wave 1). Tracked step by step in [`forgepay/docs/launch/16-wave1-staging.md`](./forgepay/docs/launch/16-wave1-staging.md).
 
-| Step | State (28 Oct 2026) |
+| Step | State (24 Nov 2026) |
 |---|---|
 | Code for the bureau and its dependencies | Done; tested locally and in CI |
 | Build, scan, sign and digest-only deploy pipeline | Done; all four wave-1 images build, pass the scan and are signed in CI |
 | Staging configuration (Stockholm, Base Sepolia testnet USDC, tiny limits, secret lists) | Done; Terraform validated in CI |
-| AWS account secured, everyday admin login, audit trail | In progress |
-| Separate staging account, domain zone (`myforgepay.com` is in Route 53) and certificate | Next |
-| Build staging (network, Kubernetes 1.35, Postgres 16, Redis, keys), cluster add-ons | Not started |
+| **Staging on Fly.io** (Stockholm): configs, signed-image deploy workflow, step-by-step guide | Ready to run ([`17-fly-staging.md`](./forgepay/docs/launch/17-fly-staging.md)); Fly account, apps, Postgres, Redis and secrets not created yet |
+| AWS account secured, everyday admin login, audit trail (production preparation) | In progress |
+| AWS production environment (separate account, domain zone, certificate, cluster) | Prepared in code; kept for production |
 | Merge to `main`, first dry-run deploy, wave 1 deployed and proven in staging | Not started |
 | **Level 0: sandbox pilot** for lenders (synthetic data) | Roughly 2–3 weeks away if the AWS work keeps moving; also needs a public address for the bureau |
 | **Level 1: testnet money path** (Base Sepolia, through the deployed stack) | Shortly after level 0 |
 | **Level 2: capped real-money soft launch** | About 2–4 months; set by the independent review and counsel (neither engaged yet), plus on-call and a second deploy approver |
 
-**Deadline:** the South Africa sanctions list copy in the compliance monitor expires on **5 November 2026**; after that, screening refuses everyone until it is replaced.
+**Overdue:** the South Africa sanctions list copy in the compliance monitor **expired on 5 November 2026**; until it is replaced, screening refuses everyone.
 
 ## Quickstart (local development)
 
