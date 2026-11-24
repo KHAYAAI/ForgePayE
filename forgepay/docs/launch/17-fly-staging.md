@@ -98,12 +98,13 @@ fly secrets set --stage -a forgepay-stg-gateway POSTGRES_HOST=... POSTGRES_PORT=
   INTERNAL_WEBHOOK_SECRET=$(openssl rand -hex 32) VALID_API_KEYS=$(openssl rand -hex 32) \
   PRIVATE_KEY_ENCRYPTION_KEY=$(openssl rand -hex 32) \
   BASE_RPC_URL='<Base Sepolia RPC URL>' PAYOUT_SIGNER_RPC_URL='<Base Sepolia RPC URL>' \
-  PAYOUT_SIGNER_PRIVATE_KEY='<throwaway testnet payout key>' SWEEP_GAS_PRIVATE_KEY='<throwaway testnet gas key>' \
+  PAYOUT_SIGNER_PRIVATE_KEY="$(cat ~/.forge-staging/payout.key)" SWEEP_GAS_PRIVATE_KEY="$(cat ~/.forge-staging/gas.key)" \
   SWEEP_TREASURY_ADDRESS='<testnet operating wallet ADDRESS>' ALERT_WEBHOOK_URL='<Slack webhook URL>'
 unset ADMIN CM_KEY CM_HASH
 ```
 
-The wallet keys are **throwaway testnet keys** made for staging only (`16-wave1-staging.md`, A7). Never use a key that has held real money.
+The wallet keys are **throwaway testnet keys** made for staging only (`16-wave1-staging.md`, A7), kept in files under `~/.forge-staging/` on your
+computer (`chmod 600`) and read from there, so they never appear in your shell history. Never use a key that has held real money.
 
 ## Step 5: GitHub (once)
 
