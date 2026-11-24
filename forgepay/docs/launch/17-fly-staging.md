@@ -29,14 +29,15 @@ taken, pick another, change `app = ...` in its `fly.toml` **and** every `.intern
 
 1. Sign up at fly.io and add a payment card (staging runs a few small always-on machines plus Postgres and Redis; check their pricing page).
 2. Install the command-line tool, `flyctl` (fly.io/docs/flyctl/install), then `fly auth login`.
-3. Create an organization **only for staging**, so the deploy token can reach nothing else:
-   `fly orgs create forgepay-staging`
+3. **Organization:** use your existing organization **`tebogo-mvelase`**. The staging database was created there (24 November, through the Fly
+   connector, which can only act in that organization), and apps can only use a Managed Postgres cluster in their own organization. It also
+   holds an unrelated cluster (`durin-staging-db`), so the deploy token in step 5 must be limited to the four FORGE apps (see there).
 
 ## Step 2: the four apps
 
 ```bash
 for a in forgepay-stg-compliance forgepay-stg-gateway forgepay-stg-bureau forgepay-stg-console; do
-  fly apps create "$a" --org forgepay-staging
+  fly apps create "$a" --org tebogo-mvelase
 done
 ```
 
@@ -47,16 +48,17 @@ and refuses to deploy otherwise. The console gets its public address on its firs
 
 ```bash
 # DONE 24 Nov via the Fly connector: cluster forgepay-stg-db (id kyzl60xlxgm0pj9g), plan dev-256, fra, Postgres 16, session pooling, in org tebogo-mvelase
-fly mpg list --org forgepay-staging                       # note the cluster id
-for d in compliance_monitor stablecoin_gateway bureau console; do fly mpg databases create <cluster-id> --name "$d"; done
+fly mpg list --org tebogo-mvelase                       # note the cluster id
+# DONE 24 Nov: databases compliance_monitor, stablecoin_gateway, bureau, console.
+# Direct endpoint (use this for the gateway): direct.kyzl60xlxgm0pj9g.flympg.net:5432; pooler: pgbouncer.kyzl60xlxgm0pj9g.flympg.net:5432
 for u in compliance_monitor stablecoin_gateway bureau console; do fly mpg users create <cluster-id> --username "$u" --role writer; done
 
 # One Redis per app: Upstash has a single database per instance, and the bureau and gateway use the same rate-limit key names,
 # so sharing one would let them count against each other. Note each redis:// URL it prints.
-for a in compliance gateway bureau console; do fly redis create --name "forgepay-stg-$a-redis" --org forgepay-staging --region fra --no-replicas; done
+for a in compliance gateway bureau console; do fly redis create --name "forgepay-stg-$a-redis" --org tebogo-mvelase --region fra --no-replicas; done
 ```
 
-If `arn` is not offered for Managed Postgres or Redis, choose the nearest European region it offers and tell me. Use a **direct**
+Everything is in Frankfurt (`fra`); Stockholm was not offered for Managed Postgres. Use a **direct**
 connection (not a pooled one) for the gateway: its leader lock needs one.
 
 Connect each app to its own database. `fly mpg attach` stores the connection string as a secret on the app:
@@ -109,8 +111,12 @@ computer (`chmod 600`) and read from there, so they never appear in your shell h
 ## Step 5: GitHub (once)
 
 1. Settings > Environments > **New environment** `staging`. Add yourself as required reviewer; limit deployment branches to `main`.
-2. Make a deploy token for the staging organization only: `fly tokens create org --org forgepay-staging --name github-staging-deploy --expiry 2160h`
-   (90 days). Paste it into the `staging` environment as the secret **`FLY_API_TOKEN`** (Settings > Environments > staging > Add secret). Nowhere else.
+2. Make **one deploy token per app** (each can deploy only its own app; your organization also holds other work, so never an organization-wide token):
+   ```bash
+   for a in compliance gateway bureau console; do fly tokens create deploy -a "forgepay-stg-$a" --name github-staging --expiry 2160h; done
+   ```
+   (90 days.) Paste each into the `staging` environment as a secret (Settings > Environments > staging > Add secret), nowhere else:
+   `FLY_TOKEN_COMPLIANCE_MONITOR`, `FLY_TOKEN_STABLECOIN_GATEWAY`, `FLY_TOKEN_AGENT_CREDIT_BUREAU`, `FLY_TOKEN_CONSOLE`.
 
 ## Step 6: images signed from `main`
 

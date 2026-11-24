@@ -13,7 +13,8 @@ name: Deploy ForgePay service to Fly.io (staging)
 #
 # What it needs:
 #   GitHub Environment "staging"   with required reviewers and deployments limited to main.
-#   Secret on that environment:    FLY_API_TOKEN, a deploy token for the Fly organization that holds ONLY the staging apps.
+#   Secrets on that environment:   one Fly deploy token per app, each able to deploy only that app:
+#                                  FLY_TOKEN_COMPLIANCE_MONITOR, FLY_TOKEN_STABLECOIN_GATEWAY, FLY_TOKEN_AGENT_CREDIT_BUREAU, FLY_TOKEN_CONSOLE
 #   Optional variable:             IMAGE_SIGNER_REF (default refs/heads/main)
 
 on:
@@ -62,7 +63,8 @@ jobs:
       OWNER: ${{ github.repository_owner }}
       REPO_FULL: ${{ github.repository }}
       SIGNER_REF: ${{ vars.IMAGE_SIGNER_REF || 'refs/heads/main' }}
-      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      # The deploy token for this service's app only (fly tokens create deploy -a <app>).
+      FLY_API_TOKEN: ${{ inputs.service == 'compliance-monitor' && secrets.FLY_TOKEN_COMPLIANCE_MONITOR || inputs.service == 'stablecoin-gateway' && secrets.FLY_TOKEN_STABLECOIN_GATEWAY || inputs.service == 'agent-credit-bureau' && secrets.FLY_TOKEN_AGENT_CREDIT_BUREAU || inputs.service == 'console' && secrets.FLY_TOKEN_CONSOLE || '' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -99,7 +101,7 @@ jobs:
             echo "::error::for $SERVICE the image must be in $EXPECTED_REPO, not ${IMAGE%@*}. Paste the line for $SERVICE from the images workflow summary."
             exit 1
           fi
-          [ -n "$FLY_API_TOKEN" ] || { echo "::error::secret FLY_API_TOKEN is not set on the staging environment"; exit 1; }
+          [ -n "$FLY_API_TOKEN" ] || { echo "::error::the Fly deploy token for $SERVICE (FLY_TOKEN_<SERVICE>) is not set on the staging environment"; exit 1; }
 
       - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
         with:
