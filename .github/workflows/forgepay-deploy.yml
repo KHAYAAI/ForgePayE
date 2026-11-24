@@ -1,9 +1,8 @@
 name: "ForgePay — Helm Deploy"
 
 on:
-  push:
-    branches:
-      - main           # auto-deploy to staging
+  # SUPERSEDED (24 Nov 2026): no automatic trigger. It deployed on every push to main with a stored kubeconfig, which bypasses the
+  # signed, digest-only, approval-gated path. Use deploy-fly.yml (staging) or deploy-service.yml (production on AWS).
   workflow_dispatch:
     inputs:
       environment:
