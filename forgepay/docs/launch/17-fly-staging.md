@@ -1,6 +1,6 @@
 # Staging on Fly.io, step by step
 
-**24 November 2026.** Staging for wave 1 (compliance monitor, stablecoin gateway, credit bureau, console) runs on **Fly.io** in Stockholm (`arn`).
+**24 November 2026.** Staging for wave 1 (compliance monitor, stablecoin gateway, credit bureau, console) runs on **Fly.io** in Frankfurt (`fra`): Fly's Managed Postgres is not offered in Stockholm, so the apps sit next to the database.
 **Production stays on AWS** (`14-deploying-services.md`, `15-aws-start-here.md`, `16-wave1-staging.md`): nothing there was removed, so if
 counsel, the review firm or a partner prefers AWS, production goes there unchanged.
 
@@ -46,14 +46,14 @@ and refuses to deploy otherwise. The console gets its public address on its firs
 ## Step 3: Postgres and Redis
 
 ```bash
-fly mpg create --name forgepay-stg-db --org forgepay-staging --region arn --pg-major-version 16
+# DONE 24 Nov via the Fly connector: cluster forgepay-stg-db (id kyzl60xlxgm0pj9g), plan dev-256, fra, Postgres 16, session pooling, in org tebogo-mvelase
 fly mpg list --org forgepay-staging                       # note the cluster id
 for d in compliance_monitor stablecoin_gateway bureau console; do fly mpg databases create <cluster-id> --name "$d"; done
 for u in compliance_monitor stablecoin_gateway bureau console; do fly mpg users create <cluster-id> --username "$u" --role writer; done
 
 # One Redis per app: Upstash has a single database per instance, and the bureau and gateway use the same rate-limit key names,
 # so sharing one would let them count against each other. Note each redis:// URL it prints.
-for a in compliance gateway bureau console; do fly redis create --name "forgepay-stg-$a-redis" --org forgepay-staging --region arn --no-replicas; done
+for a in compliance gateway bureau console; do fly redis create --name "forgepay-stg-$a-redis" --org forgepay-staging --region fra --no-replicas; done
 ```
 
 If `arn` is not offered for Managed Postgres or Redis, choose the nearest European region it offers and tell me. Use a **direct**

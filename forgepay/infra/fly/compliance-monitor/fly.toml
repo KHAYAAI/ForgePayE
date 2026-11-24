@@ -2,7 +2,7 @@
 # Deployed only by .github/workflows/deploy-fly.yml, by digest, from an image our pipeline signed. Secrets (never here):
 #   DATABASE_URL, REDIS_URL, JWT_SECRET, INTERNAL_SERVICE_SECRET, SERVICE_API_KEY_HASHES  -> `fly secrets set` (docs/launch/17-fly-staging.md)
 app = "forgepay-stg-compliance"
-primary_region = "arn"                 # Stockholm
+primary_region = "fra"                 # Frankfurt: Managed Postgres is not offered in Stockholm (arn)
 
 [deploy]
   # Brings the schema up to date in a temporary machine before the new version starts; a failure stops the deploy.

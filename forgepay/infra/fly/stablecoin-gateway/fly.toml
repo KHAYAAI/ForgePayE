@@ -5,7 +5,7 @@
 #   PRIVATE_KEY_ENCRYPTION_KEY, ALERT_WEBHOOK_URL                -> `fly secrets set` (docs/launch/17-fly-staging.md)
 # Wallet keys are THROWAWAY TESTNET keys. Production stays on AWS with KMS key wrapping and mounted key files.
 app = "forgepay-stg-gateway"
-primary_region = "arn"
+primary_region = "fra"                 # Frankfurt: Managed Postgres is not offered in Stockholm (arn)
 
 [deploy]
   strategy = "rolling"                 # the gateway migrates its own database before it opens its port

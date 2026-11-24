@@ -29,8 +29,8 @@ def check() -> list[str]:
             continue
         if not d.get("app"):
             errors.append(f"{svc}: no app name")
-        if d.get("primary_region") != "arn":
-            errors.append(f"{svc}: primary_region must be arn (Stockholm), not {d.get('primary_region')!r}")
+        if d.get("primary_region") != "fra":
+            errors.append(f"{svc}: primary_region must be fra (Frankfurt, next to the Managed Postgres cluster), not {d.get('primary_region')!r}")
         public = "http_service" in d or "services" in d
         if public and svc not in PUBLIC:
             errors.append(f"{svc}: must be private, but defines http_service/services (a public address)")
